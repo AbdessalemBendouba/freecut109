@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, SlidersHorizontal } from 'lucide-react'
+import { ChevronLeft, Plus, RotateCcw, Save, SlidersHorizontal, X } from 'lucide-react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/shared/ui/cn'
 import { applyEasingConfig } from '@/shared/utils/easing'
 import type {
@@ -25,6 +26,7 @@ import {
   presetToEasing,
 } from './easings-dev-presets'
 import { EasingCurveEditor } from './easing-curve-editor'
+import { loadCustomPresets, saveCustomPresets } from './custom-easing-presets'
 import './easing-preset-thumbnail.css'
 
 type PresetType = 'Easing' | 'Spring'
@@ -90,8 +92,14 @@ export function SegmentEasingPopover({
   // The user's last explicit preset pick, used to disambiguate identical-curve
   // presets (e.g. Snappy Out vs Out Expo) when highlighting the active one.
   const [pickedName, setPickedName] = useState<string | null>(null)
+  const [customPresets, setCustomPresets] = useState<EasingPreset[]>(() => loadCustomPresets())
+  // null = not naming; string = the Save name field is open with this draft.
+  const [savingName, setSavingName] = useState<string | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  // The easing as it was when the popover opened — the Reset fallback when the
+  // curve isn't based on a named preset.
+  const openBaselineRef = useRef<SegmentEasingUpdate | null>(null)
 
   // The timeline stops `pointerdown` propagation, which swallows Radix's own
   // outside-click dismissal. Listen in the capture phase (runs top-down, before
@@ -103,6 +111,10 @@ export function SegmentEasingPopover({
       if (!target) return
       if (contentRef.current?.contains(target)) return
       if (triggerRef.current?.contains(target)) return
+      // Nested Radix poppers (the preview-mode dropdown) portal to the body, so
+      // they're outside contentRef — clicking one must not close the popover.
+      const el = target instanceof Element ? target : target.parentElement
+      if (el?.closest('[data-radix-popper-content-wrapper]')) return
       setOpen(false)
     }
     document.addEventListener('pointerdown', handlePointerDown, true)
@@ -120,7 +132,9 @@ export function SegmentEasingPopover({
   // highlight; otherwise fall back to the first matching preset.
   const pickedPreset =
     pickedName != null
-      ? [...EASING_PRESETS, ...SPRING_PRESETS].find((preset) => preset.name === pickedName)
+      ? [...EASING_PRESETS, ...SPRING_PRESETS, ...customPresets].find(
+          (preset) => preset.name === pickedName,
+        )
       : undefined
   const activePresetName = mixed
     ? null
@@ -157,12 +171,72 @@ export function SegmentEasingPopover({
     onChange(refs, { easing: 'hold', easingConfig: undefined })
   }
 
+  // Reset: jump back to the preset the curve is based on (the last one picked),
+  // or the value the popover opened with if it was never a named preset. Unlike
+  // undo, this is a single step back to the clean curve.
+  const sameEasing = (a: SegmentEasingUpdate, b: SegmentEasingUpdate) =>
+    a.easing === b.easing &&
+    JSON.stringify(a.easingConfig ?? null) === JSON.stringify(b.easingConfig ?? null)
+  const resetTarget: SegmentEasingUpdate | null = pickedPreset
+    ? presetToEasing(pickedPreset)
+    : openBaselineRef.current
+  const canReset = !!resetTarget && !mixed && !sameEasing(resetTarget, { easing, easingConfig })
+  const handleReset = () => {
+    if (resetTarget) onChange(refs, resetTarget)
+  }
+
+  // Save: persist the current tweaked curve as a reusable custom preset.
+  const canSave = !mixed && (easing === 'cubic-bezier' || easing === 'spring')
+  // The saved custom preset this curve came from (if any) — the Update target.
+  const activeCustomName =
+    pickedName && customPresets.some((preset) => preset.name === pickedName) ? pickedName : null
+  // Name for a brand-new preset (Save As) — the next free "Custom N".
+  const newSuggestedName = () => {
+    let n = customPresets.length + 1
+    const taken = new Set(customPresets.map((preset) => preset.name))
+    while (taken.has(`Custom ${n}`)) n++
+    return `Custom ${n}`
+  }
+  const persistPreset = (rawName: string) => {
+    const name = rawName.trim()
+    let preset: EasingPreset | null = null
+    if (easing === 'cubic-bezier' && easingConfig?.type === 'cubic-bezier' && easingConfig.bezier) {
+      preset = { name, type: 'Easing', bezier: easingConfig.bezier }
+    } else if (easing === 'spring' && easingConfig?.type === 'spring' && easingConfig.spring) {
+      preset = { name, type: 'Spring', spring: easingConfig.spring }
+    }
+    if (!name || !preset) return
+    const next = [...customPresets.filter((p) => p.name !== name), preset]
+    setCustomPresets(next)
+    saveCustomPresets(next)
+    setPickedName(name)
+    setPresetType(preset.type)
+    setSavingName(null)
+  }
+  // Header name of the curve being edited.
+  const editingName =
+    activeCustomName ??
+    activePresetName ??
+    (isHold
+      ? t('timeline.keyframeEditor.easing.hold')
+      : t('timeline.keyframeEditor.custom', { defaultValue: 'Custom' }))
+  const deleteCustomPreset = (name: string) => {
+    const next = customPresets.filter((preset) => preset.name !== name)
+    setCustomPresets(next)
+    saveCustomPresets(next)
+  }
+  const myPresets = customPresets.filter((preset) => preset.type === presetType)
+
   return (
     <Popover
       open={open}
       onOpenChange={(next) => {
         setOpen(next)
-        if (!next) setEditing(false)
+        if (next) openBaselineRef.current = { easing, easingConfig }
+        else {
+          setEditing(false)
+          setSavingName(null)
+        }
       }}
     >
       <PopoverTrigger asChild>
@@ -201,14 +275,17 @@ export function SegmentEasingPopover({
         {/* Header: current selection + Edit / back toggle. */}
         <div className="flex h-9 items-center justify-between border-b border-border/60 px-3">
           {editing ? (
-            <button
-              type="button"
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => setEditing(false)}
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-              {t('timeline.keyframeEditor.presets', { defaultValue: 'Presets' })}
-            </button>
+            <div className="flex min-w-0 items-center gap-1.5 text-xs">
+              <button
+                type="button"
+                className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-foreground"
+                onClick={() => setEditing(false)}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                {t('timeline.keyframeEditor.presets', { defaultValue: 'Presets' })}
+              </button>
+              {!mixed && <span className="truncate text-muted-foreground/70">— {editingName}</span>}
+            </div>
           ) : (
             <span className="truncate text-xs font-medium text-foreground">
               {mixed
@@ -243,6 +320,78 @@ export function SegmentEasingPopover({
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
             />
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!canReset}
+                onClick={handleReset}
+                className="h-6 gap-1 px-1.5 text-[11px]"
+              >
+                <RotateCcw className="h-3 w-3" />
+                {t('timeline.keyframeEditor.reset', { defaultValue: 'Reset' })}
+              </Button>
+              {savingName === null ? (
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={!canSave}
+                    onClick={() => setSavingName(newSuggestedName())}
+                    className="h-6 gap-1 px-1.5 text-[11px]"
+                  >
+                    <Plus className="h-3 w-3" />
+                    {t('timeline.keyframeEditor.saveAsPreset', { defaultValue: 'Save As' })}
+                  </Button>
+                  {activeCustomName && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={!canSave}
+                      onClick={() => persistPreset(activeCustomName)}
+                      className="h-6 gap-1 px-1.5 text-[11px]"
+                    >
+                      <Save className="h-3 w-3" />
+                      {t('timeline.keyframeEditor.updatePreset', { defaultValue: 'Update' })}
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <Input
+                    autoFocus
+                    value={savingName}
+                    onChange={(event) => setSavingName(event.target.value)}
+                    onKeyDown={(event) => {
+                      // Keep Enter/Escape inside the field so they don't reach
+                      // Radix (close popover) or the timeline key handlers.
+                      event.stopPropagation()
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        persistPreset(savingName)
+                      } else if (event.key === 'Escape') {
+                        setSavingName(null)
+                      }
+                    }}
+                    placeholder={t('timeline.keyframeEditor.presetName', {
+                      defaultValue: 'Preset name',
+                    })}
+                    className="h-6 w-28 px-1.5 text-[11px]"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => persistPreset(savingName)}
+                    className="h-6 px-2 text-[11px]"
+                  >
+                    {t('timeline.keyframeEditor.savePreset', { defaultValue: 'Save' })}
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <>
@@ -289,6 +438,28 @@ export function SegmentEasingPopover({
             </div>
 
             <div className="max-h-[300px] overflow-y-auto p-2">
+              {myPresets.length > 0 && (
+                <div className="mb-2">
+                  <div className="px-1 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {t('timeline.keyframeEditor.customPresets', { defaultValue: 'Custom' })}
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {myPresets.map((preset) => (
+                      <PresetChip
+                        key={preset.name}
+                        label={preset.name}
+                        active={preset.name === activePresetName}
+                        onClick={() => applyPreset(preset)}
+                        thumb={<PresetThumb preset={preset} />}
+                        onDelete={() => deleteCustomPreset(preset.name)}
+                        deleteLabel={t('timeline.keyframeEditor.deletePreset', {
+                          defaultValue: 'Delete preset',
+                        })}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
               {presetType === 'Easing' && (
                 <div className="grid grid-cols-4 gap-1">
                   <PresetChip
@@ -323,11 +494,16 @@ function PresetChip({
   active,
   onClick,
   thumb,
+  onDelete,
+  deleteLabel,
 }: {
   label: string
   active: boolean
   onClick: () => void
   thumb: ReactNode
+  /** When set, renders a hover-reveal delete affordance in the top-right corner. */
+  onDelete?: () => void
+  deleteLabel?: string
 }) {
   return (
     <button
@@ -335,7 +511,7 @@ function PresetChip({
       onClick={onClick}
       title={label}
       className={cn(
-        'group flex flex-col items-center gap-1 rounded-md border p-1.5 transition-colors',
+        'group relative flex flex-col items-center gap-1 rounded-md border p-1.5 transition-colors',
         active
           ? 'border-blue-500/70 bg-blue-500/10'
           : 'border-transparent hover:border-border hover:bg-muted/50',
@@ -345,6 +521,22 @@ function PresetChip({
       <span className="w-full truncate text-center text-[10px] leading-tight text-foreground">
         {label}
       </span>
+      {onDelete && (
+        // A span (not a nested <button>) so it's valid inside the chip button;
+        // stopPropagation keeps the click from also applying the preset.
+        <span
+          role="button"
+          tabIndex={-1}
+          aria-label={deleteLabel}
+          onClick={(event) => {
+            event.stopPropagation()
+            onDelete()
+          }}
+          className="absolute right-1 top-1 rounded-full bg-background/90 p-0.5 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground group-hover:opacity-100"
+        >
+          <X className="h-2.5 w-2.5" />
+        </span>
+      )}
     </button>
   )
 }

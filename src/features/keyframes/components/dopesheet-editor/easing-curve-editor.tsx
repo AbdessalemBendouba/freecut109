@@ -1,8 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useTranslation } from 'react-i18next'
+import { ChevronDown } from 'lucide-react'
 
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { applyEasingConfig } from '@/shared/utils/easing'
 import {
   DEFAULT_SPRING_PARAMS,
@@ -72,6 +85,19 @@ function clampSpringField(key: SpringKey, value: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+// Preview playback duration for a spring, derived from its physics like
+// easing.dev (which exposes no duration control). The oscillator's decay
+// envelope e^(-(c/2m)t) settles to ~1% at t = ln(100)·2m/c, so it depends only
+// on mass + friction (damping), not tension — a stiffer spring oscillates
+// faster but its settle envelope is unchanged. Matches easing.dev's computed
+// transition-duration (mass 0.3 / friction 18 → 153ms; mass 4 / friction 80 → 460ms).
+const BEZIER_PREVIEW_DURATION = 1
+function springPreviewDuration({ mass, friction }: SpringParameters): number {
+  const decay = friction / (2 * mass)
+  const seconds = decay > 0 ? Math.log(100) / decay : BEZIER_PREVIEW_DURATION
+  return Math.max(0.15, Math.min(4, seconds))
+}
+
 function curvePath(config: EasingConfig): string {
   // For a cubic-bezier, trace the true parametric control-point curve so the
   // handles' shape reads correctly. Everything else (springs) has no bezier
@@ -121,7 +147,7 @@ export function EasingCurveEditor({
   onDragEnd,
 }: EasingCurveEditorProps) {
   const { t } = useTranslation()
-  const [duration, setDuration] = useState(1)
+  const [duration, setDuration] = useState(BEZIER_PREVIEW_DURATION)
 
   const isSpring = easing === 'spring'
   const bezier = effectiveBezier(easing, config)
@@ -129,6 +155,9 @@ export function EasingCurveEditor({
   const previewConfig: EasingConfig = isSpring
     ? { type: 'spring', spring }
     : { type: 'cubic-bezier', bezier }
+  // Two UIs, like easing.dev: springs preview at their derived settling time
+  // (no control); bezier easings get a manual Duration slider.
+  const previewDuration = isSpring ? springPreviewDuration(spring) : duration
 
   const setBezierField = useCallback(
     (key: BezierKey, raw: number, commit: boolean) => {
@@ -144,16 +173,39 @@ export function EasingCurveEditor({
     [onChangeSpring, spring],
   )
 
+  // Drag a bezier control point (P1 from the start, P2 from the end) on the
+  // canvas; clamps match the slider ranges (x∈[0,1], y∈[-1,2]).
+  const setBezierPoint = useCallback(
+    (point: 'p1' | 'p2', x: number, y: number, commit: boolean) => {
+      const next =
+        point === 'p1'
+          ? { ...bezier, x1: clampField('x1', x), y1: clampField('y1', y) }
+          : { ...bezier, x2: clampField('x2', x), y2: clampField('y2', y) }
+      onChangeBezier(next, commit)
+    },
+    [onChangeBezier, bezier],
+  )
+
   return (
-    <div className="flex gap-3">
-      <CurveCanvas config={previewConfig} />
+    <div className="flex items-stretch gap-3">
+      {/* Square canvas, capped so the sliders keep a usable width; centered
+          vertically against the taller controls column. */}
+      <div className="aspect-square w-[190px] shrink-0 self-center">
+        <CurveCanvas
+          config={previewConfig}
+          editableBezier={isSpring ? undefined : bezier}
+          onBezierPointChange={isSpring ? undefined : setBezierPoint}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+        />
+      </div>
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         {isSpring
           ? SPRING_INPUT_KEYS.map((key) => (
               <SliderRow
                 key={key}
-                label={key}
+                label={key.charAt(0).toUpperCase() + key.slice(1)}
                 value={spring[key]}
                 min={SPRING_FIELD_RANGE[key].min}
                 max={SPRING_FIELD_RANGE[key].max}
@@ -179,35 +231,96 @@ export function EasingCurveEditor({
                 onDragEnd={onDragEnd}
               />
             ))}
-        <SliderRow
-          label={t('timeline.keyframeEditor.duration', { defaultValue: 'Duration' })}
-          value={duration}
-          min={0.2}
-          max={3}
-          step={0.1}
-          onLive={setDuration}
-          onCommit={setDuration}
-        />
-
-        <PositionPreview config={previewConfig} duration={duration} />
+        {!isSpring && (
+          // Bezier-only manual Duration (springs derive it) — easing.dev range.
+          <SliderRow
+            label={t('timeline.keyframeEditor.duration', { defaultValue: 'Duration' })}
+            value={duration}
+            min={0.1}
+            max={2}
+            step={0.05}
+            decimals={2}
+            onLive={setDuration}
+            onCommit={setDuration}
+          />
+        )}
+        <PositionPreview config={previewConfig} duration={previewDuration} />
       </div>
     </div>
   )
 }
 
-function CurveCanvas({ config }: { config: EasingConfig }) {
+function CurveCanvas({
+  config,
+  editableBezier,
+  onBezierPointChange,
+  onDragStart,
+  onDragEnd,
+}: {
+  config: EasingConfig
+  editableBezier?: BezierControlPoints
+  onBezierPointChange?: (point: 'p1' | 'p2', x: number, y: number, commit: boolean) => void
+  onDragStart?: () => void
+  onDragEnd?: () => void
+}) {
+  const svgRef = useRef<SVGSVGElement>(null)
+  const [drag, setDrag] = useState<'p1' | 'p2' | null>(null)
+
+  // While a handle is held, track the pointer on the window (not just the SVG)
+  // so the drag survives leaving the canvas; convert client px → bezier coords.
+  useEffect(() => {
+    if (!drag || !onBezierPointChange) return
+    const toBezier = (clientX: number, clientY: number) => {
+      const rect = svgRef.current?.getBoundingClientRect()
+      if (!rect) return null
+      const vx = ((clientX - rect.left) / rect.width) * SIZE
+      const vy = ((clientY - rect.top) / rect.height) * SIZE
+      return { x: (vx - PAD) / PLOT, y: Y_MAX - ((vy - PAD) / PLOT) * (Y_MAX - Y_MIN) }
+    }
+    const move = (e: PointerEvent) => {
+      const b = toBezier(e.clientX, e.clientY)
+      if (b) onBezierPointChange(drag, b.x, b.y, false)
+    }
+    const up = (e: PointerEvent) => {
+      const b = toBezier(e.clientX, e.clientY)
+      if (b) onBezierPointChange(drag, b.x, b.y, true)
+      setDrag(null)
+      onDragEnd?.()
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    return () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+  }, [drag, onBezierPointChange, onDragEnd])
+
+  const startDrag = (point: 'p1' | 'p2') => (e: ReactPointerEvent<SVGElement>) => {
+    e.preventDefault()
+    onDragStart?.()
+    setDrag(point)
+  }
+
   const dots: string[] = []
   for (let gx = 0; gx <= 8; gx++) {
     for (let gy = 0; gy <= 8; gy++) {
       dots.push(`${PAD + (gx / 8) * PLOT},${PAD + (gy / 8) * PLOT}`)
     }
   }
+
+  const handles =
+    editableBezier && onBezierPointChange
+      ? ([
+          { key: 'p1' as const, hx: editableBezier.x1, hy: editableBezier.y1, ax: 0, ay: 0 },
+          { key: 'p2' as const, hx: editableBezier.x2, hy: editableBezier.y2, ax: 1, ay: 1 },
+        ] as const)
+      : []
+
   return (
     <svg
-      width={SIZE}
-      height={SIZE}
+      ref={svgRef}
       viewBox={`0 0 ${SIZE} ${SIZE}`}
-      className="shrink-0 rounded-md border border-border/60 bg-black/40"
+      className="block h-full w-full touch-none rounded-md border border-border/60 bg-black/40"
       aria-hidden
     >
       {dots.map((d) => {
@@ -222,9 +335,39 @@ function CurveCanvas({ config }: { config: EasingConfig }) {
         className="stroke-white/10"
         strokeWidth={1}
       />
-      <path d={curvePath(config)} className="fill-none stroke-white" strokeWidth={2} />
-      <circle cx={xToPx(0)} cy={yToPx(0)} r={2.5} className="fill-white/70" />
-      <circle cx={xToPx(1)} cy={yToPx(1)} r={2.5} className="fill-white/70" />
+      <path
+        d={curvePath(config)}
+        className="fill-none stroke-white"
+        strokeWidth={2}
+        pointerEvents="none"
+      />
+      {/* Draggable cubic-bezier control handles + tangent lines (bezier only). */}
+      {handles.map((h) => (
+        <line
+          key={`t-${h.key}`}
+          x1={xToPx(h.ax)}
+          y1={yToPx(h.ay)}
+          x2={xToPx(h.hx)}
+          y2={yToPx(h.hy)}
+          className="stroke-blue-500"
+          strokeWidth={1}
+          pointerEvents="none"
+        />
+      ))}
+      <circle cx={xToPx(0)} cy={yToPx(0)} r={2.5} className="fill-white/70" pointerEvents="none" />
+      <circle cx={xToPx(1)} cy={yToPx(1)} r={2.5} className="fill-white/70" pointerEvents="none" />
+      {handles.map((h) => (
+        <g key={`h-${h.key}`} className="cursor-grab" onPointerDown={startDrag(h.key)}>
+          {/* Larger transparent hit target for easier grabbing. */}
+          <circle cx={xToPx(h.hx)} cy={yToPx(h.hy)} r={9} fill="transparent" />
+          <circle
+            cx={xToPx(h.hx)}
+            cy={yToPx(h.hy)}
+            r={drag === h.key ? 5 : 4}
+            className="fill-blue-500"
+          />
+        </g>
+      ))}
     </svg>
   )
 }
@@ -263,7 +406,7 @@ function SliderRow({
 
   return (
     <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
-      <span className="w-14 shrink-0 lowercase">{label}</span>
+      <span className="w-14 shrink-0">{label}</span>
       <Slider
         value={[value]}
         min={min}
@@ -297,15 +440,25 @@ function SliderRow({
   )
 }
 
-function PositionPreview({
-  config,
-  duration,
-}: {
-  config: EasingConfig
-  duration: number
-}) {
+// The preview drives one normalized value (0→1, with overshoot) through the
+// easing; each mode just maps it to a different property so the curve can be
+// felt the way it will be used (travel / grow / fade).
+type PreviewMode = 'position' | 'scale' | 'rotate' | 'opacity'
+const PREVIEW_MODES: Array<{ mode: PreviewMode; labelKey: string; defaultValue: string }> = [
+  {
+    mode: 'position',
+    labelKey: 'timeline.keyframeEditor.previewPosition',
+    defaultValue: 'Position',
+  },
+  { mode: 'scale', labelKey: 'timeline.keyframeEditor.previewScale', defaultValue: 'Scale' },
+  { mode: 'rotate', labelKey: 'timeline.keyframeEditor.previewRotate', defaultValue: 'Rotate' },
+  { mode: 'opacity', labelKey: 'timeline.keyframeEditor.previewOpacity', defaultValue: 'Opacity' },
+]
+
+function PositionPreview({ config, duration }: { config: EasingConfig; duration: number }) {
   const { t } = useTranslation()
   const [playing, setPlaying] = useState(true)
+  const [mode, setMode] = useState<PreviewMode>('position')
   const [pos, setPos] = useState(0)
   const configRef = useRef(config)
   configRef.current = config
@@ -315,21 +468,47 @@ function PositionPreview({
   useEffect(() => {
     if (!playing) return
     let raf = 0
-    let start = performance.now()
+    const start = performance.now()
+    // Mirror ping-pong, matching easing.dev: the dot eases out (overshooting the
+    // far end), then eases *back* — the return leg is the easing flipped in both
+    // time and value (`1 - ease(p)`), so a spring overshoots past the start too.
+    // No explicit end-hold: a spring's own flat settle tail provides the dwell,
+    // and mirroring keeps velocity continuous through the turnaround (an added
+    // freeze reads as a stall). A plain forward-then-teleport loop looks janky.
     const tick = (now: number) => {
-      const tau = ((now - start) / 1000 / durationRef.current) % 1
-      if (tau < 0) start = now
-      setPos(applyEasingConfig(tau, configRef.current))
+      const dur = Math.max(0.05, durationRef.current)
+      const cfg = configRef.current
+      const phase = ((now - start) / 1000) % (2 * dur)
+      const value =
+        phase < dur
+          ? applyEasingConfig(phase / dur, cfg) // ease out
+          : 1 - applyEasingConfig((phase - dur) / dur, cfg) // ease back (mirror)
+      setPos(value)
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [playing])
 
+  const active = PREVIEW_MODES.find((m) => m.mode === mode)
+  const activeName = active ? t(active.labelKey, { defaultValue: active.defaultValue }) : ''
+
   return (
     <div className="mt-1 flex flex-col gap-1">
       <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        <span>{t('timeline.keyframeEditor.positionPreview', { defaultValue: 'Position Preview' })}</span>
+        <DropdownMenu>
+          <DropdownMenuTrigger className="flex items-center gap-0.5 rounded hover:text-foreground">
+            {activeName} {t('timeline.keyframeEditor.preview', { defaultValue: 'Preview' })}
+            <ChevronDown className="size-3" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="min-w-[7rem]">
+            {PREVIEW_MODES.map((m) => (
+              <DropdownMenuItem key={m.mode} onSelect={() => setMode(m.mode)}>
+                {t(m.labelKey, { defaultValue: m.defaultValue })}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
         <button
           type="button"
           className="rounded px-1 hover:text-foreground"
@@ -340,12 +519,37 @@ function PositionPreview({
             : t('timeline.keyframeEditor.play', { defaultValue: 'Play' })}
         </button>
       </div>
-      <div className="relative h-9 overflow-hidden rounded-md border border-border/60 bg-black/40">
-        <div className="absolute inset-x-3 top-1/2 border-t border-dashed border-white/20" />
-        <div
-          className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full bg-orange-400"
-          style={{ left: `calc(12px + (100% - 24px) * ${Math.max(0, Math.min(1, pos))} - 7px)` }}
-        />
+      <div className="relative flex h-20 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-black/40">
+        {mode === 'position' ? (
+          <>
+            <div className="absolute inset-x-3 top-1/2 border-t border-dashed border-white/20" />
+            <div
+              className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full bg-orange-400"
+              // pos 0→1 spans the full dashed track (dot center hits each end);
+              // clamp keeps small spring overshoot inside the box instead of clipping.
+              style={{
+                left: `clamp(0px, calc(12px + (100% - 24px) * ${pos} - 7px), calc(100% - 14px))`,
+              }}
+            />
+          </>
+        ) : mode === 'rotate' ? (
+          // Rounded square + orientation pip so the spin is actually visible.
+          <div
+            className="relative size-9 rounded-[5px] bg-orange-400"
+            style={{ transform: `rotate(${pos * 180}deg)` }}
+          >
+            <span className="absolute left-1/2 top-1 size-1.5 -translate-x-1/2 rounded-full bg-black/40" />
+          </div>
+        ) : (
+          <div
+            className="size-9 rounded-full bg-orange-400"
+            style={
+              mode === 'scale'
+                ? { transform: `scale(${Math.max(0, pos)})` }
+                : { opacity: Math.max(0, Math.min(1, pos)) }
+            }
+          />
+        )}
       </div>
     </div>
   )
