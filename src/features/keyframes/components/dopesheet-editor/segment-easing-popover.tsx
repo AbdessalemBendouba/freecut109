@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { ChevronLeft, Plus, RotateCcw, Save, SlidersHorizontal, X } from 'lucide-react'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/shared/ui/cn'
+import { useElementSize } from './use-element-size'
 import { applyEasingConfig } from '@/shared/utils/easing'
 import type {
   BezierControlPoints,
@@ -39,6 +41,11 @@ const DIRECTION_FILTERS: Array<{ value: DirectionFilter; labelKey: string; defau
     { value: 'out', labelKey: 'timeline.keyframeEditor.filterOut', defaultValue: 'Out' },
     { value: 'inout', labelKey: 'timeline.keyframeEditor.filterInOut', defaultValue: 'In-Out' },
   ]
+
+// Fixed panel widths per view; the resize animates height freely and morphs
+// between these two widths when toggling into/out of the curve editor.
+const PRESETS_WIDTH = 480
+const EDITOR_WIDTH = 440
 
 /** Easing updates applied to a segment's originating keyframe(s). */
 export interface SegmentEasingUpdate {
@@ -97,6 +104,10 @@ export function SegmentEasingPopover({
   const [savingName, setSavingName] = useState<string | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  // Horizontal anchor for the popover, in the cell's coordinate space. Set from
+  // the pointer position on open so the panel grows out of where the user
+  // clicked the connector band, not from its center.
+  const [anchorLeft, setAnchorLeft] = useState<number | null>(null)
   // The easing as it was when the popover opened — the Reset fallback when the
   // curve isn't based on a named preset.
   const openBaselineRef = useRef<SegmentEasingUpdate | null>(null)
@@ -126,6 +137,20 @@ export function SegmentEasingPopover({
   const inset = width > 22 ? 8 : 0
   const bandLeft = left + inset
   const bandWidth = Math.max(2, width - inset * 2)
+  // Clamp the click anchor to the band so the panel always tethers to the
+  // segment; default to the band center before the first click.
+  const bandCenter = bandLeft + bandWidth / 2
+  const effectiveAnchor =
+    anchorLeft != null ? Math.min(bandLeft + bandWidth, Math.max(bandLeft, anchorLeft)) : bandCenter
+  // The band (trigger) is the positioning reference. With `align="start"` the
+  // panel's left edge sits at the band's left edge; `alignOffset` then shifts it
+  // so the panel is centered on the click point. We anchor against the base
+  // (widest) view width — not the current view — so the left edge stays fixed
+  // across a view switch; ResizePanel then re-centers the narrower editor within
+  // this frame, making the resize scale symmetrically about the click point
+  // rather than drifting sideways. Uses static widths, never a measurement, so
+  // positioning doesn't depend on layout timing.
+  const alignOffset = effectiveAnchor - bandLeft - PRESETS_WIDTH / 2
 
   // Prefer the user's explicit pick when its curve still matches the segment, so
   // an identical-curve twin (e.g. Snappy Out vs Out Expo) can't steal the
@@ -250,7 +275,13 @@ export function SegmentEasingPopover({
             'cursor-pointer outline-none transition-colors',
           )}
           style={{ left: bandLeft, width: bandWidth, top: '50%' }}
-          onPointerDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => {
+            event.stopPropagation()
+            // Record where along the band the user pressed (in cell coords) so
+            // the popover anchors there. Runs before the click that opens it.
+            const rect = event.currentTarget.getBoundingClientRect()
+            setAnchorLeft(bandLeft + (event.clientX - rect.left))
+          }}
           onClick={(event) => event.stopPropagation()}
           title={t('timeline.keyframeEditor.editCurve', { defaultValue: 'Easing' })}
           aria-label={t('timeline.keyframeEditor.editCurve', { defaultValue: 'Easing' })}
@@ -260,9 +291,15 @@ export function SegmentEasingPopover({
       </PopoverTrigger>
       <PopoverContent
         ref={contentRef}
-        align="center"
+        align="start"
+        alignOffset={alignOffset}
+        collisionPadding={12}
         side="top"
-        className="w-[480px] max-w-[calc(100vw-24px)] p-0"
+        // Transparent, non-clipping shell: the visible card (border/bg/shadow) is
+        // moved onto ResizePanel's animated element so it can shift horizontally
+        // to stay centered on the click point as the width morphs — a transform
+        // here would be clipped or fight Radix's own open animation.
+        className="w-auto max-w-[calc(100vw-24px)] border-0 bg-transparent p-0 shadow-none"
         onPointerDown={(event) => event.stopPropagation()}
         // Disable Radix's automatic dismissal (focus-out, internal focus shifts,
         // its own outside detection). The popover closes ONLY via our explicit
@@ -272,8 +309,10 @@ export function SegmentEasingPopover({
         onFocusOutside={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
       >
-        {/* Header: current selection + Edit / back toggle. */}
-        <div className="flex h-9 items-center justify-between border-b border-border/60 px-3">
+        <ResizePanel viewKey={editing ? 'editor' : 'presets'} baseWidth={PRESETS_WIDTH}>
+          <div style={{ width: editing ? EDITOR_WIDTH : PRESETS_WIDTH }}>
+            {/* Header: current selection + Edit / back toggle. */}
+            <div className="flex h-9 items-center justify-between border-b border-border/60 px-3">
           {editing ? (
             <div className="flex min-w-0 items-center gap-1.5 text-xs">
               <button
@@ -484,8 +523,75 @@ export function SegmentEasingPopover({
             </div>
           </>
         )}
+          </div>
+        </ResizePanel>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/**
+ * Wraps the popover's two views (presets grid / curve editor) and animates the
+ * panel's size whenever the active view — or the content within a view (tab,
+ * direction filter) — changes. The visible content cross-fades while the
+ * container springs to the new measured size, so switching tabs reads as a
+ * single fluid morph rather than a hard jump.
+ */
+function ResizePanel({
+  viewKey,
+  baseWidth,
+  children,
+}: {
+  viewKey: string
+  /** Width the popover is left-anchored against (the widest view). */
+  baseWidth: number
+  children: ReactNode
+}) {
+  const reduce = useReducedMotion()
+  const measureRef = useRef<HTMLDivElement>(null)
+  const { width, height } = useElementSize(measureRef)
+  const measured = width > 0 && height > 0
+  // Apply the first measured size instantly; only animate size changes that
+  // happen afterwards (tab / view switches). Without this, the panel visibly
+  // grows to its natural height the moment it opens.
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    if (measured && !ready) setReady(true)
+  }, [measured, ready])
+
+  // The popover's left edge is pinned to `baseWidth`'s left. Shifting a narrower
+  // view right by half the shortfall keeps its center on the click point, so the
+  // width change scales symmetrically about the anchor instead of drifting.
+  const x = measured ? (baseWidth - width) / 2 : 0
+
+  return (
+    <motion.div
+      initial={false}
+      animate={measured ? { width, height, x } : { width: 'auto', height: 'auto', x: 0 }}
+      transition={
+        reduce || !ready
+          ? { duration: 0 }
+          : { type: 'spring', stiffness: 460, damping: 38, mass: 0.8 }
+      }
+      className="overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md"
+    >
+      {/* `relative` anchors the exiting view (popLayout positions it absolutely);
+          `w-fit` lets the wrapper size to the active view's explicit width so the
+          measured box is exact. */}
+      <div ref={measureRef} className="relative w-fit">
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.div
+            key={viewKey}
+            initial={reduce ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reduce ? 0 : 0.12 }}
+          >
+            {children}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </motion.div>
   )
 }
 
