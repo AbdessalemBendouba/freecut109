@@ -4,17 +4,33 @@ import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Slider } from '@/components/ui/slider'
 import { applyEasingConfig } from '@/shared/utils/easing'
-import type { BezierControlPoints } from '@/types/keyframe'
+import {
+  DEFAULT_SPRING_PARAMS,
+  type BezierControlPoints,
+  type EasingConfig,
+  type EasingType,
+  type SpringParameters,
+} from '@/types/keyframe'
+
+import { effectiveBezier } from './easings-dev-presets'
 
 /**
- * The cubic-bezier curve editor, copied from easings.dev: a curve canvas on the
- * left, and `x1 / y1 / x2 / y2` slider+number rows plus a `Duration` row and a
- * moving-dot Position Preview on the right. `Duration` drives only the preview
- * playback (it is not stored on the keyframe — a segment's real duration is the
- * gap between its two keyframes).
+ * The easing editor, adapted from easings.dev: a curve canvas on the left, and
+ * parameter slider+number rows plus a `Duration` row and a moving-dot Position
+ * Preview on the right. For a cubic-bezier easing the rows are `x1 / y1 / x2 /
+ * y2`; for a spring they are `tension / friction / mass`. Both the canvas and
+ * the preview evaluate the real `EasingConfig`, so a spring shows its actual
+ * bounce (not the linear diagonal a spring collapses to as a bezier).
+ *
+ * `Duration` drives only the preview playback (it is not stored on the keyframe
+ * — a segment's real duration is the gap between its two keyframes).
  */
 
 type BezierKey = keyof BezierControlPoints
+
+const BEZIER_INPUT_KEYS = ['x1', 'y1', 'x2', 'y2'] as const
+const SPRING_INPUT_KEYS = ['tension', 'friction', 'mass'] as const
+type SpringKey = (typeof SPRING_INPUT_KEYS)[number]
 
 // Canvas geometry (px). Vertical headroom shows overshoot/anticipation.
 const SIZE = 176
@@ -33,68 +49,136 @@ const FIELD_RANGE: Record<BezierKey, { min: number; max: number }> = {
   y2: { min: -1, max: 2 },
 }
 
+// Ranges wide enough for every catalog spring (e.g. tension up to 1000, mass up
+// to 10). Clamps live here so the editor stays self-contained, mirroring the
+// bezier `FIELD_RANGE` above. `decimals` keeps the readout faithful to fractional
+// preset values (e.g. Bob's friction 2.3) rather than rounding them away.
+const SPRING_FIELD_RANGE: Record<
+  SpringKey,
+  { min: number; max: number; step: number; decimals: number }
+> = {
+  tension: { min: 1, max: 1000, step: 1, decimals: 1 },
+  friction: { min: 1, max: 100, step: 1, decimals: 1 },
+  mass: { min: 0.1, max: 10, step: 0.1, decimals: 2 },
+}
+
 function clampField(key: BezierKey, value: number): number {
   const { min, max } = FIELD_RANGE[key]
   return Math.max(min, Math.min(max, value))
 }
 
-function curvePath(points: BezierControlPoints): string {
-  const { x1, y1, x2, y2 } = points
-  const steps = 48
-  let d = `M ${xToPx(0)} ${yToPx(0)}`
+function clampSpringField(key: SpringKey, value: number): number {
+  const { min, max } = SPRING_FIELD_RANGE[key]
+  return Math.max(min, Math.min(max, value))
+}
+
+function curvePath(config: EasingConfig): string {
+  // For a cubic-bezier, trace the true parametric control-point curve so the
+  // handles' shape reads correctly. Everything else (springs) has no bezier
+  // form — sample the eased value against uniform time instead.
+  if (config.type === 'cubic-bezier' && config.bezier) {
+    const { x1, y1, x2, y2 } = config.bezier
+    const steps = 48
+    let d = `M ${xToPx(0)} ${yToPx(0)}`
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps
+      const mt = 1 - t
+      const x = 3 * mt * mt * t * x1 + 3 * mt * t * t * x2 + t * t * t
+      const y = 3 * mt * mt * t * y1 + 3 * mt * t * t * y2 + t * t * t
+      d += ` L ${xToPx(x)} ${yToPx(y)}`
+    }
+    return d
+  }
+
+  const steps = 64
+  let d = `M ${xToPx(0)} ${yToPx(applyEasingConfig(0, config))}`
   for (let i = 1; i <= steps; i++) {
     const t = i / steps
-    const mt = 1 - t
-    const x = 3 * mt * mt * t * x1 + 3 * mt * t * t * x2 + t * t * t
-    const y = 3 * mt * mt * t * y1 + 3 * mt * t * t * y2 + t * t * t
-    d += ` L ${xToPx(x)} ${yToPx(y)}`
+    d += ` L ${xToPx(t)} ${yToPx(applyEasingConfig(t, config))}`
   }
   return d
 }
 
 interface EasingCurveEditorProps {
-  value: BezierControlPoints
+  /** The segment's easing type (drives whether bezier or spring rows show). */
+  easing: EasingType
+  /** The segment's easing config (spring params / bezier points). */
+  config: EasingConfig | undefined
   /** `commit` is false for live slider drag, true for discrete edits. */
-  onChange: (bezier: BezierControlPoints, commit: boolean) => void
+  onChangeBezier: (bezier: BezierControlPoints, commit: boolean) => void
+  /** `commit` is false for live slider drag, true for discrete edits. */
+  onChangeSpring: (spring: SpringParameters, commit: boolean) => void
   onDragStart?: () => void
   onDragEnd?: () => void
 }
 
 export function EasingCurveEditor({
-  value,
-  onChange,
+  easing,
+  config,
+  onChangeBezier,
+  onChangeSpring,
   onDragStart,
   onDragEnd,
 }: EasingCurveEditorProps) {
   const { t } = useTranslation()
   const [duration, setDuration] = useState(1)
 
-  const setField = useCallback(
+  const isSpring = easing === 'spring'
+  const bezier = effectiveBezier(easing, config)
+  const spring = config?.type === 'spring' && config.spring ? config.spring : DEFAULT_SPRING_PARAMS
+  const previewConfig: EasingConfig = isSpring
+    ? { type: 'spring', spring }
+    : { type: 'cubic-bezier', bezier }
+
+  const setBezierField = useCallback(
     (key: BezierKey, raw: number, commit: boolean) => {
-      onChange({ ...value, [key]: clampField(key, raw) }, commit)
+      onChangeBezier({ ...bezier, [key]: clampField(key, raw) }, commit)
     },
-    [onChange, value],
+    [onChangeBezier, bezier],
+  )
+
+  const setSpringField = useCallback(
+    (key: SpringKey, raw: number, commit: boolean) => {
+      onChangeSpring({ ...spring, [key]: clampSpringField(key, raw) }, commit)
+    },
+    [onChangeSpring, spring],
   )
 
   return (
     <div className="flex gap-3">
-      <CurveCanvas value={value} />
+      <CurveCanvas config={previewConfig} />
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        {(['x1', 'y1', 'x2', 'y2'] as const).map((key) => (
-          <SliderRow
-            key={key}
-            label={key}
-            value={value[key]}
-            min={FIELD_RANGE[key].min}
-            max={FIELD_RANGE[key].max}
-            step={0.01}
-            onLive={(v) => setField(key, v, false)}
-            onCommit={(v) => setField(key, v, true)}
-            onDragStart={onDragStart}
-            onDragEnd={onDragEnd}
-          />
-        ))}
+        {isSpring
+          ? SPRING_INPUT_KEYS.map((key) => (
+              <SliderRow
+                key={key}
+                label={key}
+                value={spring[key]}
+                min={SPRING_FIELD_RANGE[key].min}
+                max={SPRING_FIELD_RANGE[key].max}
+                step={SPRING_FIELD_RANGE[key].step}
+                decimals={SPRING_FIELD_RANGE[key].decimals}
+                onLive={(v) => setSpringField(key, v, false)}
+                onCommit={(v) => setSpringField(key, v, true)}
+                onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
+              />
+            ))
+          : BEZIER_INPUT_KEYS.map((key) => (
+              <SliderRow
+                key={key}
+                label={key}
+                value={bezier[key]}
+                min={FIELD_RANGE[key].min}
+                max={FIELD_RANGE[key].max}
+                step={0.01}
+                onLive={(v) => setBezierField(key, v, false)}
+                onCommit={(v) => setBezierField(key, v, true)}
+                onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
+              />
+            ))}
         <SliderRow
           label={t('timeline.keyframeEditor.duration', { defaultValue: 'Duration' })}
           value={duration}
@@ -105,13 +189,13 @@ export function EasingCurveEditor({
           onCommit={setDuration}
         />
 
-        <PositionPreview bezier={value} duration={duration} />
+        <PositionPreview config={previewConfig} duration={duration} />
       </div>
     </div>
   )
 }
 
-function CurveCanvas({ value }: { value: BezierControlPoints }) {
+function CurveCanvas({ config }: { config: EasingConfig }) {
   const dots: string[] = []
   for (let gx = 0; gx <= 8; gx++) {
     for (let gy = 0; gy <= 8; gy++) {
@@ -138,7 +222,7 @@ function CurveCanvas({ value }: { value: BezierControlPoints }) {
         className="stroke-white/10"
         strokeWidth={1}
       />
-      <path d={curvePath(value)} className="fill-none stroke-white" strokeWidth={2} />
+      <path d={curvePath(config)} className="fill-none stroke-white" strokeWidth={2} />
       <circle cx={xToPx(0)} cy={yToPx(0)} r={2.5} className="fill-white/70" />
       <circle cx={xToPx(1)} cy={yToPx(1)} r={2.5} className="fill-white/70" />
     </svg>
@@ -151,6 +235,7 @@ function SliderRow({
   min,
   max,
   step,
+  decimals = 2,
   onLive,
   onCommit,
   onDragStart,
@@ -161,6 +246,7 @@ function SliderRow({
   min: number
   max: number
   step: number
+  decimals?: number
   onLive: (value: number) => void
   onCommit: (value: number) => void
   onDragStart?: () => void
@@ -190,7 +276,7 @@ function SliderRow({
         aria-label={label}
       />
       <Input
-        value={draft ?? value.toFixed(2)}
+        value={draft ?? value.toFixed(decimals)}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commitDraft}
         onKeyDown={(event) => {
@@ -212,17 +298,17 @@ function SliderRow({
 }
 
 function PositionPreview({
-  bezier,
+  config,
   duration,
 }: {
-  bezier: BezierControlPoints
+  config: EasingConfig
   duration: number
 }) {
   const { t } = useTranslation()
   const [playing, setPlaying] = useState(true)
   const [pos, setPos] = useState(0)
-  const bezierRef = useRef(bezier)
-  bezierRef.current = bezier
+  const configRef = useRef(config)
+  configRef.current = config
   const durationRef = useRef(duration)
   durationRef.current = duration
 
@@ -233,7 +319,7 @@ function PositionPreview({
     const tick = (now: number) => {
       const tau = ((now - start) / 1000 / durationRef.current) % 1
       if (tau < 0) start = now
-      setPos(applyEasingConfig(tau, { type: 'cubic-bezier', bezier: bezierRef.current }))
+      setPos(applyEasingConfig(tau, configRef.current))
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)

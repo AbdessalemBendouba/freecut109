@@ -6,14 +6,19 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button'
 import { cn } from '@/shared/ui/cn'
 import { applyEasingConfig } from '@/shared/utils/easing'
-import type { BezierControlPoints, EasingConfig, EasingType, KeyframeRef } from '@/types/keyframe'
+import type {
+  BezierControlPoints,
+  EasingConfig,
+  EasingType,
+  KeyframeRef,
+  SpringParameters,
+} from '@/types/keyframe'
 
 import {
   EASING_PRESETS,
   SPRING_PRESETS,
   type EasingDirection,
   type EasingPreset,
-  effectiveBezier,
   findMatchingPreset,
   presetDirection,
   presetMatchesEasing,
@@ -142,6 +147,10 @@ export function SegmentEasingPopover({
     )
   }
 
+  const applySpring = (spring: SpringParameters, commit: boolean) => {
+    onChange(refs, { easing: 'spring', easingConfig: { type: 'spring', spring } }, { commit })
+  }
+
   const setHold = () => {
     onChange(refs, { easing: 'hold', easingConfig: undefined })
   }
@@ -225,8 +234,10 @@ export function SegmentEasingPopover({
         {editing ? (
           <div className="p-3">
             <EasingCurveEditor
-              value={effectiveBezier(easing, easingConfig)}
-              onChange={applyBezier}
+              easing={easing}
+              config={easingConfig}
+              onChangeBezier={applyBezier}
+              onChangeSpring={applySpring}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
             />
