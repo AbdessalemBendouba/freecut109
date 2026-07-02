@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { TFunction } from 'i18next'
 import type { MediaMetadata } from '@/types/storage'
 import { toast } from 'sonner'
@@ -67,6 +68,33 @@ import { createLogger } from '@/shared/logging/logger'
 import { cn } from '@/shared/ui/cn'
 
 const log = createLogger('SettingsDialog')
+
+/** Minimum content height so short sections don't collapse the dialog. */
+const MIN_SECTION_HEIGHT = 360
+/** Fraction of the viewport a section may occupy before it scrolls instead. */
+const MAX_SECTION_HEIGHT_VH = 0.7
+
+/**
+ * Observe an element's natural (content) height while `enabled`. Used to drive
+ * the settings dialog's height animation from the active section's size. The
+ * element lives inside a scroll viewport, so its `clientHeight` stays the true
+ * content height even when the animated wrapper around it is clamped/scrolling —
+ * there's no measurement feedback loop.
+ */
+function useNaturalHeight(ref: RefObject<HTMLElement | null>, enabled: boolean): number {
+  const [height, setHeight] = useState(0)
+  useEffect(() => {
+    if (!enabled) return
+    const node = ref.current
+    if (!node) return
+    const update = () => setHeight(node.clientHeight)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [enabled, ref])
+  return height
+}
 
 const SETTINGS_SECTIONS = [
   { id: 'general', labelKey: 'settings.sections.general', icon: Settings2 },
@@ -387,6 +415,31 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const proxyStatus = useMediaLibraryStore((s) => s.proxyStatus)
 
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('general')
+
+  // Animate the content area's height as sections change (width is fixed, so a
+  // pure vertical morph). Measure the active section's natural height and spring
+  // the wrapper to it, clamped to [min, 70vh]; taller sections cap and scroll.
+  const reduceMotion = useReducedMotion()
+  const contentRef = useRef<HTMLDivElement>(null)
+  const naturalHeight = useNaturalHeight(contentRef, open)
+  const [heightReady, setHeightReady] = useState(false)
+  // First measured height applies instantly; later section switches animate.
+  useEffect(() => {
+    if (naturalHeight > 0 && !heightReady) setHeightReady(true)
+  }, [naturalHeight, heightReady])
+  // Reset the instant-apply gate on close so reopening doesn't animate from a
+  // stale height.
+  useEffect(() => {
+    if (!open) setHeightReady(false)
+  }, [open])
+  const maxSectionHeight = Math.round(
+    (typeof window === 'undefined' ? 900 : window.innerHeight) * MAX_SECTION_HEIGHT_VH,
+  )
+  const targetSectionHeight =
+    naturalHeight > 0
+      ? Math.min(Math.max(naturalHeight, MIN_SECTION_HEIGHT), maxSectionHeight)
+      : undefined
+
   const [clearState, setClearState] = useState<'idle' | 'clearing' | 'done' | 'partial'>('idle')
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [regenState, setRegenState] = useState<'idle' | 'working' | 'done' | 'partial'>('idle')
@@ -579,10 +632,29 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             })}
           </nav>
 
-          {/* Content */}
-          <ScrollArea className="max-h-[70vh] min-h-[360px] flex-1">
-            <div className="space-y-3 px-6 py-5 pr-7">
-              {activeSection === 'general' && (
+          {/* Content — height animates between sections (fixed width, so a clean
+              vertical morph); tall sections cap at 70vh and scroll. */}
+          <motion.div
+            className="min-h-0 flex-1 overflow-hidden"
+            initial={false}
+            animate={{ height: targetSectionHeight ?? 'auto' }}
+            transition={
+              reduceMotion || !heightReady
+                ? { duration: 0 }
+                : { type: 'spring', stiffness: 460, damping: 40, mass: 0.9 }
+            }
+          >
+            <ScrollArea className="h-full">
+              <div ref={contentRef} className="relative space-y-3 px-6 py-5 pr-7">
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.div
+                    key={activeSection}
+                    initial={reduceMotion ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: reduceMotion ? 0 : 0.12 }}
+                  >
+                    {activeSection === 'general' && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <Label className="text-sm">{t('settings.general.autoSave')}</Label>
@@ -1038,8 +1110,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
                 </div>
               )}
-            </div>
-          </ScrollArea>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </ScrollArea>
+          </motion.div>
         </div>
       </DialogContent>
 
