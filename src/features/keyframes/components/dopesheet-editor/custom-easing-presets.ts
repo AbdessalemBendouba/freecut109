@@ -7,12 +7,22 @@ import type { EasingPreset } from './easings-dev-presets'
  */
 const STORAGE_KEY = 'freecut-easing-presets'
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function hasNumericFields(value: unknown, fields: readonly string[]): boolean {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return fields.every((field) => isFiniteNumber(record[field]))
+}
+
 function isValidPreset(value: unknown): value is EasingPreset {
   if (!value || typeof value !== 'object') return false
   const preset = value as Record<string, unknown>
   if (typeof preset.name !== 'string') return false
-  if (preset.type === 'Easing') return typeof preset.bezier === 'object' && preset.bezier != null
-  if (preset.type === 'Spring') return typeof preset.spring === 'object' && preset.spring != null
+  if (preset.type === 'Easing') return hasNumericFields(preset.bezier, ['x1', 'y1', 'x2', 'y2'])
+  if (preset.type === 'Spring') return hasNumericFields(preset.spring, ['tension', 'friction', 'mass'])
   return false
 }
 

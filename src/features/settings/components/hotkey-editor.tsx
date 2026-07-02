@@ -547,6 +547,28 @@ function getHotkeyFilterResults(
   return results
 }
 
+/** All three quick-filter counts in a single traversal (vs three O(N) passes). */
+function computeHotkeyFilterCounts(
+  hotkeys: HotkeyBindingMap,
+  overrides: HotkeyOverrideMap,
+): Record<Exclude<HotkeyFilterMode, 'all'>, number> {
+  let custom = 0
+  let conflicts = 0
+  let unassigned = 0
+
+  for (const section of HOTKEY_EDITOR_SECTIONS) {
+    for (const item of section.items) {
+      if (item.keys.some((key) => key in overrides)) custom += 1
+      if (item.keys.some((key) => hotkeys[key] === '')) unassigned += 1
+      if (item.keys.some((key) => findHotkeyConflicts(hotkeys, hotkeys[key], key).length > 0)) {
+        conflicts += 1
+      }
+    }
+  }
+
+  return { custom, conflicts, unassigned }
+}
+
 export function HotkeyEditor() {
   const { t } = useTranslation()
   const reduceMotion = useReducedMotion()
@@ -632,11 +654,7 @@ export function HotkeyEditor() {
     [filterMode, hotkeys, hotkeyOverrides],
   )
   const filterCounts = useMemo(
-    () => ({
-      custom: getHotkeyFilterResults('custom', hotkeys, hotkeyOverrides).length,
-      conflicts: getHotkeyFilterResults('conflicts', hotkeys, hotkeyOverrides).length,
-      unassigned: getHotkeyFilterResults('unassigned', hotkeys, hotkeyOverrides).length,
-    }),
+    () => computeHotkeyFilterCounts(hotkeys, hotkeyOverrides),
     [hotkeys, hotkeyOverrides],
   )
   const activeResults = hasSearchQuery ? searchResults : filterResults

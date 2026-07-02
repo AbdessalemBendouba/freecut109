@@ -239,7 +239,8 @@
       "spring": "Spring",
       "springHint": "Spring physics — feels natural and bouncy.",
       "unableToPasteCut": "Unable To Paste Cut",
-      "unableToPasteCutDescription": "Cut keyframes can't be pasted here. {{reasons}}"
+      "unableToPasteCutDescription": "Cut keyframes can't be pasted here. {{reasons}}",
+      "presetNameRequired": "Preset name is required"
     },
     "noTracksToRemove": "No Tracks To Remove",
     "region": "Region",

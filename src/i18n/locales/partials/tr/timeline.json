@@ -235,7 +235,8 @@
       "spring": "Yay",
       "springHint": "Yay fiziği — doğal ve esnek bir his.",
       "unableToPasteCut": "Kesilen ana kareler yapıştırılamadı",
-      "unableToPasteCutDescription": "Kesilen anahtar kareler buraya yapıştırılamaz. {{reasons}}"
+      "unableToPasteCutDescription": "Kesilen anahtar kareler buraya yapıştırılamaz. {{reasons}}",
+      "presetNameRequired": "Hazır ayar adı gerekli"
     },
     "noTracksToRemove": "Kaldırılacak parça yok",
     "region": "Bölge",

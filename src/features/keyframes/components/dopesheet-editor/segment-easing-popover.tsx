@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { ChevronLeft, Plus, RotateCcw, Save, SlidersHorizontal, X } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
@@ -220,13 +221,19 @@ export function SegmentEasingPopover({
   }
   const persistPreset = (rawName: string) => {
     const name = rawName.trim()
+    if (!name) {
+      toast.error(
+        t('timeline.keyframeEditor.presetNameRequired', { defaultValue: 'Preset name is required' }),
+      )
+      return
+    }
     let preset: EasingPreset | null = null
     if (easing === 'cubic-bezier' && easingConfig?.type === 'cubic-bezier' && easingConfig.bezier) {
       preset = { name, type: 'Easing', bezier: easingConfig.bezier }
     } else if (easing === 'spring' && easingConfig?.type === 'spring' && easingConfig.spring) {
       preset = { name, type: 'Spring', spring: easingConfig.spring }
     }
-    if (!name || !preset) return
+    if (!preset) return
     const next = [...customPresets.filter((p) => p.name !== name), preset]
     setCustomPresets(next)
     saveCustomPresets(next)
@@ -610,13 +617,20 @@ function PresetChip({
         // stopPropagation keeps the click from also applying the preset.
         <span
           role="button"
-          tabIndex={-1}
+          tabIndex={0}
           aria-label={deleteLabel}
           onClick={(event) => {
             event.stopPropagation()
             onDelete()
           }}
-          className="absolute right-1 top-1 rounded-full bg-background/90 p-0.5 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground group-hover:opacity-100"
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              event.stopPropagation()
+              onDelete()
+            }
+          }}
+          className="absolute right-1 top-1 rounded-full bg-background/90 p-0.5 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100"
         >
           <X className="h-2.5 w-2.5" />
         </span>

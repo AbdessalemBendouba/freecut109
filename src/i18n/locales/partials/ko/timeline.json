@@ -239,7 +239,8 @@
       "springHint": "스프링 물리 — 자연스럽고 탄력적인 움직임.",
       "title": "키프레임",
       "unableToPasteCut": "컷을 붙여넣을 수 없음",
-      "unableToPasteCutDescription": "잘라낸 키프레임을 여기에 붙여넣을 수 없습니다. {{reasons}}"
+      "unableToPasteCutDescription": "잘라낸 키프레임을 여기에 붙여넣을 수 없습니다. {{reasons}}",
+      "presetNameRequired": "프리셋 이름이 필요합니다"
     },
     "noTracksToRemove": "제거할 트랙 없음",
     "region": "영역",

@@ -239,7 +239,8 @@
       "springHint": "スプリング物理演算 — 自然で弾むような動き。",
       "title": "キーフレーム",
       "unableToPasteCut": "カットを貼り付けできません",
-      "unableToPasteCutDescription": "切り取ったキーフレームはここに貼り付けできません。{{reasons}}"
+      "unableToPasteCutDescription": "切り取ったキーフレームはここに貼り付けできません。{{reasons}}",
+      "presetNameRequired": "プリセット名を入力してください"
     },
     "noTracksToRemove": "削除するトラックがありません",
     "region": "リージョン",

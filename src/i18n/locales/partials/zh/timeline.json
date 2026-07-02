@@ -239,7 +239,8 @@
       "spring": "弹簧",
       "springHint": "弹簧物理 — 自然且富有弹性。",
       "unableToPasteCut": "无法粘贴剪切",
-      "unableToPasteCutDescription": "剪切的关键帧无法粘贴到此处。{{reasons}}"
+      "unableToPasteCutDescription": "剪切的关键帧无法粘贴到此处。{{reasons}}",
+      "presetNameRequired": "需要预设名称"
     },
     "noTracksToRemove": "没有可移除的轨道",
     "region": "区域",

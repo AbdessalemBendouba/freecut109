@@ -239,7 +239,8 @@
       "springHint": "Federphysik — natürlich und federnd.",
       "title": "Keyframes",
       "unableToPasteCut": "Nicht moglich zu einfugen Schnitt",
-      "unableToPasteCutDescription": "Ausgeschnittene Keyframes können hier nicht eingefügt werden. {{reasons}}"
+      "unableToPasteCutDescription": "Ausgeschnittene Keyframes können hier nicht eingefügt werden. {{reasons}}",
+      "presetNameRequired": "Ein Vorlagenname ist erforderlich"
     },
     "noTracksToRemove": "Keine Spuren zu Entfernen",
     "region": "Bereich",
