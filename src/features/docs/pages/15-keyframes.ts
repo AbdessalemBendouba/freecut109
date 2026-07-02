@@ -70,9 +70,11 @@ const page = {
         {
           kind: 'list',
           items: [
-            'Set per-keyframe interpolation: **Hold**, **Linear**, **Ease In**, **Ease Out**, **Ease In/Out**, **Bezier**, or **Spring**.',
-            'Choose **Bezier** to open a curve editor and drag the handles, with named presets like Overshoot and Snap.',
-            'Choose **Spring** for natural, bouncy motion without hand-tuning a curve.',
+            'Click the **connector** between two keyframes to open the **easing editor**.',
+            'Browse a catalog of cubic-bezier and spring presets — filter by direction (**In / Out / In-Out**), and each tile shows an animated preview on hover. **Hold** freezes the value until the next key.',
+            'Switch to **Edit** to shape the curve directly: drag the two control handles on the graph, or type exact values. Springs expose **tension**, **friction**, and **mass** and preview their real bounce.',
+            'Feel the timing on **Position**, **Scale**, **Rotate**, or **Opacity** in the live preview, and **Pause** the loop.',
+            'Save a tweaked curve as a **custom preset** with **Save As**, **Update** it later, or **Reset** back to the preset it came from. Custom presets are stored on your device and appear in every project.',
             'Copy, cut, paste, and delete keyframes, marquee-select groups, drag to retime, and `Alt`-drag to duplicate.',
           ],
         },

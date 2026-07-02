@@ -80,7 +80,11 @@
       "autoSave": "Auto-save",
       "interval": "Interval",
       "intervalMinutes": "{{count}}m",
-      "undoHistoryDepth": "Undo History Depth"
+      "undoHistoryDepth": "Undo History Depth",
+      "uiSounds": "Interface sounds",
+      "uiSoundVolume": "Sound volume",
+      "uiSoundVoice": "Sound theme",
+      "uiSoundPreview": "Preview"
     },
     "ai": {
       "captionSampleInterval": "Caption sample interval",

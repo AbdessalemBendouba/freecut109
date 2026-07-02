@@ -8,6 +8,7 @@ import { getLinkedItemsForEdit } from '../linked-edit'
 import { getUniqueLinkedItemAnchorIds } from '../../../utils/linked-items'
 import { applySplitBookkeeping, type SplitResultEntry } from '../split-bookkeeping'
 import { isLinkedSelectionEnabled, isInTransitionOverlap } from './shared'
+import { emitUiSound } from '@/shared/ui/ui-sound'
 
 export function splitItem(
   id: string,
@@ -25,11 +26,12 @@ export function splitItem(
     const relativeFrame = splitFrame - item.from
     if (isInTransitionOverlap(item.id, relativeFrame, item.durationInFrames)) {
       toast.warning('Cannot split inside a transition zone')
+      emitUiSound('error')
       return null
     }
   }
 
-  return execute(
+  const result = execute(
     'SPLIT_ITEM',
     () => {
       const itemsStore = useItemsStore.getState()
@@ -57,6 +59,9 @@ export function splitItem(
     },
     { id, splitFrame },
   )
+
+  if (result) emitUiSound('confirm')
+  return result
 }
 
 /**
@@ -104,6 +109,7 @@ export function splitAllItemsAtFrame(splitFrame: number): number {
         if (!canSplitGroup) {
           if (blockedByTransition) {
             toast.warning('Cannot split inside a transition zone')
+            emitUiSound('error')
           }
           continue
         }
@@ -134,6 +140,7 @@ export function splitAllItemsAtFrame(splitFrame: number): number {
     { ids: anchorIds, splitFrame },
   )
 
+  if (splitCount > 0) emitUiSound('confirm')
   return splitCount
 }
 

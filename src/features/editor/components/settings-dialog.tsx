@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { TFunction } from 'i18next'
 import type { MediaMetadata } from '@/types/storage'
 import { toast } from 'sonner'
@@ -33,6 +34,7 @@ import {
   Rows3,
   HardDrive,
   Sparkles,
+  Play,
 } from 'lucide-react'
 import {
   LocalInferenceUnloadControl,
@@ -57,10 +59,21 @@ import {
 } from '@/features/editor/deps/timeline-cache'
 import { clearPreviewAudioCache } from '@/features/editor/deps/composition-runtime'
 import { CAPTION_STYLE_PRESETS } from '@/shared/typography/caption-style-presets'
+import * as SelectPrimitive from '@radix-ui/react-select'
+import { useUiSoundStore } from '@/shared/state/ui-sound-store'
+import { emitUiSound, previewUiSound } from '@/shared/ui/ui-sound'
+import { VOICE_OPTIONS, type VoiceName } from '@/infrastructure/audio/ui-sound'
+import { Select, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { createLogger } from '@/shared/logging/logger'
 import { cn } from '@/shared/ui/cn'
+import { useNaturalHeight } from '@/shared/ui/use-natural-height'
 
 const log = createLogger('SettingsDialog')
+
+/** Minimum content height so short sections don't collapse the dialog. */
+const MIN_SECTION_HEIGHT = 360
+/** Fraction of the viewport a section may occupy before it scrolls instead. */
+const MAX_SECTION_HEIGHT_VH = 0.7
 
 const SETTINGS_SECTIONS = [
   { id: 'general', labelKey: 'settings.sections.general', icon: Settings2 },
@@ -365,6 +378,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const defaultCaptionStylePresetId = useSettingsStore((s) => s.defaultCaptionStylePresetId)
   const setSetting = useSettingsStore((s) => s.setSetting)
   const resetToDefaults = useSettingsStore((s) => s.resetToDefaults)
+  const uiSoundsEnabled = useUiSoundStore((s) => s.enabled)
+  const uiSoundVolume = useUiSoundStore((s) => s.volume)
+  const uiSoundVoice = useUiSoundStore((s) => s.voice)
+  const setUiSoundEnabled = useUiSoundStore((s) => s.setEnabled)
+  const setUiSoundVolume = useUiSoundStore((s) => s.setVolume)
+  const setUiSoundVoice = useUiSoundStore((s) => s.setVoice)
 
   const intervalBounds = CAPTIONING_INTERVAL_BOUNDS[captioningIntervalUnit]
   const intervalInputStep = captioningIntervalUnit === 'seconds' ? 0.5 : 1
@@ -375,6 +394,31 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const proxyStatus = useMediaLibraryStore((s) => s.proxyStatus)
 
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('general')
+
+  // Animate the content area's height as sections change (width is fixed, so a
+  // pure vertical morph). Measure the active section's natural height and spring
+  // the wrapper to it, clamped to [min, 70vh]; taller sections cap and scroll.
+  const reduceMotion = useReducedMotion()
+  const contentRef = useRef<HTMLDivElement>(null)
+  const naturalHeight = useNaturalHeight(contentRef, open)
+  const [heightReady, setHeightReady] = useState(false)
+  // First measured height applies instantly; later section switches animate.
+  useEffect(() => {
+    if (naturalHeight > 0 && !heightReady) setHeightReady(true)
+  }, [naturalHeight, heightReady])
+  // Reset the instant-apply gate on close so reopening doesn't animate from a
+  // stale height.
+  useEffect(() => {
+    if (!open) setHeightReady(false)
+  }, [open])
+  const maxSectionHeight = Math.round(
+    (typeof window === 'undefined' ? 900 : window.innerHeight) * MAX_SECTION_HEIGHT_VH,
+  )
+  const targetSectionHeight =
+    naturalHeight > 0
+      ? Math.min(Math.max(naturalHeight, MIN_SECTION_HEIGHT), maxSectionHeight)
+      : undefined
+
   const [clearState, setClearState] = useState<'idle' | 'clearing' | 'done' | 'partial'>('idle')
   const [showClearConfirm, setShowClearConfirm] = useState(false)
   const [regenState, setRegenState] = useState<'idle' | 'working' | 'done' | 'partial'>('idle')
@@ -567,10 +611,29 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             })}
           </nav>
 
-          {/* Content */}
-          <ScrollArea className="max-h-[70vh] min-h-[360px] flex-1">
-            <div className="space-y-3 px-6 py-5 pr-7">
-              {activeSection === 'general' && (
+          {/* Content — height animates between sections (fixed width, so a clean
+              vertical morph); tall sections cap at 70vh and scroll. */}
+          <motion.div
+            className="min-h-0 flex-1 overflow-hidden"
+            initial={false}
+            animate={{ height: targetSectionHeight ?? 'auto' }}
+            transition={
+              reduceMotion || !heightReady
+                ? { duration: 0 }
+                : { type: 'spring', stiffness: 460, damping: 40, mass: 0.9 }
+            }
+          >
+            <ScrollArea className="h-full">
+              <div ref={contentRef} className="relative space-y-3 px-6 py-5 pr-7">
+                <AnimatePresence mode="popLayout" initial={false}>
+                  <motion.div
+                    key={activeSection}
+                    initial={reduceMotion ? false : { opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: reduceMotion ? 0 : 0.12 }}
+                  >
+                    {activeSection === 'general' && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <Label className="text-sm">{t('settings.general.autoSave')}</Label>
@@ -611,6 +674,93 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       <span className="text-xs text-muted-foreground w-6">{maxUndoHistory}</span>
                     </div>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm">{t('settings.general.uiSounds')}</Label>
+                    <Switch
+                      checked={uiSoundsEnabled}
+                      onCheckedChange={(v) => {
+                        setUiSoundEnabled(v)
+                        // Give immediate audible confirmation when turning sounds on.
+                        if (v) emitUiSound('confirm')
+                      }}
+                    />
+                  </div>
+                  {uiSoundsEnabled && (
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm text-muted-foreground">
+                        {t('settings.general.uiSoundVolume')}
+                      </Label>
+                      <div className="w-32 flex items-center gap-2">
+                        <Slider
+                          value={[uiSoundVolume]}
+                          onValueChange={([v]) => {
+                            setUiSoundVolume(v ?? 0.6)
+                            // Preview the new level as the user drags.
+                            emitUiSound('select')
+                          }}
+                          min={0}
+                          max={1}
+                          step={0.05}
+                        />
+                        <span className="text-xs text-muted-foreground w-8">
+                          {Math.round(uiSoundVolume * 100)}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {uiSoundsEnabled && (
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm text-muted-foreground">
+                        {t('settings.general.uiSoundVoice')}
+                      </Label>
+                      <div className="flex items-center gap-1.5">
+                        <Select
+                          value={uiSoundVoice}
+                          onValueChange={(value) => {
+                            setUiSoundVoice(value as VoiceName)
+                            // Preview the newly selected voice.
+                            emitUiSound('confirm')
+                          }}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {VOICE_OPTIONS.map((option) => (
+                              <SelectPrimitive.Item
+                                key={option.value}
+                                value={option.value}
+                                className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                              >
+                                <SelectPrimitive.ItemText>
+                                  <span
+                                    className={
+                                      option.value === uiSoundVoice
+                                        ? 'font-medium text-primary'
+                                        : undefined
+                                    }
+                                  >
+                                    {option.label}
+                                  </span>
+                                </SelectPrimitive.ItemText>
+                              </SelectPrimitive.Item>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {/* Audition the selected voice — a real, keyboard-reachable
+                            button beside the Select rather than a control nested
+                            inside each (non-focusable) option row. */}
+                        <button
+                          type="button"
+                          aria-label={t('settings.general.uiSoundPreview')}
+                          onClick={() => previewUiSound(uiSoundVoice)}
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+                        >
+                          <Play className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -933,8 +1083,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   </div>
                 </div>
               )}
-            </div>
-          </ScrollArea>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </ScrollArea>
+          </motion.div>
         </div>
       </DialogContent>
 

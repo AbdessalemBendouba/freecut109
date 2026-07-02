@@ -3,6 +3,7 @@ import type { TimelineTrack } from '@/types/timeline'
 import { useTimelineStore } from '../stores/timeline-store'
 import { getTrackKind } from '@/features/timeline/utils/classic-tracks'
 import { isTrackSyncLockActive } from '../utils/track-sync-lock'
+import { emitUiSound } from '@/shared/ui/ui-sound'
 
 function clampTrackVolume(volume: number): number {
   return Math.max(-60, Math.min(12, Math.round(volume * 10) / 10))
@@ -149,7 +150,10 @@ export function useTimelineTracks() {
    */
   const toggleTrackLock = useCallback(
     (id: string) => {
-      updateExistingTrack(id, (track) => ({ locked: !track.locked }))
+      updateExistingTrack(id, (track) => {
+        emitUiSound(track.locked ? 'toggleOff' : 'toggleOn')
+        return { locked: !track.locked }
+      })
     },
     [updateExistingTrack],
   )
@@ -159,7 +163,11 @@ export function useTimelineTracks() {
    */
   const toggleTrackSyncLock = useCallback(
     (id: string) => {
-      updateExistingTrack(id, (track) => ({ syncLock: !isTrackSyncLockActive(track) }))
+      updateExistingTrack(id, (track) => {
+        const next = !isTrackSyncLockActive(track)
+        emitUiSound(next ? 'toggleOn' : 'toggleOff')
+        return { syncLock: next }
+      })
     },
     [updateExistingTrack],
   )
@@ -169,7 +177,11 @@ export function useTimelineTracks() {
    */
   const toggleTrackVisibility = useCallback(
     (id: string) => {
-      updateExistingTrack(id, (track) => ({ visible: track.visible === false ? true : false }))
+      updateExistingTrack(id, (track) => {
+        const nextVisible = track.visible === false ? true : false
+        emitUiSound(nextVisible ? 'toggleOn' : 'toggleOff')
+        return { visible: nextVisible }
+      })
     },
     [updateExistingTrack],
   )
@@ -179,7 +191,11 @@ export function useTimelineTracks() {
    */
   const toggleTrackMute = useCallback(
     (id: string) => {
-      updateExistingTrack(id, (track) => ({ muted: !track.muted }))
+      updateExistingTrack(id, (track) => {
+        // Muting = going silent → the "off" tone; unmuting brings sound back.
+        emitUiSound(track.muted ? 'toggleOn' : 'toggleOff')
+        return { muted: !track.muted }
+      })
     },
     [updateExistingTrack],
   )
@@ -194,13 +210,18 @@ export function useTimelineTracks() {
       updateExistingTrack(id, (track) => {
         const kind = getTrackKind(track)
         if (kind === 'video') {
-          return { visible: track.visible === false ? true : false }
+          const nextVisible = track.visible === false ? true : false
+          emitUiSound(nextVisible ? 'toggleOn' : 'toggleOff')
+          return { visible: nextVisible }
         }
         if (kind === 'audio') {
+          emitUiSound(track.muted ? 'toggleOn' : 'toggleOff')
           return { muted: !track.muted }
         }
 
         const isDisabled = track.visible === false || track.muted
+        // Re-enabling (currently disabled) → "on"; disabling → "off".
+        emitUiSound(isDisabled ? 'toggleOn' : 'toggleOff')
         return {
           visible: isDisabled,
           muted: !isDisabled,
@@ -221,6 +242,7 @@ export function useTimelineTracks() {
       const targetTrack = currentTracks.find((t) => t.id === id)
       if (!targetTrack) return
 
+      emitUiSound(targetTrack.solo ? 'toggleOff' : 'toggleOn')
       updateTrack(id, { solo: !targetTrack.solo })
     },
     [updateTrack],

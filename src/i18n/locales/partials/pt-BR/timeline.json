@@ -239,7 +239,11 @@
       "springHint": "Física de mola — natural e elástica.",
       "title": "Quadros-chave",
       "unableToPasteCut": "Nao foi possivel colar corte",
-      "unableToPasteCutDescription": "Quadros-chave recortados não podem ser colados aqui. {{reasons}}"
+      "unableToPasteCutDescription": "Quadros-chave recortados não podem ser colados aqui. {{reasons}}",
+      "presetNameRequired": "O nome da predefinição é obrigatório",
+      "springTension": "Tensão",
+      "springFriction": "Fricção",
+      "springMass": "Massa"
     },
     "noTracksToRemove": "Nenhuma faixa para remover",
     "region": "Regiao",

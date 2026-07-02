@@ -6,6 +6,7 @@ import type { ItemEffect, VisualEffect } from '@/types/effects'
 import { useItemsStore } from '../items-store'
 import { useTimelineSettingsStore } from '../timeline-settings-store'
 import { execute } from './shared'
+import { emitUiSound } from '@/shared/ui/ui-sound'
 
 export function addEffect(itemId: string, effect: VisualEffect): void {
   execute(
@@ -72,6 +73,10 @@ export function setItemEffects(updates: Array<{ itemId: string; effects: ItemEff
 }
 
 export function toggleEffect(itemId: string, effectId: string): void {
+  const wasEnabled = useItemsStore
+    .getState()
+    .items.find((item) => item.id === itemId)
+    ?.effects?.find((effect) => effect.id === effectId)?.enabled
   execute(
     'TOGGLE_EFFECT',
     () => {
@@ -80,4 +85,5 @@ export function toggleEffect(itemId: string, effectId: string): void {
     },
     { itemId, effectId },
   )
+  emitUiSound(wasEnabled ? 'toggleOff' : 'toggleOn')
 }

@@ -382,23 +382,36 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
 }: PropertyTimelineCellProps) {
   const { t } = useTranslation()
 
+  // During a plain (non-duplicate) drag preview, place this row's keyframes — and
+  // the connectors and easing bands between them — at their previewed frames, so
+  // the whole row tracks a master/keyframe drag in realtime instead of only the
+  // diamonds moving. Duplicate-drag keeps the originals put (the ghost overlay
+  // below shows the moved copies), matching the group cell's behaviour.
+  const previewFrames = sheetPreviewDuplicateKeyframeIds ? null : sheetPreviewFrames
+  const displayedFrame = (keyframe: Keyframe) => previewFrames?.[keyframe.id] ?? keyframe.frame
+  const xForKeyframe = (keyframe: Keyframe): number | null => {
+    const previewFrame = previewFrames?.[keyframe.id]
+    if (previewFrame !== undefined) return getRenderedKeyframeX(previewFrame)
+    return renderedKeyframeXById.get(keyframe.id) ?? null
+  }
+
   const connectorSegments = buildConnectorSegments(
     keyframes.flatMap((keyframe) => {
-      const x = renderedKeyframeXById.get(keyframe.id)
-      if (x === undefined) return []
-      return [{ id: keyframe.id, frame: keyframe.frame, x, held: keyframe.easing === 'hold' }]
+      const x = xForKeyframe(keyframe)
+      if (x === null) return []
+      return [{ id: keyframe.id, frame: displayedFrame(keyframe), x, held: keyframe.easing === 'hold' }]
     }),
   )
 
   // Clickable easing spans between consecutive keyframes (skipped while locked or
-  // during a drag preview, which owns pointer interaction on this row).
+  // during a duplicate-drag preview, which owns pointer interaction on this row).
   const segmentSpans =
     onSegmentEasingChange && !locked && !disabled && !sheetPreviewDuplicateKeyframeIds
       ? buildSegmentSpans(
           keyframes.flatMap((keyframe) => {
-            const x = renderedKeyframeXById.get(keyframe.id)
-            if (x === undefined) return []
-            return [{ from: keyframe, frame: keyframe.frame, x }]
+            const x = xForKeyframe(keyframe)
+            if (x === null) return []
+            return [{ from: keyframe, frame: displayedFrame(keyframe), x }]
           }),
         )
       : []
@@ -454,8 +467,8 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
         ))}
 
       {keyframes.map((keyframe) => {
-        const renderedX = renderedKeyframeXById.get(keyframe.id)
-        if (renderedX === undefined) return null
+        const renderedX = xForKeyframe(keyframe)
+        if (renderedX === null) return null
         const selected = selectedKeyframeIds.has(keyframe.id)
         return (
           <button

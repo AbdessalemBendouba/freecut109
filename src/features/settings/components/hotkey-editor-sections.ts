@@ -16,6 +16,12 @@ export interface HotkeyEditorSection {
   titleKey: string
   /** i18n key for the section blurb */
   blurbKey: string
+  /**
+   * i18n key describing where these shortcuts are active, for sections whose
+   * commands only fire while a specific panel owns focus. Omitted for globally
+   * active sections.
+   */
+  scopeKey?: string
   items: readonly HotkeyEditorItem[]
 }
 
@@ -161,16 +167,16 @@ export const HOTKEY_EDITOR_SECTIONS: readonly HotkeyEditorSection[] = [
         keys: ['TOGGLE_CANVAS_SNAP'],
       },
       {
-        labelKey: 'projects.settings.hotkeys.items.toggleKeyframeEditorPanel',
-        keys: ['TOGGLE_KEYFRAME_EDITOR'],
-      },
-      {
         labelKey: 'projects.settings.hotkeys.items.editWorkspace',
         keys: ['WORKSPACE_EDIT'],
       },
       {
         labelKey: 'projects.settings.hotkeys.items.colorWorkspace',
         keys: ['WORKSPACE_COLOR'],
+      },
+      {
+        labelKey: 'projects.settings.hotkeys.items.animateWorkspace',
+        keys: ['WORKSPACE_ANIMATE'],
       },
     ],
   },
@@ -196,6 +202,7 @@ export const HOTKEY_EDITOR_SECTIONS: readonly HotkeyEditorSection[] = [
   {
     titleKey: 'projects.settings.hotkeys.sections.keyframes.title',
     blurbKey: 'projects.settings.hotkeys.sections.keyframes.blurb',
+    scopeKey: 'projects.settings.hotkeys.scopes.keyframes',
     items: [
       { labelKey: 'projects.settings.hotkeys.items.clearKeyframes', keys: ['CLEAR_KEYFRAMES'] },
       {
@@ -211,6 +218,7 @@ export const HOTKEY_EDITOR_SECTIONS: readonly HotkeyEditorSection[] = [
   {
     titleKey: 'projects.settings.hotkeys.sections.sourceMonitor.title',
     blurbKey: 'projects.settings.hotkeys.sections.sourceMonitor.blurb',
+    scopeKey: 'projects.settings.hotkeys.scopes.sourceMonitor',
     items: [
       { labelKey: 'projects.settings.hotkeys.items.markIn', keys: ['MARK_IN'] },
       { labelKey: 'projects.settings.hotkeys.items.markOut', keys: ['MARK_OUT'] },

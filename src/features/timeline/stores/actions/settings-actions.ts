@@ -9,15 +9,20 @@ import { useMarkersStore } from '../markers-store'
 import { useTimelineSettingsStore } from '../timeline-settings-store'
 import { useTimelineCommandStore } from '../timeline-command-store'
 import { execute } from './shared'
+import { emitUiSound } from '@/shared/ui/ui-sound'
 
 export function toggleSnap(): void {
   execute('TOGGLE_SNAP', () => {
     useTimelineSettingsStore.getState().toggleSnap()
   })
+  emitUiSound(useTimelineSettingsStore.getState().snapEnabled ? 'toggleOn' : 'toggleOff')
 }
 
 export function toggleAudioSkimming(): void {
-  useTimelineSettingsStore.getState().toggleAudioSkimming()
+  execute('TOGGLE_AUDIO_SKIMMING', () => {
+    useTimelineSettingsStore.getState().toggleAudioSkimming()
+  })
+  emitUiSound(useTimelineSettingsStore.getState().audioSkimmingEnabled ? 'toggleOn' : 'toggleOff')
 }
 
 export function setScrollPosition(position: number): void {

@@ -1,35 +1,52 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, SlidersHorizontal } from 'lucide-react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { ChevronLeft, Plus, RotateCcw, Save, SlidersHorizontal, X } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { cn } from '@/shared/ui/cn'
+import { useElementSize } from './use-element-size'
 import { applyEasingConfig } from '@/shared/utils/easing'
-import type { BezierControlPoints, EasingConfig, EasingType, KeyframeRef } from '@/types/keyframe'
+import type {
+  BezierControlPoints,
+  EasingConfig,
+  EasingType,
+  KeyframeRef,
+  SpringParameters,
+} from '@/types/keyframe'
 
 import {
   EASING_PRESETS,
   SPRING_PRESETS,
   type EasingDirection,
   type EasingPreset,
-  effectiveBezier,
   findMatchingPreset,
   presetDirection,
   presetMatchesEasing,
   presetToEasing,
 } from './easings-dev-presets'
 import { EasingCurveEditor } from './easing-curve-editor'
+import { loadCustomPresets, saveCustomPresets } from './custom-easing-presets'
+import './easing-preset-thumbnail.css'
 
 type PresetType = 'Easing' | 'Spring'
 type DirectionFilter = 'all' | EasingDirection
 
-const DIRECTION_FILTERS: Array<{ value: DirectionFilter; labelKey: string; defaultValue: string }> = [
-  { value: 'all', labelKey: 'timeline.keyframeEditor.filterAll', defaultValue: 'All' },
-  { value: 'in', labelKey: 'timeline.keyframeEditor.filterIn', defaultValue: 'In' },
-  { value: 'out', labelKey: 'timeline.keyframeEditor.filterOut', defaultValue: 'Out' },
-  { value: 'inout', labelKey: 'timeline.keyframeEditor.filterInOut', defaultValue: 'In-Out' },
-]
+const DIRECTION_FILTERS: Array<{ value: DirectionFilter; labelKey: string; defaultValue: string }> =
+  [
+    { value: 'all', labelKey: 'timeline.keyframeEditor.filterAll', defaultValue: 'All' },
+    { value: 'in', labelKey: 'timeline.keyframeEditor.filterIn', defaultValue: 'In' },
+    { value: 'out', labelKey: 'timeline.keyframeEditor.filterOut', defaultValue: 'Out' },
+    { value: 'inout', labelKey: 'timeline.keyframeEditor.filterInOut', defaultValue: 'In-Out' },
+  ]
+
+// Both views share one width so switching between them animates height only —
+// a pure vertical morph. Changing width too would move the panel's edges
+// horizontally at the same time, which reads as a diagonal resize.
+const PANEL_WIDTH = 480
 
 /** Easing updates applied to a segment's originating keyframe(s). */
 export interface SegmentEasingUpdate {
@@ -83,8 +100,18 @@ export function SegmentEasingPopover({
   // The user's last explicit preset pick, used to disambiguate identical-curve
   // presets (e.g. Snappy Out vs Out Expo) when highlighting the active one.
   const [pickedName, setPickedName] = useState<string | null>(null)
+  const [customPresets, setCustomPresets] = useState<EasingPreset[]>(() => loadCustomPresets())
+  // null = not naming; string = the Save name field is open with this draft.
+  const [savingName, setSavingName] = useState<string | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  // Horizontal anchor for the popover, in the cell's coordinate space. Set from
+  // the pointer position on open so the panel grows out of where the user
+  // clicked the connector band, not from its center.
+  const [anchorLeft, setAnchorLeft] = useState<number | null>(null)
+  // The easing as it was when the popover opened — the Reset fallback when the
+  // curve isn't based on a named preset.
+  const openBaselineRef = useRef<SegmentEasingUpdate | null>(null)
 
   // The timeline stops `pointerdown` propagation, which swallows Radix's own
   // outside-click dismissal. Listen in the capture phase (runs top-down, before
@@ -96,6 +123,10 @@ export function SegmentEasingPopover({
       if (!target) return
       if (contentRef.current?.contains(target)) return
       if (triggerRef.current?.contains(target)) return
+      // Nested Radix poppers (the preview-mode dropdown) portal to the body, so
+      // they're outside contentRef — clicking one must not close the popover.
+      const el = target instanceof Element ? target : target.parentElement
+      if (el?.closest('[data-radix-popper-content-wrapper]')) return
       setOpen(false)
     }
     document.addEventListener('pointerdown', handlePointerDown, true)
@@ -107,13 +138,25 @@ export function SegmentEasingPopover({
   const inset = width > 22 ? 8 : 0
   const bandLeft = left + inset
   const bandWidth = Math.max(2, width - inset * 2)
+  // Clamp the click anchor to the band so the panel always tethers to the
+  // segment; default to the band center before the first click.
+  const bandCenter = bandLeft + bandWidth / 2
+  const effectiveAnchor =
+    anchorLeft != null ? Math.min(bandLeft + bandWidth, Math.max(bandLeft, anchorLeft)) : bandCenter
+  // The band (trigger) is the positioning reference. With `align="start"` the
+  // panel's left edge sits at the band's left edge; `alignOffset` then shifts it
+  // so the fixed-width panel is centered on the click point. Uses the static
+  // width, never a measurement, so positioning doesn't depend on layout timing.
+  const alignOffset = effectiveAnchor - bandLeft - PANEL_WIDTH / 2
 
   // Prefer the user's explicit pick when its curve still matches the segment, so
   // an identical-curve twin (e.g. Snappy Out vs Out Expo) can't steal the
   // highlight; otherwise fall back to the first matching preset.
   const pickedPreset =
     pickedName != null
-      ? [...EASING_PRESETS, ...SPRING_PRESETS].find((preset) => preset.name === pickedName)
+      ? [...EASING_PRESETS, ...SPRING_PRESETS, ...customPresets].find(
+          (preset) => preset.name === pickedName,
+        )
       : undefined
   const activePresetName = mixed
     ? null
@@ -142,16 +185,86 @@ export function SegmentEasingPopover({
     )
   }
 
+  const applySpring = (spring: SpringParameters, commit: boolean) => {
+    onChange(refs, { easing: 'spring', easingConfig: { type: 'spring', spring } }, { commit })
+  }
+
   const setHold = () => {
     onChange(refs, { easing: 'hold', easingConfig: undefined })
   }
+
+  // Reset: jump back to the preset the curve is based on (the last one picked),
+  // or the value the popover opened with if it was never a named preset. Unlike
+  // undo, this is a single step back to the clean curve.
+  const sameEasing = (a: SegmentEasingUpdate, b: SegmentEasingUpdate) =>
+    a.easing === b.easing &&
+    JSON.stringify(a.easingConfig ?? null) === JSON.stringify(b.easingConfig ?? null)
+  const resetTarget: SegmentEasingUpdate | null = pickedPreset
+    ? presetToEasing(pickedPreset)
+    : openBaselineRef.current
+  const canReset = !!resetTarget && !mixed && !sameEasing(resetTarget, { easing, easingConfig })
+  const handleReset = () => {
+    if (resetTarget) onChange(refs, resetTarget)
+  }
+
+  // Save: persist the current tweaked curve as a reusable custom preset.
+  const canSave = !mixed && (easing === 'cubic-bezier' || easing === 'spring')
+  // The saved custom preset this curve came from (if any) — the Update target.
+  const activeCustomName =
+    pickedName && customPresets.some((preset) => preset.name === pickedName) ? pickedName : null
+  // Name for a brand-new preset (Save As) — the next free "Custom N".
+  const newSuggestedName = () => {
+    let n = customPresets.length + 1
+    const taken = new Set(customPresets.map((preset) => preset.name))
+    while (taken.has(`Custom ${n}`)) n++
+    return `Custom ${n}`
+  }
+  const persistPreset = (rawName: string) => {
+    const name = rawName.trim()
+    if (!name) {
+      toast.error(
+        t('timeline.keyframeEditor.presetNameRequired', { defaultValue: 'Preset name is required' }),
+      )
+      return
+    }
+    let preset: EasingPreset | null = null
+    if (easing === 'cubic-bezier' && easingConfig?.type === 'cubic-bezier' && easingConfig.bezier) {
+      preset = { name, type: 'Easing', bezier: easingConfig.bezier }
+    } else if (easing === 'spring' && easingConfig?.type === 'spring' && easingConfig.spring) {
+      preset = { name, type: 'Spring', spring: easingConfig.spring }
+    }
+    if (!preset) return
+    const next = [...customPresets.filter((p) => p.name !== name), preset]
+    setCustomPresets(next)
+    saveCustomPresets(next)
+    setPickedName(name)
+    setPresetType(preset.type)
+    setSavingName(null)
+  }
+  // Header name of the curve being edited.
+  const editingName =
+    activeCustomName ??
+    activePresetName ??
+    (isHold
+      ? t('timeline.keyframeEditor.easing.hold')
+      : t('timeline.keyframeEditor.custom', { defaultValue: 'Custom' }))
+  const deleteCustomPreset = (name: string) => {
+    const next = customPresets.filter((preset) => preset.name !== name)
+    setCustomPresets(next)
+    saveCustomPresets(next)
+  }
+  const myPresets = customPresets.filter((preset) => preset.type === presetType)
 
   return (
     <Popover
       open={open}
       onOpenChange={(next) => {
         setOpen(next)
-        if (!next) setEditing(false)
+        if (next) openBaselineRef.current = { easing, easingConfig }
+        else {
+          setEditing(false)
+          setSavingName(null)
+        }
       }}
     >
       <PopoverTrigger asChild>
@@ -165,7 +278,13 @@ export function SegmentEasingPopover({
             'cursor-pointer outline-none transition-colors',
           )}
           style={{ left: bandLeft, width: bandWidth, top: '50%' }}
-          onPointerDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => {
+            event.stopPropagation()
+            // Record where along the band the user pressed (in cell coords) so
+            // the popover anchors there. Runs before the click that opens it.
+            const rect = event.currentTarget.getBoundingClientRect()
+            setAnchorLeft(bandLeft + (event.clientX - rect.left))
+          }}
           onClick={(event) => event.stopPropagation()}
           title={t('timeline.keyframeEditor.editCurve', { defaultValue: 'Easing' })}
           aria-label={t('timeline.keyframeEditor.editCurve', { defaultValue: 'Easing' })}
@@ -175,9 +294,11 @@ export function SegmentEasingPopover({
       </PopoverTrigger>
       <PopoverContent
         ref={contentRef}
-        align="center"
+        align="start"
+        alignOffset={alignOffset}
+        collisionPadding={12}
         side="top"
-        className="w-[480px] max-w-[calc(100vw-24px)] p-0"
+        className="w-auto max-w-[calc(100vw-24px)] overflow-hidden p-0"
         onPointerDown={(event) => event.stopPropagation()}
         // Disable Radix's automatic dismissal (focus-out, internal focus shifts,
         // its own outside detection). The popover closes ONLY via our explicit
@@ -187,17 +308,22 @@ export function SegmentEasingPopover({
         onFocusOutside={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
       >
-        {/* Header: current selection + Edit / back toggle. */}
-        <div className="flex h-9 items-center justify-between border-b border-border/60 px-3">
+        <ResizePanel viewKey={editing ? 'editor' : 'presets'}>
+          <div style={{ width: PANEL_WIDTH }}>
+            {/* Header: current selection + Edit / back toggle. */}
+            <div className="flex h-9 items-center justify-between border-b border-border/60 px-3">
           {editing ? (
-            <button
-              type="button"
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-              onClick={() => setEditing(false)}
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-              {t('timeline.keyframeEditor.presets', { defaultValue: 'Presets' })}
-            </button>
+            <div className="flex min-w-0 items-center gap-1.5 text-xs">
+              <button
+                type="button"
+                className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-foreground"
+                onClick={() => setEditing(false)}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                {t('timeline.keyframeEditor.presets', { defaultValue: 'Presets' })}
+              </button>
+              {!mixed && <span className="truncate text-muted-foreground/70">— {editingName}</span>}
+            </div>
           ) : (
             <span className="truncate text-xs font-medium text-foreground">
               {mixed
@@ -225,11 +351,85 @@ export function SegmentEasingPopover({
         {editing ? (
           <div className="p-3">
             <EasingCurveEditor
-              value={effectiveBezier(easing, easingConfig)}
-              onChange={applyBezier}
+              easing={easing}
+              config={easingConfig}
+              onChangeBezier={applyBezier}
+              onChangeSpring={applySpring}
               onDragStart={onDragStart}
               onDragEnd={onDragEnd}
             />
+            <div className="mt-3 flex items-center justify-between gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!canReset}
+                onClick={handleReset}
+                className="h-6 gap-1 px-1.5 text-[11px]"
+              >
+                <RotateCcw className="h-3 w-3" />
+                {t('timeline.keyframeEditor.reset', { defaultValue: 'Reset' })}
+              </Button>
+              {savingName === null ? (
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={!canSave}
+                    onClick={() => setSavingName(newSuggestedName())}
+                    className="h-6 gap-1 px-1.5 text-[11px]"
+                  >
+                    <Plus className="h-3 w-3" />
+                    {t('timeline.keyframeEditor.saveAsPreset', { defaultValue: 'Save As' })}
+                  </Button>
+                  {activeCustomName && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={!canSave}
+                      onClick={() => persistPreset(activeCustomName)}
+                      className="h-6 gap-1 px-1.5 text-[11px]"
+                    >
+                      <Save className="h-3 w-3" />
+                      {t('timeline.keyframeEditor.updatePreset', { defaultValue: 'Update' })}
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1">
+                  <Input
+                    autoFocus
+                    value={savingName}
+                    onChange={(event) => setSavingName(event.target.value)}
+                    onKeyDown={(event) => {
+                      // Keep Enter/Escape inside the field so they don't reach
+                      // Radix (close popover) or the timeline key handlers.
+                      event.stopPropagation()
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        persistPreset(savingName)
+                      } else if (event.key === 'Escape') {
+                        setSavingName(null)
+                      }
+                    }}
+                    placeholder={t('timeline.keyframeEditor.presetName', {
+                      defaultValue: 'Preset name',
+                    })}
+                    className="h-6 w-28 px-1.5 text-[11px]"
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => persistPreset(savingName)}
+                    className="h-6 px-2 text-[11px]"
+                  >
+                    {t('timeline.keyframeEditor.savePreset', { defaultValue: 'Save' })}
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <>
@@ -276,14 +476,37 @@ export function SegmentEasingPopover({
             </div>
 
             <div className="max-h-[300px] overflow-y-auto p-2">
+              {myPresets.length > 0 && (
+                <div className="mb-2">
+                  <div className="px-1 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    {t('timeline.keyframeEditor.customPresets', { defaultValue: 'Custom' })}
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {myPresets.map((preset) => (
+                      <PresetChip
+                        key={preset.name}
+                        label={preset.name}
+                        active={preset.name === activePresetName}
+                        onClick={() => applyPreset(preset)}
+                        thumb={<PresetThumb preset={preset} />}
+                        onDelete={() => deleteCustomPreset(preset.name)}
+                        deleteLabel={t('timeline.keyframeEditor.deletePreset', {
+                          defaultValue: 'Delete preset',
+                        })}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
               {presetType === 'Easing' && (
-                <PresetChip
-                  label={t('timeline.keyframeEditor.easing.hold')}
-                  active={isHold}
-                  onClick={setHold}
-                  thumb={<HoldThumb />}
-                  wide
-                />
+                <div className="grid grid-cols-4 gap-1">
+                  <PresetChip
+                    label={t('timeline.keyframeEditor.easing.hold')}
+                    active={isHold}
+                    onClick={setHold}
+                    thumb={<HoldThumb />}
+                  />
+                </div>
               )}
               <div className="mt-1 grid grid-cols-4 gap-1">
                 {filteredPresets.map((preset) => (
@@ -299,8 +522,61 @@ export function SegmentEasingPopover({
             </div>
           </>
         )}
+          </div>
+        </ResizePanel>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/**
+ * Wraps the popover's two views (presets grid / curve editor) and animates the
+ * panel's height whenever the active view — or the content within a view (tab,
+ * direction filter) — changes. Width is fixed, so this is a pure vertical morph:
+ * the visible content cross-fades while the container springs to the new
+ * measured height, reading as a single fluid resize rather than a hard jump.
+ */
+function ResizePanel({ viewKey, children }: { viewKey: string; children: ReactNode }) {
+  const reduce = useReducedMotion()
+  const measureRef = useRef<HTMLDivElement>(null)
+  const { height } = useElementSize(measureRef)
+  const measured = height > 0
+  // Apply the first measured height instantly; only animate height changes that
+  // happen afterwards (tab / view switches). Without this, the panel visibly
+  // grows to its natural height the moment it opens.
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    if (measured && !ready) setReady(true)
+  }, [measured, ready])
+
+  return (
+    <motion.div
+      initial={false}
+      animate={{ height: measured ? height : 'auto' }}
+      transition={
+        reduce || !ready
+          ? { duration: 0 }
+          : { type: 'spring', stiffness: 460, damping: 38, mass: 0.8 }
+      }
+      className="overflow-hidden"
+    >
+      {/* `relative` anchors the exiting view (popLayout positions it absolutely);
+          `w-fit` lets the wrapper size to the active view's explicit width so the
+          measured box is exact. */}
+      <div ref={measureRef} className="relative w-fit">
+        <AnimatePresence mode="popLayout" initial={false}>
+          <motion.div
+            key={viewKey}
+            initial={reduce ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reduce ? 0 : 0.12 }}
+          >
+            {children}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </motion.div>
   )
 }
 
@@ -309,41 +585,96 @@ function PresetChip({
   active,
   onClick,
   thumb,
-  wide = false,
+  onDelete,
+  deleteLabel,
 }: {
   label: string
   active: boolean
   onClick: () => void
   thumb: ReactNode
-  wide?: boolean
+  /** When set, renders a hover-reveal delete affordance in the top-right corner. */
+  onDelete?: () => void
+  deleteLabel?: string
 }) {
+  // The select action and the delete action are sibling buttons inside a group
+  // container (not a control nested in a button), so both have real button
+  // semantics and are keyboard-reachable.
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
+    <div
       className={cn(
-        'flex flex-col items-center gap-1 rounded-md border p-1.5 transition-colors',
-        wide && 'w-full flex-row justify-start gap-2',
+        'group relative flex flex-col rounded-md border transition-colors',
         active
           ? 'border-blue-500/70 bg-blue-500/10'
           : 'border-transparent hover:border-border hover:bg-muted/50',
       )}
     >
-      {thumb}
-      <span className="w-full truncate text-center text-[10px] leading-tight text-foreground">
-        {label}
-      </span>
-    </button>
+      <button
+        type="button"
+        onClick={onClick}
+        title={label}
+        className="flex w-full flex-col items-center gap-1 rounded-md p-1.5"
+      >
+        {thumb}
+        <span className="w-full truncate text-center text-[10px] leading-tight text-foreground">
+          {label}
+        </span>
+      </button>
+      {onDelete && (
+        <button
+          type="button"
+          aria-label={deleteLabel}
+          // Sibling of the select button, so this can't also apply the preset;
+          // stopPropagation is belt-and-suspenders against any container handler.
+          onClick={(event) => {
+            event.stopPropagation()
+            onDelete()
+          }}
+          className="absolute right-1 top-1 rounded-full bg-background/90 p-0.5 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
+      )}
+    </div>
   )
 }
 
-// Thumbnail geometry. Y range shows anticipation (<0) and overshoot (>1).
-const T_W = 44
-const T_H = 30
-const T_PAD = 4
+// Thumbnail geometry — square tile. Y range shows anticipation (<0) and
+// overshoot (>1). Path coords are in px so the SVG curve and the marker's CSS
+// motion path (offset-path) share one coordinate space.
+const T_SIZE = 44
+const T_PAD = 7
 const T_YMIN = -0.3
 const T_YMAX = 1.3
+
+const projX = (t: number) => T_PAD + t * (T_SIZE - T_PAD * 2)
+const projY = (v: number) => T_PAD + ((T_YMAX - v) / (T_YMAX - T_YMIN)) * (T_SIZE - T_PAD * 2)
+
+// Wrapper: muted dot grid + square SVG curve + orange marker that rides the
+// curve on hover (animation defined in easing-preset-thumbnail.css).
+function ThumbFrame({ d }: { d: string }) {
+  return (
+    <div
+      className="ep-thumb shrink-0 overflow-hidden rounded"
+      style={{ width: T_SIZE, height: T_SIZE }}
+    >
+      <svg
+        width={T_SIZE}
+        height={T_SIZE}
+        viewBox={`0 0 ${T_SIZE} ${T_SIZE}`}
+        className="absolute inset-0"
+        aria-hidden
+      >
+        <path
+          d={d}
+          className="fill-none stroke-foreground/90"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+        />
+      </svg>
+      <span className="ep-dot" style={{ offsetPath: `path('${d}')` }} aria-hidden />
+    </div>
+  )
+}
 
 function PresetThumb({ preset }: { preset: EasingPreset }) {
   const { easingConfig } = presetToEasing(preset)
@@ -352,29 +683,15 @@ function PresetThumb({ preset }: { preset: EasingPreset }) {
   for (let i = 0; i <= steps; i++) {
     const t = i / steps
     const v = applyEasingConfig(t, easingConfig)
-    const px = T_PAD + t * (T_W - T_PAD * 2)
-    const py = T_PAD + ((T_YMAX - v) / (T_YMAX - T_YMIN)) * (T_H - T_PAD * 2)
-    d += `${i === 0 ? 'M' : 'L'} ${px.toFixed(1)} ${py.toFixed(1)} `
+    d += `${i === 0 ? 'M' : 'L'} ${projX(t).toFixed(1)} ${projY(v).toFixed(1)} `
   }
-  return (
-    <svg width={T_W} height={T_H} viewBox={`0 0 ${T_W} ${T_H}`} className="shrink-0" aria-hidden>
-      <path d={d} className="fill-none stroke-blue-400" strokeWidth={1.5} />
-    </svg>
-  )
+  return <ThumbFrame d={d} />
 }
 
 function HoldThumb() {
   // A step: flat, then a vertical jump at the end.
-  const midY = T_PAD + ((T_YMAX - 0) / (T_YMAX - T_YMIN)) * (T_H - T_PAD * 2)
-  const topY = T_PAD + ((T_YMAX - 1) / (T_YMAX - T_YMIN)) * (T_H - T_PAD * 2)
-  const right = T_W - T_PAD
-  return (
-    <svg width={T_W} height={T_H} viewBox={`0 0 ${T_W} ${T_H}`} className="shrink-0" aria-hidden>
-      <path
-        d={`M ${T_PAD} ${midY} L ${right} ${midY} L ${right} ${topY}`}
-        className="fill-none stroke-blue-400"
-        strokeWidth={1.5}
-      />
-    </svg>
-  )
+  const midY = projY(0)
+  const topY = projY(1)
+  const right = T_SIZE - T_PAD
+  return <ThumbFrame d={`M ${T_PAD} ${midY} L ${right} ${midY} L ${right} ${topY}`} />
 }
