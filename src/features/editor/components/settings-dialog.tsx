@@ -33,6 +33,7 @@ import {
   Rows3,
   HardDrive,
   Sparkles,
+  Play,
 } from 'lucide-react'
 import {
   LocalInferenceUnloadControl,
@@ -57,6 +58,11 @@ import {
 } from '@/features/editor/deps/timeline-cache'
 import { clearPreviewAudioCache } from '@/features/editor/deps/composition-runtime'
 import { CAPTION_STYLE_PRESETS } from '@/shared/typography/caption-style-presets'
+import * as SelectPrimitive from '@radix-ui/react-select'
+import { useUiSoundStore } from '@/shared/state/ui-sound-store'
+import { emitUiSound, previewUiSound } from '@/shared/ui/ui-sound'
+import { VOICE_OPTIONS, type VoiceName } from '@/infrastructure/audio/ui-sound'
+import { Select, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { createLogger } from '@/shared/logging/logger'
 import { cn } from '@/shared/ui/cn'
 
@@ -365,6 +371,12 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const defaultCaptionStylePresetId = useSettingsStore((s) => s.defaultCaptionStylePresetId)
   const setSetting = useSettingsStore((s) => s.setSetting)
   const resetToDefaults = useSettingsStore((s) => s.resetToDefaults)
+  const uiSoundsEnabled = useUiSoundStore((s) => s.enabled)
+  const uiSoundVolume = useUiSoundStore((s) => s.volume)
+  const uiSoundVoice = useUiSoundStore((s) => s.voice)
+  const setUiSoundEnabled = useUiSoundStore((s) => s.setEnabled)
+  const setUiSoundVolume = useUiSoundStore((s) => s.setVolume)
+  const setUiSoundVoice = useUiSoundStore((s) => s.setVoice)
 
   const intervalBounds = CAPTIONING_INTERVAL_BOUNDS[captioningIntervalUnit]
   const intervalInputStep = captioningIntervalUnit === 'seconds' ? 0.5 : 1
@@ -611,6 +623,99 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       <span className="text-xs text-muted-foreground w-6">{maxUndoHistory}</span>
                     </div>
                   </div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm">{t('settings.general.uiSounds')}</Label>
+                    <Switch
+                      checked={uiSoundsEnabled}
+                      onCheckedChange={(v) => {
+                        setUiSoundEnabled(v)
+                        // Give immediate audible confirmation when turning sounds on.
+                        if (v) emitUiSound('confirm')
+                      }}
+                    />
+                  </div>
+                  {uiSoundsEnabled && (
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm text-muted-foreground">
+                        {t('settings.general.uiSoundVolume')}
+                      </Label>
+                      <div className="w-32 flex items-center gap-2">
+                        <Slider
+                          value={[uiSoundVolume]}
+                          onValueChange={([v]) => {
+                            setUiSoundVolume(v ?? 0.6)
+                            // Preview the new level as the user drags.
+                            emitUiSound('select')
+                          }}
+                          min={0}
+                          max={1}
+                          step={0.05}
+                        />
+                        <span className="text-xs text-muted-foreground w-8">
+                          {Math.round(uiSoundVolume * 100)}%
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  {uiSoundsEnabled && (
+                    <div className="flex items-center justify-between">
+                      <Label className="text-sm text-muted-foreground">
+                        {t('settings.general.uiSoundVoice')}
+                      </Label>
+                      <Select
+                        value={uiSoundVoice}
+                        onValueChange={(value) => {
+                          setUiSoundVoice(value as VoiceName)
+                          // Preview the newly selected voice.
+                          emitUiSound('confirm')
+                        }}
+                      >
+                        <SelectTrigger className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {VOICE_OPTIONS.map((option) => (
+                            <SelectPrimitive.Item
+                              key={option.value}
+                              value={option.value}
+                              className="relative flex w-full cursor-default select-none items-center justify-between gap-3 rounded-sm py-1.5 pl-2 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                            >
+                              <SelectPrimitive.ItemText>
+                                <span
+                                  className={
+                                    option.value === uiSoundVoice
+                                      ? 'font-medium text-primary'
+                                      : undefined
+                                  }
+                                >
+                                  {option.label}
+                                </span>
+                              </SelectPrimitive.ItemText>
+                              <span
+                                role="button"
+                                tabIndex={-1}
+                                aria-label={t('settings.general.uiSoundPreview')}
+                                className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                                // Stop the click from selecting/closing the item — this only auditions.
+                                onPointerDown={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                }}
+                                onPointerUp={(e) => e.stopPropagation()}
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  previewUiSound(option.value)
+                                }}
+                              >
+                                <Play className="h-3 w-3" />
+                              </span>
+                            </SelectPrimitive.Item>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
               )}
 

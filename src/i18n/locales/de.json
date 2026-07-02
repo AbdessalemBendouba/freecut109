@@ -80,7 +80,11 @@
       "autoSave": "Automatisches Speichern",
       "interval": "Intervall",
       "intervalMinutes": "{{count}} Min.",
-      "undoHistoryDepth": "Tiefe des Rückgängig-Verlaufs"
+      "undoHistoryDepth": "Tiefe des Rückgängig-Verlaufs",
+      "uiSounds": "Interface-Sounds",
+      "uiSoundVolume": "Lautstärke",
+      "uiSoundVoice": "Sound-Thema",
+      "uiSoundPreview": "Vorschau"
     },
     "ai": {
       "captionSampleInterval": "Untertitel-Abtastintervall",

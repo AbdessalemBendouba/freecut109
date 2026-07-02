@@ -3,6 +3,7 @@ import type { TimelineCommand, CommandEntry, TimelineSnapshot } from './commands
 import { captureSnapshot, restoreSnapshot, snapshotsEqual } from './commands/snapshot'
 import { useSettingsStore } from '@/features/timeline/deps/settings'
 import { formatTimelineCommandLabel } from './commands/labels'
+import { emitUiSound } from '@/shared/ui/ui-sound'
 
 /**
  * Command store state.
@@ -116,6 +117,7 @@ export const useTimelineCommandStore = create<CommandStoreState & CommandStoreAc
 
       // Restore previous state
       restoreSnapshot(entry.beforeSnapshot)
+      emitUiSound('select')
 
       set((state) => ({
         undoStack: state.undoStack.slice(0, -1),
@@ -139,6 +141,7 @@ export const useTimelineCommandStore = create<CommandStoreState & CommandStoreAc
 
       // Restore the "after" state (which is stored in beforeSnapshot after undo swapped it)
       restoreSnapshot(entry.beforeSnapshot)
+      emitUiSound('select')
 
       set((state) => ({
         redoStack: state.redoStack.slice(0, -1),

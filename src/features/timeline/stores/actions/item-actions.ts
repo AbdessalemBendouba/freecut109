@@ -11,6 +11,7 @@ import { useKeyframesStore } from '../keyframes-store'
 import { useTimelineSettingsStore } from '../timeline-settings-store'
 import { useEditorStore } from '@/shared/state/editor'
 import { useSelectionStore } from '@/shared/state/selection'
+import { emitUiSound } from '@/shared/ui/ui-sound'
 import { execute, applyTransitionRepairs, warnIfOverlapping } from './shared'
 import { buildLinkedLeftShiftUpdates, expandIdsWithLinkedItems } from './linked-edit'
 import { propagateRemovedIntervalsToSyncLockedTracks } from './sync-lock-ripple'
@@ -375,6 +376,8 @@ export function removeItems(ids: string[]): void {
     },
     { ids: expandedIds },
   )
+
+  emitUiSound('delete')
 }
 
 export function rippleDeleteItems(ids: string[]): void {
@@ -731,7 +734,7 @@ export function duplicateItems(
   itemIds: string[],
   positions: Array<{ from: number; trackId: string }>,
 ): TimelineItem[] {
-  return execute(
+  const result = execute(
     'DUPLICATE_ITEMS',
     () => {
       const newItems = useItemsStore.getState()._duplicateItems(itemIds, positions)
@@ -741,6 +744,8 @@ export function duplicateItems(
     },
     { itemIds, count: positions.length },
   )
+  emitUiSound('confirm')
+  return result
 }
 
 export function duplicateItemsWithTrackChanges(

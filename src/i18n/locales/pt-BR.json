@@ -80,7 +80,11 @@
       "autoSave": "Salvamento automático",
       "interval": "Intervalo",
       "intervalMinutes": "{{count}} min",
-      "undoHistoryDepth": "Profundidade do histórico de desfazer"
+      "undoHistoryDepth": "Profundidade do histórico de desfazer",
+      "uiSounds": "Sons da interface",
+      "uiSoundVolume": "Volume do som",
+      "uiSoundVoice": "Tema de som",
+      "uiSoundPreview": "Prévia"
     },
     "ai": {
       "captionSampleInterval": "Intervalo de amostragem de legendas",

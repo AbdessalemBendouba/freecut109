@@ -32,6 +32,7 @@ import {
 import { isRateStretchableItem } from '../../hooks/use-rate-stretch'
 import { getTimelineClipLabelRowHeightPx } from './hover-layout'
 import { shouldSuppressTimelineItemClickAfterDrag } from './post-drag-click-guard'
+import { emitUiSound } from '@/shared/ui/ui-sound'
 import type { useTimelineDrag } from '../../hooks/use-timeline-drag'
 import type { useTimelineTrim } from '../../hooks/use-timeline-trim'
 import type { useRateStretch } from '../../hooks/use-rate-stretch'
@@ -104,7 +105,10 @@ export function useTimelineItemPointerHandlers({
     (e: React.MouseEvent) => {
       e.stopPropagation()
 
-      if (trackLocked) return
+      if (trackLocked) {
+        emitUiSound('error')
+        return
+      }
       if (shouldSuppressTimelineItemClickAfterDrag(activeToolRef.current, dragWasActiveRef.current))
         return
 
@@ -168,6 +172,7 @@ export function useTimelineItemPointerHandlers({
       }
 
       // Selection tool: handle item selection
+      emitUiSound('select')
       const { selectedItemIds, selectItems } = useSelectionStore.getState()
       const items = useTimelineStore.getState().items
       const linkedSelectionEnabled = useEditorStore.getState().linkedSelectionEnabled
