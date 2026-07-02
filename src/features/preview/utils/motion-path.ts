@@ -1,4 +1,4 @@
-import type { ItemKeyframes } from '@/types/keyframe'
+import type { ItemKeyframes, Keyframe, PropertyKeyframes } from '@/types/keyframe'
 import type { CanvasSettings } from '@/types/transform'
 import type { TimelineItem } from '@/types/timeline'
 import type { CoordinateParams, Point } from '../types/gizmo'
@@ -73,13 +73,65 @@ function hasVisibleMovement(points: MotionPathPoint[]): boolean {
   )
 }
 
+/** Temporary id for the injected drag-preview keyframe (never persisted). */
+const PREVIEW_KEYFRAME_ID = '__motion-path-preview__'
+
+/**
+ * Fold a live gizmo-drag position into the item's x/y keyframes as a keyframe at
+ * the dragged frame — an upsert — so the motion path previews the pending edit
+ * (matching the auto-keyframe the drag will commit) without waiting for release.
+ */
+function applyPreviewKeyframe(
+  itemKeyframes: ItemKeyframes,
+  preview: { frame: number; x: number; y: number },
+): ItemKeyframes {
+  const upsert = (properties: PropertyKeyframes[], property: 'x' | 'y', value: number) => {
+    const index = properties.findIndex((group) => group.property === property)
+    if (index === -1) return properties
+    const group = properties[index]!
+    let keyframes: Keyframe[]
+    if (group.keyframes.some((keyframe) => keyframe.frame === preview.frame)) {
+      keyframes = group.keyframes.map((keyframe) =>
+        keyframe.frame === preview.frame ? { ...keyframe, value } : keyframe,
+      )
+    } else {
+      // Inherit the incoming segment's easing so the previewed curve matches.
+      const easing =
+        group.keyframes.filter((keyframe) => keyframe.frame < preview.frame).at(-1)?.easing ??
+        'linear'
+      keyframes = [
+        ...group.keyframes,
+        { id: PREVIEW_KEYFRAME_ID, frame: preview.frame, value, easing },
+      ].sort((left, right) => left.frame - right.frame)
+    }
+    const next = [...properties]
+    next[index] = { ...group, keyframes }
+    return next
+  }
+
+  return {
+    ...itemKeyframes,
+    properties: upsert(upsert(itemKeyframes.properties, 'x', preview.x), 'y', preview.y),
+  }
+}
+
 export function buildMotionPathPoints(params: {
   item: TimelineItem
   itemKeyframes: ItemKeyframes | undefined
   canvas: CanvasSettings
   maxSamples?: number
+  /**
+   * Live gizmo-drag position (item-relative frame + transform-space x/y). When
+   * set, the path previews the drag by upserting a keyframe at that frame.
+   */
+  preview?: { frame: number; x: number; y: number }
 }): MotionPathPoint[] {
-  const { item, itemKeyframes, canvas } = params
+  const { item, canvas, preview } = params
+  const baseKeyframes = params.itemKeyframes
+  const itemKeyframes =
+    preview && baseKeyframes && hasPositionKeyframes(baseKeyframes)
+      ? applyPreviewKeyframe(baseKeyframes, preview)
+      : baseKeyframes
   if (!hasPositionKeyframes(itemKeyframes) && !hasPositionModifiers(item)) return []
 
   const startFrame = item.from

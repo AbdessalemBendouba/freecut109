@@ -34,10 +34,7 @@ import {
 import { MarqueeOverlay } from '@/shared/marquee/marquee-overlay'
 import { useVisualTransforms } from '../hooks/use-visual-transform'
 import { useCanvasMediaDrop } from '../hooks/use-canvas-media-drop'
-import {
-  buildMotionPathPoints,
-  canvasPointToMotionPathScreenPoint,
-} from '../utils/motion-path'
+import { buildMotionPathPoints, canvasPointToMotionPathScreenPoint } from '../utils/motion-path'
 import {
   getAutoKeyframeOperation,
   GIZMO_ANIMATABLE_PROPS,
@@ -226,6 +223,12 @@ export function GizmoOverlay({
   const updateInteraction = useGizmoStore((s) => s.updateInteraction)
   const endInteraction = useGizmoStore((s) => s.endInteraction)
   const clearInteraction = useGizmoStore((s) => s.clearInteraction)
+  // Live drag position so the motion path previews the pending edit in real time
+  // (only a translate moves position keyframes).
+  const gizmoDragItemId = useGizmoStore((s) =>
+    s.activeGizmo?.mode === 'translate' ? s.activeGizmo.itemId : null,
+  )
+  const gizmoPreviewTransform = useGizmoStore((s) => s.previewTransform)
 
   // Update canvas size in gizmo store when project size changes
   useEffect(() => {
@@ -355,10 +358,18 @@ export function GizmoOverlay({
     if (!coordParams || isCornerPinEditing || isMaskEditing) return []
     const canvas = { width: projectSize.width, height: projectSize.height, fps }
     return selectedItemsRef.current.flatMap((item) => {
+      const dragging = item.id === gizmoDragItemId && gizmoPreviewTransform
       const points = buildMotionPathPoints({
         item,
         itemKeyframes: selectedItemKeyframesById.get(item.id) ?? undefined,
         canvas,
+        preview: dragging
+          ? {
+              frame: frozenFrameRef.current - item.from,
+              x: gizmoPreviewTransform.x,
+              y: gizmoPreviewTransform.y,
+            }
+          : undefined,
       })
       if (points.length === 0) return []
       return [
@@ -381,6 +392,8 @@ export function GizmoOverlay({
     projectSize.width,
     motionPathSignature,
     selectedItemKeyframesById,
+    gizmoDragItemId,
+    gizmoPreviewTransform,
   ])
 
   // Get visual transforms for all visible items (base + keyframes + preview).
@@ -553,6 +566,15 @@ export function GizmoOverlay({
         justFinishedDragRef.current = false
       }, 100)
       setOtherItemBounds([])
+      // Sync the resolved frame the gizmo/overlay reads to the current (paused)
+      // frame. Otherwise a stale `displayedFrame` (left over from skimming) keeps
+      // resolving the transform at the wrong frame, so the gizmo/motion-path sit
+      // at a different point on the path than the rendered shape until the next
+      // scrub. Then force a recompute of the selection.
+      if (!usePlaybackStore.getState().isPlaying) {
+        usePreviewBridgeStore.getState().setDisplayedFrame(usePlaybackStore.getState().currentFrame)
+      }
+      setForceUpdate((n) => n + 1)
     },
     [visualItems, updateItemTransform, applyAutoKeyframeOperations, setOtherItemBounds],
   )
@@ -821,11 +843,15 @@ export function GizmoOverlay({
           </div>
         )}
 
-        <MotionPathOverlay
-          paths={motionPaths}
-          width={playerSize.width}
-          height={playerSize.height}
-        />
+        {/* Hide the motion path during playback — it clutters the frame and the
+            moving object already conveys the motion. */}
+        {!isPlaying && (
+          <MotionPathOverlay
+            paths={motionPaths}
+            width={playerSize.width}
+            height={playerSize.height}
+          />
+        )}
 
         {/* Clickable areas for UNSELECTED visible items */}
         {/* Selected items are handled by their respective gizmos (TransformGizmo or GroupGizmo) */}

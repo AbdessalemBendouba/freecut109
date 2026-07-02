@@ -1,9 +1,15 @@
 {
   "current": {
     "version": "current",
-    "date": "2026-07-01",
+    "date": "2026-07-02",
     "groups": {
       "added": [
+        {
+          "title": "Per-clip easing editor: preset curves, draggable handles, live preview, and custom presets"
+        },
+        {
+          "title": "Subtitle export modes: off, burn in, sidecar file, or embedded track"
+        },
         {
           "title": "Edit ProRes footage — import, preview, thumbnails, and export"
         },
