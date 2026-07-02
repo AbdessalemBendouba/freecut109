@@ -25,16 +25,18 @@ import {
   presetToEasing,
 } from './easings-dev-presets'
 import { EasingCurveEditor } from './easing-curve-editor'
+import './easing-preset-thumbnail.css'
 
 type PresetType = 'Easing' | 'Spring'
 type DirectionFilter = 'all' | EasingDirection
 
-const DIRECTION_FILTERS: Array<{ value: DirectionFilter; labelKey: string; defaultValue: string }> = [
-  { value: 'all', labelKey: 'timeline.keyframeEditor.filterAll', defaultValue: 'All' },
-  { value: 'in', labelKey: 'timeline.keyframeEditor.filterIn', defaultValue: 'In' },
-  { value: 'out', labelKey: 'timeline.keyframeEditor.filterOut', defaultValue: 'Out' },
-  { value: 'inout', labelKey: 'timeline.keyframeEditor.filterInOut', defaultValue: 'In-Out' },
-]
+const DIRECTION_FILTERS: Array<{ value: DirectionFilter; labelKey: string; defaultValue: string }> =
+  [
+    { value: 'all', labelKey: 'timeline.keyframeEditor.filterAll', defaultValue: 'All' },
+    { value: 'in', labelKey: 'timeline.keyframeEditor.filterIn', defaultValue: 'In' },
+    { value: 'out', labelKey: 'timeline.keyframeEditor.filterOut', defaultValue: 'Out' },
+    { value: 'inout', labelKey: 'timeline.keyframeEditor.filterInOut', defaultValue: 'In-Out' },
+  ]
 
 /** Easing updates applied to a segment's originating keyframe(s). */
 export interface SegmentEasingUpdate {
@@ -288,13 +290,14 @@ export function SegmentEasingPopover({
 
             <div className="max-h-[300px] overflow-y-auto p-2">
               {presetType === 'Easing' && (
-                <PresetChip
-                  label={t('timeline.keyframeEditor.easing.hold')}
-                  active={isHold}
-                  onClick={setHold}
-                  thumb={<HoldThumb />}
-                  wide
-                />
+                <div className="grid grid-cols-4 gap-1">
+                  <PresetChip
+                    label={t('timeline.keyframeEditor.easing.hold')}
+                    active={isHold}
+                    onClick={setHold}
+                    thumb={<HoldThumb />}
+                  />
+                </div>
               )}
               <div className="mt-1 grid grid-cols-4 gap-1">
                 {filteredPresets.map((preset) => (
@@ -320,13 +323,11 @@ function PresetChip({
   active,
   onClick,
   thumb,
-  wide = false,
 }: {
   label: string
   active: boolean
   onClick: () => void
   thumb: ReactNode
-  wide?: boolean
 }) {
   return (
     <button
@@ -334,8 +335,7 @@ function PresetChip({
       onClick={onClick}
       title={label}
       className={cn(
-        'flex flex-col items-center gap-1 rounded-md border p-1.5 transition-colors',
-        wide && 'w-full flex-row justify-start gap-2',
+        'group flex flex-col items-center gap-1 rounded-md border p-1.5 transition-colors',
         active
           ? 'border-blue-500/70 bg-blue-500/10'
           : 'border-transparent hover:border-border hover:bg-muted/50',
@@ -349,12 +349,43 @@ function PresetChip({
   )
 }
 
-// Thumbnail geometry. Y range shows anticipation (<0) and overshoot (>1).
-const T_W = 44
-const T_H = 30
-const T_PAD = 4
+// Thumbnail geometry — square tile. Y range shows anticipation (<0) and
+// overshoot (>1). Path coords are in px so the SVG curve and the marker's CSS
+// motion path (offset-path) share one coordinate space.
+const T_SIZE = 44
+const T_PAD = 7
 const T_YMIN = -0.3
 const T_YMAX = 1.3
+
+const projX = (t: number) => T_PAD + t * (T_SIZE - T_PAD * 2)
+const projY = (v: number) => T_PAD + ((T_YMAX - v) / (T_YMAX - T_YMIN)) * (T_SIZE - T_PAD * 2)
+
+// Wrapper: muted dot grid + square SVG curve + orange marker that rides the
+// curve on hover (animation defined in easing-preset-thumbnail.css).
+function ThumbFrame({ d }: { d: string }) {
+  return (
+    <div
+      className="ep-thumb shrink-0 overflow-hidden rounded"
+      style={{ width: T_SIZE, height: T_SIZE }}
+    >
+      <svg
+        width={T_SIZE}
+        height={T_SIZE}
+        viewBox={`0 0 ${T_SIZE} ${T_SIZE}`}
+        className="absolute inset-0"
+        aria-hidden
+      >
+        <path
+          d={d}
+          className="fill-none stroke-foreground/90"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+        />
+      </svg>
+      <span className="ep-dot" style={{ offsetPath: `path('${d}')` }} aria-hidden />
+    </div>
+  )
+}
 
 function PresetThumb({ preset }: { preset: EasingPreset }) {
   const { easingConfig } = presetToEasing(preset)
@@ -363,29 +394,15 @@ function PresetThumb({ preset }: { preset: EasingPreset }) {
   for (let i = 0; i <= steps; i++) {
     const t = i / steps
     const v = applyEasingConfig(t, easingConfig)
-    const px = T_PAD + t * (T_W - T_PAD * 2)
-    const py = T_PAD + ((T_YMAX - v) / (T_YMAX - T_YMIN)) * (T_H - T_PAD * 2)
-    d += `${i === 0 ? 'M' : 'L'} ${px.toFixed(1)} ${py.toFixed(1)} `
+    d += `${i === 0 ? 'M' : 'L'} ${projX(t).toFixed(1)} ${projY(v).toFixed(1)} `
   }
-  return (
-    <svg width={T_W} height={T_H} viewBox={`0 0 ${T_W} ${T_H}`} className="shrink-0" aria-hidden>
-      <path d={d} className="fill-none stroke-blue-400" strokeWidth={1.5} />
-    </svg>
-  )
+  return <ThumbFrame d={d} />
 }
 
 function HoldThumb() {
   // A step: flat, then a vertical jump at the end.
-  const midY = T_PAD + ((T_YMAX - 0) / (T_YMAX - T_YMIN)) * (T_H - T_PAD * 2)
-  const topY = T_PAD + ((T_YMAX - 1) / (T_YMAX - T_YMIN)) * (T_H - T_PAD * 2)
-  const right = T_W - T_PAD
-  return (
-    <svg width={T_W} height={T_H} viewBox={`0 0 ${T_W} ${T_H}`} className="shrink-0" aria-hidden>
-      <path
-        d={`M ${T_PAD} ${midY} L ${right} ${midY} L ${right} ${topY}`}
-        className="fill-none stroke-blue-400"
-        strokeWidth={1.5}
-      />
-    </svg>
-  )
+  const midY = projY(0)
+  const topY = projY(1)
+  const right = T_SIZE - T_PAD
+  return <ThumbFrame d={`M ${T_PAD} ${midY} L ${right} ${midY} L ${right} ${topY}`} />
 }

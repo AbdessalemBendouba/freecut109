@@ -343,7 +343,7 @@ function PositionPreview({
       <div className="relative h-9 overflow-hidden rounded-md border border-border/60 bg-black/40">
         <div className="absolute inset-x-3 top-1/2 border-t border-dashed border-white/20" />
         <div
-          className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full bg-blue-500"
+          className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full bg-orange-400"
           style={{ left: `calc(12px + (100% - 24px) * ${Math.max(0, Math.min(1, pos))} - 7px)` }}
         />
       </div>

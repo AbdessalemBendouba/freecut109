@@ -1885,7 +1885,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     ? isPropertyLocked(graphDisplayProperty)
     : false
   const focusGraphPane = useCallback(() => {
-    graphPaneRef.current?.focus()
+    // `preventScroll` is essential: focusing a tabIndex={-1} element inside a
+    // scrollable container makes the browser scroll it into view. Without this,
+    // pressing a keyframe (which focuses the pane via onPointerDownCapture)
+    // shifts the entire dopesheet scroll.
+    graphPaneRef.current?.focus({ preventScroll: true })
   }, [])
   const handleGraphPaneKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
