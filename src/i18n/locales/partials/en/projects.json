@@ -461,7 +461,6 @@
           "zoomTo100": "Zoom to 100%",
           "toggleSnap": "Toggle snap",
           "toggleCanvasSnap": "Toggle canvas (gizmo) snap",
-          "toggleKeyframeEditorPanel": "Toggle keyframe editor panel",
           "editWorkspace": "Switch to Edit workspace",
           "colorWorkspace": "Switch to Color workspace",
           "copy": "Copy selected items or keyframes",
@@ -481,7 +480,8 @@
           "overwriteEdit": "Overwrite edit",
           "saveProject": "Save project",
           "exportVideo": "Export video",
-          "openSceneBrowser": "Open Scene Browser (search AI captions)"
+          "openSceneBrowser": "Open Scene Browser (search AI captions)",
+          "animateWorkspace": "Switch to Animate workspace"
         },
         "searchPlaceholder": "Search commands or shortcuts",
         "searchResults": "Shortcut search results",
@@ -491,7 +491,35 @@
         "resetAllConfirmAction": "Reset all",
         "resetAllToast": "Shortcuts reset to defaults",
         "searchResultCount_one": "{{count}} result",
-        "searchResultCount_other": "{{count}} results"
+        "searchResultCount_other": "{{count}} results",
+        "filters": {
+          "custom": "Customized",
+          "conflicts": "Conflicts",
+          "unassigned": "Unassigned"
+        },
+        "scopes": {
+          "keyframes": "Active while the Keyframe editor is focused",
+          "sourceMonitor": "Active while the Source Monitor is focused"
+        },
+        "scopedBadge": "Scoped",
+        "addAlternate": "Add alternate",
+        "removeBinding": "Remove shortcut",
+        "keyboardLabel": "On-screen keyboard",
+        "keyNoCommand": "{{key}} key, no shortcut",
+        "layoutFallbackNote": "Showing a US keyboard layout — your keys may differ.",
+        "undo": "Undo",
+        "reassignedToast": "Shortcut reassigned",
+        "importNoChanges": "This preset matches your current shortcuts.",
+        "importReviewTitle": "Review shortcut import",
+        "importReviewDescription": "Applying this preset replaces your current custom shortcuts.",
+        "importApply": "Apply preset",
+        "importChangeCount_one": "{{count}} shortcut will change",
+        "importChangeCount_other": "{{count}} shortcuts will change",
+        "importReplaceCount_one": "replaces {{count}} custom shortcut",
+        "importReplaceCount_other": "replaces {{count}} custom shortcuts",
+        "announceRecording": "Recording shortcut for {{command}}. Press a key combination.",
+        "announceCaptured": "Captured {{binding}}",
+        "announceConflict": "{{binding}} conflicts with {{action}}"
       }
     }
   },

@@ -71,6 +71,7 @@ export const HOTKEYS = {
   OPEN_SCENE_BROWSER: 'mod+shift+f',
   WORKSPACE_EDIT: 'alt+1',
   WORKSPACE_COLOR: 'alt+2',
+  WORKSPACE_ANIMATE: 'alt+3',
 
   // Markers
   ADD_MARKER: 'm',
@@ -80,7 +81,6 @@ export const HOTKEYS = {
 
   // Keyframes
   CLEAR_KEYFRAMES: 'shift+a',
-  TOGGLE_KEYFRAME_EDITOR: 'mod+shift+a',
   KEYFRAME_EDITOR_GRAPH: '1',
   KEYFRAME_EDITOR_DOPESHEET: '2',
 
@@ -335,6 +335,7 @@ export const HOTKEY_DESCRIPTIONS: Record<HotkeyKey, string> = {
   OPEN_SCENE_BROWSER: 'Open Scene Browser (search AI captions)',
   WORKSPACE_EDIT: 'Switch to Edit workspace',
   WORKSPACE_COLOR: 'Switch to Color workspace',
+  WORKSPACE_ANIMATE: 'Switch to Animate workspace',
 
   // Markers
   ADD_MARKER: 'Add marker at playhead',
@@ -344,7 +345,6 @@ export const HOTKEY_DESCRIPTIONS: Record<HotkeyKey, string> = {
 
   // Keyframes
   CLEAR_KEYFRAMES: 'Clear all keyframes from selected items',
-  TOGGLE_KEYFRAME_EDITOR: 'Toggle keyframe editor panel',
   KEYFRAME_EDITOR_GRAPH: 'Switch keyframe editor to graph view',
   KEYFRAME_EDITOR_DOPESHEET: 'Switch keyframe editor to dopesheet view',
 

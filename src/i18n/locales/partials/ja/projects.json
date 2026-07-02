@@ -461,7 +461,6 @@
           "zoomTo100": "100%にズーム",
           "toggleSnap": "スナップを切り替え",
           "toggleCanvasSnap": "キャンバス（ギズモ）スナップを切り替え",
-          "toggleKeyframeEditorPanel": "キーフレームエディターパネルを切り替え",
           "editWorkspace": "編集ワークスペースに切り替え",
           "colorWorkspace": "カラーワークスペースに切り替え",
           "copy": "選択した項目またはキーフレームをコピー",
@@ -481,7 +480,8 @@
           "overwriteEdit": "上書き編集",
           "saveProject": "プロジェクトを保存",
           "exportVideo": "動画をエクスポート",
-          "openSceneBrowser": "シーンブラウザを開く（AIキャプションを検索）"
+          "openSceneBrowser": "シーンブラウザを開く（AIキャプションを検索）",
+          "animateWorkspace": "アニメートワークスペースに切り替え"
         },
         "searchPlaceholder": "コマンドまたはショートカットを検索",
         "searchResults": "ショートカット検索結果",
@@ -491,7 +491,35 @@
         "resetAllConfirmAction": "すべてリセット",
         "resetAllToast": "ショートカットを既定値にリセットしました",
         "searchResultCount_one": "{{count}} 件の結果",
-        "searchResultCount_other": "{{count}} 件の結果"
+        "searchResultCount_other": "{{count}} 件の結果",
+        "filters": {
+          "custom": "カスタム",
+          "conflicts": "競合",
+          "unassigned": "未割り当て"
+        },
+        "scopes": {
+          "keyframes": "キーフレームエディターにフォーカスがあるときに有効",
+          "sourceMonitor": "ソースモニターにフォーカスがあるときに有効"
+        },
+        "scopedBadge": "限定",
+        "addAlternate": "代替を追加",
+        "removeBinding": "ショートカットを削除",
+        "keyboardLabel": "オンスクリーンキーボード",
+        "keyNoCommand": "{{key}} キー、ショートカットなし",
+        "layoutFallbackNote": "US キーボードレイアウトを表示しています。実際のキーと異なる場合があります。",
+        "undo": "元に戻す",
+        "reassignedToast": "ショートカットを再割り当てしました",
+        "importNoChanges": "このプリセットは現在のショートカットと同じです。",
+        "importReviewTitle": "ショートカットのインポートを確認",
+        "importReviewDescription": "このプリセットを適用すると、現在のカスタムショートカットが置き換えられます。",
+        "importApply": "プリセットを適用",
+        "importChangeCount_one": "{{count}} 個のショートカットが変更されます",
+        "importChangeCount_other": "{{count}} 個のショートカットが変更されます",
+        "importReplaceCount_one": "{{count}} 個のカスタムショートカットを置き換えます",
+        "importReplaceCount_other": "{{count}} 個のカスタムショートカットを置き換えます",
+        "announceRecording": "{{command}} のショートカットを記録中です。キーの組み合わせを押してください。",
+        "announceCaptured": "{{binding}} を取得しました",
+        "announceConflict": "{{binding}} は {{action}} と競合します"
       }
     }
   },

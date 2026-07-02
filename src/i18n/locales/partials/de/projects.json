@@ -461,7 +461,6 @@
           "zoomTo100": "Auf 100% zoomen",
           "toggleSnap": "Einrasten umschalten",
           "toggleCanvasSnap": "Leinwand-Einrasten (Gizmo) umschalten",
-          "toggleKeyframeEditorPanel": "Keyframe-Editor-Panel umschalten",
           "editWorkspace": "Zum Schnitt-Arbeitsbereich wechseln",
           "colorWorkspace": "Zum Farb-Arbeitsbereich wechseln",
           "copy": "Ausgewählte Elemente oder Keyframes kopieren",
@@ -481,7 +480,8 @@
           "overwriteEdit": "Überschreibbearbeitung",
           "saveProject": "Projekt speichern",
           "exportVideo": "Video exportieren",
-          "openSceneBrowser": "Szenenbrowser öffnen (KI-Untertitel durchsuchen)"
+          "openSceneBrowser": "Szenenbrowser öffnen (KI-Untertitel durchsuchen)",
+          "animateWorkspace": "Zum Animations-Arbeitsbereich wechseln"
         },
         "searchPlaceholder": "Befehle oder Tastenkürzel suchen",
         "searchResults": "Suchergebnisse für Tastenkürzel",
@@ -491,7 +491,35 @@
         "resetAllConfirmAction": "Alle zurücksetzen",
         "resetAllToast": "Tastenkürzel auf Standardwerte zurückgesetzt",
         "searchResultCount_one": "{{count}} Ergebnis",
-        "searchResultCount_other": "{{count}} Ergebnisse"
+        "searchResultCount_other": "{{count}} Ergebnisse",
+        "filters": {
+          "custom": "Angepasst",
+          "conflicts": "Konflikte",
+          "unassigned": "Nicht zugewiesen"
+        },
+        "scopes": {
+          "keyframes": "Aktiv, wenn der Keyframe-Editor fokussiert ist",
+          "sourceMonitor": "Aktiv, wenn der Quellmonitor fokussiert ist"
+        },
+        "scopedBadge": "Kontext",
+        "addAlternate": "Alternative hinzufügen",
+        "removeBinding": "Kurzbefehl entfernen",
+        "keyboardLabel": "Bildschirmtastatur",
+        "keyNoCommand": "Taste {{key}}, kein Kurzbefehl",
+        "layoutFallbackNote": "US-Tastaturlayout wird angezeigt – deine Tasten können abweichen.",
+        "undo": "Rückgängig",
+        "reassignedToast": "Kurzbefehl neu zugewiesen",
+        "importNoChanges": "Diese Vorlage entspricht deinen aktuellen Kurzbefehlen.",
+        "importReviewTitle": "Kurzbefehl-Import prüfen",
+        "importReviewDescription": "Das Anwenden dieser Vorlage ersetzt deine aktuellen benutzerdefinierten Kurzbefehle.",
+        "importApply": "Vorlage anwenden",
+        "importChangeCount_one": "{{count}} Kurzbefehl ändert sich",
+        "importChangeCount_other": "{{count}} Kurzbefehle ändern sich",
+        "importReplaceCount_one": "ersetzt {{count}} benutzerdefinierten Kurzbefehl",
+        "importReplaceCount_other": "ersetzt {{count}} benutzerdefinierte Kurzbefehle",
+        "announceRecording": "Kurzbefehl für {{command}} wird aufgezeichnet. Drücke eine Tastenkombination.",
+        "announceCaptured": "Erfasst: {{binding}}",
+        "announceConflict": "{{binding}} steht in Konflikt mit {{action}}"
       }
     }
   },

@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, memo, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useHotkeys } from 'react-hotkeys-hook'
 import { TimelineHeader } from './timeline-header'
 import { TimelineContent } from './timeline-content'
 import { TimelineNavigator } from './timeline-navigator'
@@ -12,8 +11,7 @@ import { useItemsStore } from '../stores/items-store'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useEditorStore } from '@/shared/state/editor'
 import { useTimelineStore } from '../stores/timeline-store'
-import { HOTKEY_OPTIONS } from '@/config/hotkeys'
-import { useSettingsStore, useResolvedHotkeys } from '@/features/timeline/deps/settings'
+import { useSettingsStore } from '@/features/timeline/deps/settings'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -94,7 +92,6 @@ interface TimelineProps {
  */
 export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
   const { t } = useTranslation()
-  const hotkeys = useResolvedHotkeys()
   const editorDensity = useSettingsStore((s) => s.editorDensity)
   const editorLayout = getEditorLayout(editorDensity)
   const {
@@ -176,7 +173,6 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
     () => useSettingsStore.getState().timelineSectionDividerPosition,
   )
 
-  const toggleKeyframeEditorOpen = useEditorStore((s) => s.toggleKeyframeEditorOpen)
   const trackSizePreset = useEditorStore((s) => s.trackSizePreset)
   const setTrackSizePreset = useEditorStore((s) => s.setTrackSizePreset)
   const setTimelineTracks = useTimelineStore((s) => s.setTracks)
@@ -223,17 +219,6 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
       window.removeEventListener('blur', handleBlur)
     }
   }, [])
-
-  // Keyboard shortcut: Ctrl/Cmd+Shift+A to toggle keyframe editor
-  useHotkeys(
-    hotkeys.TOGGLE_KEYFRAME_EDITOR,
-    (event) => {
-      event.preventDefault()
-      toggleKeyframeEditorOpen()
-    },
-    HOTKEY_OPTIONS,
-    [toggleKeyframeEditorOpen],
-  )
 
   // State for drop indicator (updated via RAF from drag hook)
   const [dropIndicatorIndex, setDropIndicatorIndex] = useState(-1)

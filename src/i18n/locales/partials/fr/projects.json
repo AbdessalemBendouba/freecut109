@@ -461,7 +461,6 @@
           "zoomTo100": "Zoom à 100%",
           "toggleSnap": "Basculer l'aimantation",
           "toggleCanvasSnap": "Basculer l'aimantation du canevas (gizmo)",
-          "toggleKeyframeEditorPanel": "Basculer le panneau de l'éditeur d'images clés",
           "editWorkspace": "Passer à l'espace de travail Montage",
           "colorWorkspace": "Passer à l'espace de travail Étalonnage",
           "copy": "Copier les éléments ou images clés sélectionnés",
@@ -481,7 +480,8 @@
           "overwriteEdit": "Modification d'écrasement",
           "saveProject": "Enregistrer le projet",
           "exportVideo": "Exporter la vidéo",
-          "openSceneBrowser": "Ouvrir l'explorateur de scènes (rechercher les sous-titres IA)"
+          "openSceneBrowser": "Ouvrir l'explorateur de scènes (rechercher les sous-titres IA)",
+          "animateWorkspace": "Passer à l’espace de travail Animation"
         },
         "searchPlaceholder": "Rechercher des commandes ou raccourcis",
         "searchResults": "Résultats de recherche de raccourcis",
@@ -491,7 +491,35 @@
         "resetAllConfirmAction": "Tout réinitialiser",
         "resetAllToast": "Raccourcis réinitialisés aux valeurs par défaut",
         "searchResultCount_one": "{{count}} résultat",
-        "searchResultCount_other": "{{count}} résultats"
+        "searchResultCount_other": "{{count}} résultats",
+        "filters": {
+          "custom": "Personnalisés",
+          "conflicts": "Conflits",
+          "unassigned": "Non attribué"
+        },
+        "scopes": {
+          "keyframes": "Actif lorsque l’éditeur d’images clés a le focus",
+          "sourceMonitor": "Actif lorsque le moniteur source a le focus"
+        },
+        "scopedBadge": "Contextuel",
+        "addAlternate": "Ajouter une alternative",
+        "removeBinding": "Supprimer le raccourci",
+        "keyboardLabel": "Clavier à l’écran",
+        "keyNoCommand": "Touche {{key}}, aucun raccourci",
+        "layoutFallbackNote": "Disposition de clavier US affichée ; vos touches peuvent différer.",
+        "undo": "Annuler",
+        "reassignedToast": "Raccourci réattribué",
+        "importNoChanges": "Ce préréglage correspond à vos raccourcis actuels.",
+        "importReviewTitle": "Vérifier l’import des raccourcis",
+        "importReviewDescription": "Appliquer ce préréglage remplacera vos raccourcis personnalisés actuels.",
+        "importApply": "Appliquer le préréglage",
+        "importChangeCount_one": "{{count}} raccourci changera",
+        "importChangeCount_other": "{{count}} raccourcis changeront",
+        "importReplaceCount_one": "remplace {{count}} raccourci personnalisé",
+        "importReplaceCount_other": "remplace {{count}} raccourcis personnalisés",
+        "announceRecording": "Enregistrement du raccourci pour {{command}}. Appuyez sur une combinaison de touches.",
+        "announceCaptured": "Capturé {{binding}}",
+        "announceConflict": "{{binding}} est en conflit avec {{action}}"
       }
     }
   },

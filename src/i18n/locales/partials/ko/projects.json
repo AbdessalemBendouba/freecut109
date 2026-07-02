@@ -461,7 +461,6 @@
           "zoomTo100": "100%로 확대/축소",
           "toggleSnap": "스냅 전환",
           "toggleCanvasSnap": "캔버스(기즈모) 스냅 전환",
-          "toggleKeyframeEditorPanel": "키프레임 편집기 패널 전환",
           "editWorkspace": "편집 작업 영역으로 전환",
           "colorWorkspace": "컬러 작업 영역으로 전환",
           "copy": "선택한 항목 또는 키프레임 복사",
@@ -481,7 +480,8 @@
           "overwriteEdit": "덮어쓰기 편집",
           "saveProject": "프로젝트 저장",
           "exportVideo": "동영상 내보내기",
-          "openSceneBrowser": "장면 브라우저 열기 (AI 자막 검색)"
+          "openSceneBrowser": "장면 브라우저 열기 (AI 자막 검색)",
+          "animateWorkspace": "애니메이트 작업 영역으로 전환"
         },
         "searchPlaceholder": "명령 또는 단축키 검색",
         "searchResults": "단축키 검색 결과",
@@ -491,7 +491,35 @@
         "resetAllConfirmAction": "모두 초기화",
         "resetAllToast": "단축키가 기본값으로 초기화되었습니다",
         "searchResultCount_one": "결과 {{count}}개",
-        "searchResultCount_other": "결과 {{count}}개"
+        "searchResultCount_other": "결과 {{count}}개",
+        "filters": {
+          "custom": "사용자 지정",
+          "conflicts": "충돌",
+          "unassigned": "미지정"
+        },
+        "scopes": {
+          "keyframes": "키프레임 편집기에 포커스가 있을 때 활성화",
+          "sourceMonitor": "소스 모니터에 포커스가 있을 때 활성화"
+        },
+        "scopedBadge": "범위",
+        "addAlternate": "대체 추가",
+        "removeBinding": "단축키 제거",
+        "keyboardLabel": "화면 키보드",
+        "keyNoCommand": "{{key}} 키, 단축키 없음",
+        "layoutFallbackNote": "US 키보드 레이아웃을 표시합니다. 실제 키와 다를 수 있습니다.",
+        "undo": "실행 취소",
+        "reassignedToast": "단축키를 다시 지정했습니다",
+        "importNoChanges": "이 프리셋은 현재 단축키와 동일합니다.",
+        "importReviewTitle": "단축키 가져오기 검토",
+        "importReviewDescription": "이 프리셋을 적용하면 현재 사용자 지정 단축키가 대체됩니다.",
+        "importApply": "프리셋 적용",
+        "importChangeCount_one": "{{count}}개의 단축키가 변경됩니다",
+        "importChangeCount_other": "{{count}}개의 단축키가 변경됩니다",
+        "importReplaceCount_one": "{{count}}개의 사용자 지정 단축키를 대체합니다",
+        "importReplaceCount_other": "{{count}}개의 사용자 지정 단축키를 대체합니다",
+        "announceRecording": "{{command}} 단축키를 녹화 중입니다. 키 조합을 누르세요.",
+        "announceCaptured": "{{binding}} 캡처됨",
+        "announceConflict": "{{binding}}이(가) {{action}}과(와) 충돌합니다"
       }
     }
   },

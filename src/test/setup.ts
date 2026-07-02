@@ -29,6 +29,21 @@ if (typeof testGlobal.ImageData === 'undefined') {
   testGlobal.ImageData = MockImageData as unknown as typeof ImageData
 }
 
+// Mock ResizeObserver — jsdom omits it; components that measure natural height
+// (e.g. the shortcuts dialog command list) construct one on mount.
+type TestGlobalWithResizeObserver = typeof globalThis & { ResizeObserver?: typeof ResizeObserver }
+const testGlobalRO = globalThis as TestGlobalWithResizeObserver
+
+if (typeof testGlobalRO.ResizeObserver === 'undefined') {
+  class MockResizeObserver {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  }
+
+  testGlobalRO.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserver
+}
+
 afterEach(() => {
   resetAutoKeyframeStore()
 })

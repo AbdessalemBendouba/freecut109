@@ -461,7 +461,6 @@
           "zoomTo100": "Zoom al 100%",
           "toggleSnap": "Alternar ajuste",
           "toggleCanvasSnap": "Alternar ajuste del lienzo (gizmo)",
-          "toggleKeyframeEditorPanel": "Alternar el panel del editor de fotogramas clave",
           "editWorkspace": "Cambiar al espacio de trabajo de Edición",
           "colorWorkspace": "Cambiar al espacio de trabajo de Color",
           "copy": "Copiar elementos o fotogramas clave seleccionados",
@@ -481,7 +480,8 @@
           "overwriteEdit": "Edición de sobrescritura",
           "saveProject": "Guardar proyecto",
           "exportVideo": "Exportar video",
-          "openSceneBrowser": "Abrir el explorador de escenas (buscar subtítulos de IA)"
+          "openSceneBrowser": "Abrir el explorador de escenas (buscar subtítulos de IA)",
+          "animateWorkspace": "Cambiar al espacio de trabajo de Animación"
         },
         "searchPlaceholder": "Buscar comandos o atajos",
         "searchResults": "Resultados de búsqueda de atajos",
@@ -491,7 +491,35 @@
         "resetAllConfirmAction": "Restablecer todo",
         "resetAllToast": "Atajos restablecidos a los valores predeterminados",
         "searchResultCount_one": "{{count}} resultado",
-        "searchResultCount_other": "{{count}} resultados"
+        "searchResultCount_other": "{{count}} resultados",
+        "filters": {
+          "custom": "Personalizados",
+          "conflicts": "Conflictos",
+          "unassigned": "Sin asignar"
+        },
+        "scopes": {
+          "keyframes": "Activo cuando el editor de fotogramas clave tiene el foco",
+          "sourceMonitor": "Activo cuando el monitor de origen tiene el foco"
+        },
+        "scopedBadge": "Contextual",
+        "addAlternate": "Agregar alternativa",
+        "removeBinding": "Quitar atajo",
+        "keyboardLabel": "Teclado en pantalla",
+        "keyNoCommand": "Tecla {{key}}, sin atajo",
+        "layoutFallbackNote": "Se muestra una distribución de teclado de EE. UU.; tus teclas pueden variar.",
+        "undo": "Deshacer",
+        "reassignedToast": "Atajo reasignado",
+        "importNoChanges": "Este ajuste coincide con tus atajos actuales.",
+        "importReviewTitle": "Revisar importación de atajos",
+        "importReviewDescription": "Aplicar este ajuste reemplazará tus atajos personalizados actuales.",
+        "importApply": "Aplicar ajuste",
+        "importChangeCount_one": "{{count}} atajo cambiará",
+        "importChangeCount_other": "{{count}} atajos cambiarán",
+        "importReplaceCount_one": "reemplaza {{count}} atajo personalizado",
+        "importReplaceCount_other": "reemplaza {{count}} atajos personalizados",
+        "announceRecording": "Grabando atajo para {{command}}. Pulsa una combinación de teclas.",
+        "announceCaptured": "Capturado {{binding}}",
+        "announceConflict": "{{binding}} entra en conflicto con {{action}}"
       }
     }
   },

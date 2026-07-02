@@ -10,7 +10,16 @@ import {
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import { AlertTriangle, Download, Keyboard, RotateCcw, Search, Upload, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  Download,
+  Keyboard,
+  Plus,
+  RotateCcw,
+  Search,
+  Upload,
+  X,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import {
   AlertDialog,
@@ -37,17 +46,23 @@ import {
   hasHotkeyPrimaryToken,
   normalizeHotkeyBinding,
   parseHotkeyImportDocument,
+  resolveHotkeys,
   splitHotkeyBinding,
+  type HotkeyBindingMap,
+  type HotkeyImportResult,
   type HotkeyKey,
+  type HotkeyOverrideMap,
 } from '@/config/hotkeys'
 import {
   HOTKEY_EDITOR_SECTIONS,
   getHotkeyBindingDisplayLabel,
   getHotkeyEditorSearchResults,
   type HotkeyEditorItem,
+  type HotkeyEditorSearchResult,
   type HotkeyEditorSection,
 } from './hotkey-editor-sections'
 import { useNaturalHeight } from '@/shared/ui/use-natural-height'
+import { useKeyboardLayoutLabels } from '../hooks/use-keyboard-layout'
 import { useResolvedHotkeys } from '../hooks/use-resolved-hotkeys'
 import { useSettingsStore } from '../stores/settings-store'
 
@@ -287,6 +302,8 @@ function KeyCap({
   keySpec,
   isActive,
   isLayerKey = false,
+  displayLabel,
+  ariaLabel,
   tooltip,
   onClick,
   onMouseEnter,
@@ -295,6 +312,8 @@ function KeyCap({
   keySpec: KeyboardKeySpec
   isActive: boolean
   isLayerKey?: boolean
+  displayLabel?: string
+  ariaLabel?: string
   tooltip?: string
   onClick?: () => void
   onMouseEnter?: () => void
@@ -304,24 +323,38 @@ function KeyCap({
     return <div style={{ flex: keySpec.width ?? 1 }} />
   }
 
-  const label = keySpec.label ?? (keySpec.token ? formatHotkeyBinding(keySpec.token) : '')
+  const label =
+    displayLabel ?? keySpec.label ?? (keySpec.token ? formatHotkeyBinding(keySpec.token) : '')
 
-  const keyCap = (
-    <div
+  const capClassName = cn(
+    KEY_BASE_CLASSES,
+    isActive
+      ? KEY_ACTIVE_CLASSES
+      : isLayerKey
+        ? 'border-primary/25 bg-primary/8 text-foreground/85'
+        : KEY_IDLE_CLASSES,
+  )
+
+  // Interactive caps (mapped to a command token) are real buttons so the whole
+  // on-screen keyboard is reachable and operable via Tab/Enter, not just mouse.
+  const keyCap = keySpec.token ? (
+    <button
+      type="button"
+      aria-label={ariaLabel}
+      aria-pressed={isActive}
       className={cn(
-        KEY_BASE_CLASSES,
-        isActive
-          ? KEY_ACTIVE_CLASSES
-          : isLayerKey
-            ? 'border-primary/25 bg-primary/8 text-foreground/85'
-            : KEY_IDLE_CLASSES,
-        keySpec.token && 'cursor-pointer hover:border-white/12 hover:text-foreground/92',
+        capClassName,
+        'cursor-pointer hover:border-white/12 hover:text-foreground/92 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
       )}
       style={{ flex: keySpec.width ?? 1 }}
       onClick={onClick}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
+      {label}
+    </button>
+  ) : (
+    <div className={capClassName} style={{ flex: keySpec.width ?? 1 }} aria-hidden="true">
       {label}
     </div>
   )
@@ -347,6 +380,11 @@ function KeyboardPreview({
   layerTokens,
   hoverTokens,
   tokenLabels,
+  labelForToken,
+  isNativeLayout,
+  ariaLabel,
+  emptyKeyLabel,
+  layoutFallbackNote,
   onTokenHover,
   onTokenClick,
 }: {
@@ -354,6 +392,11 @@ function KeyboardPreview({
   layerTokens: ReadonlySet<string>
   hoverTokens: ReadonlySet<string>
   tokenLabels: ReadonlyMap<string, string>
+  labelForToken: (token: string) => string | null
+  isNativeLayout: boolean
+  ariaLabel: string
+  emptyKeyLabel: (keyLabel: string) => string
+  layoutFallbackNote: string
   onTokenHover: (token: string | null) => void
   onTokenClick: (token: string) => void
 }) {
@@ -363,24 +406,35 @@ function KeyboardPreview({
   )
 
   const renderRow = (keys: readonly KeyboardKeySpec[]) =>
-    keys.map((keySpec) => (
-      <KeyCap
-        key={keySpec.id}
-        keySpec={keySpec}
-        isActive={
-          keySpec.token
-            ? hoverTokens.size > 0
-              ? hoverTokens.has(keySpec.token)
-              : activeTokens.has(keySpec.token)
-            : false
-        }
-        isLayerKey={keySpec.token ? layerTokens.has(keySpec.token) : false}
-        tooltip={keySpec.token ? tokenLabels.get(keySpec.token) : undefined}
-        onClick={keySpec.token ? () => onTokenClick(keySpec.token!) : undefined}
-        onMouseEnter={keySpec.token ? () => onTokenHover(keySpec.token!) : undefined}
-        onMouseLeave={() => onTokenHover(null)}
-      />
-    ))
+    keys.map((keySpec) => {
+      const token = keySpec.token
+      const keyLabel = token ? (labelForToken(token) ?? undefined) : undefined
+      const printedLabel =
+        keyLabel ?? keySpec.label ?? (token ? formatHotkeyBinding(token) : '')
+      const command = token ? tokenLabels.get(token) : undefined
+      const ariaLabelForKey = token
+        ? command
+          ? `${printedLabel}: ${command}`
+          : emptyKeyLabel(printedLabel)
+        : undefined
+
+      return (
+        <KeyCap
+          key={keySpec.id}
+          keySpec={keySpec}
+          displayLabel={keyLabel}
+          ariaLabel={ariaLabelForKey}
+          isActive={
+            token ? (hoverTokens.size > 0 ? hoverTokens.has(token) : activeTokens.has(token)) : false
+          }
+          isLayerKey={token ? layerTokens.has(token) : false}
+          tooltip={token ? command : undefined}
+          onClick={token ? () => onTokenClick(token) : undefined}
+          onMouseEnter={token ? () => onTokenHover(token) : undefined}
+          onMouseLeave={() => onTokenHover(null)}
+        />
+      )
+    })
 
   const renderRowPair = (pair: KeyboardRowPair, index: number) => (
     <div key={index} className="flex gap-3">
@@ -395,9 +449,18 @@ function KeyboardPreview({
 
   return (
     <div className="overflow-x-auto pb-1">
-      <div className="mx-auto min-w-[900px] max-w-[1060px] space-y-[5px]">
+      <div
+        role="group"
+        aria-label={ariaLabel}
+        className="mx-auto min-w-[760px] max-w-[1060px] space-y-[5px] xl:min-w-[900px]"
+      >
         {KEYBOARD_ROWS.map((pair, i) => renderRowPair(pair, i))}
       </div>
+      {!isNativeLayout ? (
+        <p className="mx-auto mt-2 max-w-[1060px] text-center text-[10px] text-muted-foreground">
+          {layoutFallbackNote}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -422,6 +485,68 @@ function CollapseBlock({ children, reduce }: { children: ReactNode; reduce: bool
   )
 }
 
+type HotkeyFilterMode = 'all' | 'custom' | 'conflicts' | 'unassigned'
+
+const FILTER_CHIP_MODES = ['custom', 'conflicts', 'unassigned'] as const
+
+interface ImportChange {
+  key: HotkeyKey
+  labelKey: string
+  from: string
+  to: string
+}
+
+interface PendingHotkeyImport {
+  overrides: HotkeyOverrideMap
+  result: HotkeyImportResult
+  changes: ImportChange[]
+}
+
+/** Per-slot diff between the live bindings and the bindings a preset would apply. */
+function buildImportChanges(
+  currentBindings: HotkeyBindingMap,
+  nextOverrides: HotkeyOverrideMap,
+): ImportChange[] {
+  const nextBindings = resolveHotkeys(nextOverrides)
+  const changes: ImportChange[] = []
+
+  for (const [key, item] of Object.entries(HOTKEY_ITEM_BY_KEY) as [
+    HotkeyKey,
+    HotkeyEditorItem,
+  ][]) {
+    if (currentBindings[key] !== nextBindings[key]) {
+      changes.push({ key, labelKey: item.labelKey, from: currentBindings[key], to: nextBindings[key] })
+    }
+  }
+
+  return changes
+}
+
+/** Commands matching a quick filter (customized / conflicting / unassigned). */
+function getHotkeyFilterResults(
+  mode: Exclude<HotkeyFilterMode, 'all'>,
+  hotkeys: HotkeyBindingMap,
+  overrides: HotkeyOverrideMap,
+): HotkeyEditorSearchResult[] {
+  const results: HotkeyEditorSearchResult[] = []
+
+  for (const section of HOTKEY_EDITOR_SECTIONS) {
+    for (const item of section.items) {
+      const matches = item.keys.some((key) => {
+        if (mode === 'custom') return key in overrides
+        if (mode === 'unassigned') return hotkeys[key] === ''
+        return findHotkeyConflicts(hotkeys, hotkeys[key], key).length > 0
+      })
+
+      if (matches) {
+        results.push({ section, item })
+      }
+    }
+  }
+
+  return results
+}
+
 export function HotkeyEditor() {
   const { t } = useTranslation()
   const reduceMotion = useReducedMotion()
@@ -432,8 +557,12 @@ export function HotkeyEditor() {
   const replaceHotkeyOverrides = useSettingsStore((state) => state.replaceHotkeyOverrides)
   const resetHotkeyBinding = useSettingsStore((state) => state.resetHotkeyBinding)
   const resetHotkeys = useSettingsStore((state) => state.resetHotkeys)
+  const layout = useKeyboardLayoutLabels()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const partialConflictOverrideSnapshotRef = useRef<typeof hotkeyOverrides | null>(null)
+  // Overrides captured when a recording session began, so a completed overwrite
+  // can offer a single "Undo" that reverts every unbind it caused.
+  const preCaptureOverridesRef = useRef<HotkeyOverrideMap | null>(null)
 
   const [selectedKey, setSelectedKey] = useState<HotkeyKey>('PLAY_PAUSE')
   const [activeLayer, setActiveLayer] = useState<HotkeyEditorSection | null>(null)
@@ -443,6 +572,8 @@ export function HotkeyEditor() {
   const [draftBinding, setDraftBinding] = useState('')
   const [previewBinding, setPreviewBinding] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
+  const [filterMode, setFilterMode] = useState<HotkeyFilterMode>('all')
+  const [pendingImport, setPendingImport] = useState<PendingHotkeyImport | null>(null)
   const [isResetAllDialogOpen, setIsResetAllDialogOpen] = useState(false)
 
   // The command list's height animates to fit its content so the dialog shrinks
@@ -461,7 +592,6 @@ export function HotkeyEditor() {
     commandListNatural > 0 ? Math.min(commandListNatural, maxCommandListHeight) : undefined
 
   const selectedItem = HOTKEY_ITEM_BY_KEY[selectedKey]
-  const selectedSlotLabel = t(getSlotLabelKey(selectedItem, selectedKey))
   const isSelectedCustom = selectedKey in hotkeyOverrides
   const isSelectedUnassigned = hotkeys[selectedKey] === ''
   const customCount = Object.keys(hotkeyOverrides).length
@@ -495,6 +625,41 @@ export function HotkeyEditor() {
     [hotkeys, searchQuery, t],
   )
   const hasSearchQuery = searchQuery.trim().length > 0
+  const isFiltering = filterMode !== 'all' && !hasSearchQuery
+  const filterResults = useMemo(
+    () =>
+      filterMode === 'all' ? [] : getHotkeyFilterResults(filterMode, hotkeys, hotkeyOverrides),
+    [filterMode, hotkeys, hotkeyOverrides],
+  )
+  const filterCounts = useMemo(
+    () => ({
+      custom: getHotkeyFilterResults('custom', hotkeys, hotkeyOverrides).length,
+      conflicts: getHotkeyFilterResults('conflicts', hotkeys, hotkeyOverrides).length,
+      unassigned: getHotkeyFilterResults('unassigned', hotkeys, hotkeyOverrides).length,
+    }),
+    [hotkeys, hotkeyOverrides],
+  )
+  const activeResults = hasSearchQuery ? searchResults : filterResults
+  const showResultList = hasSearchQuery || isFiltering
+  const selectedSection = useMemo(
+    () =>
+      HOTKEY_EDITOR_SECTIONS.find((section) =>
+        section.items.some((item) => item.keys.includes(selectedKey)),
+      ),
+    [selectedKey],
+  )
+  const liveMessage = isCapturingSelectedKey
+    ? draftBinding
+      ? captureConflicts.length > 0
+        ? t('projects.settings.hotkeys.announceConflict', {
+            binding: formatHotkeyBinding(draftBinding),
+            action: t(HOTKEY_ITEM_BY_KEY[captureConflicts[0]!].labelKey),
+          })
+        : t('projects.settings.hotkeys.announceCaptured', {
+            binding: formatHotkeyBinding(draftBinding),
+          })
+      : t('projects.settings.hotkeys.announceRecording', { command: t(selectedItem.labelKey) })
+    : ''
 
   const stopCapture = useCallback(
     ({ restorePartialOverwrites = true } = {}) => {
@@ -560,8 +725,28 @@ export function HotkeyEditor() {
 
   const startCapture = (key: HotkeyKey) => {
     stopCapture()
+    preCaptureOverridesRef.current = { ...useSettingsStore.getState().hotkeyOverrides }
     setSelectedKey(key)
     setCaptureKey(key)
+  }
+
+  const showUndoToast = (message: string, snapshot: HotkeyOverrideMap) => {
+    toast.success(message, {
+      action: {
+        label: t('projects.settings.hotkeys.undo'),
+        onClick: () => replaceHotkeyOverrides(snapshot),
+      },
+    })
+  }
+
+  // Revert to the pre-recording snapshot — used after an overwrite unbinds other
+  // commands, so a single click restores everything the session changed.
+  const finishCaptureWithUndo = (message: string) => {
+    const snapshot = preCaptureOverridesRef.current
+    preCaptureOverridesRef.current = null
+    if (snapshot) {
+      showUndoToast(message, snapshot)
+    }
   }
 
   const layerTokens = useMemo(() => {
@@ -648,6 +833,7 @@ export function HotkeyEditor() {
     if (remainingConflicts.length === 0) {
       setHotkeyBinding(captureKey, normalizeHotkeyBinding(draftBinding))
       stopCapture({ restorePartialOverwrites: false })
+      finishCaptureWithUndo(t('projects.settings.hotkeys.reassignedToast'))
     }
   }
 
@@ -661,6 +847,7 @@ export function HotkeyEditor() {
     }
     setHotkeyBinding(captureKey, normalizeHotkeyBinding(draftBinding))
     stopCapture({ restorePartialOverwrites: false })
+    finishCaptureWithUndo(t('projects.settings.hotkeys.reassignedToast'))
   }
 
   const unbindSelectedHotkey = () => {
@@ -724,41 +911,55 @@ export function HotkeyEditor() {
     }
   }
 
+  // Parse and diff the preset, then stage it for confirmation instead of
+  // silently replacing the user's whole config.
   const importHotkeys = async (file: File) => {
     try {
       const contents = await readTextFile(file)
       const importResult = parseHotkeyImportDocument(JSON.parse(contents))
+      const changes = buildImportChanges(hotkeys, importResult.overrides)
 
-      replaceHotkeyOverrides(importResult.overrides)
-      stopCapture({ restorePartialOverwrites: false })
-
-      const messages = [
-        t('projects.settings.hotkeys.importedCommands', {
-          count: importResult.importedCommandCount,
-        }),
-      ]
-      if (importResult.remappedCommandCount > 0) {
-        messages.push(
-          t('projects.settings.hotkeys.remappedCount', {
-            count: importResult.remappedCommandCount,
-          }),
-        )
-      }
-      if (importResult.ignoredCommandCount > 0) {
-        messages.push(
-          t('projects.settings.hotkeys.ignoredCount', { count: importResult.ignoredCommandCount }),
-        )
-      }
-      if (importResult.sourceVersion !== null) {
-        messages.push(
-          t('projects.settings.hotkeys.presetVersion', { version: importResult.sourceVersion }),
-        )
+      if (changes.length === 0) {
+        toast.success(t('projects.settings.hotkeys.importNoChanges'))
+        return
       }
 
-      toast.success(messages.join(' - '))
+      setPendingImport({ overrides: importResult.overrides, result: importResult, changes })
     } catch {
       toast.error(t('projects.settings.hotkeys.importFailed'))
     }
+  }
+
+  const applyPendingImport = () => {
+    if (!pendingImport) {
+      return
+    }
+
+    const snapshot = { ...useSettingsStore.getState().hotkeyOverrides }
+    const { result } = pendingImport
+
+    replaceHotkeyOverrides(pendingImport.overrides)
+    stopCapture({ restorePartialOverwrites: false })
+    setPendingImport(null)
+
+    const messages = [
+      t('projects.settings.hotkeys.importedCommands', { count: result.importedCommandCount }),
+    ]
+    if (result.remappedCommandCount > 0) {
+      messages.push(
+        t('projects.settings.hotkeys.remappedCount', { count: result.remappedCommandCount }),
+      )
+    }
+    if (result.ignoredCommandCount > 0) {
+      messages.push(
+        t('projects.settings.hotkeys.ignoredCount', { count: result.ignoredCommandCount }),
+      )
+    }
+    if (result.sourceVersion !== null) {
+      messages.push(t('projects.settings.hotkeys.presetVersion', { version: result.sourceVersion }))
+    }
+
+    showUndoToast(messages.join(' - '), snapshot)
   }
 
   const handleImportButtonClick = () => {
@@ -809,7 +1010,7 @@ export function HotkeyEditor() {
       <div className="px-4 pb-3 md:px-5">
         <div className="flex min-h-[380px] overflow-hidden rounded-lg border border-white/7 bg-[#0d0d0f]/90">
           {/* Section layers sidebar */}
-          <div className="flex w-52 shrink-0 flex-col gap-0.5 border-r border-white/6 p-2">
+          <div className="flex w-44 shrink-0 flex-col gap-0.5 border-r border-white/6 p-2 xl:w-52">
             <div className="relative mb-2">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -819,16 +1020,40 @@ export function HotkeyEditor() {
                 className="h-8 border-white/10 bg-white/5 pl-8 pr-2 text-xs"
               />
             </div>
-            {hasSearchQuery ? (
+            {!hasSearchQuery ? (
+              <div className="mb-2 flex flex-wrap gap-1">
+                {FILTER_CHIP_MODES.map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={filterMode === mode}
+                    onClick={() => {
+                      stopCapture()
+                      setActiveLayer(null)
+                      setFilterMode(filterMode === mode ? 'all' : mode)
+                    }}
+                    className={cn(
+                      'rounded-md border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.1em] transition-colors duration-150 ease-out motion-reduce:transition-none',
+                      filterMode === mode
+                        ? 'border-primary/45 bg-primary/15 text-primary'
+                        : 'border-white/8 bg-white/4 text-muted-foreground hover:text-foreground/80',
+                    )}
+                  >
+                    {t(`projects.settings.hotkeys.filters.${mode}`)} {filterCounts[mode]}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {showResultList ? (
               <div className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1">
                 <div className="px-1 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
                   {t('projects.settings.hotkeys.searchResultCount', {
-                    count: searchResults.length,
+                    count: activeResults.length,
                   })}
                 </div>
                 <div role="list" aria-label={t('projects.settings.hotkeys.searchResults')}>
-                  {searchResults.length > 0 ? (
-                    searchResults.map(({ section, item }) => {
+                  {activeResults.length > 0 ? (
+                    activeResults.map(({ section, item }) => {
                       const resultKey = item.keys.join('|')
                       const isSelectedResult = item.keys.includes(selectedKey)
 
@@ -875,6 +1100,7 @@ export function HotkeyEditor() {
                   type="button"
                   onClick={() => {
                     stopCapture()
+                    setFilterMode('all')
                     setActiveLayer(null)
                   }}
                   className={cn(
@@ -893,6 +1119,7 @@ export function HotkeyEditor() {
                     type="button"
                     onClick={() => {
                       stopCapture()
+                      setFilterMode('all')
                       setActiveLayer(section)
                       setSelectedKey(section.items[0]!.keys[0]!)
                     }}
@@ -916,6 +1143,13 @@ export function HotkeyEditor() {
               layerTokens={layerTokens}
               hoverTokens={hoverTokens}
               tokenLabels={tokenLabels}
+              labelForToken={layout.labelForToken}
+              isNativeLayout={layout.isNativeLayout}
+              ariaLabel={t('projects.settings.hotkeys.keyboardLabel')}
+              emptyKeyLabel={(keyLabel) =>
+                t('projects.settings.hotkeys.keyNoCommand', { key: keyLabel })
+              }
+              layoutFallbackNote={t('projects.settings.hotkeys.layoutFallbackNote')}
               onTokenHover={setHoveredToken}
               onTokenClick={handleTokenClick}
             />
@@ -923,6 +1157,9 @@ export function HotkeyEditor() {
 
           {/* Selected command panel — beside keyboard */}
           <div className="w-[280px] shrink-0 space-y-3 border-l border-white/6 p-4 pt-5">
+            <div aria-live="polite" role="status" className="sr-only">
+              {liveMessage}
+            </div>
             <div className="border-b border-white/6 pb-3">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -939,6 +1176,14 @@ export function HotkeyEditor() {
                   </span>
                 ) : null}
               </div>
+              {selectedSection?.scopeKey ? (
+                <div className="mt-2 flex items-center gap-1.5 rounded-md border border-white/8 bg-white/4 px-2 py-1 text-[10px] leading-4 text-muted-foreground">
+                  <span className="shrink-0 rounded-sm bg-primary/15 px-1.5 py-0.5 font-medium uppercase tracking-[0.12em] text-primary">
+                    {t('projects.settings.hotkeys.scopedBadge')}
+                  </span>
+                  <span>{t(selectedSection.scopeKey)}</span>
+                </div>
+              ) : null}
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
@@ -963,17 +1208,62 @@ export function HotkeyEditor() {
               </div>
             </div>
 
-            <div>
-              <div className="mb-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                {selectedSlotLabel}
-              </div>
-              <HotkeyBindingPill
-                binding={activePreviewBinding}
-                isActive
-                isListening={isCapturingSelectedKey}
-                isCustom={isSelectedCustom}
-                onClick={() => startCapture(selectedKey)}
-              />
+            <div className="space-y-1.5">
+              {selectedItem.keys.map((key, index) => {
+                const isAlternateSlot = index > 0
+                const slotBinding =
+                  captureKey === key ? draftBinding || previewBinding || hotkeys[key] : hotkeys[key]
+                const isSlotUnassigned = hotkeys[key] === ''
+
+                return (
+                  <div
+                    key={key}
+                    className={cn(
+                      'rounded-lg border p-2 transition-colors duration-150 ease-out motion-reduce:transition-none',
+                      selectedKey === key
+                        ? 'border-primary/35 bg-primary/8'
+                        : 'border-white/6 bg-white/3',
+                    )}
+                  >
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                        {t(getSlotLabelKey(selectedItem, key))}
+                      </span>
+                      {isAlternateSlot && !isSlotUnassigned ? (
+                        <button
+                          type="button"
+                          aria-label={t('projects.settings.hotkeys.removeBinding')}
+                          onClick={() => unbindHotkeyBinding(key)}
+                          className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      ) : null}
+                    </div>
+                    {isAlternateSlot && isSlotUnassigned && captureKey !== key ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 w-full justify-center gap-1 text-[11px]"
+                        onClick={() => startCapture(key)}
+                      >
+                        <Plus className="h-3 w-3" />
+                        {t('projects.settings.hotkeys.addAlternate')}
+                      </Button>
+                    ) : (
+                      <div className="flex justify-end">
+                        <HotkeyBindingPill
+                          binding={slotBinding}
+                          isActive={selectedKey === key}
+                          isListening={captureKey === key}
+                          isCustom={key in hotkeyOverrides}
+                          onClick={() => startCapture(key)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
 
             <AnimatePresence initial={false}>
@@ -1221,15 +1511,18 @@ export function HotkeyEditor() {
                   )}
                   onMouseEnter={() => setHoveredKey(item.keys[0]!)}
                   onMouseLeave={() => setHoveredKey(null)}
-                  onClick={() => {
-                    stopCapture()
-                    setSelectedKey(item.keys[0]!)
-                  }}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-left text-[12px] leading-5 text-foreground/92 cursor-pointer">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        stopCapture()
+                        setSelectedKey(item.keys[0]!)
+                      }}
+                      className="min-w-0 flex-1 rounded text-left text-[12px] leading-5 text-foreground/92 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
+                    >
                       {t(item.labelKey)}
-                    </span>
+                    </button>
                     <div className="flex shrink-0 flex-col items-end gap-1">
                       {item.keys.map((key) => (
                         <HotkeyBindingPill
@@ -1254,6 +1547,75 @@ export function HotkeyEditor() {
           </div>
         </div>
       </motion.div>
+
+      {/* Import review — confirm a preset before it replaces the current config. */}
+      <AlertDialog
+        open={pendingImport !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingImport(null)
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('projects.settings.hotkeys.importReviewTitle')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('projects.settings.hotkeys.importReviewDescription')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {pendingImport ? (
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">
+                {t('projects.settings.hotkeys.importChangeCount', {
+                  count: pendingImport.changes.length,
+                })}
+                {customCount > 0
+                  ? ` · ${t('projects.settings.hotkeys.importReplaceCount', { count: customCount })}`
+                  : ''}
+                {pendingImport.result.ignoredCommandCount > 0
+                  ? ` · ${t('projects.settings.hotkeys.ignoredCount', {
+                      count: pendingImport.result.ignoredCommandCount,
+                    })}`
+                  : ''}
+              </div>
+              <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-white/8 bg-white/3 p-2">
+                {pendingImport.changes.map((change) => (
+                  <div
+                    key={change.key}
+                    className="flex items-center justify-between gap-2 text-xs"
+                  >
+                    <span className="min-w-0 flex-1 truncate text-foreground/90">
+                      {t(change.labelKey)}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1 text-[11px]">
+                      <span className="text-muted-foreground line-through">
+                        {getHotkeyBindingDisplayLabel(
+                          change.from,
+                          t('projects.settings.hotkeys.unassigned'),
+                        )}
+                      </span>
+                      <span className="text-muted-foreground">→</span>
+                      <span className="font-medium text-foreground">
+                        {getHotkeyBindingDisplayLabel(
+                          change.to,
+                          t('projects.settings.hotkeys.unassigned'),
+                        )}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={applyPendingImport}>
+              {t('projects.settings.hotkeys.importApply')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

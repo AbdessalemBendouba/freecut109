@@ -461,7 +461,6 @@
           "zoomTo100": "Zoom em 100%",
           "toggleSnap": "Alternar ajuste",
           "toggleCanvasSnap": "Alternar ajuste da tela (gizmo)",
-          "toggleKeyframeEditorPanel": "Alternar o painel do editor de quadros-chave",
           "editWorkspace": "Mudar para o espaço de trabalho de Edição",
           "colorWorkspace": "Mudar para o espaço de trabalho de Cor",
           "copy": "Copiar itens ou quadros-chave selecionados",
@@ -481,7 +480,8 @@
           "overwriteEdit": "Edição de sobrescrita",
           "saveProject": "Salvar projeto",
           "exportVideo": "Exportar vídeo",
-          "openSceneBrowser": "Abrir o navegador de cenas (pesquisar legendas de IA)"
+          "openSceneBrowser": "Abrir o navegador de cenas (pesquisar legendas de IA)",
+          "animateWorkspace": "Mudar para o espaço de trabalho de Animação"
         },
         "searchPlaceholder": "Pesquisar comandos ou atalhos",
         "searchResults": "Resultados da pesquisa de atalhos",
@@ -491,7 +491,35 @@
         "resetAllConfirmAction": "Redefinir tudo",
         "resetAllToast": "Atalhos redefinidos para os padrões",
         "searchResultCount_one": "{{count}} resultado",
-        "searchResultCount_other": "{{count}} resultados"
+        "searchResultCount_other": "{{count}} resultados",
+        "filters": {
+          "custom": "Personalizados",
+          "conflicts": "Conflitos",
+          "unassigned": "Não atribuído"
+        },
+        "scopes": {
+          "keyframes": "Ativo quando o editor de quadros-chave está em foco",
+          "sourceMonitor": "Ativo quando o monitor de origem está em foco"
+        },
+        "scopedBadge": "Contextual",
+        "addAlternate": "Adicionar alternativa",
+        "removeBinding": "Remover atalho",
+        "keyboardLabel": "Teclado na tela",
+        "keyNoCommand": "Tecla {{key}}, sem atalho",
+        "layoutFallbackNote": "Mostrando um layout de teclado dos EUA; suas teclas podem diferir.",
+        "undo": "Desfazer",
+        "reassignedToast": "Atalho reatribuído",
+        "importNoChanges": "Esta predefinição corresponde aos seus atalhos atuais.",
+        "importReviewTitle": "Revisar importação de atalhos",
+        "importReviewDescription": "Aplicar esta predefinição substituirá seus atalhos personalizados atuais.",
+        "importApply": "Aplicar predefinição",
+        "importChangeCount_one": "{{count}} atalho será alterado",
+        "importChangeCount_other": "{{count}} atalhos serão alterados",
+        "importReplaceCount_one": "substitui {{count}} atalho personalizado",
+        "importReplaceCount_other": "substitui {{count}} atalhos personalizados",
+        "announceRecording": "Gravando atalho para {{command}}. Pressione uma combinação de teclas.",
+        "announceCaptured": "Capturado {{binding}}",
+        "announceConflict": "{{binding}} conflita com {{action}}"
       }
     }
   },
