@@ -240,7 +240,10 @@
       "title": "Images clés",
       "unableToPasteCut": "Impossible a coller coupe",
       "unableToPasteCutDescription": "Impossible de coller ici les images clés coupées. {{reasons}}",
-      "presetNameRequired": "Le nom du préréglage est requis"
+      "presetNameRequired": "Le nom du préréglage est requis",
+      "springTension": "Tension",
+      "springFriction": "Friction",
+      "springMass": "Masse"
     },
     "noTracksToRemove": "Aucun pistes a Supprimer",
     "region": "region",

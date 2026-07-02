@@ -240,7 +240,10 @@
       "title": "키프레임",
       "unableToPasteCut": "컷을 붙여넣을 수 없음",
       "unableToPasteCutDescription": "잘라낸 키프레임을 여기에 붙여넣을 수 없습니다. {{reasons}}",
-      "presetNameRequired": "프리셋 이름이 필요합니다"
+      "presetNameRequired": "프리셋 이름이 필요합니다",
+      "springTension": "장력",
+      "springFriction": "마찰",
+      "springMass": "질량"
     },
     "noTracksToRemove": "제거할 트랙 없음",
     "region": "영역",

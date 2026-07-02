@@ -335,9 +335,10 @@ function KeyCap({
         : KEY_IDLE_CLASSES,
   )
 
-  // Interactive caps (mapped to a command token) are real buttons so the whole
-  // on-screen keyboard is reachable and operable via Tab/Enter, not just mouse.
-  const keyCap = keySpec.token ? (
+  // Interactive caps (an actionable command token) are real buttons so the whole
+  // on-screen keyboard is reachable and operable via Tab/Enter. Modifier caps
+  // (mod/alt/shift) aren't actionable — they render as static, non-focusable caps.
+  const keyCap = keySpec.token && onClick ? (
     <button
       type="button"
       aria-label={ariaLabel}
@@ -408,11 +409,14 @@ function KeyboardPreview({
   const renderRow = (keys: readonly KeyboardKeySpec[]) =>
     keys.map((keySpec) => {
       const token = keySpec.token
+      // Modifier caps are never actionable (handleTokenClick ignores them), so
+      // they stay non-interactive — no click/hover/aria, no tab stop.
+      const interactive = Boolean(token && !MODIFIER_TOKENS.has(token))
       const keyLabel = token ? (labelForToken(token) ?? undefined) : undefined
       const printedLabel =
         keyLabel ?? keySpec.label ?? (token ? formatHotkeyBinding(token) : '')
       const command = token ? tokenLabels.get(token) : undefined
-      const ariaLabelForKey = token
+      const ariaLabelForKey = interactive
         ? command
           ? `${printedLabel}: ${command}`
           : emptyKeyLabel(printedLabel)
@@ -428,10 +432,10 @@ function KeyboardPreview({
             token ? (hoverTokens.size > 0 ? hoverTokens.has(token) : activeTokens.has(token)) : false
           }
           isLayerKey={token ? layerTokens.has(token) : false}
-          tooltip={token ? command : undefined}
-          onClick={token ? () => onTokenClick(token) : undefined}
-          onMouseEnter={token ? () => onTokenHover(token) : undefined}
-          onMouseLeave={() => onTokenHover(null)}
+          tooltip={interactive ? command : undefined}
+          onClick={interactive ? () => onTokenClick(token!) : undefined}
+          onMouseEnter={interactive ? () => onTokenHover(token!) : undefined}
+          onMouseLeave={interactive ? () => onTokenHover(null) : undefined}
         />
       )
     })

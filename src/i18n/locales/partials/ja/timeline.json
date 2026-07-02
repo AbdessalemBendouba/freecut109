@@ -240,7 +240,10 @@
       "title": "キーフレーム",
       "unableToPasteCut": "カットを貼り付けできません",
       "unableToPasteCutDescription": "切り取ったキーフレームはここに貼り付けできません。{{reasons}}",
-      "presetNameRequired": "プリセット名を入力してください"
+      "presetNameRequired": "プリセット名を入力してください",
+      "springTension": "テンション",
+      "springFriction": "摩擦",
+      "springMass": "質量"
     },
     "noTracksToRemove": "削除するトラックがありません",
     "region": "リージョン",

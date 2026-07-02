@@ -713,58 +713,52 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                       <Label className="text-sm text-muted-foreground">
                         {t('settings.general.uiSoundVoice')}
                       </Label>
-                      <Select
-                        value={uiSoundVoice}
-                        onValueChange={(value) => {
-                          setUiSoundVoice(value as VoiceName)
-                          // Preview the newly selected voice.
-                          emitUiSound('confirm')
-                        }}
-                      >
-                        <SelectTrigger className="w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {VOICE_OPTIONS.map((option) => (
-                            <SelectPrimitive.Item
-                              key={option.value}
-                              value={option.value}
-                              className="relative flex w-full cursor-default select-none items-center justify-between gap-3 rounded-sm py-1.5 pl-2 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
-                            >
-                              <SelectPrimitive.ItemText>
-                                <span
-                                  className={
-                                    option.value === uiSoundVoice
-                                      ? 'font-medium text-primary'
-                                      : undefined
-                                  }
-                                >
-                                  {option.label}
-                                </span>
-                              </SelectPrimitive.ItemText>
-                              <span
-                                role="button"
-                                tabIndex={-1}
-                                aria-label={t('settings.general.uiSoundPreview')}
-                                className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-white/10 hover:text-foreground"
-                                // Stop the click from selecting/closing the item — this only auditions.
-                                onPointerDown={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                }}
-                                onPointerUp={(e) => e.stopPropagation()}
-                                onClick={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  previewUiSound(option.value)
-                                }}
+                      <div className="flex items-center gap-1.5">
+                        <Select
+                          value={uiSoundVoice}
+                          onValueChange={(value) => {
+                            setUiSoundVoice(value as VoiceName)
+                            // Preview the newly selected voice.
+                            emitUiSound('confirm')
+                          }}
+                        >
+                          <SelectTrigger className="w-32">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {VOICE_OPTIONS.map((option) => (
+                              <SelectPrimitive.Item
+                                key={option.value}
+                                value={option.value}
+                                className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
                               >
-                                <Play className="h-3 w-3" />
-                              </span>
-                            </SelectPrimitive.Item>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                                <SelectPrimitive.ItemText>
+                                  <span
+                                    className={
+                                      option.value === uiSoundVoice
+                                        ? 'font-medium text-primary'
+                                        : undefined
+                                    }
+                                  >
+                                    {option.label}
+                                  </span>
+                                </SelectPrimitive.ItemText>
+                              </SelectPrimitive.Item>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {/* Audition the selected voice — a real, keyboard-reachable
+                            button beside the Select rather than a control nested
+                            inside each (non-focusable) option row. */}
+                        <button
+                          type="button"
+                          aria-label={t('settings.general.uiSoundPreview')}
+                          onClick={() => previewUiSound(uiSoundVoice)}
+                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+                        >
+                          <Play className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

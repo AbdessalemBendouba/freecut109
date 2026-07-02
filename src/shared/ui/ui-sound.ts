@@ -15,8 +15,11 @@
 
 import { useCallback } from 'react'
 import { playSound, VOICES, type SoundToken, type VoiceName } from '@/infrastructure/audio/ui-sound'
+import { createLogger } from '@/shared/logging/logger'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useUiSoundStore } from '@/shared/state/ui-sound-store'
+
+const log = createLogger('ui-sound')
 
 /**
  * Play the interface sound for `token`, honoring the user's settings and the
@@ -33,7 +36,10 @@ export function emitUiSound(token: SoundToken): void {
   if (usePlaybackStore.getState().isPlaying) return
 
   const recipe = VOICES[voice]?.[token]
-  if (!recipe) return
+  if (!recipe) {
+    log.warn('No recipe for token in active voice — sound skipped', { voice, token })
+    return
+  }
 
   playSound(token, recipe, volume)
 }
@@ -54,6 +60,9 @@ export function previewUiSound(voice: VoiceName, token: SoundToken = 'confirm'):
   const { enabled, volume } = useUiSoundStore.getState()
   if (!enabled || volume <= 0) return
   const recipe = VOICES[voice]?.[token]
-  if (!recipe) return
+  if (!recipe) {
+    log.warn('No recipe for token in previewed voice — preview skipped', { voice, token })
+    return
+  }
   playSound(`preview:${voice}`, recipe, volume)
 }

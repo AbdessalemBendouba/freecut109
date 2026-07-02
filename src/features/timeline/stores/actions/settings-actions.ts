@@ -19,7 +19,9 @@ export function toggleSnap(): void {
 }
 
 export function toggleAudioSkimming(): void {
-  useTimelineSettingsStore.getState().toggleAudioSkimming()
+  execute('TOGGLE_AUDIO_SKIMMING', () => {
+    useTimelineSettingsStore.getState().toggleAudioSkimming()
+  })
   emitUiSound(useTimelineSettingsStore.getState().audioSkimmingEnabled ? 'toggleOn' : 'toggleOff')
 }
 

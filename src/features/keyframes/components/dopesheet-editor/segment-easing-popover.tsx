@@ -596,46 +596,45 @@ function PresetChip({
   onDelete?: () => void
   deleteLabel?: string
 }) {
+  // The select action and the delete action are sibling buttons inside a group
+  // container (not a control nested in a button), so both have real button
+  // semantics and are keyboard-reachable.
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
+    <div
       className={cn(
-        'group relative flex flex-col items-center gap-1 rounded-md border p-1.5 transition-colors',
+        'group relative flex flex-col rounded-md border transition-colors',
         active
           ? 'border-blue-500/70 bg-blue-500/10'
           : 'border-transparent hover:border-border hover:bg-muted/50',
       )}
     >
-      {thumb}
-      <span className="w-full truncate text-center text-[10px] leading-tight text-foreground">
-        {label}
-      </span>
+      <button
+        type="button"
+        onClick={onClick}
+        title={label}
+        className="flex w-full flex-col items-center gap-1 rounded-md p-1.5"
+      >
+        {thumb}
+        <span className="w-full truncate text-center text-[10px] leading-tight text-foreground">
+          {label}
+        </span>
+      </button>
       {onDelete && (
-        // A span (not a nested <button>) so it's valid inside the chip button;
-        // stopPropagation keeps the click from also applying the preset.
-        <span
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
           aria-label={deleteLabel}
+          // Sibling of the select button, so this can't also apply the preset;
+          // stopPropagation is belt-and-suspenders against any container handler.
           onClick={(event) => {
             event.stopPropagation()
             onDelete()
           }}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault()
-              event.stopPropagation()
-              onDelete()
-            }
-          }}
           className="absolute right-1 top-1 rounded-full bg-background/90 p-0.5 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100"
         >
           <X className="h-2.5 w-2.5" />
-        </span>
+        </button>
       )}
-    </button>
+    </div>
   )
 }
 

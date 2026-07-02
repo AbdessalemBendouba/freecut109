@@ -45,6 +45,14 @@ const BEZIER_INPUT_KEYS = ['x1', 'y1', 'x2', 'y2'] as const
 const SPRING_INPUT_KEYS = ['tension', 'friction', 'mass'] as const
 type SpringKey = (typeof SPRING_INPUT_KEYS)[number]
 
+// Spring params are user-facing words (unlike the bezier x1/y1 math notation),
+// so they're translated. Fallbacks keep the labels working before locales load.
+const SPRING_LABEL: Record<SpringKey, { key: string; fallback: string }> = {
+  tension: { key: 'timeline.keyframeEditor.springTension', fallback: 'Tension' },
+  friction: { key: 'timeline.keyframeEditor.springFriction', fallback: 'Friction' },
+  mass: { key: 'timeline.keyframeEditor.springMass', fallback: 'Mass' },
+}
+
 // Canvas geometry (px). Vertical headroom shows overshoot/anticipation.
 const SIZE = 176
 const PAD = 16
@@ -205,7 +213,7 @@ export function EasingCurveEditor({
           ? SPRING_INPUT_KEYS.map((key) => (
               <SliderRow
                 key={key}
-                label={key.charAt(0).toUpperCase() + key.slice(1)}
+                label={t(SPRING_LABEL[key].key, { defaultValue: SPRING_LABEL[key].fallback })}
                 value={spring[key]}
                 min={SPRING_FIELD_RANGE[key].min}
                 max={SPRING_FIELD_RANGE[key].max}
@@ -289,9 +297,13 @@ function CurveCanvas({
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
+    // Treat cancellation (e.g. touch interruption) like release so the drag
+    // state clears and onDragEnd always fires exactly once.
+    window.addEventListener('pointercancel', up)
     return () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
     }
   }, [drag, onBezierPointChange, onDragEnd])
 
@@ -396,6 +408,9 @@ function SliderRow({
   onDragEnd?: () => void
 }) {
   const [draft, setDraft] = useState<string | null>(null)
+  // True only between a slider pointerdown and its release, so keyboard-driven
+  // changes (which have no drag lifecycle) can be committed discretely instead.
+  const pointerDraggingRef = useRef(false)
 
   const commitDraft = useCallback(() => {
     if (draft === null) return
@@ -412,9 +427,23 @@ function SliderRow({
         min={min}
         max={max}
         step={step}
-        onPointerDown={onDragStart}
-        onValueChange={(values) => onLive(values[0] ?? value)}
-        onValueCommit={() => onDragEnd?.()}
+        onPointerDown={() => {
+          pointerDraggingRef.current = true
+          onDragStart?.()
+        }}
+        onValueChange={(values) => {
+          const next = values[0] ?? value
+          // Pointer drags stream live (committed on release); keyboard/other
+          // discrete changes have no drag lifecycle, so commit immediately.
+          if (pointerDraggingRef.current) onLive(next)
+          else onCommit(next)
+        }}
+        onValueCommit={() => {
+          if (pointerDraggingRef.current) {
+            pointerDraggingRef.current = false
+            onDragEnd?.()
+          }
+        }}
         className="min-w-0 flex-1"
         aria-label={label}
       />

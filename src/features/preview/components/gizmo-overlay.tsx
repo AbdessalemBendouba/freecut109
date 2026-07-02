@@ -228,7 +228,11 @@ export function GizmoOverlay({
   const gizmoDragItemId = useGizmoStore((s) =>
     s.activeGizmo?.mode === 'translate' ? s.activeGizmo.itemId : null,
   )
-  const gizmoPreviewTransform = useGizmoStore((s) => s.previewTransform)
+  // Only translate moves position keyframes — returning null for scale/rotate
+  // keeps the motion-path memo stable instead of recomputing on every drag frame.
+  const gizmoPreviewTransform = useGizmoStore((s) =>
+    s.activeGizmo?.mode === 'translate' ? s.previewTransform : null,
+  )
 
   // Update canvas size in gizmo store when project size changes
   useEffect(() => {

@@ -236,7 +236,10 @@
       "springHint": "Yay fiziği — doğal ve esnek bir his.",
       "unableToPasteCut": "Kesilen ana kareler yapıştırılamadı",
       "unableToPasteCutDescription": "Kesilen anahtar kareler buraya yapıştırılamaz. {{reasons}}",
-      "presetNameRequired": "Hazır ayar adı gerekli"
+      "presetNameRequired": "Hazır ayar adı gerekli",
+      "springTension": "Gerilim",
+      "springFriction": "Sürtünme",
+      "springMass": "Kütle"
     },
     "noTracksToRemove": "Kaldırılacak parça yok",
     "region": "Bölge",

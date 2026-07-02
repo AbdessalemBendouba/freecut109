@@ -240,7 +240,10 @@
       "springHint": "弹簧物理 — 自然且富有弹性。",
       "unableToPasteCut": "无法粘贴剪切",
       "unableToPasteCutDescription": "剪切的关键帧无法粘贴到此处。{{reasons}}",
-      "presetNameRequired": "需要预设名称"
+      "presetNameRequired": "需要预设名称",
+      "springTension": "张力",
+      "springFriction": "摩擦",
+      "springMass": "质量"
     },
     "noTracksToRemove": "没有可移除的轨道",
     "region": "区域",

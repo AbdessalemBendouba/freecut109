@@ -240,7 +240,10 @@
       "springHint": "Spring physics — feels natural and bouncy.",
       "unableToPasteCut": "Unable To Paste Cut",
       "unableToPasteCutDescription": "Cut keyframes can't be pasted here. {{reasons}}",
-      "presetNameRequired": "Preset name is required"
+      "presetNameRequired": "Preset name is required",
+      "springTension": "Tension",
+      "springFriction": "Friction",
+      "springMass": "Mass"
     },
     "noTracksToRemove": "No Tracks To Remove",
     "region": "Region",

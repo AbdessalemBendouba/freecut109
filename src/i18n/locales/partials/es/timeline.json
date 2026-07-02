@@ -240,7 +240,10 @@
       "title": "Fotogramas clave",
       "unableToPasteCut": "No se pudo a pegar corte",
       "unableToPasteCutDescription": "Los fotogramas clave cortados no se pueden pegar aquí. {{reasons}}",
-      "presetNameRequired": "El nombre del ajuste es obligatorio"
+      "presetNameRequired": "El nombre del ajuste es obligatorio",
+      "springTension": "Tensión",
+      "springFriction": "Fricción",
+      "springMass": "Masa"
     },
     "noTracksToRemove": "Sin pistas a Eliminar",
     "region": "region",

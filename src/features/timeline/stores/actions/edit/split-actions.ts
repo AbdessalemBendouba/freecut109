@@ -109,6 +109,7 @@ export function splitAllItemsAtFrame(splitFrame: number): number {
         if (!canSplitGroup) {
           if (blockedByTransition) {
             toast.warning('Cannot split inside a transition zone')
+            emitUiSound('error')
           }
           continue
         }

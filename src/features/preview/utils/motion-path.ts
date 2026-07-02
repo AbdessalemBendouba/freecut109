@@ -86,8 +86,18 @@ function applyPreviewKeyframe(
   preview: { frame: number; x: number; y: number },
 ): ItemKeyframes {
   const upsert = (properties: PropertyKeyframes[], property: 'x' | 'y', value: number) => {
+    // Distinct per-axis id so consumers that dedupe keyframes by id never collide.
+    const previewId = `${PREVIEW_KEYFRAME_ID}-${property}`
     const index = properties.findIndex((group) => group.property === property)
-    if (index === -1) return properties
+    if (index === -1) {
+      // No group for this axis yet — seed one with the preview keyframe so the
+      // dragged axis still moves instead of silently staying put.
+      const seededGroup: PropertyKeyframes = {
+        property,
+        keyframes: [{ id: previewId, frame: preview.frame, value, easing: 'linear' }],
+      }
+      return [...properties, seededGroup]
+    }
     const group = properties[index]!
     let keyframes: Keyframe[]
     if (group.keyframes.some((keyframe) => keyframe.frame === preview.frame)) {
@@ -101,7 +111,7 @@ function applyPreviewKeyframe(
         'linear'
       keyframes = [
         ...group.keyframes,
-        { id: PREVIEW_KEYFRAME_ID, frame: preview.frame, value, easing },
+        { id: previewId, frame: preview.frame, value, easing },
       ].sort((left, right) => left.frame - right.frame)
     }
     const next = [...properties]
