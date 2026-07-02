@@ -42,10 +42,10 @@ const DIRECTION_FILTERS: Array<{ value: DirectionFilter; labelKey: string; defau
     { value: 'inout', labelKey: 'timeline.keyframeEditor.filterInOut', defaultValue: 'In-Out' },
   ]
 
-// Fixed panel widths per view; the resize animates height freely and morphs
-// between these two widths when toggling into/out of the curve editor.
-const PRESETS_WIDTH = 480
-const EDITOR_WIDTH = 440
+// Both views share one width so switching between them animates height only —
+// a pure vertical morph. Changing width too would move the panel's edges
+// horizontally at the same time, which reads as a diagonal resize.
+const PANEL_WIDTH = 480
 
 /** Easing updates applied to a segment's originating keyframe(s). */
 export interface SegmentEasingUpdate {
@@ -144,13 +144,9 @@ export function SegmentEasingPopover({
     anchorLeft != null ? Math.min(bandLeft + bandWidth, Math.max(bandLeft, anchorLeft)) : bandCenter
   // The band (trigger) is the positioning reference. With `align="start"` the
   // panel's left edge sits at the band's left edge; `alignOffset` then shifts it
-  // so the panel is centered on the click point. We anchor against the base
-  // (widest) view width — not the current view — so the left edge stays fixed
-  // across a view switch; ResizePanel then re-centers the narrower editor within
-  // this frame, making the resize scale symmetrically about the click point
-  // rather than drifting sideways. Uses static widths, never a measurement, so
-  // positioning doesn't depend on layout timing.
-  const alignOffset = effectiveAnchor - bandLeft - PRESETS_WIDTH / 2
+  // so the fixed-width panel is centered on the click point. Uses the static
+  // width, never a measurement, so positioning doesn't depend on layout timing.
+  const alignOffset = effectiveAnchor - bandLeft - PANEL_WIDTH / 2
 
   // Prefer the user's explicit pick when its curve still matches the segment, so
   // an identical-curve twin (e.g. Snappy Out vs Out Expo) can't steal the
@@ -295,11 +291,7 @@ export function SegmentEasingPopover({
         alignOffset={alignOffset}
         collisionPadding={12}
         side="top"
-        // Transparent, non-clipping shell: the visible card (border/bg/shadow) is
-        // moved onto ResizePanel's animated element so it can shift horizontally
-        // to stay centered on the click point as the width morphs — a transform
-        // here would be clipped or fight Radix's own open animation.
-        className="w-auto max-w-[calc(100vw-24px)] border-0 bg-transparent p-0 shadow-none"
+        className="w-auto max-w-[calc(100vw-24px)] overflow-hidden p-0"
         onPointerDown={(event) => event.stopPropagation()}
         // Disable Radix's automatic dismissal (focus-out, internal focus shifts,
         // its own outside detection). The popover closes ONLY via our explicit
@@ -309,8 +301,8 @@ export function SegmentEasingPopover({
         onFocusOutside={(event) => event.preventDefault()}
         onInteractOutside={(event) => event.preventDefault()}
       >
-        <ResizePanel viewKey={editing ? 'editor' : 'presets'} baseWidth={PRESETS_WIDTH}>
-          <div style={{ width: editing ? EDITOR_WIDTH : PRESETS_WIDTH }}>
+        <ResizePanel viewKey={editing ? 'editor' : 'presets'}>
+          <div style={{ width: PANEL_WIDTH }}>
             {/* Header: current selection + Edit / back toggle. */}
             <div className="flex h-9 items-center justify-between border-b border-border/60 px-3">
           {editing ? (
@@ -532,26 +524,17 @@ export function SegmentEasingPopover({
 
 /**
  * Wraps the popover's two views (presets grid / curve editor) and animates the
- * panel's size whenever the active view — or the content within a view (tab,
- * direction filter) — changes. The visible content cross-fades while the
- * container springs to the new measured size, so switching tabs reads as a
- * single fluid morph rather than a hard jump.
+ * panel's height whenever the active view — or the content within a view (tab,
+ * direction filter) — changes. Width is fixed, so this is a pure vertical morph:
+ * the visible content cross-fades while the container springs to the new
+ * measured height, reading as a single fluid resize rather than a hard jump.
  */
-function ResizePanel({
-  viewKey,
-  baseWidth,
-  children,
-}: {
-  viewKey: string
-  /** Width the popover is left-anchored against (the widest view). */
-  baseWidth: number
-  children: ReactNode
-}) {
+function ResizePanel({ viewKey, children }: { viewKey: string; children: ReactNode }) {
   const reduce = useReducedMotion()
   const measureRef = useRef<HTMLDivElement>(null)
-  const { width, height } = useElementSize(measureRef)
-  const measured = width > 0 && height > 0
-  // Apply the first measured size instantly; only animate size changes that
+  const { height } = useElementSize(measureRef)
+  const measured = height > 0
+  // Apply the first measured height instantly; only animate height changes that
   // happen afterwards (tab / view switches). Without this, the panel visibly
   // grows to its natural height the moment it opens.
   const [ready, setReady] = useState(false)
@@ -559,21 +542,16 @@ function ResizePanel({
     if (measured && !ready) setReady(true)
   }, [measured, ready])
 
-  // The popover's left edge is pinned to `baseWidth`'s left. Shifting a narrower
-  // view right by half the shortfall keeps its center on the click point, so the
-  // width change scales symmetrically about the anchor instead of drifting.
-  const x = measured ? (baseWidth - width) / 2 : 0
-
   return (
     <motion.div
       initial={false}
-      animate={measured ? { width, height, x } : { width: 'auto', height: 'auto', x: 0 }}
+      animate={{ height: measured ? height : 'auto' }}
       transition={
         reduce || !ready
           ? { duration: 0 }
           : { type: 'spring', stiffness: 460, damping: 38, mass: 0.8 }
       }
-      className="overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md"
+      className="overflow-hidden"
     >
       {/* `relative` anchors the exiting view (popLayout positions it absolutely);
           `w-fit` lets the wrapper size to the active view's explicit width so the
