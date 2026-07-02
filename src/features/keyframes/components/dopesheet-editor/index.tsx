@@ -4,7 +4,6 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useHotkeys } from 'react-hotkeys-hook'
@@ -231,8 +230,6 @@ interface DopesheetEditorProps {
   /** Use the wider property column + value inputs (Animate workspace, where
    *  there is room). Defaults to the compact sidebar sizing. */
   spacious?: boolean
-  /** Named easing-preset controls rendered inline in the Parameters bar. */
-  easingControls?: ReactNode
   /** Additional class name */
   className?: string
 }
@@ -292,7 +289,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   disabled = false,
   visualizationMode = 'dopesheet',
   spacious = false,
-  easingControls = null,
   className,
 }: DopesheetEditorProps) {
   const { t } = useTranslation()
@@ -3081,7 +3077,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             disabled={disabled || interpolationDisabled}
             onSelect={onInterpolationChange}
           />
-          {easingControls}
           <DopesheetClipboardActions
             disabled={disabled}
             hasSelection={selectedRefs.length > 0}

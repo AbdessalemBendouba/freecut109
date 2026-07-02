@@ -8,34 +8,19 @@
 import { memo, useState, useCallback, useMemo, useRef, useEffect, type RefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useHotkeys } from 'react-hotkeys-hook'
-import { SlidersHorizontal, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useShallow } from 'zustand/react/shallow'
 import { cn } from '@/shared/ui/cn'
 import { Button } from '@/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Input } from '@/components/ui/input'
 import { ErrorBoundary } from '@/app/error-boundary'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   getCropPropertyValue,
   getTransitionBlockedRanges,
   interpolatePropertyValue,
   getTextAnimatableBaseValue,
   isTextAnimatableProperty,
-  BEZIER_PRESETS,
-  areBezierPointsEqual,
-  findMatchingBezierPreset,
-  clampBezierValue,
-  clampSpringValue,
   buildEasingConfig,
-  type BezierPresetValue,
 } from '@/features/timeline/deps/keyframes'
 import {
   DopesheetEditor,
@@ -63,7 +48,6 @@ import type { TimelineSnapshot } from '../stores/commands/types'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useEditorStore } from '@/shared/state/editor'
 import { useTimelineSettingsStore } from '../stores/timeline-settings-store'
-import { DEFAULT_BEZIER_POINTS, DEFAULT_SPRING_PARAMS } from '@/types/keyframe'
 import type {
   AnimatableProperty,
   BezierControlPoints,
@@ -71,7 +55,6 @@ import type {
   EasingType,
   Keyframe,
   KeyframeRef,
-  SpringParameters,
 } from '@/types/keyframe'
 import type { CanvasSettings } from '@/types/transform'
 import type { TimelineItem } from '@/types/timeline'
@@ -133,15 +116,7 @@ const EASING_OPTIONS: Array<{ value: EasingType; labelKey: string; defaultLabel:
     labelKey: 'timeline.keyframeEditor.easing.easeOut',
     defaultLabel: 'Ease Out',
   },
-  { value: 'cubic-bezier', labelKey: 'timeline.keyframeEditor.bezier', defaultLabel: 'Bezier' },
-  { value: 'spring', labelKey: 'timeline.keyframeEditor.spring', defaultLabel: 'Spring' },
 ]
-const BEZIER_INPUT_KEYS = ['x1', 'y1', 'x2', 'y2'] as const
-const SPRING_INPUT_KEYS = ['tension', 'friction', 'mass'] as const
-
-type BezierInputKey = (typeof BEZIER_INPUT_KEYS)[number]
-type SpringInputKey = (typeof SPRING_INPUT_KEYS)[number]
-
 function clampFrameToBlockedRanges(
   frame: number,
   initialFrame: number,
@@ -192,23 +167,6 @@ function getBaseKeyframeValue(
 
   const resolved = resolveTransform(item, canvas, getSourceDimensions(item))
   return property in resolved ? resolved[property as keyof typeof resolved] : 0
-}
-
-function toBezierDraft(points: BezierControlPoints): Record<BezierInputKey, string> {
-  return {
-    x1: String(points.x1),
-    y1: String(points.y1),
-    x2: String(points.x2),
-    y2: String(points.y2),
-  }
-}
-
-function toSpringDraft(params: SpringParameters): Record<SpringInputKey, string> {
-  return {
-    tension: String(params.tension),
-    friction: String(params.friction),
-    mass: String(params.mass),
-  }
 }
 
 function useKeyframeEditorPlaybackFrame(
@@ -297,212 +255,6 @@ function loadKeyframeEditorMode(): KeyframeEditorMode {
   // split-capable surfaces; non-split placements fall back to dopesheet via
   // `effectiveEditorMode`.
   return 'split'
-}
-
-interface AdvancedEasingControlsProps {
-  selectedBezierPoints: BezierControlPoints | null
-  selectedBezierPreset: BezierPresetValue
-  hasMixedBezierConfig: boolean
-  selectedSpringParameters: SpringParameters | null
-  hasMixedSpringConfig: boolean
-  applyBezier: (bezier: BezierControlPoints) => void
-  applySpring: (spring: SpringParameters) => void
-}
-
-/**
- * Fine-tune inputs for the curve types that need them — bezier control points
- * (with a named-preset dropdown) and spring physics. Shown in a popover next to
- * the interpolation-type row, only when bezier or spring easing is selected.
- */
-function AdvancedEasingControls({
-  selectedBezierPoints,
-  selectedBezierPreset,
-  hasMixedBezierConfig,
-  selectedSpringParameters,
-  hasMixedSpringConfig,
-  applyBezier,
-  applySpring,
-}: AdvancedEasingControlsProps) {
-  const { t } = useTranslation()
-  const [bezierDraft, setBezierDraft] = useState<Record<BezierInputKey, string>>(() =>
-    selectedBezierPoints
-      ? toBezierDraft(selectedBezierPoints)
-      : toBezierDraft(DEFAULT_BEZIER_POINTS),
-  )
-  const [springDraft, setSpringDraft] = useState<Record<SpringInputKey, string>>(() =>
-    selectedSpringParameters
-      ? toSpringDraft(selectedSpringParameters)
-      : toSpringDraft(DEFAULT_SPRING_PARAMS),
-  )
-
-  const handleBezierPresetChange = useCallback(
-    (value: string) => {
-      if (value === 'custom') return
-
-      const preset = BEZIER_PRESETS.find((candidate) => candidate.value === value)
-      if (!preset) return
-
-      setBezierDraft(toBezierDraft(preset.points))
-      applyBezier({ ...preset.points })
-    },
-    [applyBezier],
-  )
-
-  const handleBezierDraftChange = useCallback((key: BezierInputKey, value: string) => {
-    setBezierDraft((prev) => ({ ...prev, [key]: value }))
-  }, [])
-
-  const commitBezierDraft = useCallback(
-    (key: BezierInputKey) => {
-      if (!selectedBezierPoints) return
-
-      const parsed = Number(bezierDraft[key])
-      if (!Number.isFinite(parsed)) {
-        setBezierDraft((prev) => ({
-          ...prev,
-          [key]: String(selectedBezierPoints[key]),
-        }))
-        return
-      }
-
-      const nextBezier = {
-        ...selectedBezierPoints,
-        [key]: clampBezierValue(key, parsed),
-      }
-
-      setBezierDraft(toBezierDraft(nextBezier))
-      applyBezier(nextBezier)
-    },
-    [applyBezier, bezierDraft, selectedBezierPoints],
-  )
-
-  const handleSpringDraftChange = useCallback((key: SpringInputKey, value: string) => {
-    setSpringDraft((prev) => ({ ...prev, [key]: value }))
-  }, [])
-
-  const commitSpringDraft = useCallback(
-    (key: SpringInputKey) => {
-      if (!selectedSpringParameters) return
-
-      const parsed = Number(springDraft[key])
-      if (!Number.isFinite(parsed)) {
-        setSpringDraft((prev) => ({
-          ...prev,
-          [key]: String(selectedSpringParameters[key]),
-        }))
-        return
-      }
-
-      const nextSpring = {
-        ...selectedSpringParameters,
-        [key]: clampSpringValue(key, parsed),
-      }
-
-      setSpringDraft(toSpringDraft(nextSpring))
-      applySpring(nextSpring)
-    },
-    [applySpring, selectedSpringParameters, springDraft],
-  )
-
-  const handleDraftKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLInputElement>, commit: () => void) => {
-      if (event.key === 'Enter') {
-        event.preventDefault()
-        commit()
-        event.currentTarget.blur()
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.currentTarget.blur()
-      }
-    },
-    [],
-  )
-
-  return (
-    <div className="flex items-center gap-3 overflow-x-auto">
-      {selectedBezierPoints && (
-        <div className="flex w-max items-center gap-2 text-xs">
-          <span className="font-medium text-foreground">{t('timeline.keyframeEditor.bezier')}</span>
-          <Select value={selectedBezierPreset} onValueChange={handleBezierPresetChange}>
-            <SelectTrigger className="h-7 w-[150px] text-xs focus:ring-0 focus:ring-offset-0">
-              <SelectValue placeholder={t('timeline.keyframeEditor.preset')} />
-            </SelectTrigger>
-            <SelectContent>
-              {BEZIER_PRESETS.map((preset) => (
-                <SelectItem key={preset.value} value={preset.value} className="text-xs">
-                  {t(preset.labelKey)}
-                </SelectItem>
-              ))}
-              <SelectItem value="custom" className="text-xs">
-                {t('timeline.keyframeEditor.custom')}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          {BEZIER_INPUT_KEYS.map((key) => (
-            <label key={key} className="flex items-center gap-1 text-[11px] text-muted-foreground">
-              <span className="uppercase">{key}</span>
-              <Input
-                value={bezierDraft[key]}
-                onChange={(event) => handleBezierDraftChange(key, event.target.value)}
-                onBlur={() => commitBezierDraft(key)}
-                onKeyDown={(event) => handleDraftKeyDown(event, () => commitBezierDraft(key))}
-                className="h-7 w-16 px-2 text-xs"
-                inputMode="decimal"
-              />
-            </label>
-          ))}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => handleBezierPresetChange('soft')}
-          >
-            {t('common.reset')}
-          </Button>
-          <span className="text-[11px] text-muted-foreground">
-            {hasMixedBezierConfig
-              ? t('timeline.keyframeEditor.mixedCurves')
-              : t('timeline.keyframeEditor.dragHandlesHint')}
-          </span>
-        </div>
-      )}
-      {selectedSpringParameters && (
-        <div className="flex w-max items-center gap-2 text-xs">
-          <span className="font-medium text-foreground">{t('timeline.keyframeEditor.spring')}</span>
-          {SPRING_INPUT_KEYS.map((key) => (
-            <label key={key} className="flex items-center gap-1 text-[11px] text-muted-foreground">
-              <span className="capitalize">{key}</span>
-              <Input
-                value={springDraft[key]}
-                onChange={(event) => handleSpringDraftChange(key, event.target.value)}
-                onBlur={() => commitSpringDraft(key)}
-                onKeyDown={(event) => handleDraftKeyDown(event, () => commitSpringDraft(key))}
-                className={cn('h-7 px-2 text-xs', key === 'mass' ? 'w-16' : 'w-[72px]')}
-                inputMode="decimal"
-              />
-            </label>
-          ))}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            onClick={() => {
-              setSpringDraft(toSpringDraft(DEFAULT_SPRING_PARAMS))
-              applySpring({ ...DEFAULT_SPRING_PARAMS })
-            }}
-          >
-            {t('common.reset')}
-          </Button>
-          <span className="text-[11px] text-muted-foreground">
-            {hasMixedSpringConfig
-              ? t('timeline.keyframeEditor.mixedSpring')
-              : t('timeline.keyframeEditor.springHint')}
-          </span>
-        </div>
-      )}
-    </div>
-  )
 }
 
 /**
@@ -860,64 +612,6 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       : undefined
   }, [selectedEditorKeyframes])
 
-  const selectedBezierPoints = useMemo(() => {
-    if (selectedEditorEasing !== 'cubic-bezier' || selectedEditorKeyframes.length === 0) {
-      return null
-    }
-
-    const first = buildEasingConfig(
-      'cubic-bezier',
-      selectedEditorKeyframes[0]?.keyframe.easingConfig,
-    )
-    if (first?.type !== 'cubic-bezier' || !first.bezier) {
-      return { ...DEFAULT_BEZIER_POINTS }
-    }
-
-    return first.bezier
-  }, [selectedEditorEasing, selectedEditorKeyframes])
-
-  const selectedBezierPreset = useMemo<BezierPresetValue>(() => {
-    if (!selectedBezierPoints) return 'custom'
-    return findMatchingBezierPreset(selectedBezierPoints)
-  }, [selectedBezierPoints])
-
-  const hasMixedBezierConfig = useMemo(() => {
-    if (!selectedBezierPoints) return false
-
-    return selectedEditorKeyframes.some(({ keyframe }) => {
-      const config = buildEasingConfig('cubic-bezier', keyframe.easingConfig)
-      return !config?.bezier || !areBezierPointsEqual(config.bezier, selectedBezierPoints)
-    })
-  }, [selectedBezierPoints, selectedEditorKeyframes])
-
-  const selectedSpringParameters = useMemo<SpringParameters | null>(() => {
-    if (selectedEditorEasing !== 'spring' || selectedEditorKeyframes.length === 0) {
-      return null
-    }
-
-    const first = buildEasingConfig('spring', selectedEditorKeyframes[0]?.keyframe.easingConfig)
-    if (first?.type !== 'spring' || !first.spring) {
-      return { ...DEFAULT_SPRING_PARAMS }
-    }
-
-    return first.spring
-  }, [selectedEditorEasing, selectedEditorKeyframes])
-
-  const hasMixedSpringConfig = useMemo(() => {
-    if (!selectedSpringParameters) return false
-
-    return selectedEditorKeyframes.some(({ keyframe }) => {
-      const config = buildEasingConfig('spring', keyframe.easingConfig)
-      const spring = config?.spring
-      return (
-        !spring ||
-        spring.tension !== selectedSpringParameters.tension ||
-        spring.friction !== selectedSpringParameters.friction ||
-        spring.mass !== selectedSpringParameters.mass
-      )
-    })
-  }, [selectedEditorKeyframes, selectedSpringParameters])
-
   // Calculate relative frame for the current item
   const relativeFrame = useMemo(() => {
     if (!selectedItemForEditor) return 0
@@ -1101,48 +795,6 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       )
     },
     [selectedEditorKeyframes],
-  )
-
-  const applySelectedKeyframeUpdates = useCallback(
-    (buildUpdates: (keyframe: Keyframe, ref: KeyframeRef) => Partial<Omit<Keyframe, 'id'>>) => {
-      if (selectedEditorKeyframes.length === 0) return
-
-      timelineActions.updateKeyframes(
-        selectedEditorKeyframes.map(({ ref, keyframe }) => ({
-          itemId: ref.itemId,
-          property: ref.property,
-          keyframeId: ref.keyframeId,
-          updates: buildUpdates(keyframe, ref),
-        })),
-      )
-    },
-    [selectedEditorKeyframes],
-  )
-
-  const applyBezierToSelection = useCallback(
-    (bezier: BezierControlPoints) => {
-      applySelectedKeyframeUpdates(() => ({
-        easing: 'cubic-bezier',
-        easingConfig: {
-          type: 'cubic-bezier',
-          bezier,
-        },
-      }))
-    },
-    [applySelectedKeyframeUpdates],
-  )
-
-  const applySpringToSelection = useCallback(
-    (spring: SpringParameters) => {
-      applySelectedKeyframeUpdates(() => ({
-        easing: 'spring',
-        easingConfig: {
-          type: 'spring',
-          spring,
-        },
-      }))
-    },
-    [applySelectedKeyframeUpdates],
   )
 
   const handlePasteKeyframes = useCallback(() => {
@@ -1514,26 +1166,6 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     : GRAPH_PANEL_HEADER_HEIGHT
 
   const editorWidth = Math.max(0, containerWidth - 16)
-  const showBezierControls = selectedEditorEasing === 'cubic-bezier'
-  const showSpringControls = selectedEditorEasing === 'spring'
-  // The interpolation-type row is the single easing selector; only bezier/spring
-  // need the extra fine-tune popover.
-  const showDetailControls = showBezierControls || showSpringControls
-  const advancedControlsKey = useMemo(
-    () =>
-      selectedEditorKeyframes
-        .map(({ ref, keyframe }) =>
-          JSON.stringify({
-            itemId: ref.itemId,
-            property: ref.property,
-            keyframeId: ref.keyframeId,
-            easing: keyframe.easing,
-            easingConfig: keyframe.easingConfig ?? null,
-          }),
-        )
-        .join('|'),
-    [selectedEditorKeyframes],
-  )
   const editorHeight = Math.max(0, resolvedContentHeight - 16)
   // Only render the docked editor when explicitly opened from the toolbar/hotkey.
   // Selecting a clip should not surface the docked panel by itself.
@@ -1721,42 +1353,6 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   interpolationOptions={easingOptions}
                   onInterpolationChange={handleSelectedKeyframeEasingChange}
                   interpolationDisabled={selectedEditorKeyframes.length === 0}
-                  easingControls={
-                    showDetailControls ? (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="secondary"
-                            size="sm"
-                            className="h-6 gap-1 px-1.5 text-[11px]"
-                            title={t('timeline.keyframeEditor.editCurve', {
-                              defaultValue: 'Edit curve',
-                            })}
-                          >
-                            <SlidersHorizontal className="h-3 w-3" />
-                            {showSpringControls
-                              ? t('timeline.keyframeEditor.spring')
-                              : t('timeline.keyframeEditor.bezier')}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent align="end" className="w-auto p-2">
-                          <AdvancedEasingControls
-                            key={advancedControlsKey}
-                            selectedBezierPoints={showBezierControls ? selectedBezierPoints : null}
-                            selectedBezierPreset={selectedBezierPreset}
-                            hasMixedBezierConfig={hasMixedBezierConfig}
-                            selectedSpringParameters={
-                              showSpringControls ? selectedSpringParameters : null
-                            }
-                            hasMixedSpringConfig={hasMixedSpringConfig}
-                            applyBezier={applyBezierToSelection}
-                            applySpring={applySpringToSelection}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    ) : null
-                  }
                   onNavigateToKeyframe={handleNavigateToKeyframe}
                   transitionBlockedRanges={transitionBlockedRanges}
                   proceduralPreview={proceduralPreview}
