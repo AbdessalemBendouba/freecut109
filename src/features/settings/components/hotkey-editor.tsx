@@ -1,5 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
 import { AlertTriangle, Download, Keyboard, RotateCcw, Search, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -38,6 +47,7 @@ import {
   type HotkeyEditorItem,
   type HotkeyEditorSection,
 } from './hotkey-editor-sections'
+import { useNaturalHeight } from '@/shared/ui/use-natural-height'
 import { useResolvedHotkeys } from '../hooks/use-resolved-hotkeys'
 import { useSettingsStore } from '../stores/settings-store'
 
@@ -392,8 +402,29 @@ function KeyboardPreview({
   )
 }
 
+/**
+ * Smoothly expands/collapses its content (height + fade) as it mounts/unmounts
+ * inside an `AnimatePresence`. Used for the selected-command panel's contextual
+ * blocks — the capture listening box, conflict warnings, browser-override note —
+ * so they slide open instead of popping in and shoving the layout.
+ */
+function CollapseBlock({ children, reduce }: { children: ReactNode; reduce: boolean | null }) {
+  return (
+    <motion.div
+      initial={reduce ? false : { height: 0, opacity: 0 }}
+      animate={{ height: 'auto', opacity: 1 }}
+      exit={reduce ? { opacity: 0 } : { height: 0, opacity: 0 }}
+      transition={{ duration: reduce ? 0 : 0.2, ease: [0.22, 1, 0.36, 1] }}
+      style={{ overflow: 'hidden' }}
+    >
+      {children}
+    </motion.div>
+  )
+}
+
 export function HotkeyEditor() {
   const { t } = useTranslation()
+  const reduceMotion = useReducedMotion()
   const hotkeys = useResolvedHotkeys()
   const hotkeyOverrides = useSettingsStore((state) => state.hotkeyOverrides)
   const setHotkeyBinding = useSettingsStore((state) => state.setHotkeyBinding)
@@ -413,6 +444,21 @@ export function HotkeyEditor() {
   const [previewBinding, setPreviewBinding] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [isResetAllDialogOpen, setIsResetAllDialogOpen] = useState(false)
+
+  // The command list's height animates to fit its content so the dialog shrinks
+  // for short sections instead of leaving dead space; tall content caps and
+  // scrolls. Measured from the natural content height (inside the scroller).
+  const commandListRef = useRef<HTMLDivElement | null>(null)
+  const commandListNatural = useNaturalHeight(commandListRef)
+  const [commandListReady, setCommandListReady] = useState(false)
+  useEffect(() => {
+    if (commandListNatural > 0 && !commandListReady) setCommandListReady(true)
+  }, [commandListNatural, commandListReady])
+  const maxCommandListHeight = Math.round(
+    (typeof window === 'undefined' ? 900 : window.innerHeight) * 0.5,
+  )
+  const commandListHeight =
+    commandListNatural > 0 ? Math.min(commandListNatural, maxCommandListHeight) : undefined
 
   const selectedItem = HOTKEY_ITEM_BY_KEY[selectedKey]
   const selectedSlotLabel = t(getSlotLabelKey(selectedItem, selectedKey))
@@ -930,20 +976,24 @@ export function HotkeyEditor() {
               />
             </div>
 
-            {selectedBrowserHotkey ? (
-              <div className="rounded-lg border border-amber-500/20 bg-amber-500/8 p-3 text-xs">
-                <div className="flex items-center gap-1.5 text-amber-300">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  {t('projects.settings.hotkeys.browserOverride')}
-                </div>
-                <p className="mt-1 leading-4 text-foreground/84">
-                  {t('projects.settings.hotkeys.mayOverride', {
-                    binding: formatHotkeyBinding(selectedBrowserHotkey.binding),
-                    action: selectedBrowserHotkey.browserAction.toLowerCase(),
-                  })}
-                </p>
-              </div>
-            ) : null}
+            <AnimatePresence initial={false}>
+              {selectedBrowserHotkey ? (
+                <CollapseBlock reduce={reduceMotion}>
+                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/8 p-3 text-xs">
+                    <div className="flex items-center gap-1.5 text-amber-300">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      {t('projects.settings.hotkeys.browserOverride')}
+                    </div>
+                    <p className="mt-1 leading-4 text-foreground/84">
+                      {t('projects.settings.hotkeys.mayOverride', {
+                        binding: formatHotkeyBinding(selectedBrowserHotkey.binding),
+                        action: selectedBrowserHotkey.browserAction.toLowerCase(),
+                      })}
+                    </p>
+                  </div>
+                </CollapseBlock>
+              ) : null}
+            </AnimatePresence>
 
             <div
               className={cn('grid gap-1.5', isCapturingSelectedKey ? 'grid-cols-2' : 'grid-cols-3')}
@@ -1015,20 +1065,24 @@ export function HotkeyEditor() {
               </Button>
             </div>
 
-            {isCapturingSelectedKey ? (
-              <div className="rounded-lg border border-primary/20 bg-primary/8 p-3">
-                <div className="text-[10px] uppercase tracking-[0.18em] text-primary">
-                  {t('projects.settings.hotkeys.listening')}
-                </div>
+            <AnimatePresence initial={false}>
+              {isCapturingSelectedKey ? (
+                <CollapseBlock reduce={reduceMotion}>
+                  <div className="rounded-lg border border-primary/20 bg-primary/8 p-3">
+                    <div className="text-[10px] uppercase tracking-[0.18em] text-primary">
+                      {t('projects.settings.hotkeys.listening')}
+                    </div>
                 <p className="mt-1 text-xs leading-4 text-foreground/88">
                   {t('projects.settings.hotkeys.listeningHint')}
                 </p>
-                {captureConflicts.length > 0 ? (
-                  <div className="mt-3 space-y-2 rounded-md border border-destructive/25 bg-destructive/8 p-2">
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-destructive">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      {t('projects.settings.hotkeys.conflictDetected')}
-                    </div>
+                <AnimatePresence initial={false}>
+                  {captureConflicts.length > 0 ? (
+                    <CollapseBlock reduce={reduceMotion}>
+                      <div className="mt-3 space-y-2 rounded-md border border-destructive/25 bg-destructive/8 p-2">
+                        <div className="flex items-center gap-1.5 text-xs font-medium text-destructive">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          {t('projects.settings.hotkeys.conflictDetected')}
+                        </div>
                     {captureConflicts.map((key) => {
                       const hotkeyItem = HOTKEY_ITEM_BY_KEY[key]
 
@@ -1053,30 +1107,38 @@ export function HotkeyEditor() {
                         </div>
                       )
                     })}
-                    {captureConflicts.length > 1 ? (
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        className="h-7 w-full px-2 text-[11px]"
-                        onClick={overwriteAllConflictingHotkeys}
-                      >
-                        {t('projects.settings.hotkeys.overwriteAll')}
-                      </Button>
-                    ) : null}
+                        {captureConflicts.length > 1 ? (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="h-7 w-full px-2 text-[11px]"
+                            onClick={overwriteAllConflictingHotkeys}
+                          >
+                            {t('projects.settings.hotkeys.overwriteAll')}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </CollapseBlock>
+                  ) : null}
+                </AnimatePresence>
+                <AnimatePresence initial={false}>
+                  {pendingBrowserHotkey ? (
+                    <CollapseBlock reduce={reduceMotion}>
+                      <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-300">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>
+                          {t('projects.settings.hotkeys.thisOverrides', {
+                            action: pendingBrowserHotkey.browserAction.toLowerCase(),
+                          })}
+                        </span>
+                      </div>
+                    </CollapseBlock>
+                  ) : null}
+                </AnimatePresence>
                   </div>
-                ) : null}
-                {pendingBrowserHotkey ? (
-                  <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-300">
-                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    <span>
-                      {t('projects.settings.hotkeys.thisOverrides', {
-                        action: pendingBrowserHotkey.browserAction.toLowerCase(),
-                      })}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+                </CollapseBlock>
+              ) : null}
+            </AnimatePresence>
 
             <p className="text-[11px] leading-4 text-muted-foreground">
               {t('projects.settings.hotkeys.importExportHint')}
@@ -1119,10 +1181,21 @@ export function HotkeyEditor() {
         </div>
       </div>
 
-      {/* ── Command list — compact horizontal flow (scrollable) ── */}
-      <div className="min-h-0 flex-1 overflow-y-auto border-t border-white/8 px-4 py-2 md:px-5">
-        <div className="columns-[240px] gap-x-2 gap-y-0">
-          {(activeLayer ? [activeLayer] : HOTKEY_EDITOR_SECTIONS).map((section) => (
+      {/* ── Command list — height animates to fit its content so the dialog
+          shrinks for short sections; tall content caps at 50vh and scrolls. ── */}
+      <motion.div
+        className="min-h-0 overflow-hidden border-t border-white/8"
+        initial={false}
+        animate={{ height: commandListHeight ?? 'auto' }}
+        transition={
+          reduceMotion || !commandListReady
+            ? { duration: 0 }
+            : { type: 'spring', stiffness: 460, damping: 42, mass: 0.9 }
+        }
+      >
+        <div className="h-full overflow-y-auto">
+          <div ref={commandListRef} className="columns-[240px] gap-x-2 gap-y-0 px-4 py-2 md:px-5">
+            {(activeLayer ? [activeLayer] : HOTKEY_EDITOR_SECTIONS).map((section) => (
             <div key={section.titleKey} className="break-inside-avoid">
               {!activeLayer ? (
                 <div className="mb-0.5 mt-1.5 first:mt-0 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
@@ -1178,8 +1251,9 @@ export function HotkeyEditor() {
               ))}
             </div>
           ))}
+          </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   )
 }

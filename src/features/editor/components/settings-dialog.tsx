@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, type RefObject } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { TFunction } from 'i18next'
@@ -66,6 +66,7 @@ import { VOICE_OPTIONS, type VoiceName } from '@/infrastructure/audio/ui-sound'
 import { Select, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { createLogger } from '@/shared/logging/logger'
 import { cn } from '@/shared/ui/cn'
+import { useNaturalHeight } from '@/shared/ui/use-natural-height'
 
 const log = createLogger('SettingsDialog')
 
@@ -73,28 +74,6 @@ const log = createLogger('SettingsDialog')
 const MIN_SECTION_HEIGHT = 360
 /** Fraction of the viewport a section may occupy before it scrolls instead. */
 const MAX_SECTION_HEIGHT_VH = 0.7
-
-/**
- * Observe an element's natural (content) height while `enabled`. Used to drive
- * the settings dialog's height animation from the active section's size. The
- * element lives inside a scroll viewport, so its `clientHeight` stays the true
- * content height even when the animated wrapper around it is clamped/scrolling —
- * there's no measurement feedback loop.
- */
-function useNaturalHeight(ref: RefObject<HTMLElement | null>, enabled: boolean): number {
-  const [height, setHeight] = useState(0)
-  useEffect(() => {
-    if (!enabled) return
-    const node = ref.current
-    if (!node) return
-    const update = () => setHeight(node.clientHeight)
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [enabled, ref])
-  return height
-}
 
 const SETTINGS_SECTIONS = [
   { id: 'general', labelKey: 'settings.sections.general', icon: Settings2 },
