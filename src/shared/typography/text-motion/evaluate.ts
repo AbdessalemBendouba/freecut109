@@ -140,7 +140,13 @@ function randomRanks(unitCount: number, seed: number): number[] {
     ranks[unit] = rank
   })
 
-  if (randomRankCache.size >= 32) randomRankCache.clear()
+  if (randomRankCache.size >= 32) {
+    // Evict the oldest entry (Map preserves insertion order) rather than
+    // flushing the whole cache, so only one entry is recomputed next frame
+    // even when many `order: 'random'` clips render at once.
+    const oldestKey = randomRankCache.keys().next().value
+    if (oldestKey !== undefined) randomRankCache.delete(oldestKey)
+  }
   randomRankCache.set(key, ranks)
   return ranks
 }
