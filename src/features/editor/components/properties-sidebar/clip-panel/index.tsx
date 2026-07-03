@@ -1,7 +1,8 @@
 import { useMemo, useCallback, useEffect, memo, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Film, Sparkles, Volume2, Type, WandSparkles } from 'lucide-react'
+import { Film, Sparkles, Volume2, Type, WandSparkles, Shapes, type LucideIcon } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { cn } from '@/shared/ui/cn'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { useEditorStore } from '@/shared/state/editor'
@@ -92,6 +93,8 @@ function computeItemTypeInfo(items: TimelineItem[]) {
     // Pure text selection gets a text-specific tab layout: Text / Animation /
     // Effects instead of Video / Audio / Effects.
     isOnlyText: items.length > 0 && items.every((item) => item.type === 'text'),
+    // Pure shape selection gets a Shape tab (no audio) instead of Video.
+    isOnlyShape: items.length > 0 && items.every((item) => item.type === 'shape'),
   }
 }
 
@@ -166,6 +169,7 @@ export const ClipPanel = memo(function ClipPanel() {
     hasVirtualSubtitleItems,
     isOnlyTextOrShape,
     isOnlyText,
+    isOnlyShape,
   } = itemTypeInfo
 
   // Memoized filtered arrays for child components - prevents new array creation each render
@@ -256,6 +260,24 @@ export const ClipPanel = memo(function ClipPanel() {
     [setClipInspectorTab],
   )
 
+  // Per-tab label + icon. The first slot is Video / Text / Shape and the second
+  // is Audio / Animation depending on the selection; only available tabs are
+  // rendered (no disabled dead tabs).
+  const getTabMeta = (value: ClipInspectorTab): { label: string; icon: LucideIcon } => {
+    if (value === 'video') {
+      if (isOnlyText) return { label: t('editor.clipPanel.tabText'), icon: Type }
+      if (isOnlyShape) return { label: t('editor.clipPanel.tabShape'), icon: Shapes }
+      return { label: t('editor.clipPanel.tabVideo'), icon: Film }
+    }
+    if (value === 'audio') {
+      if (isOnlyText) return { label: t('editor.clipPanel.tabAnimation'), icon: WandSparkles }
+      return { label: t('editor.clipPanel.tabAudio'), icon: Volume2 }
+    }
+    return { label: t('editor.clipPanel.tabEffects'), icon: Sparkles }
+  }
+  const tabGridColsClass =
+    availableTabs.length <= 1 ? 'grid-cols-1' : availableTabs.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
+
   if (selectedItems.length === 0) {
     return null
   }
@@ -264,19 +286,16 @@ export const ClipPanel = memo(function ClipPanel() {
     <div className="space-y-3">
       {/* Tabbed sections */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="grid w-full grid-cols-3 h-8">
-          <TabsTrigger value="video" disabled={!showVideoTab} className="text-xs gap-1 px-2">
-            {isOnlyText ? <Type className="h-3 w-3" /> : <Film className="h-3 w-3" />}
-            {isOnlyText ? t('editor.clipPanel.tabText') : t('editor.clipPanel.tabVideo')}
-          </TabsTrigger>
-          <TabsTrigger value="audio" disabled={!showSecondTab} className="text-xs gap-1 px-2">
-            {isOnlyText ? <WandSparkles className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
-            {isOnlyText ? t('editor.clipPanel.tabAnimation') : t('editor.clipPanel.tabAudio')}
-          </TabsTrigger>
-          <TabsTrigger value="effects" disabled={!showEffectsTab} className="text-xs gap-1 px-2">
-            <Sparkles className="h-3 w-3" />
-            {t('editor.clipPanel.tabEffects')}
-          </TabsTrigger>
+        <TabsList className={cn('grid w-full h-8', tabGridColsClass)}>
+          {availableTabs.map((value) => {
+            const { label, icon: Icon } = getTabMeta(value)
+            return (
+              <TabsTrigger key={value} value={value} className="text-xs gap-1 px-2">
+                <Icon className="h-3 w-3" />
+                {label}
+              </TabsTrigger>
+            )
+          })}
         </TabsList>
 
         {/* Video Tab - visual layout, content, and clip-specific controls */}

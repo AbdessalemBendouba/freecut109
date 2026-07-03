@@ -249,7 +249,8 @@
       "tabEffects": "Efektler",
       "adjustmentLayerHint": "Ayar katmanlarındaki efektler, üst izlerdeki tüm öğelere uygulanır.",
       "tabText": "Metin",
-      "tabAnimation": "Animasyon"
+      "tabAnimation": "Animasyon",
+      "tabShape": "Şekil"
     },
     "gifSection": {
       "animation": "Animasyon",

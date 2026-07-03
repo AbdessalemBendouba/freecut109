@@ -1210,7 +1210,7 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
 
                         return (
                           <>
-                            <PropertyGroupHeader className="pt-0 pb-2">
+                            <PropertyGroupHeader className="pb-2">
                               {config.label}
                             </PropertyGroupHeader>
                             <Textarea

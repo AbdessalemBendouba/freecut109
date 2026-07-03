@@ -16,7 +16,8 @@ export function PropertyGroupHeader({ children, className }: PropertyGroupHeader
   return (
     <div
       className={cn(
-        'pt-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground',
+        // Pure text style — callers add their own vertical spacing.
+        'text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground',
         className,
       )}
     >

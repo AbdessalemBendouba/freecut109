@@ -249,7 +249,8 @@
       "tabEffects": "Efeitos",
       "adjustmentLayerHint": "Os efeitos em camadas de ajuste se aplicam a todos os itens das faixas acima.",
       "tabText": "Texto",
-      "tabAnimation": "Animação"
+      "tabAnimation": "Animação",
+      "tabShape": "Forma"
     },
     "gifSection": {
       "animation": "Animação",

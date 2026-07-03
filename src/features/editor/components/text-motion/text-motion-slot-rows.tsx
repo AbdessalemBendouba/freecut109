@@ -18,7 +18,7 @@ import {
   type TextMotionPreset,
 } from '@/shared/typography/text-motion'
 import { cn } from '@/shared/ui/cn'
-import { SliderInput } from '@/shared/ui/property-controls'
+import { PropertyGroupHeader, SliderInput } from '@/shared/ui/property-controls'
 import {
   Select,
   SelectContent,
@@ -79,9 +79,7 @@ const TextMotionSlotRow = memo(function TextMotionSlotRow({
 }: TextMotionSlotRowProps) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-        {t(`textMotion.slots.${slot}`)}
-      </span>
+      <PropertyGroupHeader>{t(`textMotion.slots.${slot}`)}</PropertyGroupHeader>
       <div className="grid grid-cols-4 gap-1">
         {presets.map((preset) => {
           const label = t(preset.labelKey)
