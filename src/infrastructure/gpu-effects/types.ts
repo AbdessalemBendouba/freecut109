@@ -36,6 +36,24 @@ export interface EffectDataTextureSpec {
   build: (params: Record<string, number | boolean | string>) => EffectDataTexturePayload
 }
 
+/**
+ * Marks an effect as running through a compute pass instead of the default
+ * fragment render pass. Compute effects read the input via `textureLoad`
+ * (binding 0, a plain `texture_2d<f32>` — no sampler) and write results with
+ * `textureStore` into a `texture_storage_2d<rgba8unorm, write>` (binding 1);
+ * uniforms stay at binding 2. This unlocks passes a single fragment shader
+ * can't express — scatter writes, cross-pixel sorting, prefix scans — because
+ * an invocation can write to an output location other than its own.
+ */
+export interface GpuEffectComputeSpec {
+  /**
+   * Workgroup counts to dispatch, derived from the output dimensions. Must
+   * cover every output texel given the shader's `@workgroup_size` (the shader
+   * is responsible for bounds-guarding invocations past width/height).
+   */
+  dispatch: (width: number, height: number) => [number, number, number]
+}
+
 export interface GpuEffectDefinition {
   id: string
   name: string
@@ -50,6 +68,8 @@ export interface GpuEffectDefinition {
     height: number,
   ) => Float32Array | null
   dataTexture?: EffectDataTextureSpec
+  /** When set, the effect runs as a compute pass rather than a fragment pass. */
+  compute?: GpuEffectComputeSpec
 }
 
 export type GpuEffectCategory = 'color' | 'blur' | 'distort' | 'stylize' | 'keying'

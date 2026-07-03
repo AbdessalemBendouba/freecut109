@@ -90,6 +90,10 @@ export class EffectsPipeline {
   private format: GPUTextureFormat
   private pipelines = new Map<string, GPURenderPipeline>()
   private bindGroupLayouts = new Map<string, GPUBindGroupLayout>()
+  // Compute-variant effects (definition.compute set) get their own pipeline +
+  // layout maps; the fragment maps above stay untouched.
+  private computePipelines = new Map<string, GPUComputePipeline>()
+  private computeBindGroupLayouts = new Map<string, GPUBindGroupLayout>()
   private sampler: GPUSampler
   private blitPipeline: GPURenderPipeline | null = null
   private blitBindGroupLayout: GPUBindGroupLayout | null = null
@@ -188,7 +192,11 @@ export class EffectsPipeline {
     this.createImportExternalPipeline()
 
     for (const [id, effect] of GPU_EFFECT_REGISTRY) {
-      this.createEffectPipeline(id, effect)
+      if (effect.compute) {
+        this.createComputeEffectPipeline(id, effect)
+      } else {
+        this.createEffectPipeline(id, effect)
+      }
     }
     this.initialized = true
   }
@@ -296,6 +304,49 @@ export class EffectsPipeline {
     }
   }
 
+  private createComputeEffectPipeline(id: string, effect: GpuEffectDefinition): void {
+    try {
+      const shaderCode = `${COMMON_WGSL}\n${effect.shader}`
+      const shaderModule = this.device.createShaderModule({
+        label: `effect-${id}-compute`,
+        code: shaderCode,
+      })
+
+      // Compute layout: input as a loadable texture (no sampler — textureLoad),
+      // output as a write-only storage texture, uniforms at binding 2.
+      const entries: GPUBindGroupLayoutEntry[] = [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: 'float' } },
+        {
+          binding: 1,
+          visibility: GPUShaderStage.COMPUTE,
+          storageTexture: { access: 'write-only', format: 'rgba8unorm', viewDimension: '2d' },
+        },
+      ]
+      if (effect.uniformSize > 0) {
+        entries.push({
+          binding: 2,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: 'uniform' },
+        })
+      }
+
+      const bindGroupLayout = this.device.createBindGroupLayout({
+        label: `effect-${id}-compute-layout`,
+        entries,
+      })
+      this.computeBindGroupLayouts.set(id, bindGroupLayout)
+
+      const pipeline = this.device.createComputePipeline({
+        label: `effect-${id}-compute-pipeline`,
+        layout: this.device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+        compute: { module: shaderModule, entryPoint: effect.entryPoint },
+      })
+      this.computePipelines.set(id, pipeline)
+    } catch (e) {
+      getLogger().warn(`Failed to create compute pipeline for ${id}`, e)
+    }
+  }
+
   private ensurePingPong(w: number, h: number): void {
     if (this.pingTexture && this.texW === w && this.texH === h) return
     this.pingTexture?.destroy()
@@ -303,8 +354,12 @@ export class EffectsPipeline {
     const desc: GPUTextureDescriptor = {
       size: { width: w, height: h },
       format: 'rgba8unorm',
+      // STORAGE_BINDING lets compute-variant effects write these textures via
+      // textureStore. rgba8unorm is a core writable-storage format, so this
+      // needs no extra device feature. Fragment effects ignore the extra usage.
       usage:
         GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.STORAGE_BINDING |
         GPUTextureUsage.RENDER_ATTACHMENT |
         GPUTextureUsage.COPY_SRC |
         GPUTextureUsage.COPY_DST,
@@ -430,10 +485,6 @@ export class EffectsPipeline {
 
     for (let effectIndex = 0; effectIndex < effects.length; effectIndex++) {
       const effect = effects[effectIndex]!
-      const pipeline = this.pipelines.get(effect.type)
-      const layout = this.bindGroupLayouts.get(effect.type)
-      if (!pipeline || !layout) continue
-
       const definition = getGpuEffect(effect.type)
       if (!definition) continue
 
@@ -444,6 +495,53 @@ export class EffectsPipeline {
         this.device.queue.writeBuffer(uniformBuffer, 0, uniformData.buffer)
       }
 
+      // Bind groups are cached by pass, effect type, and input view identity.
+      // Uniform contents change via writeBuffer, but each encoded pass gets a
+      // stable buffer object of its own, so the cached group stays valid.
+      const viewKey = inputView === this.pingView ? 'ping' : 'pong'
+
+      // Compute-variant effects: read input via textureLoad, scatter to the
+      // output storage texture. Output is the opposite ping/pong texture, so no
+      // read-after-write hazard within the pass.
+      if (definition.compute) {
+        const computePipeline = this.computePipelines.get(effect.type)
+        const computeLayout = this.computeBindGroupLayouts.get(effect.type)
+        if (!computePipeline || !computeLayout) continue
+
+        const cacheKey = `${effectIndex}:${effect.type}:compute:${viewKey}`
+        let bindGroup = this.effectBindGroupCache.get(cacheKey)
+        if (!bindGroup) {
+          const bindEntries: GPUBindGroupEntry[] = [
+            { binding: 0, resource: inputView },
+            { binding: 1, resource: outputView },
+          ]
+          if (uniformBuffer) {
+            bindEntries.push({ binding: 2, resource: { buffer: uniformBuffer } })
+          }
+          bindGroup = this.device.createBindGroup({ layout: computeLayout, entries: bindEntries })
+          this.effectBindGroupCache.set(cacheKey, bindGroup)
+        }
+
+        const [gx, gy, gz] = definition.compute.dispatch(w, h)
+        const pass = commandEncoder.beginComputePass()
+        pass.setPipeline(computePipeline)
+        pass.setBindGroup(0, bindGroup)
+        pass.dispatchWorkgroups(gx, gy, gz)
+        pass.end()
+
+        const tempTexC = inputTex
+        inputTex = outputTex
+        outputTex = tempTexC
+        const tempViewC = inputView
+        inputView = outputView
+        outputView = tempViewC
+        continue
+      }
+
+      const pipeline = this.pipelines.get(effect.type)
+      const layout = this.bindGroupLayouts.get(effect.type)
+      if (!pipeline || !layout) continue
+
       // Auxiliary data texture (curve/color LUT) — kept current before binding.
       let dataTextureView: GPUTextureView | null = null
       if (definition.dataTexture) {
@@ -451,10 +549,6 @@ export class EffectsPipeline {
         if (!dataTextureView) continue
       }
 
-      // Cache bind groups by pass, effect type, and input view identity. Uniform data changes
-      // via writeBuffer (and data texture contents via writeTexture), but each encoded pass
-      // gets a stable buffer/texture object of its own.
-      const viewKey = inputView === this.pingView ? 'ping' : 'pong'
       const cacheKey = `${effectIndex}:${effect.type}:${viewKey}`
       let bindGroup = this.effectBindGroupCache.get(cacheKey)
       if (!bindGroup) {
@@ -1037,6 +1131,8 @@ export class EffectsPipeline {
     this.gpuFramesInFlight = 0
     this.pipelines.clear()
     this.bindGroupLayouts.clear()
+    this.computePipelines.clear()
+    this.computeBindGroupLayouts.clear()
     this.blitPipeline = null
     this.blitBindGroupLayout = null
     this.importPipeline = null

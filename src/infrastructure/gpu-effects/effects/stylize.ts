@@ -2434,3 +2434,433 @@ fn vhsFragment(input: VertexOutput) -> @location(0) vec4f {
       0,
     ]),
 }
+
+// Pen-and-ink / cross-hatch stylization. Tonal shading is drawn with layers of
+// parallel hatch lines that fade in as the source darkens, plus a Sobel contour
+// pass for outlines — the whole frame is remapped onto a two-colour ink/paper
+// palette. Single fullscreen pass; deterministic (no time term).
+export const ink: GpuEffectDefinition = {
+  id: 'gpu-ink',
+  name: 'Ink',
+  category: 'stylize',
+  entryPoint: 'inkFragment',
+  uniformSize: 64,
+  shader: /* wgsl */ `
+struct InkParams {
+  strength: f32, spacing: f32, thickness: f32, edgeStrength: f32,
+  tone: f32, width: f32, height: f32, _pad0: f32,
+  inkR: f32, inkG: f32, inkB: f32,
+  paperR: f32, paperG: f32, paperB: f32,
+  _pad1: f32, _pad2: f32,
+};
+@group(0) @binding(0) var texSampler: sampler;
+@group(0) @binding(1) var inputTex: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> params: InkParams;
+
+// Coverage of a single hatch-line set at \`angle\`, in screen-space pixels.
+// Returns 1 on a line, fading to 0 between lines (smoothstep gives spatial AA).
+fn inkHatch(p: vec2f, angle: f32, spacing: f32, thickness: f32) -> f32 {
+  let s = sin(angle);
+  let c = cos(angle);
+  let coord = p.x * c - p.y * s;
+  let m = coord - floor(coord / spacing) * spacing;
+  let d = min(m, spacing - m);
+  return 1.0 - smoothstep(thickness * 0.5, thickness * 0.5 + 1.0, d);
+}
+
+// A hatch layer that fades in as tone drops below \`hi\` (over a soft window) so
+// the four tonal bands blend smoothly instead of popping on gradients.
+fn inkLayer(p: vec2f, angle: f32, spacing: f32, thickness: f32, lum: f32, hi: f32) -> f32 {
+  let w = 1.0 - smoothstep(hi - 0.15, hi, lum);
+  return inkHatch(p, angle, spacing, thickness) * w;
+}
+
+@fragment
+fn inkFragment(input: VertexOutput) -> @location(0) vec4f {
+  let src = textureSample(inputTex, texSampler, input.uv);
+  let texel = vec2f(1.0 / params.width, 1.0 / params.height);
+
+  // Sobel magnitude → contour outlines.
+  let tl = luminance(textureSample(inputTex, texSampler, input.uv + vec2f(-texel.x, -texel.y)).rgb);
+  let t  = luminance(textureSample(inputTex, texSampler, input.uv + vec2f(0.0, -texel.y)).rgb);
+  let tr = luminance(textureSample(inputTex, texSampler, input.uv + vec2f(texel.x, -texel.y)).rgb);
+  let l  = luminance(textureSample(inputTex, texSampler, input.uv + vec2f(-texel.x, 0.0)).rgb);
+  let r  = luminance(textureSample(inputTex, texSampler, input.uv + vec2f(texel.x, 0.0)).rgb);
+  let bl = luminance(textureSample(inputTex, texSampler, input.uv + vec2f(-texel.x, texel.y)).rgb);
+  let b  = luminance(textureSample(inputTex, texSampler, input.uv + vec2f(0.0, texel.y)).rgb);
+  let br = luminance(textureSample(inputTex, texSampler, input.uv + vec2f(texel.x, texel.y)).rgb);
+  let gx = -tl - 2.0 * l - bl + tr + 2.0 * r + br;
+  let gy = -tl - 2.0 * t - tr + bl + 2.0 * b + br;
+  let edge = clamp(sqrt(gx * gx + gy * gy) * params.edgeStrength, 0.0, 1.0);
+
+  let lum = clamp(luminance(src.rgb) * params.tone, 0.0, 1.0);
+  let p = input.uv * vec2f(params.width, params.height);
+  let sp = max(params.spacing, 1.0);
+  let th = params.thickness;
+
+  var hatch = 0.0;
+  hatch = max(hatch, inkLayer(p, 0.7854, sp, th, lum, 0.85));   // 45°
+  hatch = max(hatch, inkLayer(p, -0.7854, sp, th, lum, 0.65));  // -45°
+  hatch = max(hatch, inkLayer(p, 0.0, sp, th, lum, 0.45));      // horizontal
+  hatch = max(hatch, inkLayer(p, 1.5708, sp, th, lum, 0.25));   // vertical
+
+  let inkAmt = clamp(max(hatch, edge) * params.strength, 0.0, 1.0);
+  let paper = vec3f(params.paperR, params.paperG, params.paperB);
+  let inkColor = vec3f(params.inkR, params.inkG, params.inkB);
+  return vec4f(mix(paper, inkColor, inkAmt), src.a);
+}`,
+  params: {
+    strength: {
+      type: 'number',
+      label: 'Ink Amount',
+      default: 1,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    spacing: {
+      type: 'number',
+      label: 'Line Spacing',
+      default: 6,
+      min: 2,
+      max: 24,
+      step: 0.5,
+      animatable: true,
+    },
+    thickness: {
+      type: 'number',
+      label: 'Line Width',
+      default: 1.2,
+      min: 0.5,
+      max: 4,
+      step: 0.1,
+      animatable: true,
+    },
+    edgeStrength: {
+      type: 'number',
+      label: 'Outline',
+      default: 1.5,
+      min: 0,
+      max: 5,
+      step: 0.1,
+      animatable: true,
+    },
+    tone: {
+      type: 'number',
+      label: 'Shading',
+      default: 1,
+      min: 0.2,
+      max: 2.5,
+      step: 0.05,
+      animatable: true,
+    },
+    inkColor: { type: 'color', label: 'Ink', default: '#141414' },
+    paperColor: { type: 'color', label: 'Paper', default: '#f4f1e8' },
+  },
+  packUniforms: (p, w, h) => {
+    const ink = parseHexColor((p.inkColor as string) ?? '#141414', [0.08, 0.08, 0.08, 1])
+    const paper = parseHexColor((p.paperColor as string) ?? '#f4f1e8', [0.96, 0.95, 0.91, 1])
+    return new Float32Array([
+      (p.strength as number) ?? 1,
+      (p.spacing as number) ?? 6,
+      (p.thickness as number) ?? 1.2,
+      (p.edgeStrength as number) ?? 1.5,
+      (p.tone as number) ?? 1,
+      w,
+      h,
+      0,
+      ink[0],
+      ink[1],
+      ink[2],
+      paper[0],
+      paper[1],
+      paper[2],
+      0,
+      0,
+    ])
+  },
+}
+
+// Pixel sort (streak approximation). A true comparison sort needs a compute
+// shader or O(width) ping-pong passes, which this single-pass fragment pipeline
+// can't express — so each pixel inside the brightness mask instead adopts the
+// most-extreme key found by scanning up to \`length\` pixels along the sort
+// direction, stopping at the span boundary (first pixel outside the mask). This
+// bounded, mask-gated directional max/min filter yields the signature melting /
+// sorted streaks. The loop uses textureSampleLevel (not textureSample) because
+// data-dependent control flow forbids implicit-derivative sampling.
+export const pixelSort: GpuEffectDefinition = {
+  id: 'gpu-pixel-sort',
+  name: 'Pixel Sort (Streak)',
+  category: 'stylize',
+  entryPoint: 'pixelSortFragment',
+  uniformSize: 32,
+  shader: /* wgsl */ `
+struct PixelSortParams {
+  dirX: f32, dirY: f32, low: f32, high: f32,
+  length: f32, order: f32, width: f32, height: f32,
+};
+@group(0) @binding(0) var texSampler: sampler;
+@group(0) @binding(1) var inputTex: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> params: PixelSortParams;
+
+// Statically-bounded scan cap keeps the loop compilable and its cost bounded;
+// the animatable \`length\` param clamps the effective steps below this ceiling.
+const PS_MAX_STEPS: i32 = 512;
+
+// Sort key: carry the brightest value (order>0.5) or the darkest (order<=0.5).
+fn psKey(lum: f32, order: f32) -> f32 {
+  return select(-lum, lum, order > 0.5);
+}
+
+@fragment
+fn pixelSortFragment(input: VertexOutput) -> @location(0) vec4f {
+  let src = textureSample(inputTex, texSampler, input.uv);
+  let lum0 = luminance(src.rgb);
+
+  // Pixels outside the brightness band are left untouched — only masked spans
+  // are sorted (the classic pixel-sort threshold behaviour).
+  if (lum0 < params.low || lum0 > params.high) {
+    return src;
+  }
+
+  let texel = vec2f(1.0 / params.width, 1.0 / params.height);
+  let stepUv = vec2f(params.dirX, params.dirY) * texel;
+  let maxN = i32(clamp(params.length, 1.0, f32(PS_MAX_STEPS)));
+
+  var bestKey = psKey(lum0, params.order);
+  var bestColor = src.rgb;
+
+  for (var i: i32 = 1; i <= PS_MAX_STEPS; i = i + 1) {
+    if (i > maxN) { break; }
+    let uv = input.uv + stepUv * f32(i);
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { break; }
+    let s = textureSampleLevel(inputTex, texSampler, uv, 0.0);
+    let l = luminance(s.rgb);
+    if (l < params.low || l > params.high) { break; } // span boundary
+    let k = psKey(l, params.order);
+    if (k > bestKey) {
+      bestKey = k;
+      bestColor = s.rgb;
+    }
+  }
+  return vec4f(bestColor, src.a);
+}`,
+  params: {
+    direction: {
+      type: 'select',
+      label: 'Direction',
+      default: 'right',
+      options: [
+        { value: 'right', label: 'Right' },
+        { value: 'left', label: 'Left' },
+        { value: 'down', label: 'Down' },
+        { value: 'up', label: 'Up' },
+      ],
+    },
+    order: {
+      type: 'select',
+      label: 'Carry',
+      default: 'bright',
+      options: [
+        { value: 'bright', label: 'Bright streaks' },
+        { value: 'dark', label: 'Dark streaks' },
+      ],
+    },
+    low: {
+      type: 'number',
+      label: 'Threshold Low',
+      default: 0.25,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    high: {
+      type: 'number',
+      label: 'Threshold High',
+      default: 1,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    length: {
+      type: 'number',
+      label: 'Length',
+      default: 60,
+      min: 2,
+      max: 400,
+      step: 1,
+      quality: true,
+    },
+  },
+  packUniforms: (p, w, h) => {
+    const dir = (p.direction as string) ?? 'right'
+    let dirX = 1
+    let dirY = 0
+    if (dir === 'left') {
+      dirX = -1
+      dirY = 0
+    } else if (dir === 'down') {
+      dirX = 0
+      dirY = 1
+    } else if (dir === 'up') {
+      dirX = 0
+      dirY = -1
+    }
+    return new Float32Array([
+      dirX,
+      dirY,
+      (p.low as number) ?? 0.25,
+      (p.high as number) ?? 1,
+      (p.length as number) ?? 60,
+      p.order === 'dark' ? 0 : 1,
+      w,
+      h,
+    ])
+  },
+}
+
+// True pixel sort (compute pass). Each masked pixel is placed at its exact
+// sorted rank within its contiguous threshold span — a genuine per-span sort,
+// not the fragment "streak" approximation above. Only a compute shader can do
+// this: an invocation reads its neighbours via textureLoad, computes where it
+// belongs, and scatters itself there with textureStore (fragment shaders can
+// only write their own texel). Ranks within a span are a collision-free
+// permutation (ties broken by original index), so every output texel is written
+// exactly once. Cost is O(span) per pixel via textureLoad; pixel-sort spans are
+// threshold-bounded so this stays cheap in practice — a workgroup-shared-memory
+// row cache is the natural next optimization for pathological full-width spans.
+export const pixelSortHq: GpuEffectDefinition = {
+  id: 'gpu-pixel-sort-hq',
+  name: 'Pixel Sort',
+  category: 'stylize',
+  entryPoint: 'pixelSortHqMain',
+  uniformSize: 32,
+  compute: {
+    dispatch: (w, h) => [Math.ceil(w / 8), Math.ceil(h / 8), 1],
+  },
+  shader: /* wgsl */ `
+struct PixelSortHqParams {
+  low: f32, high: f32, vertical: f32, descending: f32,
+  width: f32, height: f32, _p0: f32, _p1: f32,
+};
+@group(0) @binding(0) var inputTex: texture_2d<f32>;
+@group(0) @binding(1) var outputTex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(2) var<uniform> params: PixelSortHqParams;
+
+fn psInBand(l: f32) -> bool {
+  return l >= params.low && l <= params.high;
+}
+
+// Luminance at an axis index \`i\` (perpendicular coordinate fixed at \`perp\`).
+fn psLumAt(i: i32, perp: i32, vertical: bool) -> f32 {
+  let c = select(vec2i(i, perp), vec2i(perp, i), vertical);
+  return luminance(textureLoad(inputTex, c, 0).rgb);
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn pixelSortHqMain(@builtin(global_invocation_id) gid: vec3u) {
+  let W = i32(params.width);
+  let H = i32(params.height);
+  let x = i32(gid.x);
+  let y = i32(gid.y);
+  if (x >= W || y >= H) { return; }
+
+  let selfColor = textureLoad(inputTex, vec2i(x, y), 0);
+  let selfLum = luminance(selfColor.rgb);
+
+  // Pixels outside the brightness band stay exactly where they are.
+  if (!psInBand(selfLum)) {
+    textureStore(outputTex, vec2i(x, y), selfColor);
+    return;
+  }
+
+  let vertical = params.vertical > 0.5;
+  let axisLen = select(W, H, vertical);
+  let perp = select(y, x, vertical);
+  let pos = select(x, y, vertical);
+
+  // Grow the contiguous masked span [s, e] that contains this pixel.
+  var s = pos;
+  loop {
+    if (s == 0) { break; }
+    if (!psInBand(psLumAt(s - 1, perp, vertical))) { break; }
+    s = s - 1;
+  }
+  var e = pos;
+  loop {
+    if (e == axisLen - 1) { break; }
+    if (!psInBand(psLumAt(e + 1, perp, vertical))) { break; }
+    e = e + 1;
+  }
+
+  // Rank = count of span pixels that sort before this one. Equal luminances are
+  // ordered by original index so ranks are unique across the span (a bijection
+  // onto [s, e]) — every destination texel receives exactly one writer.
+  var rank = 0;
+  for (var i = s; i <= e; i = i + 1) {
+    if (i == pos) { continue; }
+    let li = psLumAt(i, perp, vertical);
+    if (li < selfLum || (li == selfLum && i < pos)) {
+      rank = rank + 1;
+    }
+  }
+
+  // Ascending places the darkest at \`s\`; descending flips the span end-for-end.
+  let dstIndex = select(s + rank, e - rank, params.descending > 0.5);
+  let outCoord = select(vec2i(dstIndex, perp), vec2i(perp, dstIndex), vertical);
+  textureStore(outputTex, outCoord, selfColor);
+}`,
+  params: {
+    orientation: {
+      type: 'select',
+      label: 'Orientation',
+      default: 'horizontal',
+      options: [
+        { value: 'horizontal', label: 'Horizontal' },
+        { value: 'vertical', label: 'Vertical' },
+      ],
+    },
+    order: {
+      type: 'select',
+      label: 'Order',
+      default: 'ascending',
+      options: [
+        { value: 'ascending', label: 'Dark → Bright' },
+        { value: 'descending', label: 'Bright → Dark' },
+      ],
+    },
+    low: {
+      type: 'number',
+      label: 'Threshold Low',
+      default: 0.25,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    high: {
+      type: 'number',
+      label: 'Threshold High',
+      default: 0.9,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+  },
+  packUniforms: (p, w, h) =>
+    new Float32Array([
+      (p.low as number) ?? 0.25,
+      (p.high as number) ?? 0.9,
+      p.orientation === 'vertical' ? 1 : 0,
+      p.order === 'descending' ? 1 : 0,
+      w,
+      h,
+      0,
+      0,
+    ]),
+}
