@@ -161,6 +161,45 @@ describe('shouldPreferPlayerForStyledTextScrub', () => {
     expect(shouldPreferPlayerForStyledTextScrub(tracks, [])).toBe(true)
   })
 
+  it('returns false for motion-text clips even when styled (canvas-only rendering)', () => {
+    const tracks: TimelineTrack[] = [
+      {
+        ...BASE_TRACK,
+        items: [
+          {
+            id: 'text-1',
+            type: 'text',
+            trackId: 'track-1',
+            from: 0,
+            durationInFrames: 90,
+            label: 'Motion text',
+            text: 'Motion',
+            color: '#ffffff',
+            textShadow: {
+              offsetX: 0,
+              offsetY: 0,
+              blur: 18,
+              color: '#00ffff',
+            },
+            textMotion: {
+              in: {
+                presetId: 'fade-up',
+                durationFrames: 12,
+                staggerFrames: 2,
+                intensity: 1,
+                order: 'forward',
+                easing: 'ease-out',
+                seed: 0,
+              },
+            },
+          },
+        ],
+      },
+    ]
+
+    expect(shouldPreferPlayerForStyledTextScrub(tracks, [])).toBe(false)
+  })
+
   it('ignores hidden tracks', () => {
     const tracks: TimelineTrack[] = [
       {

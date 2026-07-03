@@ -48,6 +48,13 @@ export {
   setEffectAudioPulse,
   bakeMotionToKeyframes,
 } from '../stores/actions/motion-modifier-actions'
+export {
+  applyTextMotionEffect,
+  updateTextMotionLive,
+  beginTextMotionEdit,
+  commitTextMotionEdit,
+  removeTextMotionEffect,
+} from '../stores/actions/text-motion-actions'
 export { captureAnimationFromItem, getPresetCompatibility } from '../deps/keyframe-editors'
 export { rateStretchItemWithoutHistory } from '../stores/actions/item-edit-actions'
 export { setInOutPointsWithoutHistory } from '../stores/actions/marker-actions'

@@ -12,6 +12,7 @@ import {
   AlignCenterHorizontal,
   AlignEndHorizontal,
   Sparkles,
+  WandSparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -29,6 +30,7 @@ import { useGizmoStore, type ItemPropertiesPreview } from '@/features/editor/dep
 import { resolveTransform, getSourceDimensions } from '@/features/editor/deps/composition-runtime'
 import { KeyframeToggle, resolveAnimatedTransform } from '@/features/editor/deps/keyframes'
 import { MotionPresetThumbnail } from '../../animate-workspace/motion-preset-thumbnail'
+import { TextMotionSlotRows } from '../../text-motion/text-motion-slot-rows'
 import { PropertySection, PropertyRow, NumberInput, ColorPicker, SliderInput } from '../components'
 import { FontPicker } from './font-picker'
 import { FONT_CATALOG, FONT_WEIGHT_MAP } from '@/shared/typography/fonts'
@@ -1781,6 +1783,17 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
               allowAlpha
             />
           )}
+        </PropertySection>
+      )}
+
+      {showAnimationSection && (
+        <PropertySection title={t('textMotion.sectionTitle')} icon={WandSparkles} defaultOpen={true}>
+          <div className="flex flex-col gap-2 py-1">
+            <p className="text-[10px] leading-snug text-muted-foreground/70">
+              {t('textMotion.hint')}
+            </p>
+            <TextMotionSlotRows items={textItems} />
+          </div>
         </PropertySection>
       )}
 

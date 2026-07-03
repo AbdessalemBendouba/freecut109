@@ -9,6 +9,7 @@
 
 import type { Migration } from './types'
 import type { Project, ProjectTimeline } from '@/types/project'
+import { sanitizeTextMotion } from './sanitize-text-motion'
 
 // Historical constants used by specific migrations.
 // Keep these as literals so old migration behavior doesn't drift when
@@ -867,6 +868,42 @@ const migrations: Record<number, Migration> = {
           }
         })
         return changed ? { ...record, effects: nextEffects } : item
+      }
+
+      const timeline = project.timeline
+      return {
+        ...project,
+        timeline: {
+          ...timeline,
+          items: timeline.items?.map(convertItem) ?? timeline.items,
+          compositions:
+            timeline.compositions?.map((composition) => ({
+              ...composition,
+              items: composition.items?.map(convertItem) ?? composition.items,
+            })) ?? timeline.compositions,
+        },
+      } as Project
+    },
+  },
+  /**
+   * Version 12: Sanitize motion-text specs (textMotion) on text items
+   *
+   * Motion text stores an optional parametric `textMotion` record on text
+   * items (see src/types/text-motion.ts). Sanitize any pre-existing value:
+   * drop slots with unknown preset ids or malformed shapes, clamp numerics,
+   * and remove empty specs entirely. Normalization re-applies the same
+   * sanitizer on every load.
+   */
+  12: {
+    version: 12,
+    description: 'Sanitize motion-text specs (textMotion) on text items',
+    migrate: (project: Project): Project => {
+      if (!project.timeline) return project
+
+      const convertItem = (item: unknown): unknown => {
+        const record = item as Record<string, unknown>
+        if (record.type !== 'text' || record.textMotion === undefined) return item
+        return { ...record, textMotion: sanitizeTextMotion(record.textMotion) }
       }
 
       const timeline = project.timeline

@@ -240,6 +240,68 @@ describe('shouldForceContinuousPreviewOverlay', () => {
     expect(shouldForceContinuousPreviewOverlay([textItem], 0, 120)).toBe(false)
   })
 
+  it('forces continuous overlay only inside a text clip in/out motion window', () => {
+    const motionText: TimelineItem = {
+      id: 'motion-1',
+      type: 'text',
+      trackId: 'track-1',
+      from: 0,
+      durationInFrames: 90,
+      label: 'Title',
+      text: 'Tonight',
+      fontSize: 96,
+      color: '#ffffff',
+      textMotion: {
+        in: {
+          presetId: 'fade-up',
+          durationFrames: 12,
+          staggerFrames: 0,
+          intensity: 1,
+          order: 'forward',
+          easing: 'ease-out',
+          seed: 0,
+        },
+      },
+    } as TimelineItem
+
+    // Inside the 12-frame in-window → overlay forced so the DOM Player never
+    // renders the (unanimatable) motion frame.
+    expect(shouldForceContinuousPreviewOverlay([motionText], 0, 3)).toBe(true)
+    // Settled mid-clip → identity, no need for the overlay.
+    expect(shouldForceContinuousPreviewOverlay([motionText], 0, 40)).toBe(false)
+    // Past the clip entirely → inactive.
+    expect(shouldForceContinuousPreviewOverlay([motionText], 0, 200)).toBe(false)
+  })
+
+  it('forces continuous overlay across the whole clip for a text loop motion', () => {
+    const loopText: TimelineItem = {
+      id: 'motion-loop-1',
+      type: 'text',
+      trackId: 'track-1',
+      from: 0,
+      durationInFrames: 90,
+      label: 'Title',
+      text: 'Tonight',
+      fontSize: 96,
+      color: '#ffffff',
+      textMotion: {
+        loop: {
+          presetId: 'wave',
+          durationFrames: 30,
+          staggerFrames: 3,
+          intensity: 1,
+          order: 'forward',
+          easing: 'linear',
+          seed: 0,
+        },
+      },
+    } as TimelineItem
+
+    expect(shouldForceContinuousPreviewOverlay([loopText], 0, 5)).toBe(true)
+    expect(shouldForceContinuousPreviewOverlay([loopText], 0, 60)).toBe(true)
+    expect(shouldForceContinuousPreviewOverlay([loopText], 0, 200)).toBe(false)
+  })
+
   it('forces continuous overlay when an active compound clip has gpu effects on sub-items', () => {
     const compItem = createCompositionItem()
     const subComp = createSubComposition([

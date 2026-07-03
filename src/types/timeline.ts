@@ -4,6 +4,7 @@ import type { MotionModifier } from './motion'
 import type { BlendMode } from './blend-modes'
 import type { AudioEqSettings } from './audio'
 import type { TextStylePresetId } from '@/shared/typography/text-style-preset-ids'
+import type { TextMotionSpec } from './text-motion'
 import type { TextLayoutDrafts, TextSpan, TextStyleFields } from './text'
 
 export interface TimelineItemCornerPin {
@@ -185,6 +186,8 @@ export type TextItem = BaseTimelineItem &
     textLayoutDrafts?: TextLayoutDrafts
     textStylePresetId?: TextStylePresetId
     textStyleScale?: number
+    /** Per-character/word/line animation (see src/types/text-motion.ts). */
+    textMotion?: TextMotionSpec
     textRole?: 'caption'
     captionSource?: GeneratedCaptionSource
     color: string // Text color (hex or oklch)
