@@ -1143,11 +1143,8 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
           icon={Type}
           defaultOpen={true}
         >
-          {/* Text Content — full-width group under a header (not a gutter
-              label), so the editors reclaim the width. */}
-          <PropertyGroupHeader className="pt-0">
-            {t('editor.textSection.content')}
-          </PropertyGroupHeader>
+          {/* Content editors run full-width (no gutter label) directly under
+              the TEXT section header — no redundant "Content" sub-header. */}
           <div className="flex w-full min-w-0 flex-col gap-2">
               <div className="grid w-full grid-cols-3 gap-1.5">
                 <Button
