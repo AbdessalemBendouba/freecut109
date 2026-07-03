@@ -58,7 +58,12 @@ import { useSelectionStore } from '@/shared/state/selection'
 import { EDITOR_LAYOUT_CSS_VALUES, getEditorLayout } from '@/config/editor-layout'
 import { createScrubThrottleState, shouldCommitScrubFrame } from '../deps/timeline-utils'
 import { cn } from '@/shared/ui/cn'
-import { IoRangeHandles, IoRangeStrip, useMeasuredWidth } from '@/shared/timeline/io-range'
+import {
+  beginIoPointerDrag,
+  IoRangeHandles,
+  IoRangeStrip,
+  useMeasuredWidth,
+} from '@/shared/timeline/io-range'
 import { formatTimecodeCompact } from '@/shared/utils/time-utils'
 import { getPreviewPixelSnapSize } from '../utils/preview-pixel-snap'
 import type { TimelineTrack } from '@/types/timeline'
@@ -908,83 +913,63 @@ function SourcePlaybackControls({
 
   const handleIODragStart = useCallback(
     (e: React.PointerEvent, type: 'in' | 'out') => {
-      if (e.button !== 0) return
-      e.preventDefault()
-      e.stopPropagation()
-      const originalCursor = document.body.style.cursor
-      document.body.style.cursor = 'col-resize'
-
       const store = useSourcePlayerStore.getState
-      // Pointer events, not mouse: preventDefault() on the pointerdown above
-      // suppresses the compatibility `mouseup`, so a mouse listener would leave
-      // the drag running (marker stuck to the cursor). `pointerup` is unaffected.
-      const onMove = (ev: PointerEvent) => {
-        const point = pointFromStripX(ev.clientX)
-        if (type === 'in') {
-          const out = store().outPoint
-          const nextIn = clampDraggedSourceInPoint(point, out, lastFrame)
-          store().setInPoint(nextIn)
-          store().setPreviewSourceFrame(nextIn)
-        } else {
-          const inp = store().inPoint
-          const nextOut = clampDraggedSourceOutPoint(point, inp, durationInFrames)
-          store().setOutPoint(nextOut)
-          // Out is exclusive — skim to the last included frame (out - 1).
-          store().setPreviewSourceFrame(Math.max(0, nextOut - 1))
-        }
-      }
-      const onUp = () => {
-        document.body.style.cursor = originalCursor
-        document.removeEventListener('pointermove', onMove)
-        document.removeEventListener('pointerup', onUp)
-        document.removeEventListener('pointercancel', onUp)
-        store().setPreviewSourceFrame(null)
-        ioDragCleanupRef.current = null
-      }
-      ioDragCleanupRef.current = onUp
-      document.addEventListener('pointermove', onMove)
-      document.addEventListener('pointerup', onUp)
-      document.addEventListener('pointercancel', onUp)
+      const originalCursor = document.body.style.cursor
+      const cleanup = beginIoPointerDrag(
+        e,
+        (clientX) => {
+          const point = pointFromStripX(clientX)
+          if (type === 'in') {
+            const nextIn = clampDraggedSourceInPoint(point, store().outPoint, lastFrame)
+            store().setInPoint(nextIn)
+            store().setPreviewSourceFrame(nextIn)
+          } else {
+            const nextOut = clampDraggedSourceOutPoint(point, store().inPoint, durationInFrames)
+            store().setOutPoint(nextOut)
+            // Out is exclusive — skim to the last included frame (out - 1).
+            store().setPreviewSourceFrame(Math.max(0, nextOut - 1))
+          }
+        },
+        () => {
+          document.body.style.cursor = originalCursor
+          store().setPreviewSourceFrame(null)
+          ioDragCleanupRef.current = null
+        },
+      )
+      if (!cleanup) return
+      document.body.style.cursor = 'col-resize'
+      ioDragCleanupRef.current = cleanup
     },
     [durationInFrames, lastFrame, pointFromStripX],
   )
 
   const handleIORangeDragStart = useCallback(
     (e: React.PointerEvent) => {
-      if (e.button !== 0) return
-      e.preventDefault()
-      e.stopPropagation()
       const store = useSourcePlayerStore.getState
       const startIn = store().inPoint
       const startOut = store().outPoint
       if (startIn === null || startOut === null) return
       const startPoint = pointFromStripX(e.clientX)
       const originalCursor = document.body.style.cursor
+      const cleanup = beginIoPointerDrag(
+        e,
+        (clientX) => {
+          const delta = pointFromStripX(clientX) - startPoint
+          const nextRange = shiftSourceIoRange(startIn, startOut, delta, durationInFrames)
+          store().setInPoint(nextRange.inPoint)
+          store().setOutPoint(nextRange.outPoint)
+          // Skim the preview to the range's leading (in) edge as it slides.
+          store().setPreviewSourceFrame(nextRange.inPoint)
+        },
+        () => {
+          document.body.style.cursor = originalCursor
+          store().setPreviewSourceFrame(null)
+          ioDragCleanupRef.current = null
+        },
+      )
+      if (!cleanup) return
       document.body.style.cursor = 'grabbing'
-
-      // Pointer events, not mouse — see handleIODragStart (preventDefault on the
-      // pointerdown suppresses the compat `mouseup`, which would strand the drag).
-      const onMove = (ev: PointerEvent) => {
-        const nowPoint = pointFromStripX(ev.clientX)
-        const delta = nowPoint - startPoint
-        const nextRange = shiftSourceIoRange(startIn, startOut, delta, durationInFrames)
-        store().setInPoint(nextRange.inPoint)
-        store().setOutPoint(nextRange.outPoint)
-        // Skim the preview to the range's leading (in) edge as it slides.
-        store().setPreviewSourceFrame(nextRange.inPoint)
-      }
-      const onUp = () => {
-        document.body.style.cursor = originalCursor
-        document.removeEventListener('pointermove', onMove)
-        document.removeEventListener('pointerup', onUp)
-        document.removeEventListener('pointercancel', onUp)
-        store().setPreviewSourceFrame(null)
-        ioDragCleanupRef.current = null
-      }
-      ioDragCleanupRef.current = onUp
-      document.addEventListener('pointermove', onMove)
-      document.addEventListener('pointerup', onUp)
-      document.addEventListener('pointercancel', onUp)
+      ioDragCleanupRef.current = cleanup
     },
     [durationInFrames, pointFromStripX],
   )

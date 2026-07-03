@@ -4,7 +4,7 @@ import { useTimelineStore } from '../stores/timeline-store'
 import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
-import { IoRangeHandles } from '@/shared/timeline/io-range'
+import { beginIoPointerDrag, IoRangeHandles } from '@/shared/timeline/io-range'
 
 // Matches the ruler's top IO lane height in timeline-markers.tsx.
 const IO_LANE_HEIGHT = 12
@@ -35,47 +35,36 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
 
   const startDrag = useCallback(
     (handle: 'in' | 'out') => (e: React.PointerEvent) => {
-      if (e.button !== 0) return
-      e.preventDefault()
-      e.stopPropagation()
-
       const container = (e.currentTarget as HTMLElement).closest('.timeline-ruler')
       if (!container) return
 
       const setter = handle === 'in' ? setInPointRef : setOutPointRef
       const prevCursor = document.body.style.cursor
+      const cleanup = beginIoPointerDrag(
+        e,
+        (clientX) => {
+          const rect = container.getBoundingClientRect()
+          const x = clientX - rect.left
+          const frame = Math.max(0, pixelsToFrameRef.current(x))
+          setter.current(frame)
+          // Skim the preview to the boundary frame. Out is exclusive, so show the
+          // last included frame (out - 1) rather than the frame just past it.
+          const previewFrame =
+            handle === 'out' ? Math.max(0, Math.round(frame) - 1) : Math.round(frame)
+          usePlaybackStore.getState().setPreviewFrame(previewFrame)
+        },
+        () => {
+          document.body.style.cursor = prevCursor
+          previewScrubberSuppressRef.current = false
+          usePlaybackStore.getState().setPreviewFrame(null)
+          dragCleanupRef.current = null
+        },
+      )
+      if (!cleanup) return
       document.body.style.cursor = 'col-resize'
       // Keep the preview canvas refreshing but pin the ghost skimmer so it
       // doesn't chase the marker (matches the Color workspace IO drag).
       previewScrubberSuppressRef.current = true
-
-      // Drive the drag with pointer events: calling preventDefault() on the
-      // pointerdown above suppresses the compatibility `mouseup`, so a
-      // mouse-based listener would never tear the drag down (marker sticks to
-      // the cursor). `pointerup`/`pointercancel` are unaffected.
-      const onMove = (ev: PointerEvent) => {
-        const rect = container.getBoundingClientRect()
-        const x = ev.clientX - rect.left
-        const frame = Math.max(0, pixelsToFrameRef.current(x))
-        setter.current(frame)
-        // Skim the preview to the boundary frame. Out is exclusive, so show the
-        // last included frame (out - 1) rather than the frame just past it.
-        const previewFrame =
-          handle === 'out' ? Math.max(0, Math.round(frame) - 1) : Math.round(frame)
-        usePlaybackStore.getState().setPreviewFrame(previewFrame)
-      }
-      const cleanup = () => {
-        document.removeEventListener('pointermove', onMove)
-        document.removeEventListener('pointerup', cleanup)
-        document.removeEventListener('pointercancel', cleanup)
-        document.body.style.cursor = prevCursor
-        previewScrubberSuppressRef.current = false
-        usePlaybackStore.getState().setPreviewFrame(null)
-        dragCleanupRef.current = null
-      }
-      document.addEventListener('pointermove', onMove)
-      document.addEventListener('pointerup', cleanup)
-      document.addEventListener('pointercancel', cleanup)
       dragCleanupRef.current = cleanup
     },
     [],
