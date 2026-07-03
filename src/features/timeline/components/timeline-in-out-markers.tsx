@@ -88,21 +88,35 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
   const handleInDown = useMemo(() => startDrag('in'), [startDrag])
   const handleOutDown = useMemo(() => startDrag('out'), [startDrag])
 
+  const inPx = inPoint !== null ? frameToPixels(inPoint) : null
+  const outPx = outPoint !== null ? frameToPixels(outPoint) : null
+
+  // When zoomed far out the in/out range collapses to a few pixels wide. The two
+  // fixed-width side grips would then overlap into a solid blue block that covers
+  // the gray range bar. Cap each grip to half the range so they meet at the
+  // midpoint (a clean pill spanning exactly the range) instead of overlapping.
+  const handleWidth =
+    inPx !== null && outPx !== null
+      ? Math.max(0, Math.min(IO_HANDLE_WIDTH, (outPx - inPx) / 2))
+      : IO_HANDLE_WIDTH
+
   return (
     <>
-      {inPoint !== null && (
+      {inPx !== null && (
         <IOMarker
           ref={inMarkerRef}
-          positionPx={frameToPixels(inPoint)}
+          positionPx={inPx}
           side="in"
+          handleWidth={handleWidth}
           onMouseDown={handleInDown}
         />
       )}
-      {outPoint !== null && (
+      {outPx !== null && (
         <IOMarker
           ref={outMarkerRef}
-          positionPx={frameToPixels(outPoint)}
+          positionPx={outPx}
           side="out"
+          handleWidth={handleWidth}
           onMouseDown={handleOutDown}
         />
       )}
@@ -113,12 +127,13 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
 interface IOMarkerProps {
   positionPx: number
   side: 'in' | 'out'
+  handleWidth: number
   onMouseDown: (e: React.MouseEvent) => void
 }
 
 const IOMarker = memo(
   forwardRef<HTMLDivElement, IOMarkerProps>(function IOMarker(
-    { positionPx, side, onMouseDown },
+    { positionPx, side, handleWidth, onMouseDown },
     ref,
   ) {
     return (
@@ -140,8 +155,8 @@ const IOMarker = memo(
           className="absolute pointer-events-none"
           style={{
             top: 0,
-            left: side === 'in' ? 0 : -IO_HANDLE_WIDTH,
-            width: IO_HANDLE_WIDTH,
+            left: side === 'in' ? 0 : -handleWidth,
+            width: handleWidth,
             height: IO_LANE_HEIGHT,
             borderRadius: side === 'in' ? '5px 1px 1px 5px' : '1px 5px 5px 1px',
             background: `linear-gradient(to bottom, color-mix(in oklch, ${IO_HANDLE_COLOR} 92%, white), color-mix(in oklch, ${IO_HANDLE_COLOR} 78%, black))`,
