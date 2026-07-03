@@ -105,6 +105,14 @@ export function SegmentEasingPopover({
   const [savingName, setSavingName] = useState<string | null>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
+  // The side (top/bottom) Radix resolved on first open, pinned for the rest of
+  // the session. The preset grid and the taller spring/bezier editor differ in
+  // height, and `ResizePanel` animates between them — without pinning, Radix
+  // re-runs collision detection on that height change and can flip the panel to
+  // the opposite side mid-transition. `sideLocked` gates avoidCollisions so the
+  // FIRST view still gets a collision-aware placement; we then freeze it.
+  const [lockedSide, setLockedSide] = useState<'top' | 'bottom'>('top')
+  const [sideLocked, setSideLocked] = useState(false)
   // Horizontal anchor for the popover, in the cell's coordinate space. Set from
   // the pointer position on open so the panel grows out of where the user
   // clicked the connector band, not from its center.
@@ -131,6 +139,23 @@ export function SegmentEasingPopover({
     }
     document.addEventListener('pointerdown', handlePointerDown, true)
     return () => document.removeEventListener('pointerdown', handlePointerDown, true)
+  }, [open])
+
+  // Pin the resolved side once Radix has positioned the initial (preset) view.
+  // Read `data-side` after a frame — Radix sets it after its floating-position
+  // pass — then lock it so later height changes (Edit ↔ Presets) don't re-flip.
+  useEffect(() => {
+    // Don't unlock on close — that would flip the side back mid-exit-animation
+    // and cause a flicker. Unlocking happens synchronously on open (below).
+    if (!open) return
+    const raf = requestAnimationFrame(() => {
+      const side = contentRef.current?.getAttribute('data-side')
+      if (side === 'top' || side === 'bottom') {
+        setLockedSide(side)
+        setSideLocked(true)
+      }
+    })
+    return () => cancelAnimationFrame(raf)
   }, [open])
 
   // Center a padded band on the connector so it never covers the diamond hit
@@ -260,8 +285,12 @@ export function SegmentEasingPopover({
       open={open}
       onOpenChange={(next) => {
         setOpen(next)
-        if (next) openBaselineRef.current = { easing, easingConfig }
-        else {
+        if (next) {
+          openBaselineRef.current = { easing, easingConfig }
+          // Unlock before the content mounts so the fresh open gets a
+          // collision-aware placement; the effect re-pins it a frame later.
+          setSideLocked(false)
+        } else {
           setEditing(false)
           setSavingName(null)
         }
@@ -297,7 +326,11 @@ export function SegmentEasingPopover({
         align="start"
         alignOffset={alignOffset}
         collisionPadding={12}
-        side="top"
+        // Until the initial view is placed, let Radix pick the side with
+        // collision avoidance; afterwards pin that side so switching to the
+        // taller editor view can't flip the panel to the opposite direction.
+        side={sideLocked ? lockedSide : 'top'}
+        avoidCollisions={!sideLocked}
         className="w-auto max-w-[calc(100vw-24px)] overflow-hidden p-0"
         onPointerDown={(event) => event.stopPropagation()}
         // Disable Radix's automatic dismissal (focus-out, internal focus shifts,

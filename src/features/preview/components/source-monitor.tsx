@@ -58,6 +58,7 @@ import { useSelectionStore } from '@/shared/state/selection'
 import { EDITOR_LAYOUT_CSS_VALUES, getEditorLayout } from '@/config/editor-layout'
 import { createScrubThrottleState, shouldCommitScrubFrame } from '../deps/timeline-utils'
 import { cn } from '@/shared/ui/cn'
+import { IoRangeHandles, IoRangeStrip, useMeasuredWidth } from '@/shared/timeline/io-range'
 import { formatTimecodeCompact } from '@/shared/utils/time-utils'
 import { getPreviewPixelSnapSize } from '../utils/preview-pixel-snap'
 import type { TimelineTrack } from '@/types/timeline'
@@ -71,6 +72,9 @@ interface SourceMonitorProps {
 }
 
 const SOURCE_MONITOR_RESIZE_MIN_UPDATE_MS = 33
+
+// Height of the IO lane strip (matches the `h-2.5` container below).
+const SOURCE_IO_LANE_HEIGHT = 10
 
 function getDevicePixelRatio(): number {
   return typeof window === 'undefined' ? 1 : window.devicePixelRatio
@@ -884,6 +888,11 @@ function SourcePlaybackControls({
 
   // Draggable I/O handles + range
   const ioStripRef = useRef<HTMLDivElement>(null)
+  // Strip pixel width — handles position via `%` but need the px span to stay
+  // collapse-safe (they'd otherwise overlap into a block on a short range). The
+  // strip mounts late (only once an in/out point exists), so measure via the
+  // callback ref to catch that mount.
+  const { width: ioStripWidth, measureRef: ioStripMeasureRef } = useMeasuredWidth(ioStripRef)
   const ioDragCleanupRef = useRef<(() => void) | null>(null)
 
   const pointFromStripX = useCallback(
@@ -1178,84 +1187,25 @@ function SourcePlaybackControls({
         <div className="flex-1 flex flex-col justify-center gap-[2px] min-w-0">
           {/* I/O region strip — styled like timeline I/O controls */}
           {interactive && (inPct !== null || outPct !== null) && (
-            <div ref={ioStripRef} className="w-full h-2.5 relative shrink-0">
-              {/* Draggable range strip */}
+            <div ref={ioStripMeasureRef} className="w-full h-2.5 relative shrink-0">
               {inPct !== null && outPct !== null && (
-                <div
-                  className="absolute inset-y-0 cursor-grab active:cursor-grabbing"
-                  style={{
-                    left: `${inPct}%`,
-                    width: `${Math.max(0.5, outPct - inPct)}%`,
-                    background:
-                      'linear-gradient(to bottom, var(--color-timeline-io-range-fill), color-mix(in oklch, var(--color-timeline-io-range-fill) 82%, black))',
-                    border: '1px solid var(--color-timeline-io-range-border)',
-                    borderRadius: '2px',
-                    boxShadow:
-                      'inset 0 1px 0 color-mix(in oklch, white 22%, transparent), 0 0 6px var(--color-timeline-io-range-glow)',
-                    zIndex: 10,
-                  }}
-                  onMouseDown={handleIORangeDragStart}
+                <IoRangeStrip
+                  left={`${inPct}%`}
+                  width={`${outPct - inPct}%`}
+                  height={SOURCE_IO_LANE_HEIGHT}
+                  onDragStart={handleIORangeDragStart}
                 />
               )}
-              {/* In handle — grip */}
-              {inPct !== null && (
-                <div
-                  className="absolute top-0 bottom-0"
-                  style={{
-                    left: `${inPct}%`,
-                    width: '5px',
-                    borderRadius: '2px',
-                    background: `linear-gradient(to bottom, var(--color-timeline-io-handle), color-mix(in oklch, var(--color-timeline-io-handle) 75%, black))`,
-                    boxShadow: `0 0 5px color-mix(in oklch, var(--color-timeline-io-handle) 55%, transparent)`,
-                    zIndex: 20,
-                    pointerEvents: 'none',
-                  }}
-                />
-              )}
-              {/* In handle hit area */}
-              {inPct !== null && (
-                <div
-                  className="absolute cursor-col-resize"
-                  style={{
-                    left: `calc(${inPct}% - 4px)`,
-                    top: 0,
-                    bottom: 0,
-                    width: '14px',
-                    zIndex: 21,
-                  }}
-                  onMouseDown={(e) => handleIODragStart(e, 'in')}
-                />
-              )}
-              {/* Out handle — grip */}
-              {outPct !== null && (
-                <div
-                  className="absolute top-0 bottom-0"
-                  style={{
-                    left: `${outPct}%`,
-                    width: '5px',
-                    transform: 'translateX(-100%)',
-                    borderRadius: '2px',
-                    background: `linear-gradient(to bottom, var(--color-timeline-io-handle), color-mix(in oklch, var(--color-timeline-io-handle) 75%, black))`,
-                    boxShadow: `0 0 5px color-mix(in oklch, var(--color-timeline-io-handle) 55%, transparent)`,
-                    zIndex: 20,
-                    pointerEvents: 'none',
-                  }}
-                />
-              )}
-              {/* Out handle hit area */}
-              {outPct !== null && (
-                <div
-                  className="absolute cursor-col-resize"
-                  style={{
-                    left: `calc(${outPct}% - 10px)`,
-                    top: 0,
-                    bottom: 0,
-                    width: '14px',
-                    zIndex: 21,
-                  }}
-                  onMouseDown={(e) => handleIODragStart(e, 'out')}
-                />
-              )}
+              <IoRangeHandles
+                inLeft={inPct !== null ? `${inPct}%` : null}
+                outLeft={outPct !== null ? `${outPct}%` : null}
+                spanPx={
+                  inPct !== null && outPct !== null ? ((outPct - inPct) / 100) * ioStripWidth : null
+                }
+                laneHeight={SOURCE_IO_LANE_HEIGHT}
+                onInDragStart={(e) => handleIODragStart(e, 'in')}
+                onOutDragStart={(e) => handleIODragStart(e, 'out')}
+              />
             </div>
           )}
           {/* Seek bar */}

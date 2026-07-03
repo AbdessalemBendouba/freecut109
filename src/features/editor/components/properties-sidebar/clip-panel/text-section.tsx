@@ -1303,6 +1303,7 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
                                   color={span.color ?? firstTextItem.color ?? '#ffffff'}
                                   onChange={(value) => handleSpanColorChange(index, value)}
                                   onLiveChange={(value) => handleSpanColorLiveChange(index, value)}
+                                  allowAlpha
                                 />
                               </div>
                               {config.allowItalic ? (
@@ -1556,6 +1557,7 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
               onLiveChange={handleColorLiveChange}
               onReset={() => handleColorChange('#ffffff')}
               defaultColor="#ffffff"
+              allowAlpha
             />
           )}
 
@@ -1566,6 +1568,7 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
                   color={backgroundColorValue}
                   onChange={handleBackgroundColorChange}
                   onLiveChange={handleBackgroundColorLiveChange}
+                  allowAlpha
                 />
               </div>
               <Button
@@ -1684,6 +1687,7 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
             onLiveChange={handleShadowColorLiveChange}
             onReset={() => handleShadowColorChange('#000000')}
             defaultColor="#000000"
+            allowAlpha
           />
 
           <PropertyRow label={t('editor.textSection.shadowX')}>
@@ -1774,6 +1778,7 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
               onLiveChange={handleStrokeColorLiveChange}
               onReset={() => handleStrokeColorChange('#111827')}
               defaultColor="#111827"
+              allowAlpha
             />
           )}
         </PropertySection>

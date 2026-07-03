@@ -7,20 +7,8 @@ import {
 } from '@/features/editor/deps/timeline-store'
 import { usePlaybackStore } from '@/shared/state/playback'
 import type { TimelineAnnotationModel } from '@/shared/timeline/timeline-annotations'
-import {
-  MINI_TIMELINE_IO_HANDLE_COLOR,
-  MINI_TIMELINE_IO_HANDLE_WIDTH,
-  MINI_TIMELINE_IO_LANE_HEIGHT,
-} from './constants'
-
-function ioRangeStyleFor(model: TimelineAnnotationModel) {
-  return model.ioRange
-    ? {
-        left: `${model.ioRange.startRatio * 100}%`,
-        width: `${Math.max(0.25, (model.ioRange.endRatio - model.ioRange.startRatio) * 100)}%`,
-      }
-    : null
-}
+import { IoRangeHandles, IoRangeStrip, useMeasuredWidth } from '@/shared/timeline/io-range'
+import { MINI_TIMELINE_IO_HANDLE_WIDTH, MINI_TIMELINE_IO_LANE_HEIGHT } from './constants'
 
 /**
  * The IO bar's own lane (DaVinci-style). Renders the in/out range strip (drag
@@ -44,13 +32,15 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
   testIdPrefix: string
 }) {
   const { t } = useTranslation()
-  const ioRangeStyle = ioRangeStyleFor(model)
   const setInPoint = useTimelineStore((s) => s.setInPoint)
   const setOutPoint = useTimelineStore((s) => s.setOutPoint)
   const inPoint = useTimelineStore((s) => s.inPoint)
   const outPoint = useTimelineStore((s) => s.outPoint)
 
   const laneRef = useRef<HTMLDivElement>(null)
+  // Lane pixel width — the ratios above render fluidly, but the handles need the
+  // real span in px to avoid overlapping into a block when the range is narrow.
+  const { width: laneWidth, measureRef: laneMeasureRef } = useMeasuredWidth(laneRef)
   const dragCleanupRef = useRef<(() => void) | null>(null)
   const maxFrameRef = useRef(timelineMaxFrame)
   maxFrameRef.current = timelineMaxFrame
@@ -157,69 +147,41 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
     [suppressPlayheadPreviewRef],
   )
 
-  const renderHandle = (point: TimelineAnnotationModel['inPoint'], side: 'in' | 'out') => {
-    if (!point) return null
-    return (
-      <span
-        key={side}
-        className="absolute top-0 z-[2] w-0"
-        style={{ left: `${point.positionRatio * 100}%` }}
-        title={side === 'in' ? t('editor.miniTimeline.inPoint') : t('editor.miniTimeline.outPoint')}
-      >
-        <span
-          className="absolute pointer-events-none"
-          data-testid={`${testIdPrefix}-${side}-handle`}
-          style={{
-            top: 0,
-            left: side === 'in' ? 0 : -MINI_TIMELINE_IO_HANDLE_WIDTH,
-            width: MINI_TIMELINE_IO_HANDLE_WIDTH,
-            height: MINI_TIMELINE_IO_LANE_HEIGHT,
-            borderRadius: side === 'in' ? '5px 1px 1px 5px' : '1px 5px 5px 1px',
-            background: `linear-gradient(to bottom, color-mix(in oklch, ${MINI_TIMELINE_IO_HANDLE_COLOR} 92%, white), color-mix(in oklch, ${MINI_TIMELINE_IO_HANDLE_COLOR} 78%, black))`,
-            boxShadow: `inset 0 1px 0 color-mix(in oklch, white 35%, transparent), 0 0 2px color-mix(in oklch, ${MINI_TIMELINE_IO_HANDLE_COLOR} 45%, transparent)`,
-          }}
-          aria-hidden="true"
-        />
-        {/* Wider invisible hit area for grabbing the handle. */}
-        <span
-          className="absolute pointer-events-auto"
-          style={{
-            top: 0,
-            left: side === 'in' ? -6 : -(MINI_TIMELINE_IO_HANDLE_WIDTH + 6),
-            width: MINI_TIMELINE_IO_HANDLE_WIDTH + 12,
-            height: MINI_TIMELINE_IO_LANE_HEIGHT + 6,
-            cursor: 'col-resize',
-          }}
-          onPointerDown={startDrag(side)}
-        />
-      </span>
-    )
-  }
+  const inRatio = model.inPoint?.positionRatio ?? null
+  const outRatio = model.outPoint?.positionRatio ?? null
+  const spanPx = inRatio !== null && outRatio !== null ? (outRatio - inRatio) * laneWidth : null
 
   return (
     <div
-      ref={laneRef}
+      ref={laneMeasureRef}
       className="pointer-events-none absolute inset-y-0 right-0"
       data-testid={`${testIdPrefix}-io-lane`}
       style={{ left: labelWidth }}
     >
-      {ioRangeStyle ? (
-        <span
-          className="pointer-events-auto absolute z-[1] cursor-grab rounded-[5px] active:cursor-grabbing"
-          data-testid={`${testIdPrefix}-io-strip`}
-          onPointerDown={startRangeDrag}
-          style={{
-            ...ioRangeStyle,
-            top: 0,
-            height: MINI_TIMELINE_IO_LANE_HEIGHT,
-            background: 'color-mix(in oklch, var(--muted-foreground) 82%, black)',
-            border: '1px solid color-mix(in oklch, var(--muted-foreground) 70%, transparent)',
-          }}
+      {model.ioRange ? (
+        <IoRangeStrip
+          left={`${model.ioRange.startRatio * 100}%`}
+          width={`${(model.ioRange.endRatio - model.ioRange.startRatio) * 100}%`}
+          height={MINI_TIMELINE_IO_LANE_HEIGHT}
+          onDragStart={startRangeDrag}
+          testId={`${testIdPrefix}-io-strip`}
+          zIndex={1}
         />
       ) : null}
 
-      {renderHandle(model.inPoint, 'in')}
-      {renderHandle(model.outPoint, 'out')}
+      <IoRangeHandles
+        inLeft={inRatio !== null ? `${inRatio * 100}%` : null}
+        outLeft={outRatio !== null ? `${outRatio * 100}%` : null}
+        spanPx={spanPx}
+        laneHeight={MINI_TIMELINE_IO_LANE_HEIGHT}
+        handleWidth={MINI_TIMELINE_IO_HANDLE_WIDTH}
+        zIndex={2}
+        onInDragStart={startDrag('in')}
+        onOutDragStart={startDrag('out')}
+        inTitle={t('editor.miniTimeline.inPoint')}
+        outTitle={t('editor.miniTimeline.outPoint')}
+        testIdPrefix={testIdPrefix}
+      />
     </div>
   )
 })
