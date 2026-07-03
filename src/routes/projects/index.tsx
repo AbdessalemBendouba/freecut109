@@ -6,8 +6,9 @@ import { createLogger } from '@/shared/logging/logger'
 
 const logger = createLogger('ProjectsIndex')
 import { Button } from '@/components/ui/button'
-import { Plus, Upload, FolderOpen, File, Github, BookOpen } from 'lucide-react'
+import { Plus, Upload, FolderOpen, File, Github, BookOpen, MessageCircle } from 'lucide-react'
 import { FreeCutLogo } from '@/components/brand/freecut-logo'
+import { DISCORD_INVITE_URL } from '@/config/community'
 import { ProjectList } from '@/features/projects/components/project-list'
 import { EditProjectForm } from '@/features/projects/components/project-form'
 import {
@@ -276,6 +277,12 @@ function ProjectsIndex() {
                   <BookOpen className="w-4 h-4" />
                   Docs
                 </Link>
+              </Button>
+              <Button variant="outline" size="lg" className="gap-2" asChild>
+                <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
+                  <MessageCircle className="w-4 h-4" />
+                  Discord
+                </a>
               </Button>
               <Button variant="outline" size="icon" className="h-10 w-10" asChild>
                 <a

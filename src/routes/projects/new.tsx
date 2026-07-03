@@ -8,7 +8,8 @@ import { useCreateProject } from '@/features/projects/hooks/use-project-actions'
 import { useProjectStore } from '@/features/projects/stores/project-store'
 import { FreeCutLogo } from '@/components/brand/freecut-logo'
 import { Button } from '@/components/ui/button'
-import { Github } from 'lucide-react'
+import { Github, MessageCircle } from 'lucide-react'
+import { DISCORD_INVITE_URL } from '@/config/community'
 import type { ProjectFormData } from '@/features/projects/utils/validation'
 
 const logger = createLogger('NewProject')
@@ -62,17 +63,25 @@ function NewProject() {
           <Link to="/">
             <FreeCutLogo variant="full" size="md" className="hover:opacity-80 transition-opacity" />
           </Link>
-          <Button variant="outline" size="icon" className="h-10 w-10" asChild>
-            <a
-              href="https://github.com/walterlow/freecut"
-              target="_blank"
-              rel="noopener noreferrer"
-              data-tooltip={t('projects.viewOnGitHub')}
-              data-tooltip-side="left"
-            >
-              <Github className="w-5 h-5" />
-            </a>
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button variant="outline" size="lg" className="gap-2" asChild>
+              <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
+                <MessageCircle className="w-4 h-4" />
+                Discord
+              </a>
+            </Button>
+            <Button variant="outline" size="icon" className="h-10 w-10" asChild>
+              <a
+                href="https://github.com/walterlow/freecut"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-tooltip={t('projects.viewOnGitHub')}
+                data-tooltip-side="left"
+              >
+                <Github className="w-5 h-5" />
+              </a>
+            </Button>
+          </div>
         </div>
       </div>
 

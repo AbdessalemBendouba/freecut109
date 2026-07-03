@@ -9,9 +9,11 @@ import {
   Star,
   ExternalLink,
   BookOpen,
+  MessageCircle,
 } from 'lucide-react'
 import { FreeCutLogo } from '@/components/brand/freecut-logo'
 import { Button } from '@/components/ui/button'
+import { DISCORD_INVITE_URL } from '@/config/community'
 import {
   Accordion,
   AccordionContent,
@@ -183,6 +185,13 @@ function LandingPage() {
             </Button>
 
             <Button asChild variant="outline" size="lg" className="gap-2">
+              <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
+                <MessageCircle className="h-4 w-4" />
+                Join Discord
+              </a>
+            </Button>
+
+            <Button asChild variant="outline" size="lg" className="gap-2">
               <a
                 href="https://github.com/walterlow/freecut"
                 target="_blank"
@@ -342,6 +351,13 @@ function LandingPage() {
                 <BookOpen className="h-4 w-4" />
                 Docs
               </Link>
+            </Button>
+
+            <Button asChild variant="outline" size="lg" className="gap-2">
+              <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
+                <MessageCircle className="h-4 w-4" />
+                Join Discord
+              </a>
             </Button>
 
             <Button asChild variant="outline" size="lg" className="gap-2">
