@@ -247,7 +247,10 @@
       "tabVideo": "视频",
       "tabAudio": "音频",
       "tabEffects": "效果",
-      "adjustmentLayerHint": "调整图层上的效果会应用到上方所有轨道的项目。"
+      "adjustmentLayerHint": "调整图层上的效果会应用到上方所有轨道的项目。",
+      "tabText": "文本",
+      "tabAnimation": "动画",
+      "tabShape": "形状"
     },
     "gifSection": {
       "animation": "动画",

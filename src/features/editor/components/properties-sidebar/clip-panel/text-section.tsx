@@ -11,7 +11,8 @@ import {
   AlignStartHorizontal,
   AlignCenterHorizontal,
   AlignEndHorizontal,
-  Sparkles,
+  Palette,
+  WandSparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -26,19 +27,18 @@ import type { TextItem, TextSpan, TimelineItem } from '@/types/timeline'
 import type { CanvasSettings } from '@/types/transform'
 import { useTimelineStore } from '@/features/editor/deps/timeline-store'
 import { useGizmoStore, type ItemPropertiesPreview } from '@/features/editor/deps/preview'
-import { resolveTransform, getSourceDimensions } from '@/features/editor/deps/composition-runtime'
-import { KeyframeToggle, resolveAnimatedTransform } from '@/features/editor/deps/keyframes'
-import { MotionPresetThumbnail } from '../../animate-workspace/motion-preset-thumbnail'
-import { PropertySection, PropertyRow, NumberInput, ColorPicker, SliderInput } from '../components'
+import { KeyframeToggle } from '@/features/editor/deps/keyframes'
+import { TextMotionSlotRows } from '../../text-motion/text-motion-slot-rows'
+import {
+  PropertySection,
+  PropertyRow,
+  PropertyGroupHeader,
+  NumberInput,
+  ColorPicker,
+  SliderInput,
+} from '../components'
 import { FontPicker } from './font-picker'
 import { FONT_CATALOG, FONT_WEIGHT_MAP } from '@/shared/typography/fonts'
-import {
-  TEXT_ANIMATION_PRESETS,
-  buildTextAnimationKeyframes,
-  getTextAnimationFrameRange,
-  type TextAnimationPhase,
-  type TextAnimationPresetOptionId,
-} from './text-animation-presets'
 import {
   applyTextStylePresetToItem,
   TEXT_STYLE_PRESETS,
@@ -282,6 +282,20 @@ export function TextContentSection(props: TextSectionProps) {
   return <TextSectionComposer {...props} slots={['content']} />
 }
 
+/** Style (shadow / stroke / style presets) on its own — the Text tab. */
+export function TextStyleSection(props: TextSectionProps) {
+  return <TextSectionComposer {...props} slots={['effects']} />
+}
+
+/** Motion-text animation on its own — the Animation tab. */
+export function TextAnimationSection(props: TextSectionProps) {
+  return <TextSectionComposer {...props} slots={['animation']} />
+}
+
+/**
+ * Style + animation together — used only for mixed (text + non-text)
+ * selections, which keep the general Effects-tab layout.
+ */
 export function TextEffectsSection(props: TextSectionProps) {
   return <TextSectionComposer {...props} slots={['effects', 'animation']} />
 }
@@ -289,7 +303,6 @@ export function TextEffectsSection(props: TextSectionProps) {
 function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps) {
   const { t } = useTranslation()
   const updateItem = useTimelineStore((s) => s.updateItem)
-  const addKeyframes = useTimelineStore((s) => s.addKeyframes)
 
   // Gizmo store for live property preview
   const setPropertiesPreviewNew = useGizmoStore((s) => s.setPropertiesPreviewNew)
@@ -1098,41 +1111,6 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
     [canvas, finalizePreviewChange, textItems, updateItem],
   )
 
-  const handleApplyTextAnimationPreset = useCallback(
-    (phase: TextAnimationPhase, presetId: TextAnimationPresetOptionId) => {
-      const keyframes = useTimelineStore.getState().keyframes
-      const payloads = textItems.flatMap((item) => {
-        const baseResolved = resolveTransform(item, canvas, getSourceDimensions(item))
-        const itemKeyframes = keyframes.find((entry) => entry.itemId === item.id)
-        const frameRange = getTextAnimationFrameRange(item.durationInFrames, canvas.fps, phase)
-        if (!frameRange) {
-          return []
-        }
-        const anchorTransform = resolveAnimatedTransform(
-          baseResolved,
-          itemKeyframes,
-          phase === 'intro' ? frameRange.endFrame : frameRange.startFrame,
-        )
-
-        return buildTextAnimationKeyframes({
-          item,
-          presetId,
-          phase,
-          fps: canvas.fps,
-          anchorTransform,
-          itemKeyframes,
-        })
-      })
-
-      if (payloads.length === 0) {
-        return
-      }
-
-      addKeyframes(payloads)
-    },
-    [addKeyframes, canvas, textItems],
-  )
-
   if (textItems.length === 0 || !sharedValues) {
     return null
   }
@@ -1165,9 +1143,9 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
           icon={Type}
           defaultOpen={true}
         >
-          {/* Text Content */}
-          <PropertyRow label={t('editor.textSection.content')}>
-            <div className="flex flex-1 min-w-0 flex-col gap-2">
+          {/* Content editors run full-width (no gutter label) directly under
+              the TEXT section header — no redundant "Content" sub-header. */}
+          <div className="flex w-full min-w-0 flex-col gap-2">
               <div className="grid w-full grid-cols-3 gap-1.5">
                 <Button
                   variant={firstTextItem?.textSpans?.length ? 'outline' : 'secondary'}
@@ -1232,9 +1210,9 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
 
                         return (
                           <>
-                            <div className="mb-2 text-[11px] font-medium text-muted-foreground">
+                            <PropertyGroupHeader className="pb-2">
                               {config.label}
-                            </div>
+                            </PropertyGroupHeader>
                             <Textarea
                               value={span.text}
                               onChange={(e) => handleSpanTextChange(index, e.target.value)}
@@ -1359,8 +1337,6 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
                 />
               )}
             </div>
-          </PropertyRow>
-
           {sharedValues.textStylePresetId && (
             <PropertyRow label={t('editor.textSection.scale')}>
               <div className="flex items-center gap-1 min-w-0 w-full">
@@ -1663,7 +1639,7 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
       )}
 
       {showEffectSection && (
-        <PropertySection title={t('editor.textSection.effects')} icon={Sparkles} defaultOpen={true}>
+        <PropertySection title={t('editor.textSection.style')} icon={Palette} defaultOpen={true}>
           <PropertyRow label={t('editor.textSection.presets')} className="items-start">
             <div className="grid w-full grid-cols-2 gap-1.5">
               {TEXT_EFFECT_PRESETS.map((preset) => (
@@ -1785,60 +1761,16 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
       )}
 
       {showAnimationSection && (
-        <PropertySection
-          title={t('editor.textSection.animation')}
-          icon={Sparkles}
-          defaultOpen={true}
-        >
-          <PropertyRow label={t('editor.textSection.intro')} className="items-start">
-            <div className="grid w-full grid-cols-4 gap-1.5">
-              {TEXT_ANIMATION_PRESETS.map((preset) => (
-                <Button
-                  key={preset.id}
-                  variant="outline"
-                  size="sm"
-                  className="group flex h-auto flex-col items-center gap-1 px-1 py-1.5 text-[10px]"
-                  onClick={() => handleApplyTextAnimationPreset('intro', preset.id)}
-                >
-                  {preset.thumbnail ? (
-                    <MotionPresetThumbnail thumbnail={preset.thumbnail} />
-                  ) : (
-                    <span className="mp-thumb text-[11px] text-muted-foreground/40">—</span>
-                  )}
-                  <span className="w-full truncate text-center leading-tight">
-                    {t(`editor.textSection.animationPresets.${preset.labelKey}`)}
-                  </span>
-                </Button>
-              ))}
-            </div>
-          </PropertyRow>
-          <PropertyRow label={t('editor.textSection.outro')} className="items-start">
-            <div className="grid w-full grid-cols-4 gap-1.5">
-              {TEXT_ANIMATION_PRESETS.map((preset) => (
-                <Button
-                  key={`outro-${preset.id}`}
-                  variant="outline"
-                  size="sm"
-                  className="group flex h-auto flex-col items-center gap-1 px-1 py-1.5 text-[10px]"
-                  onClick={() => handleApplyTextAnimationPreset('outro', preset.id)}
-                >
-                  {preset.thumbnail ? (
-                    <MotionPresetThumbnail thumbnail={preset.thumbnail} />
-                  ) : (
-                    <span className="mp-thumb text-[11px] text-muted-foreground/40">—</span>
-                  )}
-                  <span className="w-full truncate text-center leading-tight">
-                    {t(`editor.textSection.animationPresets.${preset.labelKey}`)}
-                  </span>
-                </Button>
-              ))}
-            </div>
-          </PropertyRow>
-          <div className="px-1 pt-1 text-[11px] text-muted-foreground">
-            {t('editor.textSection.animationFooter')}
+        <PropertySection title={t('textMotion.sectionTitle')} icon={WandSparkles} defaultOpen={true}>
+          <div className="flex flex-col gap-2 py-1">
+            <p className="text-[10px] leading-snug text-muted-foreground/70">
+              {t('textMotion.hint')}
+            </p>
+            <TextMotionSlotRows items={textItems} />
           </div>
         </PropertySection>
       )}
+
     </>
   )
 }

@@ -19,7 +19,29 @@ import {
   applyCanvasLetterSpacing,
   createCanvasTextMeasurer,
 } from '@/shared/typography/text-measurer'
+import {
+  evaluateGlyphMotion,
+  getActiveTextMotionSlot,
+  getTextMotionPreset,
+  segmentTextUnits,
+  type GlyphMotionState,
+} from '@/shared/typography/text-motion'
 import type { ItemRenderContext, TextRasterCacheEntry } from './types'
+
+/**
+ * Motion-text render context (per-glyph animation). When present, text is
+ * painted glyph-by-glyph with the evaluated per-unit motion applied via Canvas2D
+ * transforms — the SAME evaluator (`evaluateGlyphMotion`) the GPU glyph pipeline
+ * uses, but on the 2D `fillText` path so motion frames and settled frames share
+ * one rasterizer (no renderer-switch pop at the window boundary). Only supplied
+ * while a motion window is active; absent = the normal cached raster path.
+ */
+export interface TextMotionRenderContext {
+  /** Frame relative to the item start, in project-fps frames. */
+  relativeFrame: number
+  fps: number
+  durationInFrames: number
+}
 
 /** Cap a single cached raster so a pathological box doesn't blow out memory. */
 const TEXT_RASTER_MAX_PIXELS = 32_000_000 // ~32MP (~128MB) per entry ceiling
@@ -137,6 +159,189 @@ function paintTextBlock(
 }
 
 /**
+ * Draw one glyph with its motion state applied via Canvas2D transforms about the
+ * glyph centre (scale + rotation), plus the dx/dy offset, alpha multiply and
+ * `soften` edge blur — the CPU-2D analogue of the GPU pipeline's per-quad vertex
+ * math. `advance` is the glyph's advance width so the pivot sits at its centre.
+ */
+function drawGlyphWithMotion(
+  ctx: OffscreenCanvasRenderingContext2D,
+  char: string,
+  x: number,
+  baselineY: number,
+  advance: number,
+  cssFont: string,
+  fontSize: number,
+  color: string,
+  strokeColor: string | undefined,
+  strokeWidth: number,
+  motion: GlyphMotionState | null,
+): void {
+  ctx.save()
+  if (motion) {
+    // Pivot near the glyph's visual centre (baseline minus ~x-height/2).
+    const cx = x + advance / 2
+    const cy = baselineY - fontSize * 0.3
+    ctx.translate(motion.dx, motion.dy)
+    ctx.translate(cx, cy)
+    if (motion.rotation !== 0) ctx.rotate(motion.rotation)
+    if (motion.scale !== 1) ctx.scale(motion.scale, motion.scale)
+    ctx.translate(-cx, -cy)
+    if (motion.alpha !== 1) ctx.globalAlpha *= motion.alpha
+    if (motion.soften > 0) ctx.filter = `blur(${motion.soften}px)`
+  }
+  ctx.font = cssFont
+  ctx.fillStyle = color
+  if (strokeColor && strokeWidth > 0) {
+    ctx.strokeStyle = strokeColor
+    ctx.lineWidth = strokeWidth * 2
+    ctx.lineJoin = 'round'
+    ctx.strokeText(char, x, baselineY)
+  }
+  ctx.fillText(char, x, baselineY)
+  ctx.restore()
+}
+
+/**
+ * Paint a text block with per-unit motion. Mirrors {@link paintTextBlock}'s
+ * background/shadow setup, but walks each line glyph-by-glyph — assigning each
+ * glyph its segmentation unit index and evaluating {@link evaluateGlyphMotion}
+ * exactly as `glyph-atlas-text-pipeline.ts` does — so preview and export agree.
+ * Falls back to the flat per-line paint when no slot is active at this frame.
+ */
+function paintTextBlockWithMotion(
+  ctx: OffscreenCanvasRenderingContext2D,
+  item: TextItem,
+  boxWidth: number,
+  boxHeight: number,
+  originX: number,
+  originY: number,
+  rctx: ItemRenderContext,
+  motion: TextMotionRenderContext,
+): void {
+  const spec = item.textMotion
+  const slot = spec
+    ? getActiveTextMotionSlot(spec, motion.relativeFrame, motion.durationInFrames)
+    : null
+  const effect = spec && slot ? spec[slot] : undefined
+  if (!spec || !effect) {
+    // No active slot at this frame — render settled text.
+    paintTextBlock(ctx, item, boxWidth, boxHeight, originX, originY, rctx)
+    return
+  }
+
+  const { textMeasureCache } = rctx
+  const measurer = createCanvasTextMeasurer(ctx, (text, letterSpacing) =>
+    textMeasureCache.measure(ctx, text, letterSpacing),
+  )
+  const layout = layoutTextBlock(item, boxWidth, boxHeight, measurer)
+  const segmentation = segmentTextUnits(
+    layout.lines.map((line) => line.text),
+    effect.unit ?? getTextMotionPreset(effect.presetId).unit,
+  )
+
+  const evaluate = (unitIndex: number | null, fontSize: number): GlyphMotionState | null =>
+    unitIndex === null
+      ? null
+      : evaluateGlyphMotion(spec, {
+          relativeFrame: motion.relativeFrame,
+          fps: motion.fps,
+          durationInFrames: motion.durationInFrames,
+          unitIndex,
+          unitCount: segmentation.unitCount,
+          fontSize,
+          boxWidth,
+          boxHeight,
+        })
+
+  // Background box is whole-clip (never per-unit) — same as paintTextBlock.
+  if (item.backgroundColor && layout.background) {
+    const bg = layout.background
+    ctx.fillStyle = item.backgroundColor
+    if (bg.radius > 0) {
+      ctx.beginPath()
+      ctx.roundRect(originX + bg.x, originY + bg.y, bg.width, bg.height, bg.radius)
+      ctx.fill()
+    } else {
+      ctx.fillRect(originX + bg.x, originY + bg.y, bg.width, bg.height)
+    }
+  }
+
+  if (item.textShadow) {
+    ctx.shadowColor = item.textShadow.color
+    ctx.shadowBlur = item.textShadow.blur
+    ctx.shadowOffsetX = item.textShadow.offsetX
+    ctx.shadowOffsetY = item.textShadow.offsetY
+  }
+
+  ctx.textBaseline = 'alphabetic'
+  ctx.textAlign = 'left'
+  const strokeWidth = item.stroke?.width ?? 0
+  const strokeColor = item.stroke?.color
+
+  for (const [lineIndex, line] of layout.lines.entries()) {
+    if (line.text.length === 0) continue
+    ctx.font = line.cssFont
+    // Advance per glyph manually, so draw single glyphs WITHOUT native
+    // letter-spacing (which would add a trailing gap to each fillText).
+    applyCanvasLetterSpacing(ctx, 0)
+    const lineUnits = segmentation.lineUnitIndices[lineIndex]
+    const baselineY = originY + line.baselineY
+    let currentX = originX + line.startX
+    let charIndex = 0
+    for (const char of line.text) {
+      const advance = ctx.measureText(char).width
+      if (char !== ' ') {
+        const glyphMotion = evaluate(lineUnits?.[charIndex] ?? null, line.fontSize)
+        // Fully hidden glyphs (typewriter pre-reveal) emit nothing.
+        if (!glyphMotion || glyphMotion.alpha > 0) {
+          drawGlyphWithMotion(
+            ctx,
+            char,
+            currentX,
+            baselineY,
+            advance,
+            line.cssFont,
+            line.fontSize,
+            line.color,
+            strokeColor,
+            strokeWidth,
+            glyphMotion,
+          )
+        }
+      }
+      currentX += advance + line.letterSpacing
+      charIndex++
+    }
+
+    if (line.underline) {
+      // Underline takes the line's representative unit (first non-null); solids
+      // can't rotate in the GPU path, so drop rotation here too for parity.
+      const representative = lineUnits?.find((unit) => unit !== null) ?? null
+      const state = evaluate(representative, line.fontSize)
+      const underlineMotion =
+        state && state.rotation !== 0 ? { ...state, rotation: 0 } : state
+      if (!underlineMotion || underlineMotion.alpha > 0) {
+        ctx.save()
+        if (underlineMotion) {
+          const width = lineInkWidth(line)
+          const cx = originX + line.startX + width / 2
+          const cy = baselineY
+          ctx.translate(underlineMotion.dx, underlineMotion.dy)
+          ctx.translate(cx, cy)
+          if (underlineMotion.scale !== 1) ctx.scale(underlineMotion.scale, underlineMotion.scale)
+          ctx.translate(-cx, -cy)
+          if (underlineMotion.alpha !== 1) ctx.globalAlpha *= underlineMotion.alpha
+        }
+        ctx.fillStyle = line.color
+        drawUnderline(ctx, line, originX + line.startX, baselineY)
+        ctx.restore()
+      }
+    }
+  }
+}
+
+/**
  * Rasterize a text block into a standalone padded OffscreenCanvas. Padding
  * leaves room for shadow spread and glyph overflow so the cached image matches
  * the unclipped preview render. Returns null if it shouldn't be cached.
@@ -180,11 +385,28 @@ export function renderTextItem(
   item: TextItem,
   transform: { x: number; y: number; width: number; height: number },
   rctx: ItemRenderContext,
+  motion?: TextMotionRenderContext,
 ): void {
   const { canvasSettings } = rctx
 
   const itemLeft = canvasSettings.width / 2 + transform.x - transform.width / 2
   const itemTop = canvasSettings.height / 2 + transform.y - transform.height / 2
+
+  // Motion text: the texture changes every frame, so bypass the raster cache
+  // entirely and paint glyph-by-glyph. Settled frames (no active window) never
+  // reach here — the caller only passes `motion` while a window is active — so
+  // they keep the fast cached path with pixels identical to motion-less text.
+  if (motion) {
+    ctx.save()
+    if (rctx.renderMode !== 'preview') {
+      ctx.beginPath()
+      ctx.rect(itemLeft, itemTop, transform.width, transform.height)
+      ctx.clip()
+    }
+    paintTextBlockWithMotion(ctx, item, transform.width, transform.height, itemLeft, itemTop, rctx, motion)
+    ctx.restore()
+    return
+  }
 
   // Preview: serve from / populate the cross-frame raster cache.
   const cache = rctx.textRasterCache

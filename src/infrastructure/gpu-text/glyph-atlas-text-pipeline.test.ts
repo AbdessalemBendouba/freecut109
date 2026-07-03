@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { createGpuRenderPipelineMocks } from '@/infrastructure/gpu-test-helpers'
-import { GlyphAtlasTextPipeline } from './glyph-atlas-text-pipeline'
+import {
+  GlyphAtlasTextPipeline,
+  transformGlyphQuadCorners,
+  type GpuTextRenderParams,
+} from './glyph-atlas-text-pipeline'
 import type { TextItem } from '@/types/timeline'
+import type { TextMotionSpec } from '@/types/text-motion'
+import { createTextMotionEffect } from '@/shared/typography/text-motion'
 
 class MockOffscreenCanvas {
   width: number
@@ -91,6 +97,71 @@ function createPipelineHarness() {
     vertexBuffer,
   }
 }
+
+describe('transformGlyphQuadCorners', () => {
+  const IDENTITY = { dx: 0, dy: 0, scale: 1, rotation: 0 }
+
+  it('returns the raw quad corners for the identity state', () => {
+    expect(transformGlyphQuadCorners(10, 20, 30, 40, IDENTITY)).toEqual([
+      [10, 20],
+      [40, 20],
+      [10, 60],
+      [40, 60],
+    ])
+  })
+
+  it('translates all corners by dx/dy', () => {
+    expect(transformGlyphQuadCorners(10, 20, 30, 40, { ...IDENTITY, dx: 5, dy: -3 })).toEqual([
+      [15, 17],
+      [45, 17],
+      [15, 57],
+      [45, 57],
+    ])
+  })
+
+  it('scales about the quad center', () => {
+    // Center (25, 40); scale 0.5 halves each corner's distance to it.
+    expect(transformGlyphQuadCorners(10, 20, 30, 40, { ...IDENTITY, scale: 0.5 })).toEqual([
+      [17.5, 30],
+      [32.5, 30],
+      [17.5, 50],
+      [32.5, 50],
+    ])
+  })
+
+  it('rotates 90° about the quad center', () => {
+    const corners = transformGlyphQuadCorners(10, 20, 30, 40, {
+      ...IDENTITY,
+      rotation: Math.PI / 2,
+    })
+    // Center (25, 40); TL (-15, -20) center-local → (20, -15) → (45, 25) etc.
+    const expected = [
+      [45, 25],
+      [45, 55],
+      [5, 25],
+      [5, 55],
+    ]
+    corners.forEach((corner, index) => {
+      expect(corner[0]).toBeCloseTo(expected[index]![0]!, 10)
+      expect(corner[1]).toBeCloseTo(expected[index]![1]!, 10)
+    })
+  })
+
+  it('composes scale, rotation and translation (scale/rotate about center, then translate)', () => {
+    const corners = transformGlyphQuadCorners(0, 0, 10, 10, {
+      dx: 100,
+      dy: 50,
+      scale: 2,
+      rotation: Math.PI,
+    })
+    // Center (5, 5); TL (-5, -5) → scaled (-10, -10) → rotated 180° (10, 10)
+    // → (15, 15) → translated (115, 65).
+    expect(corners[0][0]).toBeCloseTo(115, 10)
+    expect(corners[0][1]).toBeCloseTo(65, 10)
+    expect(corners[3][0]).toBeCloseTo(95, 10)
+    expect(corners[3][1]).toBeCloseTo(45, 10)
+  })
+})
 
 describe('GlyphAtlasTextPipeline', () => {
   it('uploads glyphs into the atlas and renders glyph quads', () => {
@@ -323,6 +394,133 @@ describe('GlyphAtlasTextPipeline', () => {
     expect(vertexData[126]).toBeCloseTo(1)
     expect(vertexData[139]).toBeCloseTo(0)
     expect(pass.draw).toHaveBeenCalledWith(12)
+  })
+
+  describe('motion text', () => {
+    function makeTextItem(overrides: Partial<TextItem> = {}): TextItem {
+      return {
+        id: 'text',
+        type: 'text',
+        trackId: 'track',
+        from: 0,
+        durationInFrames: 300,
+        text: 'A',
+        color: '#ffffff',
+        fontSize: 48,
+        fontFamily: 'Inter',
+        textPadding: 0,
+        ...overrides,
+      } as TextItem
+    }
+
+    function renderVertices(
+      item: TextItem,
+      motion?: GpuTextRenderParams['motion'],
+    ): { vertexData: Float32Array; pass: ReturnType<typeof createPipelineHarness>['pass'] } {
+      const { outputTexture, pass, pipeline, queue } = createPipelineHarness()
+      const rendered = pipeline.renderTextToTexture(outputTexture, {
+        outputWidth: 640,
+        outputHeight: 180,
+        width: 640,
+        height: 180,
+        item,
+        ...(motion ? { motion } : {}),
+      })
+      expect(rendered).toBe(true)
+      return { vertexData: queue.writeBuffer.mock.calls[0]?.[2] as Float32Array, pass }
+    }
+
+    // fade-up (word unit) at linear p = 0.5: alpha 0.5, dy = 0.5·0.25·48 = 6.
+    const fadeUpSpec: TextMotionSpec = {
+      in: {
+        ...createTextMotionEffect('fade-up'),
+        durationFrames: 10,
+        staggerFrames: 0,
+        easing: 'linear',
+      },
+    }
+    const fadeUpMidMotion = { spec: fadeUpSpec, relativeFrame: 5, fps: 30, durationInFrames: 300 }
+
+    it('skips fully hidden glyphs during a typewriter reveal', () => {
+      // typewriter (char unit, duration 1, stagger 2) at frame 1: 'A' (unit 0)
+      // revealed, 'B' (unit 1, delay 2) still hidden — only one glyph packed,
+      // so the vertex write count and draw count both drop to a single quad.
+      const item = makeTextItem({ text: 'AB' })
+      const spec: TextMotionSpec = { in: createTextMotionEffect('typewriter') }
+      const { vertexData, pass } = renderVertices(item, {
+        spec,
+        relativeFrame: 1,
+        fps: 30,
+        durationInFrames: 300,
+      })
+      expect(pass.draw).toHaveBeenCalledWith(6)
+      // The surviving glyph is fully revealed (identity — alpha untouched).
+      expect(vertexData[7]).toBeCloseTo(1)
+    })
+
+    it('applies per-glyph motion offset and alpha to fill and shadow twin', () => {
+      const item = makeTextItem({
+        textShadow: { offsetX: 4, offsetY: 5, blur: 6, color: '#00000080' },
+      })
+      const settled = renderVertices(item)
+      const moving = renderVertices(item, fadeUpMidMotion)
+      // Shadow twin (first glyph) follows its parent glyph's motion…
+      expect(moving.vertexData[0]).toBeCloseTo(settled.vertexData[0]!)
+      expect(moving.vertexData[1]).toBeCloseTo(settled.vertexData[1]! + 6)
+      // …and its alpha multiplies the shadow alpha.
+      expect(moving.vertexData[7]).toBeCloseTo((0x80 / 255) * 0.5)
+      // Shadow blur is the shadow's own blur plus soften (0 for fade-up).
+      expect(moving.vertexData[19]).toBeCloseTo(6)
+      // Fill glyph (second, floats 120+) gets the same offset and alpha.
+      expect(moving.vertexData[121]).toBeCloseTo(settled.vertexData[121]! + 6)
+      expect(moving.vertexData[127]).toBeCloseTo(0.5)
+    })
+
+    it('animates underlines with their line unit, tracking the solid rect', () => {
+      const item = makeTextItem({ underline: true })
+      const settled = renderVertices(item)
+      const moving = renderVertices(item, fadeUpMidMotion)
+      // Glyph 0 is 'A', glyph 1 (floats 120+) is the underline solid quad:
+      // position AND the rect-SDF attributes must both move with the motion.
+      expect(moving.vertexData[121]).toBeCloseTo(settled.vertexData[121]! + 6)
+      expect(moving.vertexData[130]).toBeCloseTo(settled.vertexData[130]! + 6)
+      expect(moving.vertexData[127]).toBeCloseTo(0.5)
+    })
+
+    it('adds soften to the SDF edge-widening band', () => {
+      // blur-in at linear p = 0.5: soften = 0.5·0.4·48 = 9.6 on a fill glyph
+      // whose own shadowBlur is 0.
+      const spec: TextMotionSpec = {
+        in: {
+          ...createTextMotionEffect('blur-in'),
+          durationFrames: 10,
+          staggerFrames: 0,
+          easing: 'linear',
+        },
+      }
+      const { vertexData } = renderVertices(makeTextItem(), {
+        spec,
+        relativeFrame: 5,
+        fps: 30,
+        durationInFrames: 300,
+      })
+      expect(vertexData[19]).toBeCloseTo(9.6)
+      expect(vertexData[7]).toBeCloseTo(0.5)
+    })
+
+    it('renders settled frames bit-identically to a motion-less render', () => {
+      // Frame 150 is far outside the in window: the slot dispatch resolves to
+      // null, no segmentation runs, and vertices match a motion-less render.
+      const item = makeTextItem()
+      const plain = renderVertices(item)
+      const settled = renderVertices(item, {
+        spec: fadeUpSpec,
+        relativeFrame: 150,
+        fps: 30,
+        durationInFrames: 300,
+      })
+      expect(Array.from(settled.vertexData)).toEqual(Array.from(plain.vertexData))
+    })
   })
 
   it('rejects text that would overflow the fixed vertex buffer', () => {

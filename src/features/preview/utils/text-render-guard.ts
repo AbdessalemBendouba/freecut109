@@ -25,6 +25,22 @@ function hasVisibleStyledText(track: TimelineTrack): boolean {
   return false
 }
 
+function hasVisibleMotionText(track: TimelineTrack): boolean {
+  if (!track.visible) return false
+
+  for (const item of track.items) {
+    if (item.type !== 'text') continue
+
+    // Motion-text clips animate per-glyph and can only render correctly via
+    // the canvas/GPU preview path — the Player can't reproduce it, so never
+    // prefer the Player while one is visible.
+    const hasMotion = !!item.textMotion && !!(item.textMotion.in || item.textMotion.out || item.textMotion.loop)
+    if (hasMotion) return true
+  }
+
+  return false
+}
+
 /**
  * Whether the preview should render via the DOM Player instead of the 2D-canvas
  * fast-scrub overlay while scrubbing, so styled text / captions don't shift
@@ -37,5 +53,7 @@ export function shouldPreferPlayerForStyledTextScrub(
   tracks: TimelineTrack[],
   _keyframes?: ItemKeyframes[],
 ): boolean {
+  if (tracks.some(hasVisibleMotionText)) return false
+
   return tracks.some(hasVisibleStyledText)
 }

@@ -247,7 +247,10 @@
       "tabVideo": "ビデオ",
       "tabAudio": "オーディオ",
       "tabEffects": "エフェクト",
-      "adjustmentLayerHint": "調整レイヤーのエフェクトは、上のトラックのすべてのアイテムに適用されます。"
+      "adjustmentLayerHint": "調整レイヤーのエフェクトは、上のトラックのすべてのアイテムに適用されます。",
+      "tabText": "テキスト",
+      "tabAnimation": "アニメーション",
+      "tabShape": "シェイプ"
     },
     "gifSection": {
       "animation": "アニメーション",

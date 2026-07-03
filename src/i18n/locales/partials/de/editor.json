@@ -247,7 +247,10 @@
       "tabVideo": "Video",
       "tabAudio": "Audio",
       "tabEffects": "Effekte",
-      "adjustmentLayerHint": "Effekte auf Einstellungsebenen gelten für alle Elemente auf Spuren darüber."
+      "adjustmentLayerHint": "Effekte auf Einstellungsebenen gelten für alle Elemente auf Spuren darüber.",
+      "tabText": "Text",
+      "tabAnimation": "Animation",
+      "tabShape": "Form"
     },
     "gifSection": {
       "animation": "Animation",

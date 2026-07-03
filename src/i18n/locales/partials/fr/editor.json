@@ -247,7 +247,10 @@
       "tabVideo": "Vidéo",
       "tabAudio": "Audio",
       "tabEffects": "Effets",
-      "adjustmentLayerHint": "Les effets sur les calques de réglage s'appliquent à tous les éléments des pistes situées au-dessus."
+      "adjustmentLayerHint": "Les effets sur les calques de réglage s'appliquent à tous les éléments des pistes situées au-dessus.",
+      "tabText": "Texte",
+      "tabAnimation": "Animation",
+      "tabShape": "Forme"
     },
     "gifSection": {
       "animation": "Animation",

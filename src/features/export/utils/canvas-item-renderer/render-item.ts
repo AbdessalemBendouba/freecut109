@@ -36,6 +36,7 @@ import {
 import { renderVideoItem } from './video'
 import { renderImageItem } from './image'
 import { getTextRasterCacheKey, renderSubtitleSegmentItem, renderTextItem } from './text'
+import { isTextMotionActive } from '@/shared/typography/text-motion'
 import { renderCompositionItem } from './composition'
 import type { CornerPinWarpCacheEntry } from './types'
 
@@ -170,9 +171,24 @@ async function renderItemContent(
     case 'image':
       renderImageItem(ctx, effectiveItem as ImageItem, transform, rctx, frame)
       break
-    case 'text':
-      renderTextItem(ctx, effectiveItem as TextItem, transform, rctx)
+    case 'text': {
+      const textItem = effectiveItem as TextItem
+      // Motion text: while a per-unit window is active, paint glyph-by-glyph
+      // (bypasses the raster cache). Settled frames pass no motion → cached path.
+      const relativeFrame = frame - textItem.from
+      const motion =
+        textItem.textMotion &&
+        isTextMotionActive(
+          textItem.textMotion,
+          relativeFrame,
+          rctx.canvasSettings.fps,
+          textItem.durationInFrames,
+        )
+          ? { relativeFrame, fps: rctx.canvasSettings.fps, durationInFrames: textItem.durationInFrames }
+          : undefined
+      renderTextItem(ctx, textItem, transform, rctx, motion)
       break
+    }
     case 'subtitle':
       renderSubtitleSegmentItem(ctx, effectiveItem as SubtitleSegmentItem, transform, frame, rctx)
       break

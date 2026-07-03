@@ -25,6 +25,7 @@ import type { GpuTexturePool } from '@/infrastructure/gpu-compositor'
 import type { GpuMediaRect, GpuMediaRenderParams } from '@/infrastructure/gpu-media'
 import { MAX_GPU_SHAPE_PATH_VERTICES } from '@/infrastructure/gpu-shapes'
 import { doesMaskAffectTrack } from '@/shared/utils/mask-scope'
+import { isTextMotionActive } from '@/shared/typography/text-motion'
 import { getAnimatedTransform } from '../canvas-keyframes'
 import { combineEffects, getAdjustmentLayerEffects, getGpuEffectInstances } from '../canvas-effects'
 import {
@@ -370,7 +371,11 @@ export async function prepareGpuMediaParticipant(
       width: textTransform.width,
       height: textTransform.height,
     }
-    if (transformRect.width <= 0 || transformRect.height <= 0) return null
+    if (transformRect.width <= 0 || transformRect.height <= 0) {
+      // Motion-bypass text sources own their texture — release it.
+      media.close?.()
+      return null
+    }
     return {
       participant,
       media,
@@ -393,7 +398,10 @@ export async function prepareGpuMediaParticipant(
       participant.transform,
       rctx.canvasSettings,
     )
-    if (transformRect.width <= 0 || transformRect.height <= 0) return null
+    if (transformRect.width <= 0 || transformRect.height <= 0) {
+      media.close?.()
+      return null
+    }
     return {
       participant,
       media,
@@ -546,15 +554,11 @@ function resolveGpuTextParticipantSource(
 ): ResolvedGpuMediaParticipantSource | null {
   if (!rctx.gpuPipeline || !rctx.gpuMediaPipeline || !rctx.gpuTextTextureCache) return null
 
+  const relativeFrame = frame - participant.item.from
   const itemKeyframes =
     rctx.getCurrentKeyframes?.(participant.item.id) ?? rctx.keyframesMap.get(participant.item.id)
   const resolvedTextItem = {
-    ...resolveAnimatedTextItem(
-      participant.item,
-      itemKeyframes,
-      frame - participant.item.from,
-      rctx.canvasSettings,
-    ),
+    ...resolveAnimatedTextItem(participant.item, itemKeyframes, relativeFrame, rctx.canvasSettings),
     cornerPin: participant.item.cornerPin,
   }
   const baseTransform = resolveItemTransform(participant.transform)
@@ -564,9 +568,23 @@ function resolveGpuTextParticipantSource(
     : resolvedTransform
   const sourceWidth = Math.max(2, Math.ceil(textureTransform.width))
   const sourceHeight = Math.max(2, Math.ceil(textureTransform.height))
-  const cacheKey = getGpuTextTextureCacheKey(resolvedTextItem, sourceWidth, sourceHeight)
-  const cached = rctx.gpuTextTextureCache.get(cacheKey)
-  if (cached) {
+
+  // Motion text (design D6): while a motion window is active the texture
+  // changes every frame — bypass the cache in BOTH directions (no lookup, no
+  // store) and render directly; the glyph atlas persists, so the per-frame
+  // cost is a vertex rewrite + one draw. Settled frames take the normal
+  // cached path with no motion params, so their pixels and cache key match a
+  // motion-less render exactly.
+  const textMotionSpec = participant.item.textMotion
+  const textMotionActive =
+    textMotionSpec !== undefined &&
+    isTextMotionActive(textMotionSpec, relativeFrame, rctx.fps, participant.item.durationInFrames)
+
+  const cacheKey = textMotionActive
+    ? null
+    : getGpuTextTextureCacheKey(resolvedTextItem, sourceWidth, sourceHeight)
+  const cached = cacheKey ? rctx.gpuTextTextureCache.get(cacheKey) : undefined
+  if (cacheKey && cached) {
     rctx.gpuTextTextureCache.delete(cacheKey)
     rctx.gpuTextTextureCache.set(cacheKey, cached)
     logGpuTextTextureCacheEvent('hit', {
@@ -598,6 +616,16 @@ function resolveGpuTextParticipantSource(
       item: resolvedTextItem,
       width: sourceWidth,
       height: sourceHeight,
+      ...(textMotionActive && textMotionSpec
+        ? {
+            motion: {
+              spec: textMotionSpec,
+              relativeFrame,
+              fps: rctx.fps,
+              durationInFrames: participant.item.durationInFrames,
+            },
+          }
+        : {}),
     })
     if (rendered) {
       logGpuTextTextureCacheEvent('atlas-render', {
@@ -605,7 +633,21 @@ function resolveGpuTextParticipantSource(
         width: sourceWidth,
         height: sourceHeight,
         bytes: getGpuTextureByteSize(sourceWidth, sourceHeight),
+        ...(textMotionActive ? { textMotionBypass: true } : {}),
       })
+      if (!cacheKey) {
+        // Motion-active frame: the texture is per-frame garbage as far as the
+        // cache is concerned — hand ownership to the caller (all consumers
+        // run `media.close?.()` in a finally).
+        return {
+          kind: 'text',
+          item: resolvedTextItem,
+          sourceWidth,
+          sourceHeight,
+          texture,
+          close: () => texture.destroy(),
+        }
+      }
       rctx.gpuTextTextureCache.set(cacheKey, {
         texture,
         width: sourceWidth,

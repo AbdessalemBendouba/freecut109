@@ -247,7 +247,10 @@
       "tabVideo": "Video",
       "tabAudio": "Audio",
       "tabEffects": "Effects",
-      "adjustmentLayerHint": "Effects on adjustment layers apply to all items on tracks above."
+      "adjustmentLayerHint": "Effects on adjustment layers apply to all items on tracks above.",
+      "tabText": "Text",
+      "tabAnimation": "Animation",
+      "tabShape": "Shape"
     },
     "gifSection": {
       "animation": "Animation",

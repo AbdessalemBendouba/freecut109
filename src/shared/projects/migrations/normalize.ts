@@ -20,6 +20,7 @@ import type { Project, ProjectTimeline } from '@/types/project'
 import { DEFAULT_TRACK_HEIGHT, DEFAULT_FPS } from '@/shared/timeline/defaults'
 import { normalizeAudioEqSettings } from '@/shared/utils/audio-eq'
 import { applyOptionalClamps } from '@/shared/timeline/item-clamps'
+import { sanitizeTextMotion } from './sanitize-text-motion'
 
 /**
  * Normalize a track to ensure all fields have valid values.
@@ -61,6 +62,11 @@ function normalizeItem(item: ProjectTimeline['items'][number]): ProjectTimeline[
   // Frame/audio/EQ optional-field clamps — shared with the runtime items-store
   // normalizer so adding a new clamped field only needs registering once.
   applyOptionalClamps(normalized as Record<string, unknown>)
+
+  // Motion-text spec: drop malformed slots and clamp numerics on every load.
+  if (normalized.textMotion !== undefined) {
+    normalized.textMotion = sanitizeTextMotion(normalized.textMotion)
+  }
 
   // Ensure speed is valid (default 1.0, range 0.1-10.0)
   if (normalized.speed !== undefined) {

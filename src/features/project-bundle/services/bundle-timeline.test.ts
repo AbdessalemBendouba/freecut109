@@ -38,6 +38,29 @@ function makeTransition(): NonNullable<ProjectTimeline['transitions']>[number] {
   }
 }
 
+function makeTextItem(): ProjectTimeline['items'][number] {
+  return {
+    id: 'text-item-1',
+    trackId: 'track-1',
+    from: 0,
+    durationInFrames: 60,
+    label: 'Title',
+    type: 'text',
+    text: 'Hello',
+    textMotion: {
+      in: {
+        presetId: 'fade-up',
+        durationFrames: 12,
+        staggerFrames: 2,
+        intensity: 1,
+        order: 'forward',
+        easing: 'ease-out',
+        seed: 7,
+      },
+    },
+  }
+}
+
 function makeTimelineKeyframes(): NonNullable<ProjectTimeline['keyframes']> {
   return [
     {
@@ -127,6 +150,7 @@ function makeProjectTimelineFixture(): ProjectTimeline {
         src: 'blob:clip-1',
         thumbnailUrl: 'blob:thumb-1',
       },
+      makeTextItem(),
     ],
     scrollPosition: 144,
     markers: makeMarkers(),
@@ -149,6 +173,7 @@ function makeBundleTimelineFixture(): BundleTimeline {
         type: 'video',
         mediaRef: 'original-media-1',
       },
+      makeTextItem(),
     ],
     scrollPosition: 144,
     markers: makeMarkers(),
@@ -175,6 +200,7 @@ describe('bundle-timeline', () => {
     expect(bundleTimeline.items[0]).not.toHaveProperty('mediaId')
     expect(bundleTimeline.items[0]).not.toHaveProperty('src')
     expect(bundleTimeline.items[0]).not.toHaveProperty('thumbnailUrl')
+    expect(bundleTimeline.items[1]?.textMotion).toEqual(makeTextItem().textMotion)
     expect(bundleTimeline.compositions?.[0]?.items[0]).toMatchObject({ mediaRef: 'media-2' })
   })
 
@@ -203,6 +229,7 @@ describe('bundle-timeline', () => {
     expect(restored?.items[0]).not.toHaveProperty('mediaRef')
     expect(restored?.items[0]).toHaveProperty('src', undefined)
     expect(restored?.items[0]).toHaveProperty('thumbnailUrl', undefined)
+    expect(restored?.items[1]?.textMotion).toEqual(makeTextItem().textMotion)
     expect(restored?.compositions?.[0]?.items[0]).toMatchObject({ mediaId: 'imported-media-2' })
   })
 })

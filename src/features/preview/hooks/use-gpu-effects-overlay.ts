@@ -12,6 +12,7 @@ import type { TimelineItem } from '@/types/timeline'
 import type { Transition } from '@/types/transition'
 import { resolveTransitionWindows } from '@/shared/timeline/transitions/transition-planner'
 import { hasCornerPin } from '@/features/preview/deps/composition-runtime'
+import { isTextMotionActive } from '@/shared/typography/text-motion'
 
 function hasEnabledGpuEffect(effects: ItemEffect[] | undefined): boolean {
   return effects?.some((e) => e.enabled && e.effect.type === 'gpu-effect') ?? false
@@ -22,11 +23,30 @@ function hasRenderableBlendMode(item: TimelineItem): boolean {
   return item.blendMode !== undefined && item.blendMode !== 'normal'
 }
 
+/**
+ * Motion text (per-glyph animation) can only render through the canvas/GPU
+ * path, never the DOM Player — so any text item carrying a `textMotion` slot
+ * must keep the continuous overlay on. Frame-independent (presence-based):
+ * used for sub-composition items where mapping the outer frame to the inner
+ * timeline is non-trivial; the top-level scan below refines this to the active
+ * motion window via {@link isTextMotionActive}.
+ */
+function hasTextMotionSpec(item: TimelineItem): boolean {
+  return (
+    item.type === 'text' &&
+    item.textMotion !== undefined &&
+    (item.textMotion.in !== undefined ||
+      item.textMotion.out !== undefined ||
+      item.textMotion.loop !== undefined)
+  )
+}
+
 function needsRenderedOverlayPath(item: TimelineItem): boolean {
   return (
     hasEnabledGpuEffect(item.effects) ||
     hasRenderableBlendMode(item) ||
-    hasCornerPin(item.cornerPin)
+    hasCornerPin(item.cornerPin) ||
+    hasTextMotionSpec(item)
   )
 }
 
@@ -104,6 +124,16 @@ export function shouldForceContinuousPreviewOverlay(
     if (hasEnabledGpuEffect(effectiveEffects)) return true
     if (hasRenderableBlendMode(item)) return true
     if (hasCornerPin(item.cornerPin)) return true
+    // Keep the continuous GPU overlay on while a text clip's motion window is
+    // active — otherwise playback falls to the DOM Player, which cannot render
+    // per-glyph motion (fps is unused by isTextMotionActive).
+    if (
+      item.type === 'text' &&
+      item.textMotion !== undefined &&
+      isTextMotionActive(item.textMotion, frame - item.from, 0, item.durationInFrames)
+    ) {
+      return true
+    }
     if (item.type === 'composition' && compositionById) {
       const subComp = compositionById[item.compositionId]
       if (subComp && subCompositionNeedsRenderedOverlayPath(subComp, compositionById)) return true

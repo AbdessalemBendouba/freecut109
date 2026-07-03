@@ -247,7 +247,10 @@
       "tabVideo": "비디오",
       "tabAudio": "오디오",
       "tabEffects": "효과",
-      "adjustmentLayerHint": "조정 레이어의 효과는 위쪽 트랙의 모든 항목에 적용됩니다."
+      "adjustmentLayerHint": "조정 레이어의 효과는 위쪽 트랙의 모든 항목에 적용됩니다.",
+      "tabText": "텍스트",
+      "tabAnimation": "애니메이션",
+      "tabShape": "도형"
     },
     "gifSection": {
       "animation": "애니메이션",

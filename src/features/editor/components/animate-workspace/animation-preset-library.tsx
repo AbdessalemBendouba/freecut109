@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { useShallow } from 'zustand/react/shallow'
 import type { CanvasSettings } from '@/types/transform'
 import type { AnimatableProperty } from '@/types/keyframe'
-import type { TimelineItem } from '@/types/timeline'
+import type { TextItem, TimelineItem } from '@/types/timeline'
 import type { MotionModifierType } from '@/types/motion'
 import { cn } from '@/shared/ui/cn'
 import { Button } from '@/components/ui/button'
@@ -60,6 +60,7 @@ import {
 } from '@/infrastructure/storage'
 import { MotionPresetThumbnail } from './motion-preset-thumbnail'
 import { SaveAnimationPresetDialog } from './save-animation-preset-dialog'
+import { TextMotionSlotRows } from '../text-motion/text-motion-slot-rows'
 
 // Every transform/opacity property any built-in motion preset can write. In
 // Replace mode we clear these (within the new preset's frame window) so a fresh
@@ -343,6 +344,12 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
     ),
   )
   const selectedItem = selectedItems[0] ?? null
+  // Motion-text stage targets the text items in the selection (the actions
+  // skip non-text items anyway; this also gates the stage's visibility).
+  const selectedTextItems = useMemo(
+    () => selectedItems.filter((item): item is TextItem => item.type === 'text'),
+    [selectedItems],
+  )
   const selectedItemKeyframes = useKeyframesStore(
     useCallback(
       (s) => (selectedItem ? (s.keyframesByItemId[selectedItem.id] ?? null) : null),
@@ -933,6 +940,17 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
                 <TooltipContent>{t('editor.motionGenerator.bakeToKeyframesHint')}</TooltipContent>
               </Tooltip>
             </StageSection>
+
+            {/* ── Motion text: per-character / word / line In-Out-Loop slots.
+                Parametric (evaluated at render time), text clips only. ── */}
+            {selectedTextItems.length > 0 && (
+              <>
+                <Separator />
+                <StageSection title={t('textMotion.sectionTitle')} hint={t('textMotion.hint')}>
+                  <TextMotionSlotRows items={selectedTextItems} />
+                </StageSection>
+              </>
+            )}
 
             <Separator />
 

@@ -1,7 +1,8 @@
 import { useMemo, useCallback, useEffect, memo, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Film, Sparkles, Volume2 } from 'lucide-react'
+import { Film, Sparkles, Volume2, Type, WandSparkles, Shapes, type LucideIcon } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
+import { cn } from '@/shared/ui/cn'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { useEditorStore } from '@/shared/state/editor'
@@ -43,6 +44,12 @@ const LazyTextContentSection = lazy(() =>
 const LazyTextEffectsSection = lazy(() =>
   import('./text-section').then((module) => ({ default: module.TextEffectsSection })),
 )
+const LazyTextStyleSection = lazy(() =>
+  import('./text-section').then((module) => ({ default: module.TextStyleSection })),
+)
+const LazyTextAnimationSection = lazy(() =>
+  import('./text-section').then((module) => ({ default: module.TextAnimationSection })),
+)
 
 /**
  * Check if an item is a GIF (image with .gif extension)
@@ -83,6 +90,11 @@ function computeItemTypeInfo(items: TimelineItem[]) {
     ),
     isOnlyTextOrShape:
       items.length > 0 && items.every((item) => item.type === 'text' || item.type === 'shape'),
+    // Pure text selection gets a text-specific tab layout: Text / Animation /
+    // Effects instead of Video / Audio / Effects.
+    isOnlyText: items.length > 0 && items.every((item) => item.type === 'text'),
+    // Pure shape selection gets a Shape tab (no audio) instead of Video.
+    isOnlyShape: items.length > 0 && items.every((item) => item.type === 'shape'),
   }
 }
 
@@ -156,6 +168,8 @@ export const ClipPanel = memo(function ClipPanel() {
     hasSubtitleItems,
     hasVirtualSubtitleItems,
     isOnlyTextOrShape,
+    isOnlyText,
+    isOnlyShape,
   } = itemTypeInfo
 
   // Memoized filtered arrays for child components - prevents new array creation each render
@@ -213,18 +227,21 @@ export const ClipPanel = memo(function ClipPanel() {
     [updateItemsTransform],
   )
 
-  // Determine which categories should be visible
+  // Determine which categories should be visible. For a pure-text selection the
+  // three slots are repurposed: Text (value 'video'), Animation ('audio'),
+  // Effects — so the middle slot is available even though text has no audio.
   const showVideoTab = layoutFillItems.length > 0
   const showAudioTab = hasAudioItems
+  const showSecondTab = showAudioTab || isOnlyText
   const showEffectsTab = hasVisualItems
 
   const availableTabs = useMemo(() => {
     const tabs: ClipInspectorTab[] = []
     if (showVideoTab) tabs.push('video')
-    if (showAudioTab) tabs.push('audio')
+    if (showSecondTab) tabs.push('audio')
     if (showEffectsTab) tabs.push('effects')
     return tabs
-  }, [showAudioTab, showEffectsTab, showVideoTab])
+  }, [showSecondTab, showEffectsTab, showVideoTab])
 
   const fallbackTab = availableTabs[0] ?? 'video'
   const activeTab = availableTabs.includes(clipInspectorTab) ? clipInspectorTab : fallbackTab
@@ -243,6 +260,24 @@ export const ClipPanel = memo(function ClipPanel() {
     [setClipInspectorTab],
   )
 
+  // Per-tab label + icon. The first slot is Video / Text / Shape and the second
+  // is Audio / Animation depending on the selection; only available tabs are
+  // rendered (no disabled dead tabs).
+  const getTabMeta = (value: ClipInspectorTab): { label: string; icon: LucideIcon } => {
+    if (value === 'video') {
+      if (isOnlyText) return { label: t('editor.clipPanel.tabText'), icon: Type }
+      if (isOnlyShape) return { label: t('editor.clipPanel.tabShape'), icon: Shapes }
+      return { label: t('editor.clipPanel.tabVideo'), icon: Film }
+    }
+    if (value === 'audio') {
+      if (isOnlyText) return { label: t('editor.clipPanel.tabAnimation'), icon: WandSparkles }
+      return { label: t('editor.clipPanel.tabAudio'), icon: Volume2 }
+    }
+    return { label: t('editor.clipPanel.tabEffects'), icon: Sparkles }
+  }
+  const tabGridColsClass =
+    availableTabs.length <= 1 ? 'grid-cols-1' : availableTabs.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
+
   if (selectedItems.length === 0) {
     return null
   }
@@ -251,19 +286,16 @@ export const ClipPanel = memo(function ClipPanel() {
     <div className="space-y-3">
       {/* Tabbed sections */}
       <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className="grid w-full grid-cols-3 h-8">
-          <TabsTrigger value="video" disabled={!showVideoTab} className="text-xs gap-1 px-2">
-            <Film className="h-3 w-3" />
-            {t('editor.clipPanel.tabVideo')}
-          </TabsTrigger>
-          <TabsTrigger value="audio" disabled={!showAudioTab} className="text-xs gap-1 px-2">
-            <Volume2 className="h-3 w-3" />
-            {t('editor.clipPanel.tabAudio')}
-          </TabsTrigger>
-          <TabsTrigger value="effects" disabled={!showEffectsTab} className="text-xs gap-1 px-2">
-            <Sparkles className="h-3 w-3" />
-            {t('editor.clipPanel.tabEffects')}
-          </TabsTrigger>
+        <TabsList className={cn('grid w-full h-8', tabGridColsClass)}>
+          {availableTabs.map((value) => {
+            const { label, icon: Icon } = getTabMeta(value)
+            return (
+              <TabsTrigger key={value} value={value} className="text-xs gap-1 px-2">
+                <Icon className="h-3 w-3" />
+                {label}
+              </TabsTrigger>
+            )
+          })}
         </TabsList>
 
         {/* Video Tab - visual layout, content, and clip-specific controls */}
@@ -294,6 +326,13 @@ export const ClipPanel = memo(function ClipPanel() {
                   <LazyTextContentSection items={selectedItems} canvas={canvas} />
                 </Suspense>
               )}
+              {/* Text-only: Style (shadow/stroke) lives with the text, not on
+                  the Effects tab. Mixed selections keep it under Effects. */}
+              {isOnlyText && (
+                <Suspense fallback={null}>
+                  <LazyTextStyleSection items={selectedItems} canvas={canvas} />
+                </Suspense>
+              )}
               {hasShapeItems && <ShapeSection items={selectedItems} />}
               {(hasSubtitleItems || hasVirtualSubtitleItems) && (
                 <Suspense fallback={null}>
@@ -305,13 +344,21 @@ export const ClipPanel = memo(function ClipPanel() {
           )}
         </TabsContent>
 
-        {/* Audio Tab - gain and fades */}
+        {/* Second slot: Audio (gain/fades) normally; Animation (motion text)
+            for a pure-text selection, which has no audio. */}
         <TabsContent value="audio" className="space-y-4 mt-3">
-          {hasAudioItems && activeTab === 'audio' && (
-            <Suspense fallback={null}>
-              <LazyAudioSection items={selectedItems} />
-            </Suspense>
-          )}
+          {isOnlyText
+            ? activeTab === 'audio' && (
+                <Suspense fallback={null}>
+                  <LazyTextAnimationSection items={selectedItems} canvas={canvas} />
+                </Suspense>
+              )
+            : hasAudioItems &&
+              activeTab === 'audio' && (
+                <Suspense fallback={null}>
+                  <LazyAudioSection items={selectedItems} />
+                </Suspense>
+              )}
         </TabsContent>
 
         {/* Effects Tab - clip effects plus text styling and animation */}
@@ -327,8 +374,11 @@ export const ClipPanel = memo(function ClipPanel() {
               <Suspense fallback={null}>
                 <LazyEffectsSection items={visualItems} onEditInColor={handleEditInColor} />
               </Suspense>
-              {hasTextItems && <Separator />}
-              {hasTextItems && (
+              {/* Text style + animation only share the Effects tab for mixed
+                  selections; a pure-text selection has dedicated Text /
+                  Animation tabs. */}
+              {hasTextItems && !isOnlyText && <Separator />}
+              {hasTextItems && !isOnlyText && (
                 <Suspense fallback={null}>
                   <LazyTextEffectsSection items={selectedItems} canvas={canvas} />
                 </Suspense>

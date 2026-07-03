@@ -247,7 +247,10 @@
       "tabVideo": "Vídeo",
       "tabAudio": "Audio",
       "tabEffects": "Efectos",
-      "adjustmentLayerHint": "Los efectos en capas de ajuste se aplican a todos los elementos de las pistas superiores."
+      "adjustmentLayerHint": "Los efectos en capas de ajuste se aplican a todos los elementos de las pistas superiores.",
+      "tabText": "Texto",
+      "tabAnimation": "Animación",
+      "tabShape": "Forma"
     },
     "gifSection": {
       "animation": "Animación",

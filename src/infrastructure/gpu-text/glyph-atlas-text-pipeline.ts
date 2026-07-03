@@ -1,6 +1,15 @@
 import type { TextItem } from '@/types/timeline'
+import type { TextMotionSpec } from '@/types/text-motion'
 import { layoutTextBlock, lineInkWidth } from '@/shared/typography/text-block-layout'
 import { parseFontSizePx, type TextMeasurer } from '@/shared/typography/text-measurer'
+import {
+  evaluateGlyphMotion,
+  getActiveTextMotionSlot,
+  getTextMotionPreset,
+  segmentTextUnits,
+  type GlyphMotionState,
+  type TextUnitSegmentation,
+} from '@/shared/typography/text-motion'
 
 export interface GpuTextRenderParams {
   outputWidth: number
@@ -8,6 +17,19 @@ export interface GpuTextRenderParams {
   item: TextItem
   width: number
   height: number
+  /**
+   * Motion text (per-unit text animation). When present, glyphs are packed
+   * with per-glyph motion states evaluated for this frame; when absent the
+   * render path does zero extra work. See
+   * docs/plans/2026-07-03-001-feat-motion-text-plan.md.
+   */
+  motion?: {
+    spec: TextMotionSpec
+    /** Frame relative to the item start, in project-fps frames. */
+    relativeFrame: number
+    fps: number
+    durationInFrames: number
+  }
 }
 
 type GlyphKey = string
@@ -38,6 +60,8 @@ interface PackedGlyph {
   strokeWidth?: number
   solidRadius?: number
   shadowBlur?: number
+  /** Per-glyph motion-text state; absent = identity (no motion). */
+  motion?: GlyphMotionState
 }
 
 const ATLAS_SIZE = 2048
@@ -248,10 +272,10 @@ export class GlyphAtlasTextPipeline {
     ) {
       return false
     }
-    let layout = this.layoutText(params.item, params.width, params.height)
+    let layout = this.layoutText(params.item, params.width, params.height, params.motion)
     if (!layout && this.atlasExhausted) {
       this.resetAtlas()
-      layout = this.layoutText(params.item, params.width, params.height)
+      layout = this.layoutText(params.item, params.width, params.height, params.motion)
     }
     if (!layout) return false
     if (layout.glyphs.length === 0) return this.clearTexture(outputTexture)
@@ -304,9 +328,48 @@ export class GlyphAtlasTextPipeline {
     item: TextItem,
     width: number,
     height: number,
+    motion?: GpuTextRenderParams['motion'],
   ): { glyphs: PackedGlyph[] } | null {
     const measurer = this.createMeasurer()
     const layout = layoutTextBlock(item, width, height, measurer)
+
+    // Motion text: resolve the active slot ONCE per render and segment the
+    // laid-out lines by that slot's unit (different slots can use different
+    // units — char vs word vs line). Everything is guarded behind `motion`
+    // so motion-less renders do zero extra work.
+    let motionSegmentation: TextUnitSegmentation | null = null
+    if (motion) {
+      const slot = getActiveTextMotionSlot(
+        motion.spec,
+        motion.relativeFrame,
+        motion.durationInFrames,
+      )
+      const effect = slot ? motion.spec[slot] : undefined
+      if (effect) {
+        motionSegmentation = segmentTextUnits(
+          layout.lines.map((line) => line.text),
+          effect.unit ?? getTextMotionPreset(effect.presetId).unit,
+        )
+      }
+    }
+    const evaluateMotion = (
+      unitIndex: number | null,
+      fontSize: number,
+    ): GlyphMotionState | undefined => {
+      if (!motion || !motionSegmentation || unitIndex === null) return undefined
+      return (
+        evaluateGlyphMotion(motion.spec, {
+          relativeFrame: motion.relativeFrame,
+          fps: motion.fps,
+          durationInFrames: motion.durationInFrames,
+          unitIndex,
+          unitCount: motionSegmentation.unitCount,
+          fontSize,
+          boxWidth: width,
+          boxHeight: height,
+        }) ?? undefined
+      )
+    }
 
     const glyphs: PackedGlyph[] = []
     if (item.backgroundColor && layout.background) {
@@ -336,65 +399,101 @@ export class GlyphAtlasTextPipeline {
       strokeColor = parsedStrokeColor
     }
 
-    for (const line of layout.lines) {
+    for (const [lineIndex, line] of layout.lines.entries()) {
       const color = parseGpuTextColor(line.color)
       if (!color) return null
+      const lineUnits = motionSegmentation?.lineUnitIndices[lineIndex]
       const baselineY = line.baselineY
       let currentX = line.startX
+      let charIndex = 0
       for (const char of line.text) {
         const metrics = this.ensureGlyph(char, line.cssFont, line.fontSize)
         if (!metrics) return null
         if (char !== ' ') {
-          if (shadow && shadowColor) {
+          // `lineUnits` is parallel to the line's code points — exactly what
+          // this `for (const char of ...)` walk iterates.
+          const glyphMotion = motionSegmentation
+            ? evaluateMotion(lineUnits?.[charIndex] ?? null, line.fontSize)
+            : undefined
+          // Fully hidden glyphs (typewriter pre-reveal) emit nothing —
+          // including the shadow twin — so the vertex write count always
+          // matches the packed glyph count that gets drawn.
+          if (!glyphMotion || glyphMotion.alpha > 0) {
+            if (shadow && shadowColor) {
+              // The shadow twin follows its parent glyph's motion; its alpha
+              // is multiplied by the motion alpha in writeGlyphVertices.
+              glyphs.push({
+                metrics,
+                x: currentX + metrics.offsetX + shadow.offsetX,
+                y: baselineY + metrics.offsetY + shadow.offsetY,
+                width: metrics.contentWidth,
+                height: metrics.contentHeight,
+                color: shadowColor,
+                shadowBlur: Math.max(0, shadow.blur),
+                motion: glyphMotion,
+              })
+            }
             glyphs.push({
               metrics,
-              x: currentX + metrics.offsetX + shadow.offsetX,
-              y: baselineY + metrics.offsetY + shadow.offsetY,
+              x: currentX + metrics.offsetX,
+              y: baselineY + metrics.offsetY,
               width: metrics.contentWidth,
               height: metrics.contentHeight,
-              color: shadowColor,
-              shadowBlur: Math.max(0, shadow.blur),
+              color,
+              strokeColor,
+              strokeWidth,
+              motion: glyphMotion,
             })
           }
-          glyphs.push({
-            metrics,
-            x: currentX + metrics.offsetX,
-            y: baselineY + metrics.offsetY,
-            width: metrics.contentWidth,
-            height: metrics.contentHeight,
-            color,
-            strokeColor,
-            strokeWidth,
-          })
         }
         currentX += metrics.advance + line.letterSpacing
+        charIndex++
       }
       const underlineWidth = lineInkWidth(line)
       if (line.underline && underlineWidth > 0) {
         const underlineGlyph = this.ensureSolidGlyph()
         if (!underlineGlyph) return null
-        const underlineY = baselineY + Math.max(1, line.fontSize * 0.08)
-        const underlineHeight = Math.max(1, line.fontSize * 0.05)
-        if (shadow && shadowColor) {
+        // Underline segments take their line's unit. Under the active
+        // segmentation the line's representative unit index is its FIRST
+        // non-null entry: for the 'line' unit that IS the line's index; for
+        // char/word units the line's first unit stands in for the whole
+        // segment (the underline spans the line, so a single whole-line
+        // evaluation is the only coherent choice).
+        let underlineMotion: GlyphMotionState | undefined
+        if (motionSegmentation) {
+          const representative = lineUnits?.find((unit) => unit !== null) ?? null
+          const state = evaluateMotion(representative, line.fontSize)
+          // Solid quads render through an axis-aligned rect SDF in the
+          // fragment shader — rotation cannot be represented there, so the
+          // underline follows every motion channel except rotation.
+          if (state) underlineMotion = state.rotation === 0 ? state : { ...state, rotation: 0 }
+        }
+        if (!underlineMotion || underlineMotion.alpha > 0) {
+          const underlineY = baselineY + Math.max(1, line.fontSize * 0.08)
+          const underlineHeight = Math.max(1, line.fontSize * 0.05)
+          if (shadow && shadowColor) {
+            glyphs.push({
+              metrics: underlineGlyph,
+              x: line.startX + shadow.offsetX,
+              y: underlineY + shadow.offsetY,
+              width: underlineWidth,
+              height: underlineHeight,
+              color: shadowColor,
+              solidRadius: 0,
+              motion: underlineMotion,
+            })
+          }
           glyphs.push({
             metrics: underlineGlyph,
-            x: line.startX + shadow.offsetX,
-            y: underlineY + shadow.offsetY,
+            x: line.startX,
+            y: underlineY,
             width: underlineWidth,
             height: underlineHeight,
-            color: shadowColor,
+            color,
             solidRadius: 0,
+            motion: underlineMotion,
           })
         }
-        glyphs.push({
-          metrics: underlineGlyph,
-          x: line.startX,
-          y: underlineY,
-          width: underlineWidth,
-          height: underlineHeight,
-          color,
-          solidRadius: 0,
-        })
       }
     }
     return { glyphs }
@@ -541,9 +640,40 @@ export class GlyphAtlasTextPipeline {
   }
 }
 
+/**
+ * Transform the four corners of a glyph quad (TL, TR, BL, BR order) by a
+ * motion state: uniform scale and rotation about the quad center, then dx/dy
+ * translation. All motion is baked into vertex positions CPU-side — the
+ * atlas UVs stay attached to their corners (UVs interpolate per vertex), so
+ * rotated quads sample the same axis-aligned atlas rect and the vertex
+ * format/stride is unchanged. Exported for unit tests.
+ */
+export function transformGlyphQuadCorners(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  motion: Pick<GlyphMotionState, 'dx' | 'dy' | 'scale' | 'rotation'>,
+): [[number, number], [number, number], [number, number], [number, number]] {
+  const cx = x + width / 2
+  const cy = y + height / 2
+  const cos = Math.cos(motion.rotation)
+  const sin = Math.sin(motion.rotation)
+  const transform = (px: number, py: number): [number, number] => {
+    const lx = (px - cx) * motion.scale
+    const ly = (py - cy) * motion.scale
+    return [cx + lx * cos - ly * sin + motion.dx, cy + lx * sin + ly * cos + motion.dy]
+  }
+  return [
+    transform(x, y),
+    transform(x + width, y),
+    transform(x, y + height),
+    transform(x + width, y + height),
+  ]
+}
+
 function writeGlyphVertices(data: Float32Array, offset: number, glyph: PackedGlyph): number {
-  const { metrics } = glyph
-  const { color } = glyph
+  const { metrics, color, motion } = glyph
   const x0 = glyph.x
   const y0 = glyph.y
   const x1 = glyph.x + glyph.width
@@ -552,19 +682,47 @@ function writeGlyphVertices(data: Float32Array, offset: number, glyph: PackedGly
   const v0 = metrics.atlasY / ATLAS_SIZE
   const u1 = (metrics.atlasX + metrics.atlasWidth) / ATLAS_SIZE
   const v1 = (metrics.atlasY + metrics.atlasHeight) / ATLAS_SIZE
+  const [tl, tr, bl, br] = motion
+    ? transformGlyphQuadCorners(x0, y0, glyph.width, glyph.height, motion)
+    : ([
+        [x0, y0],
+        [x1, y0],
+        [x0, y1],
+        [x1, y1],
+      ] as [[number, number], [number, number], [number, number], [number, number]])
   const vertices = [
-    [x0, y0, u0, v0],
-    [x1, y0, u1, v0],
-    [x0, y1, u0, v1],
-    [x0, y1, u0, v1],
-    [x1, y0, u1, v0],
-    [x1, y1, u1, v1],
+    [tl[0], tl[1], u0, v0],
+    [tr[0], tr[1], u1, v0],
+    [bl[0], bl[1], u0, v1],
+    [bl[0], bl[1], u0, v1],
+    [tr[0], tr[1], u1, v0],
+    [br[0], br[1], u1, v1],
   ]
   const solidMode = glyph.solidRadius === undefined ? 0 : 1
   const solidRadius = glyph.solidRadius ?? 0
-  const strokeColor = glyph.strokeColor ?? [0, 0, 0, 0]
+  const strokeColor: [number, number, number, number] = glyph.strokeColor ?? [0, 0, 0, 0]
   const strokeWidth = glyph.strokeWidth ?? 0
-  const shadowBlur = glyph.shadowBlur ?? 0
+  // Motion `soften` rides the existing SDF edge-widening band additively —
+  // the fill glyph's own shadowBlur is normally 0, so soften just widens the
+  // smoothstep edge (a free blur-in); shadow twins widen on top of their blur.
+  const shadowBlur = (glyph.shadowBlur ?? 0) + (motion?.soften ?? 0)
+  // Motion alpha multiplies the fill alpha and, when present, the stroke
+  // alpha (shadow twins carry it in `color`, so they fade with the glyph).
+  const colorAlpha = motion ? color[3] * motion.alpha : color[3]
+  const strokeAlpha = motion ? strokeColor[3] * motion.alpha : strokeColor[3]
+  // Solid quads (underline) evaluate an axis-aligned rect SDF in pixel space;
+  // bake scale-about-center + translation into the rect so it tracks the quad
+  // (rotation is stripped for solids at pack time).
+  let solidX = x0
+  let solidY = y0
+  let solidW = glyph.width
+  let solidH = glyph.height
+  if (motion) {
+    solidW = glyph.width * motion.scale
+    solidH = glyph.height * motion.scale
+    solidX = x0 + (glyph.width - solidW) / 2 + motion.dx
+    solidY = y0 + (glyph.height - solidH) / 2 + motion.dy
+  }
   for (const vertex of vertices) {
     data[offset++] = vertex[0] ?? 0
     data[offset++] = vertex[1] ?? 0
@@ -573,17 +731,17 @@ function writeGlyphVertices(data: Float32Array, offset: number, glyph: PackedGly
     data[offset++] = color[0]
     data[offset++] = color[1]
     data[offset++] = color[2]
-    data[offset++] = color[3]
+    data[offset++] = colorAlpha
     data[offset++] = solidMode
-    data[offset++] = x0
-    data[offset++] = y0
-    data[offset++] = glyph.width
-    data[offset++] = glyph.height
+    data[offset++] = solidX
+    data[offset++] = solidY
+    data[offset++] = solidW
+    data[offset++] = solidH
     data[offset++] = solidRadius
     data[offset++] = strokeColor[0]
     data[offset++] = strokeColor[1]
     data[offset++] = strokeColor[2]
-    data[offset++] = strokeColor[3]
+    data[offset++] = strokeAlpha
     data[offset++] = strokeWidth
     data[offset++] = shadowBlur
   }

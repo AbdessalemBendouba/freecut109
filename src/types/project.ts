@@ -4,6 +4,7 @@ import type { Transition } from './transition'
 import type { CropSettings } from './transform'
 import type { TextStylePresetId } from '@/shared/typography/text-style-preset-ids'
 import type { TextLayoutDrafts, TextSpan, TextStyleFields } from './text'
+import type { TextMotionSpec } from './text-motion'
 
 export interface Project {
   id: string
@@ -106,6 +107,8 @@ export interface ProjectTimeline {
       textStyleScale?: number
       textSpans?: TextSpan[]
       textLayoutDrafts?: TextLayoutDrafts
+      /** Per-character/word/line animation (see ./text-motion). */
+      textMotion?: TextMotionSpec
       shapeType?: 'rectangle' | 'circle' | 'triangle' | 'ellipse' | 'star' | 'polygon'
       fillColor?: string
       strokeColor?: string
