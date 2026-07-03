@@ -30,10 +30,20 @@ function isWhitespaceChar(char: string): boolean {
   return WHITESPACE_RE.test(char)
 }
 
-/** Read the Segmenter constructor at call time so tests can stub it away. */
+// Cache the word Segmenter to avoid per-frame allocation + locale-data setup in
+// the render hot path (called once per text item per frame during a motion
+// window). Keyed on the current `Intl.Segmenter` reference so it's still read at
+// call time — tests that stub/unstub `Intl.Segmenter` get a fresh instance.
+let cachedSegmenter: Intl.Segmenter | null = null
+let cachedSegmenterCtor: typeof Intl.Segmenter | undefined
 function getWordSegmenter(): Intl.Segmenter | null {
-  if (typeof Intl === 'undefined' || typeof Intl.Segmenter !== 'function') return null
-  return new Intl.Segmenter(undefined, { granularity: 'word' })
+  const ctor = typeof Intl !== 'undefined' ? Intl.Segmenter : undefined
+  if (typeof ctor !== 'function') return null
+  if (ctor !== cachedSegmenterCtor) {
+    cachedSegmenterCtor = ctor
+    cachedSegmenter = new ctor(undefined, { granularity: 'word' })
+  }
+  return cachedSegmenter
 }
 
 /**
