@@ -5,6 +5,7 @@ import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
 import { beginIoPointerDrag, IoRangeHandles } from '@/shared/timeline/io-range'
+import { formatTimecodeCompact } from '@/shared/utils/time-utils'
 
 // Matches the ruler's top IO lane height in timeline-markers.tsx.
 const IO_LANE_HEIGHT = 12
@@ -21,14 +22,17 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
   const outPoint = useTimelineStore((s) => s.outPoint)
   const setInPoint = useTimelineStore((s) => s.setInPoint)
   const setOutPoint = useTimelineStore((s) => s.setOutPoint)
+  const fps = useTimelineStore((s) => s.fps)
   const { frameToPixels, pixelsToFrame } = useTimelineZoomContext()
 
   const pixelsToFrameRef = useRef(pixelsToFrame)
   const setInPointRef = useRef(setInPoint)
   const setOutPointRef = useRef(setOutPoint)
+  const fpsRef = useRef(fps)
   pixelsToFrameRef.current = pixelsToFrame
   setInPointRef.current = setInPoint
   setOutPointRef.current = setOutPoint
+  fpsRef.current = fps
 
   // Store active drag cleanup so we can tear down on unmount
   const dragCleanupRef = useRef<(() => void) | null>(null)
@@ -52,6 +56,7 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
           const previewFrame =
             handle === 'out' ? Math.max(0, Math.round(frame) - 1) : Math.round(frame)
           usePlaybackStore.getState().setPreviewFrame(previewFrame)
+          return formatTimecodeCompact(Math.round(frame), fpsRef.current)
         },
         () => {
           document.body.style.cursor = prevCursor

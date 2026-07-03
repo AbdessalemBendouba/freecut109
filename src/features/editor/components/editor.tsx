@@ -66,6 +66,7 @@ import {
   useEmbeddedSubtitlePickerStore,
   useSubtitleScanProgressStore,
 } from '@/features/editor/deps/media-library'
+import { IoDragReadout } from '@/shared/timeline/io-range'
 const logger = createLogger('Editor')
 const EDITOR_PROJECT_ROUTE_ID = '/editor/$projectId'
 
@@ -821,6 +822,9 @@ export const LoadedEditor = memo(function LoadedEditor({
 
       <EditorDialogHost projectId={projectId} />
       <TimelineDialogHost />
+
+      {/* Single global cursor-readout for IO (in/out) drags across all surfaces. */}
+      <IoDragReadout />
     </div>
   )
 })

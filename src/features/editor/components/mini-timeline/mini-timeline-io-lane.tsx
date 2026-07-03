@@ -14,6 +14,7 @@ import {
   useMeasuredWidth,
 } from '@/shared/timeline/io-range'
 import { MINI_TIMELINE_IO_HANDLE_WIDTH, MINI_TIMELINE_IO_LANE_HEIGHT } from './constants'
+import { formatTimecodeCompact } from '@/shared/utils/time-utils'
 
 /**
  * The IO bar's own lane (DaVinci-style). Renders the in/out range strip (drag
@@ -41,6 +42,7 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
   const setOutPoint = useTimelineStore((s) => s.setOutPoint)
   const inPoint = useTimelineStore((s) => s.inPoint)
   const outPoint = useTimelineStore((s) => s.outPoint)
+  const fps = useTimelineStore((s) => s.fps)
 
   const laneRef = useRef<HTMLDivElement>(null)
   // Lane pixel width — the ratios above render fluidly, but the handles need the
@@ -53,6 +55,8 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
   settersRef.current = { in: setInPoint, out: setOutPoint }
   const inOutRef = useRef({ in: inPoint, out: outPoint })
   inOutRef.current = { in: inPoint, out: outPoint }
+  const fpsRef = useRef(fps)
+  fpsRef.current = fps
 
   // Tear down any in-flight drag if the lane unmounts mid-gesture.
   useEffect(() => () => dragCleanupRef.current?.(), [])
@@ -80,11 +84,13 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
           const frameDelta = Math.round(((clientX - startClientX) / rect.width) * maxFrameRef.current)
           const maxIn = Math.max(0, maxFrameRef.current - span)
           const nextIn = Math.max(0, Math.min(startIn + frameDelta, maxIn))
-          if (nextIn === lastIn) return
+          const label = `${formatTimecodeCompact(nextIn, fpsRef.current)} → ${formatTimecodeCompact(nextIn + span, fpsRef.current)}`
+          if (nextIn === lastIn) return label
           lastIn = nextIn
           setInOutPointsWithoutHistory(nextIn, nextIn + span)
           // Preview follows the leading edge; the playhead stays put (suppressed).
           usePlaybackStore.getState().setPreviewFrame(nextIn)
+          return label
         },
         () => {
           document.body.style.cursor = prevCursor
@@ -122,6 +128,7 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
           // Skim the preview to the boundary; out is exclusive, so show out - 1.
           const previewFrame = side === 'out' ? Math.max(0, frame - 1) : frame
           usePlaybackStore.getState().setPreviewFrame(previewFrame)
+          return formatTimecodeCompact(frame, fpsRef.current)
         },
         () => {
           document.body.style.cursor = prevCursor

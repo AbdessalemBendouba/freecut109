@@ -923,12 +923,13 @@ function SourcePlaybackControls({
             const nextIn = clampDraggedSourceInPoint(point, store().outPoint, lastFrame)
             store().setInPoint(nextIn)
             store().setPreviewSourceFrame(nextIn)
-          } else {
-            const nextOut = clampDraggedSourceOutPoint(point, store().inPoint, durationInFrames)
-            store().setOutPoint(nextOut)
-            // Out is exclusive — skim to the last included frame (out - 1).
-            store().setPreviewSourceFrame(Math.max(0, nextOut - 1))
+            return formatTime(nextIn)
           }
+          const nextOut = clampDraggedSourceOutPoint(point, store().inPoint, durationInFrames)
+          store().setOutPoint(nextOut)
+          // Out is exclusive — skim to the last included frame (out - 1).
+          store().setPreviewSourceFrame(Math.max(0, nextOut - 1))
+          return formatTime(nextOut)
         },
         () => {
           document.body.style.cursor = originalCursor
@@ -940,7 +941,7 @@ function SourcePlaybackControls({
       document.body.style.cursor = 'col-resize'
       ioDragCleanupRef.current = cleanup
     },
-    [durationInFrames, lastFrame, pointFromStripX],
+    [durationInFrames, lastFrame, pointFromStripX, formatTime],
   )
 
   const handleIORangeDragStart = useCallback(
@@ -960,6 +961,7 @@ function SourcePlaybackControls({
           store().setOutPoint(nextRange.outPoint)
           // Skim the preview to the range's leading (in) edge as it slides.
           store().setPreviewSourceFrame(nextRange.inPoint)
+          return `${formatTime(nextRange.inPoint)} → ${formatTime(nextRange.outPoint)}`
         },
         () => {
           document.body.style.cursor = originalCursor
@@ -971,7 +973,7 @@ function SourcePlaybackControls({
       document.body.style.cursor = 'grabbing'
       ioDragCleanupRef.current = cleanup
     },
-    [durationInFrames, pointFromStripX],
+    [durationInFrames, pointFromStripX, formatTime],
   )
 
   useEffect(() => {

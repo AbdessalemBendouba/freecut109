@@ -17,7 +17,7 @@ import { useSettingsStore } from '@/features/timeline/deps/settings'
 
 // Utilities and hooks
 import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
-import { formatTimecode, secondsToFrames } from '@/shared/utils/time-utils'
+import { formatTimecode, formatTimecodeCompact, secondsToFrames } from '@/shared/utils/time-utils'
 import { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub-throttle'
 import { EDITOR_LAYOUT_CSS_VALUES, getEditorLayout } from '@/config/editor-layout'
 import { sanitizeInOutPoints } from '../utils/in-out-points'
@@ -818,13 +818,15 @@ export const TimelineMarkers = memo(function TimelineMarkers({
           const maxIn = Math.max(0, Math.floor(durationRef.current * fpsRef.current) - span)
           const nextIn = Math.max(0, Math.min(startIn + deltaFrames, maxIn))
           const nextOut = nextIn + span
-          // Skip redundant writes while dragging.
-          if (nextIn === lastIn && nextOut === lastOut) return
+          const label = `${formatTimecodeCompact(nextIn, fpsRef.current)} → ${formatTimecodeCompact(nextOut, fpsRef.current)}`
+          // Skip redundant writes while dragging (still update the readout).
+          if (nextIn === lastIn && nextOut === lastOut) return label
           setInOutPointsWithoutHistory(nextIn, nextOut)
           // Skim the preview to the range's leading (in) edge as it slides.
           setPreviewFrameRef.current(nextIn)
           lastIn = nextIn
           lastOut = nextOut
+          return label
         },
         () => {
           document.body.style.cursor = originalCursor
