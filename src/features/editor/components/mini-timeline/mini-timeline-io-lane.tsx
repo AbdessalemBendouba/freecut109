@@ -7,8 +7,14 @@ import {
 } from '@/features/editor/deps/timeline-store'
 import { usePlaybackStore } from '@/shared/state/playback'
 import type { TimelineAnnotationModel } from '@/shared/timeline/timeline-annotations'
-import { IoRangeHandles, IoRangeStrip, useMeasuredWidth } from '@/shared/timeline/io-range'
+import {
+  beginIoPointerDrag,
+  IoRangeHandles,
+  IoRangeStrip,
+  useMeasuredWidth,
+} from '@/shared/timeline/io-range'
 import { MINI_TIMELINE_IO_HANDLE_WIDTH, MINI_TIMELINE_IO_LANE_HEIGHT } from './constants'
+import { formatTimecodeCompact } from '@/shared/utils/time-utils'
 
 /**
  * The IO bar's own lane (DaVinci-style). Renders the in/out range strip (drag
@@ -36,6 +42,7 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
   const setOutPoint = useTimelineStore((s) => s.setOutPoint)
   const inPoint = useTimelineStore((s) => s.inPoint)
   const outPoint = useTimelineStore((s) => s.outPoint)
+  const fps = useTimelineStore((s) => s.fps)
 
   const laneRef = useRef<HTMLDivElement>(null)
   // Lane pixel width — the ratios above render fluidly, but the handles need the
@@ -48,6 +55,8 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
   settersRef.current = { in: setInPoint, out: setOutPoint }
   const inOutRef = useRef({ in: inPoint, out: outPoint })
   inOutRef.current = { in: inPoint, out: outPoint }
+  const fpsRef = useRef(fps)
+  fpsRef.current = fps
 
   // Tear down any in-flight drag if the lane unmounts mid-gesture.
   useEffect(() => () => dragCleanupRef.current?.(), [])
@@ -57,49 +66,44 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
   // mark dirty on release).
   const startRangeDrag = useCallback(
     (event: PointerEvent) => {
-      if (event.button !== 0) return
       const { in: startIn, out: startOut } = inOutRef.current
       if (startIn === null || startOut === null) return
-      event.preventDefault()
-      event.stopPropagation()
       const lane = laneRef.current
       if (!lane) return
 
       const startClientX = event.clientX
       const span = Math.max(1, startOut - startIn)
       const prevCursor = document.body.style.cursor
+      let lastIn = startIn
+
+      const cleanup = beginIoPointerDrag(
+        event,
+        (clientX) => {
+          const rect = lane.getBoundingClientRect()
+          if (rect.width <= 0) return
+          const frameDelta = Math.round(((clientX - startClientX) / rect.width) * maxFrameRef.current)
+          const maxIn = Math.max(0, maxFrameRef.current - span)
+          const nextIn = Math.max(0, Math.min(startIn + frameDelta, maxIn))
+          const label = `${formatTimecodeCompact(nextIn, fpsRef.current)} → ${formatTimecodeCompact(nextIn + span, fpsRef.current)}`
+          if (nextIn === lastIn) return label
+          lastIn = nextIn
+          setInOutPointsWithoutHistory(nextIn, nextIn + span)
+          // Preview follows the leading edge; the playhead stays put (suppressed).
+          usePlaybackStore.getState().setPreviewFrame(nextIn)
+          return label
+        },
+        () => {
+          document.body.style.cursor = prevCursor
+          usePlaybackStore.getState().setPreviewFrame(null)
+          suppressPlayheadPreviewRef.current = false
+          useTimelineSettingsStore.getState().markDirty()
+          dragCleanupRef.current = null
+        },
+      )
+      if (!cleanup) return
       document.body.style.cursor = 'grabbing'
       // Keep the preview live but pin the host playhead while dragging.
       suppressPlayheadPreviewRef.current = true
-      let lastIn = startIn
-
-      const onMove = (ev: globalThis.PointerEvent) => {
-        const rect = lane.getBoundingClientRect()
-        if (rect.width <= 0) return
-        const frameDelta = Math.round(
-          ((ev.clientX - startClientX) / rect.width) * maxFrameRef.current,
-        )
-        const maxIn = Math.max(0, maxFrameRef.current - span)
-        const nextIn = Math.max(0, Math.min(startIn + frameDelta, maxIn))
-        if (nextIn === lastIn) return
-        lastIn = nextIn
-        setInOutPointsWithoutHistory(nextIn, nextIn + span)
-        // Preview follows the leading edge; the playhead stays put (suppressed).
-        usePlaybackStore.getState().setPreviewFrame(nextIn)
-      }
-      const cleanup = () => {
-        document.removeEventListener('pointermove', onMove)
-        document.removeEventListener('pointerup', cleanup)
-        document.removeEventListener('pointercancel', cleanup)
-        document.body.style.cursor = prevCursor
-        usePlaybackStore.getState().setPreviewFrame(null)
-        suppressPlayheadPreviewRef.current = false
-        useTimelineSettingsStore.getState().markDirty()
-        dragCleanupRef.current = null
-      }
-      document.addEventListener('pointermove', onMove)
-      document.addEventListener('pointerup', cleanup)
-      document.addEventListener('pointercancel', cleanup)
       dragCleanupRef.current = cleanup
     },
     [suppressPlayheadPreviewRef],
@@ -107,41 +111,36 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
 
   const startDrag = useCallback(
     (side: 'in' | 'out') => (event: PointerEvent) => {
-      if (event.button !== 0) return
-      // Claim the gesture so the scrub surface underneath doesn't also seek.
-      event.preventDefault()
-      event.stopPropagation()
       const lane = laneRef.current
       if (!lane) return
 
       const setFrame = settersRef.current[side]
       const prevCursor = document.body.style.cursor
+
+      const cleanup = beginIoPointerDrag(
+        event,
+        (clientX) => {
+          const rect = lane.getBoundingClientRect()
+          if (rect.width <= 0) return
+          const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+          const frame = Math.round(ratio * maxFrameRef.current)
+          setFrame(frame)
+          // Skim the preview to the boundary; out is exclusive, so show out - 1.
+          const previewFrame = side === 'out' ? Math.max(0, frame - 1) : frame
+          usePlaybackStore.getState().setPreviewFrame(previewFrame)
+          return formatTimecodeCompact(frame, fpsRef.current)
+        },
+        () => {
+          document.body.style.cursor = prevCursor
+          usePlaybackStore.getState().setPreviewFrame(null)
+          suppressPlayheadPreviewRef.current = false
+          dragCleanupRef.current = null
+        },
+      )
+      if (!cleanup) return
       document.body.style.cursor = 'col-resize'
       // Keep the preview live but pin the host playhead while dragging.
       suppressPlayheadPreviewRef.current = true
-
-      const onMove = (ev: globalThis.PointerEvent) => {
-        const rect = lane.getBoundingClientRect()
-        if (rect.width <= 0) return
-        const ratio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-        const frame = Math.round(ratio * maxFrameRef.current)
-        setFrame(frame)
-        // Skim the preview to the boundary; out is exclusive, so show out - 1.
-        const previewFrame = side === 'out' ? Math.max(0, frame - 1) : frame
-        usePlaybackStore.getState().setPreviewFrame(previewFrame)
-      }
-      const cleanup = () => {
-        document.removeEventListener('pointermove', onMove)
-        document.removeEventListener('pointerup', cleanup)
-        document.removeEventListener('pointercancel', cleanup)
-        document.body.style.cursor = prevCursor
-        usePlaybackStore.getState().setPreviewFrame(null)
-        suppressPlayheadPreviewRef.current = false
-        dragCleanupRef.current = null
-      }
-      document.addEventListener('pointermove', onMove)
-      document.addEventListener('pointerup', cleanup)
-      document.addEventListener('pointercancel', cleanup)
       dragCleanupRef.current = cleanup
     },
     [suppressPlayheadPreviewRef],

@@ -58,7 +58,12 @@ import { useSelectionStore } from '@/shared/state/selection'
 import { EDITOR_LAYOUT_CSS_VALUES, getEditorLayout } from '@/config/editor-layout'
 import { createScrubThrottleState, shouldCommitScrubFrame } from '../deps/timeline-utils'
 import { cn } from '@/shared/ui/cn'
-import { IoRangeHandles, IoRangeStrip, useMeasuredWidth } from '@/shared/timeline/io-range'
+import {
+  beginIoPointerDrag,
+  IoRangeHandles,
+  IoRangeStrip,
+  useMeasuredWidth,
+} from '@/shared/timeline/io-range'
 import { formatTimecodeCompact } from '@/shared/utils/time-utils'
 import { getPreviewPixelSnapSize } from '../utils/preview-pixel-snap'
 import type { TimelineTrack } from '@/types/timeline'
@@ -907,75 +912,68 @@ function SourcePlaybackControls({
   )
 
   const handleIODragStart = useCallback(
-    (e: React.MouseEvent, type: 'in' | 'out') => {
-      e.preventDefault()
-      e.stopPropagation()
-      const originalCursor = document.body.style.cursor
-      document.body.style.cursor = 'col-resize'
-
+    (e: React.PointerEvent, type: 'in' | 'out') => {
       const store = useSourcePlayerStore.getState
-      const onMove = (ev: MouseEvent) => {
-        const point = pointFromStripX(ev.clientX)
-        if (type === 'in') {
-          const out = store().outPoint
-          const nextIn = clampDraggedSourceInPoint(point, out, lastFrame)
-          store().setInPoint(nextIn)
-          store().setPreviewSourceFrame(nextIn)
-        } else {
-          const inp = store().inPoint
-          const nextOut = clampDraggedSourceOutPoint(point, inp, durationInFrames)
+      const originalCursor = document.body.style.cursor
+      const cleanup = beginIoPointerDrag(
+        e,
+        (clientX) => {
+          const point = pointFromStripX(clientX)
+          if (type === 'in') {
+            const nextIn = clampDraggedSourceInPoint(point, store().outPoint, lastFrame)
+            store().setInPoint(nextIn)
+            store().setPreviewSourceFrame(nextIn)
+            return formatTime(nextIn)
+          }
+          const nextOut = clampDraggedSourceOutPoint(point, store().inPoint, durationInFrames)
           store().setOutPoint(nextOut)
           // Out is exclusive — skim to the last included frame (out - 1).
           store().setPreviewSourceFrame(Math.max(0, nextOut - 1))
-        }
-      }
-      const onUp = () => {
-        document.body.style.cursor = originalCursor
-        document.removeEventListener('mousemove', onMove)
-        document.removeEventListener('mouseup', onUp)
-        store().setPreviewSourceFrame(null)
-        ioDragCleanupRef.current = null
-      }
-      ioDragCleanupRef.current = onUp
-      document.addEventListener('mousemove', onMove)
-      document.addEventListener('mouseup', onUp)
+          return formatTime(nextOut)
+        },
+        () => {
+          document.body.style.cursor = originalCursor
+          store().setPreviewSourceFrame(null)
+          ioDragCleanupRef.current = null
+        },
+      )
+      if (!cleanup) return
+      document.body.style.cursor = 'col-resize'
+      ioDragCleanupRef.current = cleanup
     },
-    [durationInFrames, lastFrame, pointFromStripX],
+    [durationInFrames, lastFrame, pointFromStripX, formatTime],
   )
 
   const handleIORangeDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
+    (e: React.PointerEvent) => {
       const store = useSourcePlayerStore.getState
       const startIn = store().inPoint
       const startOut = store().outPoint
       if (startIn === null || startOut === null) return
       const startPoint = pointFromStripX(e.clientX)
       const originalCursor = document.body.style.cursor
+      const cleanup = beginIoPointerDrag(
+        e,
+        (clientX) => {
+          const delta = pointFromStripX(clientX) - startPoint
+          const nextRange = shiftSourceIoRange(startIn, startOut, delta, durationInFrames)
+          store().setInPoint(nextRange.inPoint)
+          store().setOutPoint(nextRange.outPoint)
+          // Skim the preview to the range's leading (in) edge as it slides.
+          store().setPreviewSourceFrame(nextRange.inPoint)
+          return `${formatTime(nextRange.inPoint)} → ${formatTime(nextRange.outPoint)}`
+        },
+        () => {
+          document.body.style.cursor = originalCursor
+          store().setPreviewSourceFrame(null)
+          ioDragCleanupRef.current = null
+        },
+      )
+      if (!cleanup) return
       document.body.style.cursor = 'grabbing'
-
-      const onMove = (ev: MouseEvent) => {
-        const nowPoint = pointFromStripX(ev.clientX)
-        const delta = nowPoint - startPoint
-        const nextRange = shiftSourceIoRange(startIn, startOut, delta, durationInFrames)
-        store().setInPoint(nextRange.inPoint)
-        store().setOutPoint(nextRange.outPoint)
-        // Skim the preview to the range's leading (in) edge as it slides.
-        store().setPreviewSourceFrame(nextRange.inPoint)
-      }
-      const onUp = () => {
-        document.body.style.cursor = originalCursor
-        document.removeEventListener('mousemove', onMove)
-        document.removeEventListener('mouseup', onUp)
-        store().setPreviewSourceFrame(null)
-        ioDragCleanupRef.current = null
-      }
-      ioDragCleanupRef.current = onUp
-      document.addEventListener('mousemove', onMove)
-      document.addEventListener('mouseup', onUp)
+      ioDragCleanupRef.current = cleanup
     },
-    [durationInFrames, pointFromStripX],
+    [durationInFrames, pointFromStripX, formatTime],
   )
 
   useEffect(() => {

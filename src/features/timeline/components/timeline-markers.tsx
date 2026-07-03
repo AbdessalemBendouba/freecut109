@@ -12,12 +12,12 @@ import { perfMarkRender } from '@/shared/logging/perf-marks'
 import { TimelineInOutMarkers } from './timeline-in-out-markers'
 import { TimelineProjectMarkers } from './timeline-project-markers'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
-import { IoRangeStrip } from '@/shared/timeline/io-range'
+import { beginIoPointerDrag, IoRangeStrip } from '@/shared/timeline/io-range'
 import { useSettingsStore } from '@/features/timeline/deps/settings'
 
 // Utilities and hooks
 import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
-import { formatTimecode, secondsToFrames } from '@/shared/utils/time-utils'
+import { formatTimecode, formatTimecodeCompact, secondsToFrames } from '@/shared/utils/time-utils'
 import { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub-throttle'
 import { EDITOR_LAYOUT_CSS_VALUES, getEditorLayout } from '@/config/editor-layout'
 import { sanitizeInOutPoints } from '../utils/in-out-points'
@@ -359,11 +359,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
   const durationRef = useRef(duration)
   const inPointRef = useRef(inPoint)
   const outPointRef = useRef(outPoint)
-  const rangeDragStartTimelineXRef = useRef(0)
-  const rangeDragStartInRef = useRef(0)
-  const rangeDragStartOutRef = useRef(0)
-  const rangeDragLastInRef = useRef(0)
-  const rangeDragLastOutRef = useRef(0)
+  const rangeDragCleanupRef = useRef<(() => void) | null>(null)
   const maxFrame = Math.max(1, Math.floor(duration * fps))
   const sanitizedInOutPoints = useMemo(
     () => sanitizeInOutPoints({ inPoint, outPoint, maxFrame }),
@@ -801,19 +797,53 @@ export const TimelineMarkers = memo(function TimelineMarkers({
   }, [isDragging, isRangeDragging])
 
   const handleRangeMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (inPointRef.current === null || outPointRef.current === null) return
+    (e: React.PointerEvent) => {
+      const startIn = inPointRef.current
+      const startOut = outPointRef.current
+      if (startIn === null || startOut === null) return
 
-      e.preventDefault()
-      e.stopPropagation()
+      const startTimelineX = getTimelineXFromClientX(e.clientX)
+      const originalCursor = document.body.style.cursor
+      let lastIn = startIn
+      let lastOut = startOut
 
-      rangeDragStartTimelineXRef.current = getTimelineXFromClientX(e.clientX)
-      rangeDragStartInRef.current = inPointRef.current
-      rangeDragStartOutRef.current = outPointRef.current
-      rangeDragLastInRef.current = inPointRef.current
-      rangeDragLastOutRef.current = outPointRef.current
-
+      const cleanup = beginIoPointerDrag(
+        e,
+        (clientX) => {
+          const deltaFrames = Math.round(
+            pixelsToFrameRef.current(getTimelineXFromClientX(clientX)) -
+              pixelsToFrameRef.current(startTimelineX),
+          )
+          const span = Math.max(1, startOut - startIn)
+          const maxIn = Math.max(0, Math.floor(durationRef.current * fpsRef.current) - span)
+          const nextIn = Math.max(0, Math.min(startIn + deltaFrames, maxIn))
+          const nextOut = nextIn + span
+          const label = `${formatTimecodeCompact(nextIn, fpsRef.current)} → ${formatTimecodeCompact(nextOut, fpsRef.current)}`
+          // Skip redundant writes while dragging (still update the readout).
+          if (nextIn === lastIn && nextOut === lastOut) return label
+          setInOutPointsWithoutHistory(nextIn, nextOut)
+          // Skim the preview to the range's leading (in) edge as it slides.
+          setPreviewFrameRef.current(nextIn)
+          lastIn = nextIn
+          lastOut = nextOut
+          return label
+        },
+        () => {
+          document.body.style.cursor = originalCursor
+          previewScrubberSuppressRef.current = false
+          setPreviewFrameRef.current(null)
+          markDirtyRef.current()
+          setIsRangeDragging(false)
+          rangeDragCleanupRef.current = null
+        },
+      )
+      if (!cleanup) return
+      document.body.style.cursor = 'move'
+      // Keep the preview canvas refreshing but pin the ghost skimmer so it
+      // doesn't chase the range as it slides (matches the Color workspace).
+      previewScrubberSuppressRef.current = true
       setIsRangeDragging(true)
+      rangeDragCleanupRef.current = cleanup
     },
     [getTimelineXFromClientX],
   )
@@ -909,59 +939,8 @@ export const TimelineMarkers = memo(function TimelineMarkers({
     }
   }, [isDragging])
 
-  // Drag entire in/out range together (preserves selected span length)
-  useEffect(() => {
-    if (!isRangeDragging) return
-
-    const originalCursor = document.body.style.cursor
-    document.body.style.cursor = 'move'
-    // Keep the preview canvas refreshing but pin the ghost skimmer so it doesn't
-    // chase the range as it slides (matches the Color workspace IO drag).
-    previewScrubberSuppressRef.current = true
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const currentTimelineX = getTimelineXFromClientX(e.clientX)
-      const deltaFrames = Math.round(
-        pixelsToFrameRef.current(currentTimelineX) -
-          pixelsToFrameRef.current(rangeDragStartTimelineXRef.current),
-      )
-
-      const startIn = rangeDragStartInRef.current
-      const startOut = rangeDragStartOutRef.current
-      const span = Math.max(1, startOut - startIn)
-      const maxFrame = Math.floor(durationRef.current * fpsRef.current)
-      const maxIn = Math.max(0, maxFrame - span)
-      const nextIn = Math.max(0, Math.min(startIn + deltaFrames, maxIn))
-      const nextOut = nextIn + span
-
-      // Skip redundant writes while dragging
-      if (nextIn === rangeDragLastInRef.current && nextOut === rangeDragLastOutRef.current) {
-        return
-      }
-
-      setInOutPointsWithoutHistory(nextIn, nextOut)
-      // Skim the preview to the range's leading (in) edge as it slides.
-      setPreviewFrameRef.current(nextIn)
-      rangeDragLastInRef.current = nextIn
-      rangeDragLastOutRef.current = nextOut
-    }
-
-    const handleMouseUp = () => {
-      setIsRangeDragging(false)
-      setPreviewFrameRef.current(null)
-      markDirtyRef.current()
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-      document.body.style.cursor = originalCursor
-      previewScrubberSuppressRef.current = false
-    }
-  }, [isRangeDragging, getTimelineXFromClientX])
+  // Tear down an in-flight range drag if the component unmounts mid-gesture.
+  useEffect(() => () => rangeDragCleanupRef.current?.(), [])
 
   return (
     <div

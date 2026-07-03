@@ -4,7 +4,8 @@ import { useTimelineStore } from '../stores/timeline-store'
 import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
-import { IoRangeHandles } from '@/shared/timeline/io-range'
+import { beginIoPointerDrag, IoRangeHandles } from '@/shared/timeline/io-range'
+import { formatTimecodeCompact } from '@/shared/utils/time-utils'
 
 // Matches the ruler's top IO lane height in timeline-markers.tsx.
 const IO_LANE_HEIGHT = 12
@@ -21,54 +22,54 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
   const outPoint = useTimelineStore((s) => s.outPoint)
   const setInPoint = useTimelineStore((s) => s.setInPoint)
   const setOutPoint = useTimelineStore((s) => s.setOutPoint)
+  const fps = useTimelineStore((s) => s.fps)
   const { frameToPixels, pixelsToFrame } = useTimelineZoomContext()
 
   const pixelsToFrameRef = useRef(pixelsToFrame)
   const setInPointRef = useRef(setInPoint)
   const setOutPointRef = useRef(setOutPoint)
+  const fpsRef = useRef(fps)
   pixelsToFrameRef.current = pixelsToFrame
   setInPointRef.current = setInPoint
   setOutPointRef.current = setOutPoint
+  fpsRef.current = fps
 
   // Store active drag cleanup so we can tear down on unmount
   const dragCleanupRef = useRef<(() => void) | null>(null)
 
   const startDrag = useCallback(
     (handle: 'in' | 'out') => (e: React.PointerEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-
       const container = (e.currentTarget as HTMLElement).closest('.timeline-ruler')
       if (!container) return
 
       const setter = handle === 'in' ? setInPointRef : setOutPointRef
       const prevCursor = document.body.style.cursor
+      const cleanup = beginIoPointerDrag(
+        e,
+        (clientX) => {
+          const rect = container.getBoundingClientRect()
+          const x = clientX - rect.left
+          const frame = Math.max(0, pixelsToFrameRef.current(x))
+          setter.current(frame)
+          // Skim the preview to the boundary frame. Out is exclusive, so show the
+          // last included frame (out - 1) rather than the frame just past it.
+          const previewFrame =
+            handle === 'out' ? Math.max(0, Math.round(frame) - 1) : Math.round(frame)
+          usePlaybackStore.getState().setPreviewFrame(previewFrame)
+          return formatTimecodeCompact(Math.round(frame), fpsRef.current)
+        },
+        () => {
+          document.body.style.cursor = prevCursor
+          previewScrubberSuppressRef.current = false
+          usePlaybackStore.getState().setPreviewFrame(null)
+          dragCleanupRef.current = null
+        },
+      )
+      if (!cleanup) return
       document.body.style.cursor = 'col-resize'
       // Keep the preview canvas refreshing but pin the ghost skimmer so it
       // doesn't chase the marker (matches the Color workspace IO drag).
       previewScrubberSuppressRef.current = true
-
-      const onMove = (ev: MouseEvent) => {
-        const rect = container.getBoundingClientRect()
-        const x = ev.clientX - rect.left
-        const frame = Math.max(0, pixelsToFrameRef.current(x))
-        setter.current(frame)
-        // Skim the preview to the boundary frame. Out is exclusive, so show the
-        // last included frame (out - 1) rather than the frame just past it.
-        const previewFrame =
-          handle === 'out' ? Math.max(0, Math.round(frame) - 1) : Math.round(frame)
-        usePlaybackStore.getState().setPreviewFrame(previewFrame)
-      }
-      const cleanup = () => {
-        document.removeEventListener('mousemove', onMove)
-        document.removeEventListener('mouseup', cleanup)
-        document.body.style.cursor = prevCursor
-        previewScrubberSuppressRef.current = false
-        usePlaybackStore.getState().setPreviewFrame(null)
-        dragCleanupRef.current = null
-      }
-      document.addEventListener('mousemove', onMove)
-      document.addEventListener('mouseup', cleanup)
       dragCleanupRef.current = cleanup
     },
     [],

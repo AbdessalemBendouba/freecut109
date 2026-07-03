@@ -5,3 +5,5 @@ export {
   useMeasuredWidth,
 } from './io-range-geometry'
 export { IoRangeStrip, IoRangeHandles } from './io-range-markers'
+export { beginIoPointerDrag } from './io-range-drag'
+export { IoDragReadout } from './io-range-readout'
