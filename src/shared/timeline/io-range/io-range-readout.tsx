@@ -12,20 +12,18 @@ export const IoDragReadout = memo(function IoDragReadout() {
   const readout = useIoRangeReadoutStore((s) => s.readout)
   if (!readout) return null
 
+  // Matches the clip trim readout (TrimInfoOverlay) for a consistent look;
+  // positioned centered above the cursor rather than anchored to a clip edge.
   return createPortal(
     <div
-      className="pointer-events-none"
+      className="pointer-events-none fixed z-[10000] min-w-[58px] rounded-sm bg-neutral-950/90 px-1.5 py-0.5 text-center font-mono text-[11px] font-semibold leading-tight text-white shadow-[0_2px_8px_rgba(0,0,0,0.45)] ring-1 ring-white/15 tabular-nums"
       style={{
-        position: 'fixed',
         left: readout.x,
         top: readout.y - 16,
         transform: 'translate(-50%, -100%)',
-        zIndex: 10000,
       }}
     >
-      <div className="rounded-md border border-slate-200/70 bg-slate-900/92 px-2 py-1 text-[11px] font-medium tabular-nums text-slate-50 shadow-xl backdrop-blur-sm">
-        {readout.label}
-      </div>
+      {readout.label}
     </div>,
     document.body,
   )
