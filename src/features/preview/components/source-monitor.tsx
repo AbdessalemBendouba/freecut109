@@ -889,8 +889,10 @@ function SourcePlaybackControls({
   // Draggable I/O handles + range
   const ioStripRef = useRef<HTMLDivElement>(null)
   // Strip pixel width — handles position via `%` but need the px span to stay
-  // collapse-safe (they'd otherwise overlap into a block on a short range).
-  const ioStripWidth = useMeasuredWidth(ioStripRef)
+  // collapse-safe (they'd otherwise overlap into a block on a short range). The
+  // strip mounts late (only once an in/out point exists), so measure via the
+  // callback ref to catch that mount.
+  const { width: ioStripWidth, measureRef: ioStripMeasureRef } = useMeasuredWidth(ioStripRef)
   const ioDragCleanupRef = useRef<(() => void) | null>(null)
 
   const pointFromStripX = useCallback(
@@ -1185,7 +1187,7 @@ function SourcePlaybackControls({
         <div className="flex-1 flex flex-col justify-center gap-[2px] min-w-0">
           {/* I/O region strip — styled like timeline I/O controls */}
           {interactive && (inPct !== null || outPct !== null) && (
-            <div ref={ioStripRef} className="w-full h-2.5 relative shrink-0">
+            <div ref={ioStripMeasureRef} className="w-full h-2.5 relative shrink-0">
               {inPct !== null && outPct !== null && (
                 <IoRangeStrip
                   left={`${inPct}%`}

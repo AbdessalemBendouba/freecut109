@@ -40,7 +40,7 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
   const laneRef = useRef<HTMLDivElement>(null)
   // Lane pixel width — the ratios above render fluidly, but the handles need the
   // real span in px to avoid overlapping into a block when the range is narrow.
-  const laneWidth = useMeasuredWidth(laneRef)
+  const { width: laneWidth, measureRef: laneMeasureRef } = useMeasuredWidth(laneRef)
   const dragCleanupRef = useRef<(() => void) | null>(null)
   const maxFrameRef = useRef(timelineMaxFrame)
   maxFrameRef.current = timelineMaxFrame
@@ -153,7 +153,7 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
 
   return (
     <div
-      ref={laneRef}
+      ref={laneMeasureRef}
       className="pointer-events-none absolute inset-y-0 right-0"
       data-testid={`${testIdPrefix}-io-lane`}
       style={{ left: labelWidth }}

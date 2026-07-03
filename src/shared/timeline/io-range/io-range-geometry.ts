@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react'
+import { useCallback, useRef, useState, type RefObject } from 'react'
 
 /**
  * Geometry + shared constants for the in/out (IO) range markers. Kept separate
@@ -21,17 +21,41 @@ export function computeIoGripWidth(spanPx: number | null, nominal = IO_HANDLE_WI
   return Math.max(0, Math.min(nominal, spanPx / 2))
 }
 
-/** Tracks an element's live pixel width (for callers that position via `%`). */
-export function useMeasuredWidth<T extends HTMLElement>(ref: RefObject<T | null>): number {
+/**
+ * Tracks an element's live pixel width (for callers that position via `%`).
+ *
+ * Attach the returned `measureRef` as the element's `ref` — it's a callback ref,
+ * so it fires whenever the element mounts, unmounts, or is replaced. This handles
+ * conditionally-rendered targets (e.g. the source monitor's IO strip, which only
+ * mounts once an in/out point exists): a plain `useEffect(..., [ref])` attaches
+ * the observer only once and would miss a late mount, leaving width stuck at 0.
+ * Measuring inside the callback ref (commit phase, before paint) also avoids the
+ * first-frame zero-width flash a post-paint effect would show. Pass an optional
+ * `ref` to also receive the node for imperative reads (e.g. `getBoundingClientRect`).
+ */
+export function useMeasuredWidth<T extends HTMLElement>(ref?: RefObject<T | null>): {
+  width: number
+  measureRef: (node: T | null) => void
+} {
   const [width, setWidth] = useState(0)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const update = () => setWidth(el.clientWidth)
-    update()
-    const observer = new ResizeObserver(update)
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [ref])
-  return width
+  const observerRef = useRef<ResizeObserver | null>(null)
+
+  const measureRef = useCallback(
+    (node: T | null) => {
+      if (ref) ref.current = node
+      observerRef.current?.disconnect()
+      if (!node) {
+        observerRef.current = null
+        return
+      }
+      const update = () => setWidth(node.clientWidth)
+      update()
+      const observer = new ResizeObserver(update)
+      observer.observe(node)
+      observerRef.current = observer
+    },
+    [ref],
+  )
+
+  return { width, measureRef }
 }

@@ -220,6 +220,9 @@ export const AppEyedropperOverlay = memo(function AppEyedropperOverlay({
   // preview reads a stable, effect-accurate pixel without re-capturing per move.
   useEffect(() => {
     let cancelled = false
+    // Remember whether playback was running so we can resume it on close — the
+    // picker only pauses to freeze a stable frame to sample, not to stop the user.
+    const wasPlaying = usePlaybackStore.getState().isPlaying
     usePlaybackStore.getState().pause()
     const capture = usePreviewBridgeStore.getState().captureFrameImageData
     const container = document.querySelector('[data-player-container]')
@@ -237,6 +240,7 @@ export const AppEyedropperOverlay = memo(function AppEyedropperOverlay({
     }
     return () => {
       cancelled = true
+      if (wasPlaying) usePlaybackStore.getState().play()
     }
   }, [])
 
@@ -277,22 +281,52 @@ export const AppEyedropperOverlay = memo(function AppEyedropperOverlay({
     [previewOnly],
   )
 
+  const pendingMoveRef = useRef<{ x: number; y: number } | null>(null)
+  const moveRafRef = useRef<number | null>(null)
+
   const handleMove = useCallback(
     (event: React.MouseEvent) => {
-      const picked = pickAt(event.clientX, event.clientY)
-      setHover(picked ? { ...picked, x: event.clientX, y: event.clientY } : null)
+      // Coalesce rapid mousemoves to at most one sample per animation frame.
+      // pickAt() runs elementsFromPoint + canvas readback, too costly to fire on
+      // every pointer event; the loupe only needs the latest position per frame.
+      pendingMoveRef.current = { x: event.clientX, y: event.clientY }
+      if (moveRafRef.current !== null) return
+      moveRafRef.current = requestAnimationFrame(() => {
+        moveRafRef.current = null
+        const pos = pendingMoveRef.current
+        if (!pos) return
+        const picked = pickAt(pos.x, pos.y)
+        setHover(picked ? { ...picked, x: pos.x, y: pos.y } : null)
+      })
     },
     [pickAt],
   )
+
+  // Drop any queued sample if the overlay unmounts mid-frame.
+  useEffect(() => {
+    return () => {
+      if (moveRafRef.current !== null) cancelAnimationFrame(moveRafRef.current)
+    }
+  }, [])
 
   const handleClick = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault()
       event.stopPropagation()
       const picked = pickAt(event.clientX, event.clientY)
-      if (picked) onResolve(picked.hex)
+      if (picked) {
+        onResolve(picked.hex)
+        return
+      }
+      // No sample here. In previewOnly mode a click that just misses the preview
+      // bounds shouldn't dismiss — the user can aim again. But if the frame never
+      // captured (`previewRef` still null: no bridge, still loading, capture
+      // failed) nothing is pickable anywhere, so dismiss instead of silently
+      // swallowing every click and freezing the picker open.
+      if (previewOnly && previewRef.current) return
+      onResolve(null)
     },
-    [pickAt, onResolve],
+    [pickAt, onResolve, previewOnly],
   )
 
   useEffect(() => {
