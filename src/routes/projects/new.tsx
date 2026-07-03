@@ -8,7 +8,8 @@ import { useCreateProject } from '@/features/projects/hooks/use-project-actions'
 import { useProjectStore } from '@/features/projects/stores/project-store'
 import { FreeCutLogo } from '@/components/brand/freecut-logo'
 import { Button } from '@/components/ui/button'
-import { Github, MessageCircle } from 'lucide-react'
+import { Github } from 'lucide-react'
+import { DiscordIcon } from '@/components/brand/discord-icon'
 import { DISCORD_INVITE_URL } from '@/config/community'
 import type { ProjectFormData } from '@/features/projects/utils/validation'
 
@@ -66,7 +67,7 @@ function NewProject() {
           <div className="flex items-center gap-3">
             <Button variant="outline" size="lg" className="gap-2" asChild>
               <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
-                <MessageCircle className="w-4 h-4" />
+                <DiscordIcon className="w-4 h-4" />
                 Discord
               </a>
             </Button>

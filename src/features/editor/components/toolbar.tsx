@@ -17,6 +17,8 @@ import {
   Video,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DiscordIcon } from '@/components/brand/discord-icon'
+import { DISCORD_INVITE_URL } from '@/config/community'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -279,6 +281,18 @@ export const Toolbar = memo(function Toolbar({
             aria-label={t('toolbar.viewOnGitHub')}
           >
             <Github className="h-4 w-4" />
+          </a>
+        </Button>
+        <Button variant="outline" size="icon" className="h-7 w-7" asChild>
+          <a
+            href={DISCORD_INVITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-tooltip={t('toolbar.joinDiscord')}
+            data-tooltip-side="bottom"
+            aria-label={t('toolbar.joinDiscord')}
+          >
+            <DiscordIcon className="h-4 w-4" />
           </a>
         </Button>
         <Button
