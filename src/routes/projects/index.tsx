@@ -6,8 +6,10 @@ import { createLogger } from '@/shared/logging/logger'
 
 const logger = createLogger('ProjectsIndex')
 import { Button } from '@/components/ui/button'
-import { Plus, Upload, FolderOpen, File, Github, BookOpen, MessageCircle } from 'lucide-react'
+import { Separator } from '@/components/ui/separator'
+import { Plus, Upload, FolderOpen, File, Github, BookOpen } from 'lucide-react'
 import { FreeCutLogo } from '@/components/brand/freecut-logo'
+import { DiscordIcon } from '@/components/brand/discord-icon'
 import { DISCORD_INVITE_URL } from '@/config/community'
 import { ProjectList } from '@/features/projects/components/project-list'
 import { EditProjectForm } from '@/features/projects/components/project-form'
@@ -270,37 +272,43 @@ function ProjectsIndex() {
               />
             </Link>
             <div className="flex items-center gap-3">
-              <WorkspaceIndicator />
               <LanguageSwitcher size="md" align="end" side="bottom" />
-              <Button variant="outline" size="lg" className="gap-2" asChild>
+
+              <Separator orientation="vertical" className="h-6" />
+
+              <Button variant="outline" size="lg" className="gap-2 px-4" asChild>
                 <Link to="/docs">
                   <BookOpen className="w-4 h-4" />
                   Docs
                 </Link>
               </Button>
-              <Button variant="outline" size="lg" className="gap-2" asChild>
+              <Button variant="outline" size="lg" className="gap-2 px-4" asChild>
                 <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
-                  <MessageCircle className="w-4 h-4" />
+                  <DiscordIcon className="w-4 h-4" />
                   Discord
                 </a>
               </Button>
-              <Button variant="outline" size="icon" className="h-10 w-10" asChild>
+              <Button variant="outline" size="lg" className="gap-2 px-4" asChild>
                 <a
                   href="https://github.com/walterlow/freecut"
                   target="_blank"
                   rel="noopener noreferrer"
-                  data-tooltip={t('projects.viewOnGitHub')}
-                  data-tooltip-side="left"
+                  aria-label={t('projects.viewOnGitHub')}
                 >
-                  <Github className="w-5 h-5" />
+                  <Github className="w-4 h-4" />
+                  GitHub
                 </a>
               </Button>
-              <Button variant="outline" size="lg" className="gap-2" onClick={handleImportClick}>
+
+              <Separator orientation="vertical" className="h-6" />
+
+              <WorkspaceIndicator />
+              <Button variant="outline" size="lg" className="gap-2 px-4" onClick={handleImportClick}>
                 <Upload className="w-4 h-4" />
                 {t('projects.importProject')}
               </Button>
               <Link to="/projects/new">
-                <Button size="lg" className="gap-2">
+                <Button size="lg" className="gap-2 px-4">
                   <Plus className="w-4 h-4" />
                   {t('projects.newProject')}
                 </Button>

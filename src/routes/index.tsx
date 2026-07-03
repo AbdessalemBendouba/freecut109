@@ -9,9 +9,9 @@ import {
   Star,
   ExternalLink,
   BookOpen,
-  MessageCircle,
 } from 'lucide-react'
 import { FreeCutLogo } from '@/components/brand/freecut-logo'
+import { DiscordIcon } from '@/components/brand/discord-icon'
 import { Button } from '@/components/ui/button'
 import { DISCORD_INVITE_URL } from '@/config/community'
 import {
@@ -186,7 +186,7 @@ function LandingPage() {
 
             <Button asChild variant="outline" size="lg" className="gap-2">
               <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
-                <MessageCircle className="h-4 w-4" />
+                <DiscordIcon className="h-4 w-4" />
                 Join Discord
               </a>
             </Button>
@@ -355,7 +355,7 @@ function LandingPage() {
 
             <Button asChild variant="outline" size="lg" className="gap-2">
               <a href={DISCORD_INVITE_URL} target="_blank" rel="noopener noreferrer">
-                <MessageCircle className="h-4 w-4" />
+                <DiscordIcon className="h-4 w-4" />
                 Join Discord
               </a>
             </Button>
