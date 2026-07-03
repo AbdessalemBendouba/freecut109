@@ -1,19 +1,20 @@
-import { useCallback, useMemo, useRef, useEffect, memo, forwardRef } from 'react'
+import { useCallback, useMemo, useRef, useEffect, memo } from 'react'
 
 import { useTimelineStore } from '../stores/timeline-store'
 import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
+import { IoRangeHandles } from '@/shared/timeline/io-range'
 
 // Matches the ruler's top IO lane height in timeline-markers.tsx.
 const IO_LANE_HEIGHT = 12
-const IO_HIT_AREA_HEIGHT = IO_LANE_HEIGHT + 6
-const IO_HANDLE_WIDTH = 6
-const IO_HANDLE_COLOR = 'var(--color-timeline-io-handle)'
 
 /**
  * Timeline In/Out Markers — isolated in its own memo boundary so zoom-driven
  * position updates only re-render these 2 marker divs, not the parent ruler.
+ * Handle grip/hit-area rendering (incl. collapse-safe sizing when the range is
+ * narrow) lives in the shared `IoRangeHandles`; this component owns only the
+ * Edit-workspace drag behavior + pixel positioning.
  */
 export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
   const inPoint = useTimelineStore((s) => s.inPoint)
@@ -22,8 +23,6 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
   const setOutPoint = useTimelineStore((s) => s.setOutPoint)
   const { frameToPixels, pixelsToFrame } = useTimelineZoomContext()
 
-  const inMarkerRef = useRef<HTMLDivElement>(null)
-  const outMarkerRef = useRef<HTMLDivElement>(null)
   const pixelsToFrameRef = useRef(pixelsToFrame)
   const setInPointRef = useRef(setInPoint)
   const setOutPointRef = useRef(setOutPoint)
@@ -35,13 +34,11 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
   const dragCleanupRef = useRef<(() => void) | null>(null)
 
   const startDrag = useCallback(
-    (handle: 'in' | 'out') => (e: React.MouseEvent) => {
+    (handle: 'in' | 'out') => (e: React.PointerEvent) => {
       e.preventDefault()
       e.stopPropagation()
 
-      const container = (handle === 'in' ? inMarkerRef : outMarkerRef).current?.closest(
-        '.timeline-ruler',
-      )
+      const container = (e.currentTarget as HTMLElement).closest('.timeline-ruler')
       if (!container) return
 
       const setter = handle === 'in' ? setInPointRef : setOutPointRef
@@ -90,94 +87,16 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
 
   const inPx = inPoint !== null ? frameToPixels(inPoint) : null
   const outPx = outPoint !== null ? frameToPixels(outPoint) : null
-
-  // When zoomed far out the in/out range collapses to a few pixels wide. The two
-  // fixed-width side grips would then overlap into a solid blue block that covers
-  // the gray range bar. Cap each grip to half the range so they meet at the
-  // midpoint (a clean pill spanning exactly the range) instead of overlapping.
-  const handleWidth =
-    inPx !== null && outPx !== null
-      ? Math.max(0, Math.min(IO_HANDLE_WIDTH, (outPx - inPx) / 2))
-      : IO_HANDLE_WIDTH
+  const spanPx = inPx !== null && outPx !== null ? outPx - inPx : null
 
   return (
-    <>
-      {inPx !== null && (
-        <IOMarker
-          ref={inMarkerRef}
-          positionPx={inPx}
-          side="in"
-          handleWidth={handleWidth}
-          onMouseDown={handleInDown}
-        />
-      )}
-      {outPx !== null && (
-        <IOMarker
-          ref={outMarkerRef}
-          positionPx={outPx}
-          side="out"
-          handleWidth={handleWidth}
-          onMouseDown={handleOutDown}
-        />
-      )}
-    </>
+    <IoRangeHandles
+      inLeft={inPx !== null ? `${inPx}px` : null}
+      outLeft={outPx !== null ? `${outPx}px` : null}
+      spanPx={spanPx}
+      laneHeight={IO_LANE_HEIGHT}
+      onInDragStart={handleInDown}
+      onOutDragStart={handleOutDown}
+    />
   )
 })
-
-interface IOMarkerProps {
-  positionPx: number
-  side: 'in' | 'out'
-  handleWidth: number
-  onMouseDown: (e: React.MouseEvent) => void
-}
-
-const IOMarker = memo(
-  forwardRef<HTMLDivElement, IOMarkerProps>(function IOMarker(
-    { positionPx, side, handleWidth, onMouseDown },
-    ref,
-  ) {
-    return (
-      <div
-        ref={ref}
-        className="absolute top-0"
-        style={{
-          left: positionPx,
-          width: '2px',
-          height: '100%',
-          pointerEvents: 'none',
-          zIndex: 22,
-        }}
-      >
-        {/* Side grip handle in the top IO lane — matches the Color workspace
-            handle: brighter blue, rounded outer corners, top highlight + inset
-            sheen, minimal glow. */}
-        <div
-          className="absolute pointer-events-none"
-          style={{
-            top: 0,
-            left: side === 'in' ? 0 : -handleWidth,
-            width: handleWidth,
-            height: IO_LANE_HEIGHT,
-            borderRadius: side === 'in' ? '5px 1px 1px 5px' : '1px 5px 5px 1px',
-            background: `linear-gradient(to bottom, color-mix(in oklch, ${IO_HANDLE_COLOR} 92%, white), color-mix(in oklch, ${IO_HANDLE_COLOR} 78%, black))`,
-            boxShadow: `inset 0 1px 0 color-mix(in oklch, white 35%, transparent), 0 0 2px color-mix(in oklch, ${IO_HANDLE_COLOR} 45%, transparent)`,
-          }}
-        />
-
-        {/* Invisible hit area for dragging */}
-        <div
-          className="absolute pointer-events-auto"
-          style={{
-            top: 0,
-            height: IO_HIT_AREA_HEIGHT,
-            left: -8,
-            width: 18,
-            cursor: 'col-resize',
-          }}
-          onMouseDown={onMouseDown}
-        />
-      </div>
-    )
-  }),
-)
-IOMarker.displayName = 'IOMarker'

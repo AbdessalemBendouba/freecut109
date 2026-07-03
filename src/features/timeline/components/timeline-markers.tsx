@@ -12,6 +12,7 @@ import { perfMarkRender } from '@/shared/logging/perf-marks'
 import { TimelineInOutMarkers } from './timeline-in-out-markers'
 import { TimelineProjectMarkers } from './timeline-project-markers'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
+import { IoRangeStrip } from '@/shared/timeline/io-range'
 import { useSettingsStore } from '@/features/timeline/deps/settings'
 
 // Utilities and hooks
@@ -1000,22 +1001,12 @@ export const TimelineMarkers = memo(function TimelineMarkers({
 
       {/* Draggable in/out strip — its own lane at the top of the ruler */}
       {safeInPoint !== null && safeOutPoint !== null && (
-        <div
-          className="absolute cursor-move"
-          onMouseDown={handleRangeMouseDown}
-          style={{
-            left: `${timeToPixels(safeInPoint / fps)}px`,
-            top: '0px',
-            height: `${IO_LANE_HEIGHT}px`,
-            width: `${Math.max(2, timeToPixels((safeOutPoint - safeInPoint) / fps))}px`,
-            // Match the Color workspace IO bar: flat solid muted gray, rounded,
-            // no glow (the blue accent lives on the handles).
-            background: 'color-mix(in oklch, var(--muted-foreground) 82%, black)',
-            border: '1px solid color-mix(in oklch, var(--muted-foreground) 70%, transparent)',
-            borderRadius: '5px',
-            zIndex: 11,
-            pointerEvents: 'auto',
-          }}
+        <IoRangeStrip
+          left={`${timeToPixels(safeInPoint / fps)}px`}
+          width={`${timeToPixels((safeOutPoint - safeInPoint) / fps)}px`}
+          height={IO_LANE_HEIGHT}
+          className="cursor-move active:cursor-move"
+          onDragStart={handleRangeMouseDown}
         />
       )}
 
