@@ -7,21 +7,39 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from 'react'
-import { RotateCcw } from 'lucide-react'
-import { HexColorPicker } from 'react-colorful'
+import { Pipette, RotateCcw } from 'lucide-react'
+import { HexAlphaColorPicker, HexColorPicker } from 'react-colorful'
 import { Button } from '@/components/ui/button'
+import { AppEyedropperOverlay } from './app-eyedropper'
 import { PropertyRow } from './property-row'
 
 const NON_HEX_CHARS = /[^0-9a-fA-F]/g
 
-/** Strip the leading `#` and any non-hex chars, capped at 6 digits. */
-function normalizeHexDraft(color: string): string {
-  return color.startsWith('#') ? color.slice(1).replace(NON_HEX_CHARS, '').slice(0, 6) : ''
+/** Strip the leading `#` and any non-hex chars, capped at `maxDigits`. */
+function normalizeHexDraft(color: string, maxDigits: number): string {
+  return color.startsWith('#') ? color.slice(1).replace(NON_HEX_CHARS, '').slice(0, maxDigits) : ''
 }
 
-/** react-colorful accepts 3- or 6-digit hex. */
-function isCompleteHex(draft: string): boolean {
-  return draft.length === 3 || draft.length === 6
+/**
+ * react-colorful accepts 3- or 6-digit hex, plus 4- or 8-digit when alpha is on.
+ */
+function isCompleteHex(draft: string, allowAlpha: boolean): boolean {
+  if (draft.length === 3 || draft.length === 6) return true
+  return allowAlpha && (draft.length === 4 || draft.length === 8)
+}
+
+/**
+ * Carry the current color's alpha onto a freshly-sampled opaque `#rrggbb` (from
+ * the eyedropper) so picking a hue doesn't silently reset transparency.
+ */
+function withPreservedAlpha(pickedHex: string, current: string): string {
+  const digits = current.startsWith('#') ? current.slice(1) : ''
+  if (digits.length === 8) return pickedHex + digits.slice(6)
+  if (digits.length === 4) {
+    const a = digits.slice(3) // single alpha nibble → expand to a byte
+    return pickedHex + a + a
+  }
+  return pickedHex
 }
 
 interface HexInputProps {
@@ -31,6 +49,8 @@ interface HexInputProps {
   onLiveChange: (color: string) => void
   /** Fires on blur / Enter to commit */
   onCommit: (color: string) => void
+  /** Accept 4-/8-digit hex (alpha channel) in addition to 3-/6-digit */
+  allowAlpha?: boolean
   disabled?: boolean
   className?: string
 }
@@ -40,8 +60,9 @@ interface HexInputProps {
  * from the live `color` prop lets the value update the color live (per keystroke)
  * without the parent's live updates resetting what the user is typing.
  */
-function HexInput({ color, onLiveChange, onCommit, disabled, className }: HexInputProps) {
-  const [draft, setDraft] = useState(() => normalizeHexDraft(color))
+function HexInput({ color, onLiveChange, onCommit, allowAlpha, disabled, className }: HexInputProps) {
+  const maxDigits = allowAlpha ? 8 : 6
+  const [draft, setDraft] = useState(() => normalizeHexDraft(color, maxDigits))
   const isFocusedRef = useRef(false)
   // Set when Enter/Escape blurs the input itself, so the resulting onBlur skips
   // its commit: Enter already committed (avoid a duplicate onChange) and Escape
@@ -50,22 +71,22 @@ function HexInput({ color, onLiveChange, onCommit, disabled, className }: HexInp
 
   // Sync the draft to external color changes only while the user isn't typing.
   useEffect(() => {
-    if (!isFocusedRef.current) setDraft(normalizeHexDraft(color))
-  }, [color])
+    if (!isFocusedRef.current) setDraft(normalizeHexDraft(color, maxDigits))
+  }, [color, maxDigits])
 
   const handleChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
-      const next = e.target.value.replace(NON_HEX_CHARS, '').slice(0, 6)
+      const next = e.target.value.replace(NON_HEX_CHARS, '').slice(0, maxDigits)
       setDraft(next)
-      if (isCompleteHex(next)) onLiveChange(`#${next}`)
+      if (isCompleteHex(next, !!allowAlpha)) onLiveChange(`#${next}`)
     },
-    [onLiveChange],
+    [onLiveChange, allowAlpha, maxDigits],
   )
 
   const commit = useCallback(() => {
-    if (isCompleteHex(draft)) onCommit(`#${draft}`)
-    else setDraft(normalizeHexDraft(color)) // revert incomplete input
-  }, [draft, color, onCommit])
+    if (isCompleteHex(draft, !!allowAlpha)) onCommit(`#${draft}`)
+    else setDraft(normalizeHexDraft(color, maxDigits)) // revert incomplete input
+  }, [draft, color, onCommit, allowAlpha, maxDigits])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
@@ -75,12 +96,12 @@ function HexInput({ color, onLiveChange, onCommit, disabled, className }: HexInp
         skipBlurCommitRef.current = true
         e.currentTarget.blur()
       } else if (e.key === 'Escape') {
-        setDraft(normalizeHexDraft(color))
+        setDraft(normalizeHexDraft(color, maxDigits))
         skipBlurCommitRef.current = true
         e.currentTarget.blur()
       }
     },
-    [commit, color],
+    [commit, color, maxDigits],
   )
 
   return (
@@ -126,6 +147,8 @@ interface ColorPickerProps {
   presets?: string[]
   /** Label for PropertyRow wrapper (omit for inline mode) */
   label?: string
+  /** Enable an alpha channel (4-/8-digit hex + alpha slider in the picker) */
+  allowAlpha?: boolean
 }
 
 /**
@@ -144,10 +167,13 @@ export const ColorPicker = memo(function ColorPicker({
   disabled,
   presets,
   label,
+  allowAlpha,
 }: ColorPickerProps) {
   const [localColor, setLocalColor] = useState(color)
   const [isOpen, setIsOpen] = useState(false)
+  const [picking, setPicking] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const PickerSurface = allowAlpha ? HexAlphaColorPicker : HexColorPicker
 
   // Sync local state when color prop changes
   useEffect(() => {
@@ -188,6 +214,20 @@ export const ColorPicker = memo(function ColorPicker({
     [onChange],
   )
 
+  const handleEyeDropper = useCallback(() => {
+    setIsOpen(false)
+    setPicking(true)
+  }, [])
+
+  const handlePicked = useCallback(
+    (picked: string | null) => {
+      setPicking(false)
+      if (!picked) return
+      commitColor(allowAlpha ? withPreservedAlpha(picked, localColor) : picked)
+    },
+    [commitColor, allowAlpha, localColor],
+  )
+
   // Click outside to close
   useEffect(() => {
     if (!isOpen) return
@@ -216,6 +256,17 @@ export const ColorPicker = memo(function ColorPicker({
           style={{ backgroundColor: localColor }}
         />
       </button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 flex-shrink-0"
+        onClick={handleEyeDropper}
+        disabled={disabled}
+        title="Pick a color from anywhere in the app"
+      >
+        <Pipette className="w-3.5 h-3.5" />
+      </Button>
       <label
         className={`flex min-w-0 flex-1 items-center gap-0.5 rounded px-1 py-0.5 text-xs font-mono uppercase hover:bg-muted/40 focus-within:bg-muted/60 focus-within:ring-1 focus-within:ring-ring ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
       >
@@ -224,6 +275,7 @@ export const ColorPicker = memo(function ColorPicker({
           color={localColor}
           onLiveChange={handleColorChange}
           onCommit={commitColor}
+          allowAlpha={allowAlpha}
           disabled={disabled}
           className="min-w-0 flex-1 bg-transparent uppercase text-foreground outline-none"
         />
@@ -259,7 +311,7 @@ export const ColorPicker = memo(function ColorPicker({
             </div>
           )}
           {/* Full color picker */}
-          <HexColorPicker color={localColor} onChange={handleColorChange} />
+          <PickerSurface color={localColor} onChange={handleColorChange} />
           {/* Editable hex field */}
           <label className="mt-2 flex items-center gap-0.5 bg-input border border-border rounded px-2 py-1 text-xs font-mono uppercase focus-within:ring-1 focus-within:ring-ring">
             <span className="text-muted-foreground select-none">#</span>
@@ -267,11 +319,14 @@ export const ColorPicker = memo(function ColorPicker({
               color={localColor}
               onLiveChange={handleColorChange}
               onCommit={commitColor}
+              allowAlpha={allowAlpha}
               className="min-w-0 flex-1 bg-transparent uppercase text-foreground outline-none"
             />
           </label>
         </div>
       )}
+
+      {picking && <AppEyedropperOverlay onResolve={handlePicked} />}
     </div>
   )
 
