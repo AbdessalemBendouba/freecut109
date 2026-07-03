@@ -3,12 +3,12 @@ import { useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowLeft,
+  BookOpen,
   Bug,
   ChevronDown,
   Download,
   FolderArchive,
   Github,
-  HelpCircle,
   Keyboard,
   ListVideo,
   Save,
@@ -219,6 +219,36 @@ export const Toolbar = memo(function Toolbar({
         {import.meta.env.DEV && import.meta.env.VITE_SHOW_DEBUG_PANEL !== 'false' && (
           <DebugPopover projectId={projectId} />
         )}
+
+        {/* Socials */}
+        <Button variant="outline" size="icon" className="h-7 w-7" asChild>
+          <a
+            href="https://github.com/walterlow/freecut"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-tooltip={t('toolbar.viewOnGitHub')}
+            data-tooltip-side="bottom"
+            aria-label={t('toolbar.viewOnGitHub')}
+          >
+            <Github className="h-4 w-4" />
+          </a>
+        </Button>
+        <Button variant="outline" size="icon" className="h-7 w-7" asChild>
+          <a
+            href={DISCORD_INVITE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-tooltip={t('toolbar.joinDiscord')}
+            data-tooltip-side="bottom"
+            aria-label={t('toolbar.joinDiscord')}
+          >
+            <DiscordIcon className="h-4 w-4" />
+          </a>
+        </Button>
+
+        <Separator orientation="vertical" className="h-5" />
+
+        {/* Utility */}
         <Button variant="outline" size="icon" className="h-7 w-7" asChild>
           <a
             href="/docs"
@@ -228,7 +258,7 @@ export const Toolbar = memo(function Toolbar({
             data-tooltip-side="bottom"
             aria-label="User Guide"
           >
-            <HelpCircle className="h-4 w-4" />
+            <BookOpen className="h-4 w-4" />
           </a>
         </Button>
         <Button
@@ -271,30 +301,10 @@ export const Toolbar = memo(function Toolbar({
           <Keyboard className="h-4 w-4" />
         </Button>
         <LanguageSwitcher size="sm" align="end" side="bottom" />
-        <Button variant="outline" size="icon" className="h-7 w-7" asChild>
-          <a
-            href="https://github.com/walterlow/freecut"
-            target="_blank"
-            rel="noopener noreferrer"
-            data-tooltip={t('toolbar.viewOnGitHub')}
-            data-tooltip-side="bottom"
-            aria-label={t('toolbar.viewOnGitHub')}
-          >
-            <Github className="h-4 w-4" />
-          </a>
-        </Button>
-        <Button variant="outline" size="icon" className="h-7 w-7" asChild>
-          <a
-            href={DISCORD_INVITE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            data-tooltip={t('toolbar.joinDiscord')}
-            data-tooltip-side="bottom"
-            aria-label={t('toolbar.joinDiscord')}
-          >
-            <DiscordIcon className="h-4 w-4" />
-          </a>
-        </Button>
+
+        <Separator orientation="vertical" className="h-5" />
+
+        {/* Actions */}
         <Button
           variant="outline"
           size="sm"

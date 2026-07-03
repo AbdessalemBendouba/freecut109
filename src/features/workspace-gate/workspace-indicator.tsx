@@ -14,9 +14,10 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, FolderOpen, Plus, Trash2 } from 'lucide-react'
+import { Check, ChevronDown, FolderOpen, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { cn } from '@/shared/ui/cn'
 import { createLogger } from '@/shared/logging/logger'
 import {
   activateWorkspaceHandle,
@@ -137,12 +138,20 @@ export function WorkspaceIndicator() {
         <Button
           variant="outline"
           size="lg"
-          className="gap-2 max-w-[220px]"
+          className="gap-2 px-4 max-w-[220px]"
           data-tooltip={t('projects.workspaceIndicator.workspaceFolder')}
           data-tooltip-side="bottom"
+          aria-haspopup="menu"
+          aria-expanded={popoverOpen}
         >
           <FolderOpen className="w-4 h-4 shrink-0" />
           <span className="truncate">{activeName}</span>
+          <ChevronDown
+            className={cn(
+              'w-4 h-4 shrink-0 text-muted-foreground transition-transform',
+              popoverOpen && 'rotate-180',
+            )}
+          />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-80 p-2" align="end">
