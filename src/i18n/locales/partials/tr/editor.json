@@ -247,7 +247,9 @@
       "tabVideo": "Video",
       "tabAudio": "Ses",
       "tabEffects": "Efektler",
-      "adjustmentLayerHint": "Ayar katmanlarındaki efektler, üst izlerdeki tüm öğelere uygulanır."
+      "adjustmentLayerHint": "Ayar katmanlarındaki efektler, üst izlerdeki tüm öğelere uygulanır.",
+      "tabText": "Metin",
+      "tabAnimation": "Animasyon"
     },
     "gifSection": {
       "animation": "Animasyon",

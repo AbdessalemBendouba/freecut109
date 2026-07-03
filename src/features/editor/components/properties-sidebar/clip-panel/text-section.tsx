@@ -29,7 +29,14 @@ import { useTimelineStore } from '@/features/editor/deps/timeline-store'
 import { useGizmoStore, type ItemPropertiesPreview } from '@/features/editor/deps/preview'
 import { KeyframeToggle } from '@/features/editor/deps/keyframes'
 import { TextMotionSlotRows } from '../../text-motion/text-motion-slot-rows'
-import { PropertySection, PropertyRow, NumberInput, ColorPicker, SliderInput } from '../components'
+import {
+  PropertySection,
+  PropertyRow,
+  PropertyGroupHeader,
+  NumberInput,
+  ColorPicker,
+  SliderInput,
+} from '../components'
 import { FontPicker } from './font-picker'
 import { FONT_CATALOG, FONT_WEIGHT_MAP } from '@/shared/typography/fonts'
 import {
@@ -275,6 +282,20 @@ export function TextContentSection(props: TextSectionProps) {
   return <TextSectionComposer {...props} slots={['content']} />
 }
 
+/** Style (shadow / stroke / style presets) on its own — the Text tab. */
+export function TextStyleSection(props: TextSectionProps) {
+  return <TextSectionComposer {...props} slots={['effects']} />
+}
+
+/** Motion-text animation on its own — the Animation tab. */
+export function TextAnimationSection(props: TextSectionProps) {
+  return <TextSectionComposer {...props} slots={['animation']} />
+}
+
+/**
+ * Style + animation together — used only for mixed (text + non-text)
+ * selections, which keep the general Effects-tab layout.
+ */
 export function TextEffectsSection(props: TextSectionProps) {
   return <TextSectionComposer {...props} slots={['effects', 'animation']} />
 }
@@ -1122,9 +1143,12 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
           icon={Type}
           defaultOpen={true}
         >
-          {/* Text Content */}
-          <PropertyRow label={t('editor.textSection.content')}>
-            <div className="flex flex-1 min-w-0 flex-col gap-2">
+          {/* Text Content — full-width group under a header (not a gutter
+              label), so the editors reclaim the width. */}
+          <PropertyGroupHeader className="pt-0">
+            {t('editor.textSection.content')}
+          </PropertyGroupHeader>
+          <div className="flex w-full min-w-0 flex-col gap-2">
               <div className="grid w-full grid-cols-3 gap-1.5">
                 <Button
                   variant={firstTextItem?.textSpans?.length ? 'outline' : 'secondary'}
@@ -1189,9 +1213,9 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
 
                         return (
                           <>
-                            <div className="mb-2 text-[11px] font-medium text-muted-foreground">
+                            <PropertyGroupHeader className="pt-0 pb-2">
                               {config.label}
-                            </div>
+                            </PropertyGroupHeader>
                             <Textarea
                               value={span.text}
                               onChange={(e) => handleSpanTextChange(index, e.target.value)}
@@ -1316,8 +1340,6 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
                 />
               )}
             </div>
-          </PropertyRow>
-
           {sharedValues.textStylePresetId && (
             <PropertyRow label={t('editor.textSection.scale')}>
               <div className="flex items-center gap-1 min-w-0 w-full">
