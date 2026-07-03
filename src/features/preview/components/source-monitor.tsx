@@ -907,14 +907,18 @@ function SourcePlaybackControls({
   )
 
   const handleIODragStart = useCallback(
-    (e: React.MouseEvent, type: 'in' | 'out') => {
+    (e: React.PointerEvent, type: 'in' | 'out') => {
+      if (e.button !== 0) return
       e.preventDefault()
       e.stopPropagation()
       const originalCursor = document.body.style.cursor
       document.body.style.cursor = 'col-resize'
 
       const store = useSourcePlayerStore.getState
-      const onMove = (ev: MouseEvent) => {
+      // Pointer events, not mouse: preventDefault() on the pointerdown above
+      // suppresses the compatibility `mouseup`, so a mouse listener would leave
+      // the drag running (marker stuck to the cursor). `pointerup` is unaffected.
+      const onMove = (ev: PointerEvent) => {
         const point = pointFromStripX(ev.clientX)
         if (type === 'in') {
           const out = store().outPoint
@@ -931,20 +935,23 @@ function SourcePlaybackControls({
       }
       const onUp = () => {
         document.body.style.cursor = originalCursor
-        document.removeEventListener('mousemove', onMove)
-        document.removeEventListener('mouseup', onUp)
+        document.removeEventListener('pointermove', onMove)
+        document.removeEventListener('pointerup', onUp)
+        document.removeEventListener('pointercancel', onUp)
         store().setPreviewSourceFrame(null)
         ioDragCleanupRef.current = null
       }
       ioDragCleanupRef.current = onUp
-      document.addEventListener('mousemove', onMove)
-      document.addEventListener('mouseup', onUp)
+      document.addEventListener('pointermove', onMove)
+      document.addEventListener('pointerup', onUp)
+      document.addEventListener('pointercancel', onUp)
     },
     [durationInFrames, lastFrame, pointFromStripX],
   )
 
   const handleIORangeDragStart = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.PointerEvent) => {
+      if (e.button !== 0) return
       e.preventDefault()
       e.stopPropagation()
       const store = useSourcePlayerStore.getState
@@ -955,7 +962,9 @@ function SourcePlaybackControls({
       const originalCursor = document.body.style.cursor
       document.body.style.cursor = 'grabbing'
 
-      const onMove = (ev: MouseEvent) => {
+      // Pointer events, not mouse — see handleIODragStart (preventDefault on the
+      // pointerdown suppresses the compat `mouseup`, which would strand the drag).
+      const onMove = (ev: PointerEvent) => {
         const nowPoint = pointFromStripX(ev.clientX)
         const delta = nowPoint - startPoint
         const nextRange = shiftSourceIoRange(startIn, startOut, delta, durationInFrames)
@@ -966,14 +975,16 @@ function SourcePlaybackControls({
       }
       const onUp = () => {
         document.body.style.cursor = originalCursor
-        document.removeEventListener('mousemove', onMove)
-        document.removeEventListener('mouseup', onUp)
+        document.removeEventListener('pointermove', onMove)
+        document.removeEventListener('pointerup', onUp)
+        document.removeEventListener('pointercancel', onUp)
         store().setPreviewSourceFrame(null)
         ioDragCleanupRef.current = null
       }
       ioDragCleanupRef.current = onUp
-      document.addEventListener('mousemove', onMove)
-      document.addEventListener('mouseup', onUp)
+      document.addEventListener('pointermove', onMove)
+      document.addEventListener('pointerup', onUp)
+      document.addEventListener('pointercancel', onUp)
     },
     [durationInFrames, pointFromStripX],
   )

@@ -35,6 +35,7 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
 
   const startDrag = useCallback(
     (handle: 'in' | 'out') => (e: React.PointerEvent) => {
+      if (e.button !== 0) return
       e.preventDefault()
       e.stopPropagation()
 
@@ -48,7 +49,11 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
       // doesn't chase the marker (matches the Color workspace IO drag).
       previewScrubberSuppressRef.current = true
 
-      const onMove = (ev: MouseEvent) => {
+      // Drive the drag with pointer events: calling preventDefault() on the
+      // pointerdown above suppresses the compatibility `mouseup`, so a
+      // mouse-based listener would never tear the drag down (marker sticks to
+      // the cursor). `pointerup`/`pointercancel` are unaffected.
+      const onMove = (ev: PointerEvent) => {
         const rect = container.getBoundingClientRect()
         const x = ev.clientX - rect.left
         const frame = Math.max(0, pixelsToFrameRef.current(x))
@@ -60,15 +65,17 @@ export const TimelineInOutMarkers = memo(function TimelineInOutMarkers() {
         usePlaybackStore.getState().setPreviewFrame(previewFrame)
       }
       const cleanup = () => {
-        document.removeEventListener('mousemove', onMove)
-        document.removeEventListener('mouseup', cleanup)
+        document.removeEventListener('pointermove', onMove)
+        document.removeEventListener('pointerup', cleanup)
+        document.removeEventListener('pointercancel', cleanup)
         document.body.style.cursor = prevCursor
         previewScrubberSuppressRef.current = false
         usePlaybackStore.getState().setPreviewFrame(null)
         dragCleanupRef.current = null
       }
-      document.addEventListener('mousemove', onMove)
-      document.addEventListener('mouseup', cleanup)
+      document.addEventListener('pointermove', onMove)
+      document.addEventListener('pointerup', cleanup)
+      document.addEventListener('pointercancel', cleanup)
       dragCleanupRef.current = cleanup
     },
     [],
