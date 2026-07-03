@@ -115,12 +115,22 @@ function segmentLineWordsFallback(
  *   whitespace-split fallback; punctuation rides its adjacent word.
  * - `line`: every code point in a line (whitespace included) shares the
  *   line's index; `unitCount` is the line count.
+ * - `whole-clip`: the entire block is a single unit (`unitCount` 1); stagger
+ *   and order collapse to a no-op, so presets animate the whole title at once.
  */
 export function segmentTextUnits(
   lineTexts: readonly string[],
   unit: TextMotionUnit,
 ): TextUnitSegmentation {
   const lineUnitIndices: (number | null)[][] = []
+
+  if (unit === 'whole-clip') {
+    // Entire block is one unit: every non-whitespace code point → unit 0.
+    lineTexts.forEach((line) => {
+      lineUnitIndices.push(Array.from(line, (char) => (isWhitespaceChar(char) ? null : 0)))
+    })
+    return { lineUnitIndices, unitCount: 1 }
+  }
 
   if (unit === 'line') {
     lineTexts.forEach((line, lineIndex) => {

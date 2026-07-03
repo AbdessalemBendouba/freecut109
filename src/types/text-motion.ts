@@ -15,7 +15,7 @@ import type {
  * Design doc: docs/plans/2026-07-03-001-feat-motion-text-plan.md
  */
 
-export type TextMotionUnit = 'character' | 'word' | 'line'
+export type TextMotionUnit = 'character' | 'word' | 'line' | 'whole-clip'
 
 export type TextMotionOrder = 'forward' | 'backward' | 'center' | 'random'
 
@@ -42,6 +42,13 @@ export interface TextMotionEffectBase {
   easing: TextMotionEasing
   /** Deterministic seed for `order: 'random'` shuffles and shimmer twinkle. */
   seed: number
+  /**
+   * Animation unit override. When omitted the preset's default unit is used
+   * (`getTextMotionPreset(presetId).unit`). `whole-clip` animates the entire
+   * text block as one unit — the parametric replacement for the retired
+   * whole-clip keyframe Intro/Outro presets.
+   */
+  unit?: TextMotionUnit
 }
 
 export interface TextMotionInEffect extends TextMotionEffectBase {

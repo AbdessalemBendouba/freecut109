@@ -348,7 +348,7 @@ export class GlyphAtlasTextPipeline {
       if (effect) {
         motionSegmentation = segmentTextUnits(
           layout.lines.map((line) => line.text),
-          getTextMotionPreset(effect.presetId).unit,
+          effect.unit ?? getTextMotionPreset(effect.presetId).unit,
         )
       }
     }

@@ -36,6 +36,13 @@
       "wave": "Ola",
       "shimmer": "Destello",
       "swing": "Balanceo"
+    },
+    "unit": "Se aplica a",
+    "units": {
+      "character": "Carácter",
+      "word": "Palabra",
+      "line": "Línea",
+      "whole-clip": "Todo el clip"
     }
   }
 }

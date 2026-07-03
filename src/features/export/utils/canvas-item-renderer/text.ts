@@ -237,7 +237,7 @@ function paintTextBlockWithMotion(
   const layout = layoutTextBlock(item, boxWidth, boxHeight, measurer)
   const segmentation = segmentTextUnits(
     layout.lines.map((line) => line.text),
-    getTextMotionPreset(effect.presetId).unit,
+    effect.unit ?? getTextMotionPreset(effect.presetId).unit,
   )
 
   const evaluate = (unitIndex: number | null, fontSize: number): GlyphMotionState | null =>

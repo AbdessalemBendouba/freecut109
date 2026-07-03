@@ -13,6 +13,7 @@
  * - Numerics clamped: durationFrames int ≥ 1, staggerFrames int ≥ 0,
  *   intensity 0–2, seed finite int — defaults applied when missing/invalid
  * - `order` / `easing` outside their enums → 'forward' / 'ease-out'
+ * - `unit` outside its enum (or absent) → dropped (preset default applies)
  * - Spec with no surviving slots → `undefined`
  */
 
@@ -21,6 +22,7 @@ import type {
   TextMotionEffectBase,
   TextMotionOrder,
   TextMotionSpec,
+  TextMotionUnit,
 } from '@/types/text-motion'
 import {
   TEXT_MOTION_IN_PRESET_IDS,
@@ -36,6 +38,7 @@ const TEXT_MOTION_EASINGS: readonly TextMotionEasing[] = [
   'ease-in-out',
   'overshoot',
 ]
+const TEXT_MOTION_UNITS: readonly TextMotionUnit[] = ['character', 'word', 'line', 'whole-clip']
 
 const DEFAULT_DURATION_FRAMES = 12
 const DEFAULT_STAGGER_FRAMES = 0
@@ -73,6 +76,14 @@ function sanitizeEasing(value: unknown): TextMotionEasing {
     : 'ease-out'
 }
 
+/** Optional unit override: keep only valid values; anything else → undefined
+ * (so the preset's default unit applies). */
+function sanitizeUnit(value: unknown): TextMotionUnit | undefined {
+  return TEXT_MOTION_UNITS.includes(value as TextMotionUnit)
+    ? (value as TextMotionUnit)
+    : undefined
+}
+
 function sanitizeSlot<Id extends string>(
   value: unknown,
   validPresetIds: readonly Id[],
@@ -82,6 +93,7 @@ function sanitizeSlot<Id extends string>(
   if (typeof presetId !== 'string' || !(validPresetIds as readonly string[]).includes(presetId)) {
     return undefined
   }
+  const unit = sanitizeUnit(value.unit)
   return {
     presetId: presetId as Id,
     durationFrames: clampFrameCount(value.durationFrames, 1, DEFAULT_DURATION_FRAMES),
@@ -90,6 +102,7 @@ function sanitizeSlot<Id extends string>(
     order: sanitizeOrder(value.order),
     easing: sanitizeEasing(value.easing),
     seed: sanitizeSeed(value.seed),
+    ...(unit ? { unit } : {}),
   }
 }
 

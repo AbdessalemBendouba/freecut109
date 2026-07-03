@@ -42,6 +42,16 @@ describe('sanitizeTextMotion', () => {
     expect(sanitizeTextMotion(spec)).toEqual(spec)
   })
 
+  it('keeps a valid unit override and drops an invalid one', () => {
+    const base = validSpec().in!
+    const result = sanitizeTextMotion({
+      in: { ...base, unit: 'whole-clip' },
+      out: { ...validSpec().out!, unit: 'sentence' }, // not a valid unit
+    })
+    expect(result?.in).toMatchObject({ unit: 'whole-clip' })
+    expect(result?.out && 'unit' in result.out).toBe(false)
+  })
+
   it('returns undefined for non-object values', () => {
     expect(sanitizeTextMotion(undefined)).toBeUndefined()
     expect(sanitizeTextMotion(null)).toBeUndefined()

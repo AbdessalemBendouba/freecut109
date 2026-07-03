@@ -11,7 +11,7 @@ import {
   AlignStartHorizontal,
   AlignCenterHorizontal,
   AlignEndHorizontal,
-  Sparkles,
+  Palette,
   WandSparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -27,20 +27,11 @@ import type { TextItem, TextSpan, TimelineItem } from '@/types/timeline'
 import type { CanvasSettings } from '@/types/transform'
 import { useTimelineStore } from '@/features/editor/deps/timeline-store'
 import { useGizmoStore, type ItemPropertiesPreview } from '@/features/editor/deps/preview'
-import { resolveTransform, getSourceDimensions } from '@/features/editor/deps/composition-runtime'
-import { KeyframeToggle, resolveAnimatedTransform } from '@/features/editor/deps/keyframes'
-import { MotionPresetThumbnail } from '../../animate-workspace/motion-preset-thumbnail'
+import { KeyframeToggle } from '@/features/editor/deps/keyframes'
 import { TextMotionSlotRows } from '../../text-motion/text-motion-slot-rows'
 import { PropertySection, PropertyRow, NumberInput, ColorPicker, SliderInput } from '../components'
 import { FontPicker } from './font-picker'
 import { FONT_CATALOG, FONT_WEIGHT_MAP } from '@/shared/typography/fonts'
-import {
-  TEXT_ANIMATION_PRESETS,
-  buildTextAnimationKeyframes,
-  getTextAnimationFrameRange,
-  type TextAnimationPhase,
-  type TextAnimationPresetOptionId,
-} from './text-animation-presets'
 import {
   applyTextStylePresetToItem,
   TEXT_STYLE_PRESETS,
@@ -291,7 +282,6 @@ export function TextEffectsSection(props: TextSectionProps) {
 function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps) {
   const { t } = useTranslation()
   const updateItem = useTimelineStore((s) => s.updateItem)
-  const addKeyframes = useTimelineStore((s) => s.addKeyframes)
 
   // Gizmo store for live property preview
   const setPropertiesPreviewNew = useGizmoStore((s) => s.setPropertiesPreviewNew)
@@ -1100,41 +1090,6 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
     [canvas, finalizePreviewChange, textItems, updateItem],
   )
 
-  const handleApplyTextAnimationPreset = useCallback(
-    (phase: TextAnimationPhase, presetId: TextAnimationPresetOptionId) => {
-      const keyframes = useTimelineStore.getState().keyframes
-      const payloads = textItems.flatMap((item) => {
-        const baseResolved = resolveTransform(item, canvas, getSourceDimensions(item))
-        const itemKeyframes = keyframes.find((entry) => entry.itemId === item.id)
-        const frameRange = getTextAnimationFrameRange(item.durationInFrames, canvas.fps, phase)
-        if (!frameRange) {
-          return []
-        }
-        const anchorTransform = resolveAnimatedTransform(
-          baseResolved,
-          itemKeyframes,
-          phase === 'intro' ? frameRange.endFrame : frameRange.startFrame,
-        )
-
-        return buildTextAnimationKeyframes({
-          item,
-          presetId,
-          phase,
-          fps: canvas.fps,
-          anchorTransform,
-          itemKeyframes,
-        })
-      })
-
-      if (payloads.length === 0) {
-        return
-      }
-
-      addKeyframes(payloads)
-    },
-    [addKeyframes, canvas, textItems],
-  )
-
   if (textItems.length === 0 || !sharedValues) {
     return null
   }
@@ -1665,7 +1620,7 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
       )}
 
       {showEffectSection && (
-        <PropertySection title={t('editor.textSection.effects')} icon={Sparkles} defaultOpen={true}>
+        <PropertySection title={t('editor.textSection.style')} icon={Palette} defaultOpen={true}>
           <PropertyRow label={t('editor.textSection.presets')} className="items-start">
             <div className="grid w-full grid-cols-2 gap-1.5">
               {TEXT_EFFECT_PRESETS.map((preset) => (
@@ -1797,61 +1752,6 @@ function TextSectionComposer({ items, canvas, slots }: TextSectionComposerProps)
         </PropertySection>
       )}
 
-      {showAnimationSection && (
-        <PropertySection
-          title={t('editor.textSection.animation')}
-          icon={Sparkles}
-          defaultOpen={true}
-        >
-          <PropertyRow label={t('editor.textSection.intro')} className="items-start">
-            <div className="grid w-full grid-cols-4 gap-1.5">
-              {TEXT_ANIMATION_PRESETS.map((preset) => (
-                <Button
-                  key={preset.id}
-                  variant="outline"
-                  size="sm"
-                  className="group flex h-auto flex-col items-center gap-1 px-1 py-1.5 text-[10px]"
-                  onClick={() => handleApplyTextAnimationPreset('intro', preset.id)}
-                >
-                  {preset.thumbnail ? (
-                    <MotionPresetThumbnail thumbnail={preset.thumbnail} />
-                  ) : (
-                    <span className="mp-thumb text-[11px] text-muted-foreground/40">—</span>
-                  )}
-                  <span className="w-full truncate text-center leading-tight">
-                    {t(`editor.textSection.animationPresets.${preset.labelKey}`)}
-                  </span>
-                </Button>
-              ))}
-            </div>
-          </PropertyRow>
-          <PropertyRow label={t('editor.textSection.outro')} className="items-start">
-            <div className="grid w-full grid-cols-4 gap-1.5">
-              {TEXT_ANIMATION_PRESETS.map((preset) => (
-                <Button
-                  key={`outro-${preset.id}`}
-                  variant="outline"
-                  size="sm"
-                  className="group flex h-auto flex-col items-center gap-1 px-1 py-1.5 text-[10px]"
-                  onClick={() => handleApplyTextAnimationPreset('outro', preset.id)}
-                >
-                  {preset.thumbnail ? (
-                    <MotionPresetThumbnail thumbnail={preset.thumbnail} />
-                  ) : (
-                    <span className="mp-thumb text-[11px] text-muted-foreground/40">—</span>
-                  )}
-                  <span className="w-full truncate text-center leading-tight">
-                    {t(`editor.textSection.animationPresets.${preset.labelKey}`)}
-                  </span>
-                </Button>
-              ))}
-            </div>
-          </PropertyRow>
-          <div className="px-1 pt-1 text-[11px] text-muted-foreground">
-            {t('editor.textSection.animationFooter')}
-          </div>
-        </PropertySection>
-      )}
     </>
   )
 }

@@ -36,6 +36,13 @@
       "wave": "Onda",
       "shimmer": "Cintilação",
       "swing": "Balanço"
+    },
+    "unit": "Aplicar a",
+    "units": {
+      "character": "Caractere",
+      "word": "Palavra",
+      "line": "Linha",
+      "whole-clip": "Clipe inteiro"
     }
   }
 }

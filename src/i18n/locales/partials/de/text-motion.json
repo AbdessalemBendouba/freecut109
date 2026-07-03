@@ -36,6 +36,13 @@
       "wave": "Welle",
       "shimmer": "Schimmern",
       "swing": "Schwingen"
+    },
+    "unit": "Anwenden auf",
+    "units": {
+      "character": "Zeichen",
+      "word": "Wort",
+      "line": "Zeile",
+      "whole-clip": "Ganzer Clip"
     }
   }
 }

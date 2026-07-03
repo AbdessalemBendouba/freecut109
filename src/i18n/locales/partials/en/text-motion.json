@@ -36,6 +36,13 @@
       "wave": "Wave",
       "shimmer": "Shimmer",
       "swing": "Swing"
+    },
+    "unit": "Applies to",
+    "units": {
+      "character": "Character",
+      "word": "Word",
+      "line": "Line",
+      "whole-clip": "Whole clip"
     }
   }
 }

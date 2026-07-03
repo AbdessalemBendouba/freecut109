@@ -36,6 +36,13 @@
       "wave": "Vague",
       "shimmer": "Scintillement",
       "swing": "Balancement"
+    },
+    "unit": "Appliquer à",
+    "units": {
+      "character": "Caractère",
+      "word": "Mot",
+      "line": "Ligne",
+      "whole-clip": "Clip entier"
     }
   }
 }

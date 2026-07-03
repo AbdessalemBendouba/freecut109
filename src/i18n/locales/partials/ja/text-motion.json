@@ -36,6 +36,13 @@
       "wave": "ウェーブ",
       "shimmer": "シマー",
       "swing": "スイング"
+    },
+    "unit": "適用対象",
+    "units": {
+      "character": "文字",
+      "word": "単語",
+      "line": "行",
+      "whole-clip": "クリップ全体"
     }
   }
 }

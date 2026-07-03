@@ -7,9 +7,11 @@ import type {
   TextMotionEffectBase,
   TextMotionOrder,
   TextMotionSlot,
+  TextMotionUnit,
 } from '@/types/text-motion'
 import {
   createTextMotionEffect,
+  getTextMotionPreset,
   TEXT_MOTION_IN_PRESETS,
   TEXT_MOTION_LOOP_PRESETS,
   TEXT_MOTION_OUT_PRESETS,
@@ -41,6 +43,7 @@ const PRESETS_BY_SLOT: Record<TextMotionSlot, readonly TextMotionPreset[]> = {
 }
 
 const ORDER_OPTIONS: readonly TextMotionOrder[] = ['forward', 'backward', 'center', 'random']
+const UNIT_OPTIONS: readonly TextMotionUnit[] = ['character', 'word', 'line', 'whole-clip']
 
 type TranslateFn = (key: string, options?: Record<string, unknown>) => string
 
@@ -139,6 +142,24 @@ const TextMotionSlotRow = memo(function TextMotionSlotRow({
             onChange={(v) => onCommitEdit(slot, { intensity: v })}
             onLiveChange={(v) => onLiveEdit(slot, { intensity: v })}
           />
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] text-muted-foreground">{t('textMotion.unit')}</span>
+            <Select
+              value={effect.unit ?? getTextMotionPreset(effect.presetId).unit}
+              onValueChange={(value) => onCommitEdit(slot, { unit: value as TextMotionUnit })}
+            >
+              <SelectTrigger className="h-6 w-32 text-[10px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {UNIT_OPTIONS.map((unit) => (
+                  <SelectItem key={unit} value={unit} className="text-xs">
+                    {t(`textMotion.units.${unit}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="flex items-center justify-between gap-2">
             <span className="text-[10px] text-muted-foreground">{t('textMotion.order')}</span>
             <Select

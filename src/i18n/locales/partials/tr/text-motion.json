@@ -36,6 +36,13 @@
       "wave": "Dalga",
       "shimmer": "Parıltı",
       "swing": "Salınım"
+    },
+    "unit": "Uygulama",
+    "units": {
+      "character": "Karakter",
+      "word": "Kelime",
+      "line": "Satır",
+      "whole-clip": "Tüm klip"
     }
   }
 }

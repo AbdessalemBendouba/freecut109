@@ -36,6 +36,13 @@
       "wave": "波浪",
       "shimmer": "闪烁",
       "swing": "摇摆"
+    },
+    "unit": "应用于",
+    "units": {
+      "character": "字符",
+      "word": "单词",
+      "line": "行",
+      "whole-clip": "整个片段"
     }
   }
 }

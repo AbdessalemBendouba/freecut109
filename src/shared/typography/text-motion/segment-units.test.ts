@@ -93,6 +93,23 @@ describe('segmentTextUnits', () => {
     })
   })
 
+  describe('whole-clip unit', () => {
+    it('puts every non-space code point in unit 0 across all lines', () => {
+      const result = segmentTextUnits(['ab', 'c d'], 'whole-clip')
+      expect(result.lineUnitIndices).toEqual([
+        [0, 0],
+        [0, null, 0],
+      ])
+      expect(result.unitCount).toBe(1)
+    })
+
+    it('is a single unit even for multi-word multi-line text', () => {
+      const result = segmentTextUnits(['Hello world', 'again'], 'whole-clip')
+      expect(result.unitCount).toBe(1)
+      expect(result.lineUnitIndices[0]).toEqual([0, 0, 0, 0, 0, null, 0, 0, 0, 0, 0])
+    })
+  })
+
   it('handles empty input', () => {
     const result = segmentTextUnits([], 'character')
     expect(result.lineUnitIndices).toEqual([])
