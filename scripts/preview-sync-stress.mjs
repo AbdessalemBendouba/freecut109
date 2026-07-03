@@ -4,22 +4,26 @@ import process from 'node:process';
 const DEFAULT_RUNS = 20;
 
 function parseRuns(argv) {
+  // Scan the whole argv and let the LAST valid --runs win. `vp run <script> --
+  // --runs N` appends the override after the script's own baked-in `--runs 20`,
+  // so returning the first match would silently ignore the CI/CLI override.
+  let runs = DEFAULT_RUNS;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--runs') {
       const value = Number(argv[i + 1]);
       if (Number.isFinite(value) && value > 0) {
-        return Math.floor(value);
+        runs = Math.floor(value);
       }
     }
     if (arg.startsWith('--runs=')) {
       const value = Number(arg.slice('--runs='.length));
       if (Number.isFinite(value) && value > 0) {
-        return Math.floor(value);
+        runs = Math.floor(value);
       }
     }
   }
-  return DEFAULT_RUNS;
+  return runs;
 }
 
 const runs = parseRuns(process.argv.slice(2));
