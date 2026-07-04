@@ -109,7 +109,14 @@ function VectorScopeOverlay() {
       <circle cx="50" cy="50" r="15" fill="none" stroke="rgba(148,163,184,0.12)" />
       <path d="M50 5 V95 M5 50 H95" stroke="rgba(148,163,184,0.2)" strokeWidth="0.8" />
       <path d="M50 50 L36 15" stroke="rgba(251,191,36,0.72)" strokeWidth="1.2" />
-      <text x="35" y="12" fill="rgba(251,191,36,0.9)" fontSize="4" fontFamily="monospace">
+      <text
+        x="33"
+        y="13"
+        fill="rgba(251,191,36,0.9)"
+        fontSize="4"
+        fontFamily="monospace"
+        textAnchor="end"
+      >
         skin
       </text>
       {VECTOR_SCOPE_TARGETS.map((target) => (
