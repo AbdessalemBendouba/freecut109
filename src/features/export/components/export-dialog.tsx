@@ -893,7 +893,7 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
                 {/* Sequence picker — only when there's more than the Main timeline */}
                 {sequenceOptions.length > 1 && (
                   <div className="flex items-center justify-between">
-                    <Label className="text-sm font-medium">
+                    <Label htmlFor="sequence" className="text-sm font-medium">
                       {t('export.settings.sequence')}
                     </Label>
                     <Select
@@ -902,7 +902,7 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
                         handleSelectSequence(value === '__main__' ? null : value)
                       }
                     >
-                      <SelectTrigger className="w-[180px]">
+                      <SelectTrigger id="sequence" className="w-[180px]">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>

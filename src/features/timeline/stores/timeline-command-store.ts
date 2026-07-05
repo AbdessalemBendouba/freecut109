@@ -104,6 +104,13 @@ interface CommandStoreActions {
    * is actually on screen.
    */
   setActiveContext: (compositionId: string | null) => void
+
+  /**
+   * Drop a composition's parked undo/redo history entirely. Called when the
+   * composition is deleted so its stack chain can't linger in memory or be
+   * reused. If it happens to be the active context, its live stacks are cleared.
+   */
+  removeContext: (compositionId: string) => void
 }
 
 export const useTimelineCommandStore = create<CommandStoreState & CommandStoreActions>()(
@@ -262,6 +269,18 @@ export const useTimelineCommandStore = create<CommandStoreState & CommandStoreAc
         canUndo: incoming.undoStack.length > 0,
         canRedo: incoming.redoStack.length > 0,
       })
+    },
+
+    removeContext: (compositionId) => {
+      const key = historyContextKey(compositionId)
+      const state = get()
+      if (key === state.activeContextKey) {
+        set({ undoStack: [], redoStack: [], canUndo: false, canRedo: false })
+        return
+      }
+      if (!(key in state.stacksByContext)) return
+      const { [key]: _removed, ...others } = state.stacksByContext
+      set({ stacksByContext: others })
     },
   }),
 )

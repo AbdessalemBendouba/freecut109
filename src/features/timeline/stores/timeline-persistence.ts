@@ -812,6 +812,15 @@ export async function saveTimeline(projectId: string): Promise<void> {
   const keyframesState = useKeyframesStore.getState()
   const currentFrame = usePlaybackStore.getState().currentFrame
 
+  // Build the (Main-rooted) timeline and restore the user's tab/drill context
+  // NOW, before any await — keeping the temporary swap to Main synchronous so
+  // autosave never visibly parks the editor on Main across the async storage +
+  // thumbnail work below.
+  const sanitizedTimeline = buildTimelineFromStores()
+  if (needsRestore) {
+    restoreCompositionPath()
+  }
+
   event.merge({
     itemCount: itemsState.items.length,
     trackCount: itemsState.tracks.length,
@@ -831,8 +840,6 @@ export async function saveTimeline(projectId: string): Promise<void> {
       width: project.metadata?.width,
       height: project.metadata?.height,
     })
-
-    const sanitizedTimeline = buildTimelineFromStores()
 
     // Generate thumbnail — prefer capturing the existing preview canvas
     // (near-free: reuses the already-initialized scrub renderer with cached
@@ -929,17 +936,8 @@ export async function saveTimeline(projectId: string): Promise<void> {
 
     const updatedAt = Date.now()
     event.success({ updatedAt, thumbnailId })
-
-    // Re-enter the sub-composition the user was editing before save
-    if (needsRestore) {
-      restoreCompositionPath()
-    }
   } catch (error) {
     event.failure(error)
-    // Re-enter even on failure so user doesn't lose their editing context
-    if (needsRestore) {
-      restoreCompositionPath()
-    }
     throw error
   }
 }

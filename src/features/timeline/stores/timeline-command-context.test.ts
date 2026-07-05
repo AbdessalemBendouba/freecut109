@@ -59,14 +59,32 @@ describe('timeline-command-store per-context history', () => {
     recordChange('root-1')
     cmd.getState().setActiveContext('comp-a')
     recordChange('a-1')
+    // Return to root so comp-a's stack is *parked* (not active) at clear time.
+    cmd.getState().setActiveContext(null)
+    expect(cmd.getState().undoStack).toHaveLength(1) // root-1 restored
 
     cmd.getState().clearHistory()
 
     expect(cmd.getState().undoStack).toHaveLength(0)
     expect(cmd.getState().activeContextKey).toBe('__root__')
 
-    // The previously-parked root context is gone too.
-    cmd.getState().setActiveContext(null)
+    // Swap comp-a back in: if clearHistory really wiped the parked stacks, its
+    // previously-recorded entry is gone (this forces the real swap-in path).
+    cmd.getState().setActiveContext('comp-a')
+    expect(cmd.getState().undoStack).toHaveLength(0)
+  })
+
+  it('removeContext drops a parked composition context', () => {
+    const cmd = useTimelineCommandStore
+    recordChange('root-1')
+    cmd.getState().setActiveContext('comp-a')
+    recordChange('a-1')
+    cmd.getState().setActiveContext(null) // park comp-a with its entry
+
+    cmd.getState().removeContext('comp-a')
+
+    // Re-entering comp-a now finds no parked history.
+    cmd.getState().setActiveContext('comp-a')
     expect(cmd.getState().undoStack).toHaveLength(0)
   })
 

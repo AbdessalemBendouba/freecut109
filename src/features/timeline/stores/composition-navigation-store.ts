@@ -83,7 +83,7 @@ import { useCompositionsStore } from './compositions-store'
 import { useMarkersStore } from './markers-store'
 import { useTimelineSettingsStore } from './timeline-settings-store'
 import { useZoomStore } from './zoom-store'
-import { useTimelineCommandStore } from './timeline-command-store'
+import { useTimelineCommandStore, ROOT_HISTORY_CONTEXT } from './timeline-command-store'
 import { useSequencesStore, type SequenceViewState } from './sequences-store'
 import { useSelectionStore } from '@/shared/state/selection'
 import { usePlaybackStore } from '@/shared/state/playback'
@@ -98,9 +98,9 @@ export function getActiveTabId(breadcrumbs: CompositionBreadcrumb[]): string | n
   return breadcrumbs[0]?.compositionId ?? null
 }
 
-/** View-state map key for a tab (Main uses the root sentinel). */
+/** View-state map key for a tab (Main uses the shared root sentinel). */
 function tabViewKey(tabId: string | null): string {
-  return tabId ?? '__root__'
+  return tabId ?? ROOT_HISTORY_CONTEXT
 }
 
 /**
@@ -128,6 +128,9 @@ function applySequenceView(view: SequenceViewState | undefined): void {
     usePlaybackStore.getState().setCurrentFrame(view.currentFrame)
     useSelectionStore.getState().selectItems(view.selectedItemIds)
   } else {
+    // Fresh tab with no saved view: reset zoom + scroll to defaults so it never
+    // inherits the previous tab's zoom level.
+    useZoomStore.getState().setZoomLevel(1)
     useTimelineSettingsStore.getState().setScrollPosition(0)
   }
 }

@@ -141,7 +141,9 @@ export function getExportableSequence(sequenceId: string | null): ExportableSequ
     width: comp.width,
     height: comp.height,
     backgroundColor: comp.backgroundColor,
-    busAudioEq: comp.busAudioEq,
+    // Live mixer edits live in the playback store for the active sequence; the
+    // registry entry is only up to date once we've switched away from it.
+    busAudioEq: isActiveTab ? playback.busAudioEq : comp.busAudioEq,
     masterBusDb: playback.masterBusDb,
     durationFrames: comp.durationInFrames || furthestItemEnd(comp.items),
     ...range(comp),

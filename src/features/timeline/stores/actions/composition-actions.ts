@@ -19,6 +19,7 @@ import { useKeyframesStore } from '../keyframes-store'
 import { useTimelineSettingsStore } from '../timeline-settings-store'
 import { useCompositionsStore, type SubComposition } from '../compositions-store'
 import { useSequencesStore } from '../sequences-store'
+import { useTimelineCommandStore } from '../timeline-command-store'
 import { useEditorStore } from '@/shared/state/editor'
 import { useSelectionStore } from '@/shared/state/selection'
 import { DEFAULT_TRACK_HEIGHT } from '../../constants'
@@ -989,6 +990,10 @@ export function deleteCompoundClips(compositionIds: string[]): boolean {
       useCompositionsStore.getState().setCompositions(nextCompositions)
       // Drop any deleted sequences from the standalone-timeline tab set.
       useSequencesStore.getState().pruneToValidSequenceIds(nextCompositions.map((c) => c.id))
+      // Drop each deleted composition's parked undo history so it can't linger.
+      for (const deletedId of targetIds) {
+        useTimelineCommandStore.getState().removeContext(deletedId)
+      }
 
       const latestNavState = useCompositionNavigationStore.getState()
       if (latestNavState.stashStack.length > 0 || latestNavState.mainHolder) {

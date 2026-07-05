@@ -8,6 +8,16 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { useSequencesStore } from '../stores/sequences-store'
 import { useCompositionsStore } from '../stores/compositions-store'
 import { useCompositionNavigationStore, getActiveTabId } from '../stores/composition-navigation-store'
@@ -33,6 +43,7 @@ export const SequenceTabs = memo(function SequenceTabs() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState('')
   const cancelledRef = useRef(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
 
   const beginRename = useCallback((id: string, currentName: string) => {
     cancelledRef.current = false
@@ -144,7 +155,7 @@ export const SequenceTabs = memo(function SequenceTabs() {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   className="text-destructive focus:text-destructive"
-                  onSelect={() => deleteCompoundClips([comp.id])}
+                  onSelect={() => setDeleteTarget({ id: comp.id, name: comp.name })}
                 >
                   Delete sequence
                 </DropdownMenuItem>
@@ -172,6 +183,30 @@ export const SequenceTabs = memo(function SequenceTabs() {
       >
         <Plus className="h-3.5 w-3.5" />
       </button>
+
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete sequence</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete sequence &ldquo;{deleteTarget?.name}&rdquo;? Any clips that reference it will
+              also be removed. This can be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteTarget) deleteCompoundClips([deleteTarget.id])
+                setDeleteTarget(null)
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 })
