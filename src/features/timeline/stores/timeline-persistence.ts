@@ -749,6 +749,9 @@ export function buildTimelineFromStores(): ProjectTimeline {
           durationInFrames: c.durationInFrames,
           ...(c.backgroundColor && { backgroundColor: c.backgroundColor }),
           ...(c.busAudioEq && { busAudioEq: c.busAudioEq }),
+          ...(c.markers?.length && { markers: c.markers as ProjectTimeline['markers'] }),
+          ...(c.inPoint != null && { inPoint: c.inPoint }),
+          ...(c.outPoint != null && { outPoint: c.outPoint }),
         })),
       }
     })(),
@@ -1021,6 +1024,9 @@ export async function hydrateTimelineStoresFromProject(project: Project): Promis
           durationInFrames: c.durationInFrames,
           ...(c.backgroundColor && { backgroundColor: c.backgroundColor }),
           ...(c.busAudioEq && { busAudioEq: c.busAudioEq }),
+          markers: c.markers ?? [],
+          inPoint: c.inPoint ?? null,
+          outPoint: c.outPoint ?? null,
         })),
       )
       useCompositionsStore.getState().setCompositions(hydratedCompositions)

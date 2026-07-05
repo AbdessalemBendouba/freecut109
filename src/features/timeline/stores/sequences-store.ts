@@ -28,8 +28,6 @@ export interface SequenceViewState {
   currentFrame: number
   zoomLevel: number
   scrollPosition: number
-  inPoint: number | null
-  outPoint: number | null
   selectedItemIds: string[]
 }
 

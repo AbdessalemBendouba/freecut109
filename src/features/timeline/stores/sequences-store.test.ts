@@ -5,8 +5,6 @@ const view = (currentFrame: number): SequenceViewState => ({
   currentFrame,
   zoomLevel: 1,
   scrollPosition: 0,
-  inPoint: null,
-  outPoint: null,
   selectedItemIds: [],
 })
 

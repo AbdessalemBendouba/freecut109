@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { TimelineItem, TimelineTrack } from '@/types/timeline'
+import type { TimelineItem, TimelineTrack, ProjectMarker } from '@/types/timeline'
 import type { AudioEqSettings } from '@/types/audio'
 import type { Transition } from '@/types/transition'
 import type { ItemKeyframes } from '@/types/keyframe'
@@ -30,6 +30,10 @@ interface StashedTimeline {
   /** Playhead frame at the time of stashing, so we can restore it on exit */
   currentFrame: number
   busAudioEq?: AudioEqSettings
+  /** Per-timeline markers + in/out range, swapped alongside the clips. */
+  markers: ProjectMarker[]
+  inPoint: number | null
+  outPoint: number | null
 }
 
 interface CompositionNavigationState {
@@ -99,40 +103,38 @@ function tabViewKey(tabId: string | null): string {
   return tabId ?? '__root__'
 }
 
-/** Snapshot the current view/playback state for the active tab. */
+/**
+ * Snapshot the active tab's *view* state (zoom/scroll/playhead/selection).
+ * Markers + in/out are timeline data now, swapped via the stash, not here.
+ */
 function captureSequenceView(): SequenceViewState {
   return {
     currentFrame: usePlaybackStore.getState().currentFrame,
     zoomLevel: useZoomStore.getState().level,
     scrollPosition: useTimelineSettingsStore.getState().scrollPosition,
-    inPoint: useMarkersStore.getState().inPoint,
-    outPoint: useMarkersStore.getState().outPoint,
     selectedItemIds: useSelectionStore.getState().selectedItemIds,
   }
 }
 
 /**
  * Apply a saved per-tab view, or sensible fresh-tab defaults when none exists.
- * Playhead + selection for a fresh tab are left to enter/reset, which already
- * set them; here we only reset the scroll/in-out that those paths don't touch.
+ * Playhead + selection for a fresh tab are left to load/reset, which already set
+ * them; here we only restore the zoom/scroll those paths don't touch.
  */
 function applySequenceView(view: SequenceViewState | undefined): void {
   if (view) {
     useZoomStore.getState().setZoomLevel(view.zoomLevel)
     useTimelineSettingsStore.getState().setScrollPosition(view.scrollPosition)
-    useMarkersStore.getState().setInPoint(view.inPoint)
-    useMarkersStore.getState().setOutPoint(view.outPoint)
     usePlaybackStore.getState().setCurrentFrame(view.currentFrame)
     useSelectionStore.getState().selectItems(view.selectedItemIds)
   } else {
     useTimelineSettingsStore.getState().setScrollPosition(0)
-    useMarkersStore.getState().setInPoint(null)
-    useMarkersStore.getState().setOutPoint(null)
   }
 }
 
-/** Save current items/tracks/transitions/keyframes from domain stores into a stash entry. */
+/** Save current timeline domain-store contents (incl. markers/in-out) into a stash entry. */
 function captureCurrentTimeline(compositionId: string | null): StashedTimeline {
+  const markersState = useMarkersStore.getState()
   return {
     compositionId,
     items: useItemsStore.getState().items,
@@ -141,6 +143,9 @@ function captureCurrentTimeline(compositionId: string | null): StashedTimeline {
     keyframes: useKeyframesStore.getState().keyframes,
     currentFrame: usePlaybackStore.getState().currentFrame,
     busAudioEq: usePlaybackStore.getState().busAudioEq,
+    markers: markersState.markers,
+    inPoint: markersState.inPoint,
+    outPoint: markersState.outPoint,
   }
 }
 
@@ -153,6 +158,8 @@ function restoreTimeline(stash: StashedTimeline) {
   useSelectionStore.getState().clearSelection()
   usePlaybackStore.getState().setCurrentFrame(stash.currentFrame)
   usePlaybackStore.getState().setBusAudioEq(stash.busAudioEq)
+  useMarkersStore.getState().setMarkers(stash.markers)
+  useMarkersStore.getState().setInOutPoints(stash.inPoint, stash.outPoint)
 }
 
 /** Save current timeline data back to the compositions store (for sub-comps only). */
@@ -161,6 +168,7 @@ function saveCurrentToComposition(compositionId: string) {
   // Compute updated duration from the furthest item end
   const durationInFrames =
     items.length > 0 ? Math.max(...items.map((i) => i.from + i.durationInFrames)) : 0
+  const markersState = useMarkersStore.getState()
 
   useCompositionsStore.getState().updateComposition(compositionId, {
     items,
@@ -169,6 +177,9 @@ function saveCurrentToComposition(compositionId: string) {
     keyframes: useKeyframesStore.getState().keyframes,
     durationInFrames,
     busAudioEq: usePlaybackStore.getState().busAudioEq,
+    markers: markersState.markers,
+    inPoint: markersState.inPoint,
+    outPoint: markersState.outPoint,
   })
 }
 
@@ -183,6 +194,8 @@ function loadComposition(compositionId: string): boolean {
   useKeyframesStore.getState().setKeyframes(subComp.keyframes ?? [])
   useSelectionStore.getState().clearSelection()
   usePlaybackStore.getState().setBusAudioEq(subComp.busAudioEq)
+  useMarkersStore.getState().setMarkers(subComp.markers ?? [])
+  useMarkersStore.getState().setInOutPoints(subComp.inPoint ?? null, subComp.outPoint ?? null)
   return true
 }
 

@@ -544,6 +544,9 @@ const compositionSchema = z
     height: z.number().int().min(1).max(4320),
     durationInFrames: z.number().int().min(1),
     backgroundColor: z.string().optional(),
+    markers: z.array(markerSchema).optional(),
+    inPoint: z.number().int().min(0).optional(),
+    outPoint: z.number().int().min(0).optional(),
   })
   .passthrough()
 

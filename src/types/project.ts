@@ -232,6 +232,9 @@ export interface ProjectTimeline {
     durationInFrames: number
     backgroundColor?: string
     busAudioEq?: AudioEqSettings
+    markers?: ProjectTimeline['markers']
+    inPoint?: number
+    outPoint?: number
   }>
   // Keyframe animations
   keyframes?: Array<{

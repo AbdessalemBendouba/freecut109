@@ -82,16 +82,30 @@ export function getExportableSequence(sequenceId: string | null): ExportableSequ
   const markersState = useMarkersStore.getState()
   const isActiveTab = sequenceId === activeTabId
 
-  // In/out: the live markers store holds the active tab's range; other tabs keep
-  // theirs in the per-tab view map.
-  const savedView = useSequencesStore.getState().getSequenceView(sequenceId ?? '__root__')
-  const inPoint = isActiveTab ? markersState.inPoint : (savedView?.inPoint ?? null)
-  const outPoint = isActiveTab ? markersState.outPoint : (savedView?.outPoint ?? null)
+  // Markers + in/out are per-sequence timeline data now, swapped like clips: the
+  // live markers store holds the active tab's; the rest live in mainHolder (Main
+  // held aside) or the composition registry.
+  const range = (held: {
+    markers?: ProjectMarker[]
+    inPoint?: number | null
+    outPoint?: number | null
+  } | null | undefined) =>
+    isActiveTab
+      ? {
+          markers: markersState.markers,
+          inPoint: markersState.inPoint,
+          outPoint: markersState.outPoint,
+        }
+      : {
+          markers: held?.markers ?? [],
+          inPoint: held?.inPoint ?? null,
+          outPoint: held?.outPoint ?? null,
+        }
 
   if (sequenceId === null) {
     const root = getRootTimelineSnapshot(current)
     const metadata = useProjectStore.getState().currentProject?.metadata
-    // Main's audio bus is live when Main is active, else held aside.
+    // Main's audio bus / range are live when Main is active, else held aside.
     const busAudioEq = activeTabId === null ? playback.busAudioEq : nav.mainHolder?.busAudioEq
     return {
       id: null,
@@ -107,10 +121,7 @@ export function getExportableSequence(sequenceId: string | null): ExportableSequ
       busAudioEq,
       masterBusDb: playback.masterBusDb,
       durationFrames: furthestItemEnd(root.items),
-      inPoint,
-      outPoint,
-      // Markers are never swapped per-tab, so the store always holds Main's.
-      markers: markersState.markers,
+      ...range(nav.mainHolder),
     }
   }
 
@@ -133,9 +144,6 @@ export function getExportableSequence(sequenceId: string | null): ExportableSequ
     busAudioEq: comp.busAudioEq,
     masterBusDb: playback.masterBusDb,
     durationFrames: comp.durationInFrames || furthestItemEnd(comp.items),
-    inPoint,
-    outPoint,
-    // Standalone sequences don't carry their own project markers.
-    markers: [],
+    ...range(comp),
   }
 }

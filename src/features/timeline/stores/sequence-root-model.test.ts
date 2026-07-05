@@ -7,6 +7,7 @@ import {
   setDefaultRootTimelineTracks,
 } from '@/features/timeline/test-helpers'
 import { useItemsStore } from './items-store'
+import { useMarkersStore } from './markers-store'
 import { useCompositionsStore } from './compositions-store'
 import { useSequencesStore } from './sequences-store'
 import { useCompositionNavigationStore, getActiveTabId } from './composition-navigation-store'
@@ -109,6 +110,36 @@ describe('sequence as a true navigation root', () => {
     nav = useCompositionNavigationStore.getState()
     expect(nav.breadcrumbs.map((b) => b.compositionId)).toEqual([null, 'plain-cc'])
     expect(getActiveTabId(nav.breadcrumbs)).toBeNull()
+  })
+
+  it('keeps markers + in/out per-sequence, never bleeding across tabs', () => {
+    seedComposition('seq-a', 'a-clip')
+    useSequencesStore.getState().addTopLevelSequence('seq-a')
+    // Main has a marker and an in/out range.
+    useMarkersStore.getState().setMarkers([{ id: 'm-main', frame: 30, color: '#ffffff' }])
+    useMarkersStore.getState().setInOutPoints(10, 50)
+
+    const nav = useCompositionNavigationStore.getState()
+    nav.switchToSequence('seq-a')
+    // The sequence starts clean — Main's markers/range don't show through.
+    expect(useMarkersStore.getState().markers).toEqual([])
+    expect(useMarkersStore.getState().inPoint).toBeNull()
+
+    // Annotate the sequence.
+    useMarkersStore.getState().setMarkers([{ id: 'm-seq', frame: 5, color: '#000000' }])
+    useMarkersStore.getState().setInOutPoints(2, 8)
+
+    nav.switchToSequence(null)
+    // Back on Main: Main's own markers/range are restored, not the sequence's.
+    expect(useMarkersStore.getState().markers.map((m) => m.id)).toEqual(['m-main'])
+    expect(useMarkersStore.getState().inPoint).toBe(10)
+    expect(useMarkersStore.getState().outPoint).toBe(50)
+
+    // The sequence's markers persisted into its registry entry.
+    const stored = useCompositionsStore.getState().getComposition('seq-a')
+    expect(stored?.markers?.map((m) => m.id)).toEqual(['m-seq'])
+    expect(stored?.inPoint).toBe(2)
+    expect(stored?.outPoint).toBe(8)
   })
 
   it('deleting a compound clip referenced on Main sanitizes Main while on a sequence tab', () => {
