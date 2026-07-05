@@ -1,6 +1,7 @@
 export {
   useTimelineStore,
   useCompositionNavigationStore,
+  useSequencesStore,
   useCompositionsStore,
   type SubComposition,
   wouldCreateCompositionCycle,

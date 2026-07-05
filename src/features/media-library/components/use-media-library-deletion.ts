@@ -6,6 +6,7 @@ import {
   getCompoundClipDeletionImpact,
   getMediaDeletionImpact,
   removeProjectItems,
+  useSequencesStore,
   useTimelineStore,
 } from '@/features/media-library/deps/timeline-stores'
 
@@ -112,12 +113,24 @@ export function useMediaLibraryDeletion({
       parts.push(t('media.library.mediaItemsCount', { count: pendingDeletion.mediaIds.length }))
     }
     if (pendingDeletion.compositionIds.length > 0) {
-      parts.push(
-        t('media.library.compoundClipsCount', { count: pendingDeletion.compositionIds.length }),
-      )
+      // Sequences and compound clips are the same primitive; only the label
+      // differs. Split so the dialog says "sequence" for top-level tabs.
+      const isTopLevelSequence = useSequencesStore.getState().isTopLevelSequence
+      let sequenceCount = 0
+      let compoundClipCount = 0
+      for (const id of pendingDeletion.compositionIds) {
+        if (isTopLevelSequence(id)) sequenceCount++
+        else compoundClipCount++
+      }
+      if (sequenceCount > 0) {
+        parts.push(t('media.library.sequencesCount', { count: sequenceCount }))
+      }
+      if (compoundClipCount > 0) {
+        parts.push(t('media.library.compoundClipsCount', { count: compoundClipCount }))
+      }
     }
     return parts.join(t('media.library.andJoiner'))
-  }, [pendingDeletion.compositionIds.length, pendingDeletion.mediaIds.length, t])
+  }, [pendingDeletion.compositionIds, pendingDeletion.mediaIds.length, t])
 
   const affectedMediaImpact = useMemo(
     () =>

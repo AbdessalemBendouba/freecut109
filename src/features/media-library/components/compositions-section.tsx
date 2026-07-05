@@ -28,6 +28,7 @@ import {
   renameCompoundClip,
   useCompositionsStore,
   useCompositionNavigationStore,
+  useSequencesStore,
   type SubComposition,
   wouldCreateCompositionCycle,
 } from '@/features/media-library/deps/timeline-stores'
@@ -194,6 +195,12 @@ export function CompositionsSection() {
   const deleteImpact = deleteTarget
     ? getCompoundClipDeletionImpact([deleteTarget.id])
     : { rootReferenceCount: 0, nestedReferenceCount: 0, totalReferenceCount: 0 }
+  // A sequence is the same primitive as a compound clip — only the label
+  // differs (top-level tab vs embed-only). Membership is stable while the
+  // dialog is open, so a non-reactive read is fine.
+  const isSequenceTarget = deleteTarget
+    ? useSequencesStore.getState().isTopLevelSequence(deleteTarget.id)
+    : false
 
   if (compositions.length === 0) return null
 
@@ -268,19 +275,37 @@ export function CompositionsSection() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('media.compositions.deleteTitle')}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t(
+                isSequenceTarget
+                  ? 'media.compositions.deleteSequenceTitle'
+                  : 'media.compositions.deleteTitle',
+              )}
+            </AlertDialogTitle>
             <AlertDialogDescription asChild>
               <div className="space-y-3">
-                <p>{t('media.compositions.deleteBody', { name: deleteTarget?.name ?? '' })}</p>
+                <p>
+                  {t(
+                    isSequenceTarget
+                      ? 'media.compositions.deleteSequenceBody'
+                      : 'media.compositions.deleteBody',
+                    { name: deleteTarget?.name ?? '' },
+                  )}
+                </p>
                 {deleteImpact.totalReferenceCount > 0 && (
                   <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-md">
                     <Trash2 className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
                     <div className="text-sm text-yellow-600 dark:text-yellow-400">
                       <p className="font-medium">{t('media.compositions.deleteInstancesTitle')}</p>
                       <p className="text-xs mt-1 text-yellow-600/80 dark:text-yellow-400/80">
-                        {t('media.compositions.deleteInstancesDetail', {
-                          count: deleteImpact.totalReferenceCount,
-                        })}
+                        {t(
+                          isSequenceTarget
+                            ? 'media.compositions.deleteSequenceInstancesDetail'
+                            : 'media.compositions.deleteInstancesDetail',
+                          {
+                            count: deleteImpact.totalReferenceCount,
+                          },
+                        )}
                       </p>
                     </div>
                   </div>
