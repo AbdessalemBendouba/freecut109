@@ -1086,10 +1086,12 @@ export function createSequence(name?: string): string {
     'CREATE_SEQUENCE',
     () => {
       useCompositionsStore.getState().addComposition(sequence)
+      // Tab membership is captured by the undo snapshot, so add it inside the
+      // command — undo/redo then roll it back with the composition.
+      useSequencesStore.getState().addTopLevelSequence(id)
     },
     { sequenceId: id },
   )
-  useSequencesStore.getState().addTopLevelSequence(id)
   useTimelineSettingsStore.getState().markDirty()
   useCompositionNavigationStore.getState().switchToSequence(id)
   return id

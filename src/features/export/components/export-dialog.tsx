@@ -328,7 +328,6 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
   const keyframes = exportable.keyframes
   const inPoint = exportable.inPoint
   const outPoint = exportable.outPoint
-  const markers = exportable.markers
   const brokenMediaIds = useBrokenMediaIds()
   const enqueueJobs = useRenderQueueStore((s) => s.enqueueJobs)
 
@@ -526,17 +525,17 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
     await startExport(buildExtendedSettings())
   }
 
-  // The active render range (whole project unless in/out points are set).
-  const queueRange = (): { inPoint: number | null; outPoint: number | null } =>
-    renderWholeProject || !hasInOutPoints
+  // The active render range for a sequence (whole timeline unless in/out set).
+  const queueRange = (seq: ExportableSequence): { inPoint: number | null; outPoint: number | null } =>
+    renderWholeProject || seq.inPoint === null || seq.outPoint === null || seq.outPoint <= seq.inPoint
       ? { inPoint: null, outPoint: null }
-      : { inPoint, outPoint }
+      : { inPoint: seq.inPoint, outPoint: seq.outPoint }
 
   // The frame window segment generators split over: the active range, or the
   // whole timeline when no in/out points are set.
-  const segmentWindow = (): { start: number; end: number } => {
-    const range = queueRange()
-    return { start: range.inPoint ?? 0, end: range.outPoint ?? timelineDurationFrames }
+  const segmentWindow = (seq: ExportableSequence): { start: number; end: number } => {
+    const range = queueRange(seq)
+    return { start: range.inPoint ?? 0, end: range.outPoint ?? seq.durationFrames }
   }
 
   // Close the export dialog and open the queue panel. Called BEFORE building
@@ -564,15 +563,22 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
     }
   }
 
+  // Re-read the selected sequence at click time so a queued export always
+  // reflects the current timeline, not a snapshot that went stale while the
+  // dialog stayed open.
+  const captureSelection = () => getExportableSequence(selectedSequenceId)
+
   const handleAddCurrentRange = () => {
+    const seq = captureSelection()
     void enqueueAndReveal(async (settings) => [
-      await buildRenderJob({ settings, ...queueRange(), sequence: exportable }),
+      await buildRenderJob({ settings, ...queueRange(seq), sequence: seq }),
     ])
   }
 
   const handleAddMarkerSegments = () => {
-    const { start, end } = segmentWindow()
-    const ranges = rangesFromMarkers(markers, start, end)
+    const seq = captureSelection()
+    const { start, end } = segmentWindow(seq)
+    const ranges = rangesFromMarkers(seq.markers, start, end)
     if (ranges.length <= 1) {
       toast.info(t('export.renderQueue.noMarkers'))
       return
@@ -582,14 +588,15 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
         settings,
         ranges,
         (i) => t('export.renderQueue.partLabel', { n: i + 1 }),
-        exportable,
+        seq,
       ),
     )
   }
 
   const handleSplitChunks = (seconds: number) => {
-    const { start, end } = segmentWindow()
-    const ranges = rangesFromFixedDuration(start, end, Math.max(1, Math.round(seconds * fps)))
+    const seq = captureSelection()
+    const { start, end } = segmentWindow(seq)
+    const ranges = rangesFromFixedDuration(start, end, Math.max(1, Math.round(seconds * seq.fps)))
     if (ranges.length === 0) {
       toast.info(t('export.renderQueue.nothingToRender'))
       return
@@ -599,7 +606,7 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
         settings,
         ranges,
         (i) => t('export.renderQueue.partLabel', { n: i + 1 }),
-        exportable,
+        seq,
       ),
     )
   }
