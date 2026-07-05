@@ -544,6 +544,9 @@ const compositionSchema = z
     height: z.number().int().min(1).max(4320),
     durationInFrames: z.number().int().min(1),
     backgroundColor: z.string().optional(),
+    markers: z.array(markerSchema).optional(),
+    inPoint: z.number().int().min(0).optional(),
+    outPoint: z.number().int().min(0).optional(),
   })
   .passthrough()
 
@@ -558,6 +561,7 @@ const timelineSchema = z
     outPoint: z.number().int().min(0).optional(),
     markers: z.array(markerSchema).optional(),
     transitions: z.array(transitionSchema).optional(),
+    topLevelSequenceIds: z.array(z.string()).optional(),
     compositions: z.array(compositionSchema).optional(),
     keyframes: z.array(itemKeyframesSchema).optional(),
   })

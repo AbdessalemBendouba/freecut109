@@ -46,6 +46,7 @@
       "deleteTitle": "Supprimer le clip composé",
       "enter": "Ouvrir",
       "itemCount": "{{count}} éléments",
+      "openAsTab": "Ouvrir comme onglet",
       "rename": "Renommer",
       "sectionTitle": "Clips composés"
     },

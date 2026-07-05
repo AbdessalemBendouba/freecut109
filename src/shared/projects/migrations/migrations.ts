@@ -921,6 +921,20 @@ const migrations: Record<number, Migration> = {
       } as Project
     },
   },
+  /**
+   * Version 13: Introduce standalone timeline tabs (multi-timeline)
+   *
+   * Adds the optional `timeline.topLevelSequenceIds` field — the ordered set of
+   * sub-compositions promoted to standalone timeline tabs ("sequences"). This
+   * is a purely additive optional field: existing projects have only the Main
+   * timeline, so the field stays absent and no data transform is required.
+   * Normalization prunes any ids that don't resolve to a composition.
+   */
+  13: {
+    version: 13,
+    description: 'Add topLevelSequenceIds for standalone timeline tabs (multi-timeline)',
+    migrate: (project: Project): Project => project,
+  },
 }
 
 /**

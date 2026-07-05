@@ -46,6 +46,7 @@
       "deleteTitle": "Delete Compound Clip",
       "enter": "Enter",
       "itemCount": "{{count}} items",
+      "openAsTab": "Open as tab",
       "rename": "Rename",
       "sectionTitle": "Compound Clips"
     },

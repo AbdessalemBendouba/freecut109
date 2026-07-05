@@ -46,6 +46,7 @@
       "deleteTitle": "删除复合剪辑",
       "enter": "进入",
       "itemCount": "{{count}} 个项目",
+      "openAsTab": "作为标签页打开",
       "rename": "重命名",
       "sectionTitle": "复合剪辑"
     },

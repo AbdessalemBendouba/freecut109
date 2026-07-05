@@ -10,7 +10,7 @@ import type { Project } from '@/types/project'
  * Current schema version.
  * Increment this when adding a new migration.
  */
-export const CURRENT_SCHEMA_VERSION = 12
+export const CURRENT_SCHEMA_VERSION = 13
 
 /**
  * A migration function transforms a project from version N to N+1.

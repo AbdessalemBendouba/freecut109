@@ -1157,6 +1157,358 @@ fn flutedGlassFragment(input: VertexOutput) -> @location(0) vec4f {
   },
 }
 
+// Radial sibling of Fluted Glass: concentric-ring lens refraction from an
+// origin (bullseye / rippled-pond glass). Shares the shadow/highlight lighting
+// model with the fluted shader.
+export const rippleGlass: GpuEffectDefinition = {
+  id: 'gpu-ripple-glass',
+  name: 'Ripple Glass',
+  category: 'distort',
+  entryPoint: 'rippleGlassFragment',
+  uniformSize: 80,
+  shader: /* wgsl */ `
+struct RippleGlassParams {
+  colorShadow: vec4f,
+  colorHighlight: vec4f,
+  settingsA: vec4f,
+  settingsB: vec4f,
+  settingsC: vec4f,
+};
+@group(0) @binding(0) var texSampler: sampler;
+@group(0) @binding(1) var inputTex: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> params: RippleGlassParams;
+
+@fragment
+fn rippleGlassFragment(input: VertexOutput) -> @location(0) vec4f {
+  let amount = params.settingsA.x;
+  let rings = max(params.settingsA.y, 1.0);
+  let shadowsAmount = clamp(params.settingsA.z, 0.0, 1.0);
+  let highlightsAmount = clamp(params.settingsA.w, 0.0, 1.0);
+
+  let origin = vec2f(params.settingsB.x, params.settingsB.y);
+  let phase = params.settingsB.z;
+  let falloff = max(params.settingsB.w, 0.001);
+
+  let aberration = params.settingsC.x;
+  let aspect = max(params.settingsC.w, 0.0001);
+
+  // Aspect-corrected radial vector from the ripple origin.
+  var p = input.uv - origin;
+  p.x *= aspect;
+  let dist = length(p);
+  let dir = p / max(dist, 1e-4);
+  // Radial offset expressed back in uv space (undo the aspect scaling on x).
+  let radialUv = vec2f(dir.x / aspect, dir.y);
+
+  let ringWidth = 1.0 / rings;
+  let ringCoord = dist / ringWidth - phase;   // integer part = ring index
+  let x = fract(ringCoord);                     // 0..1 within the ring
+  let centered = x - 0.5;
+
+  // Cylindrical lens bend: soft at the ring centre, steep toward the seams,
+  // pulling samples back toward each ring centre (magnifying the band).
+  let bend = -sign(centered) * pow(abs(centered) * 2.0, 1.5);
+
+  // Reach envelope — fades the ripple away from the origin.
+  let envelope = exp(-dist / falloff);
+
+  let push = bend * amount * ringWidth * 1.5 * envelope;
+  let offsetUv = radialUv * push;
+
+  var color: vec4f;
+  if (aberration > 0.0) {
+    let ca = radialUv * aberration * ringWidth * envelope;
+    let r = textureSample(inputTex, texSampler, input.uv + offsetUv + ca).r;
+    let g = textureSample(inputTex, texSampler, input.uv + offsetUv).g;
+    let b = textureSample(inputTex, texSampler, input.uv + offsetUv - ca).b;
+    let a = textureSample(inputTex, texSampler, input.uv + offsetUv).a;
+    color = vec4f(r, g, b, a);
+  } else {
+    color = textureSample(inputTex, texSampler, input.uv + offsetUv);
+  }
+
+  // Thin bright seam between rings + groove shadow that deepens toward it.
+  let aa = 2.0 * max(0.001, fwidth(ringCoord));
+  var highlights = 1.0 - (smoothstep(0.0, aa, x) * smoothstep(1.0, 1.0 - aa, x));
+  highlights = clamp(highlights * highlightsAmount * envelope, 0.0, 1.0);
+
+  var shadows = pow(abs(centered) * 2.0, 1.3);
+  shadows = clamp(shadows * shadowsAmount * envelope, 0.0, 1.0);
+
+  let shadowColor = params.colorShadow;
+  let highlightColor = params.colorHighlight;
+
+  var rgb = color.rgb;
+  rgb = mix(rgb, shadowColor.rgb, 0.5 * shadows * shadowColor.a);
+  rgb += highlightColor.rgb * highlights * highlightColor.a;
+  rgb = clamp(rgb, vec3f(0.0), vec3f(1.0));
+
+  return vec4f(rgb, color.a);
+}`,
+  params: {
+    colorShadow: { type: 'color', label: 'Shadow Color', default: '#000000' },
+    colorHighlight: { type: 'color', label: 'Highlight Color', default: '#ffffff' },
+    amount: {
+      type: 'number',
+      label: 'Amount',
+      default: 0.5,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    rings: {
+      type: 'number',
+      label: 'Rings',
+      default: 14,
+      min: 1,
+      max: 64,
+      step: 1,
+      animatable: true,
+    },
+    shadows: {
+      type: 'number',
+      label: 'Shadows',
+      default: 0.25,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    highlights: {
+      type: 'number',
+      label: 'Highlights',
+      default: 0.1,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    originX: {
+      type: 'number',
+      label: 'Origin X',
+      default: 0.5,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    originY: {
+      type: 'number',
+      label: 'Origin Y',
+      default: 0.5,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    phase: {
+      type: 'number',
+      label: 'Phase',
+      default: 0,
+      min: -1,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    falloff: {
+      type: 'number',
+      label: 'Falloff',
+      default: 0.35,
+      min: 0.05,
+      max: 2,
+      step: 0.01,
+      animatable: true,
+    },
+    aberration: {
+      type: 'number',
+      label: 'Aberration',
+      default: 0,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+  },
+  packUniforms: (p, w, h) => {
+    const shadow = parseHexColor((p.colorShadow as string) ?? '#000000', [0, 0, 0, 1])
+    const highlight = parseHexColor((p.colorHighlight as string) ?? '#ffffff', [1, 1, 1, 1])
+    return new Float32Array([
+      shadow[0],
+      shadow[1],
+      shadow[2],
+      shadow[3],
+      highlight[0],
+      highlight[1],
+      highlight[2],
+      highlight[3],
+      (p.amount as number) ?? 0.5,
+      (p.rings as number) ?? 14,
+      (p.shadows as number) ?? 0.25,
+      (p.highlights as number) ?? 0.1,
+      (p.originX as number) ?? 0.5,
+      (p.originY as number) ?? 0.5,
+      (p.phase as number) ?? 0,
+      (p.falloff as number) ?? 0.35,
+      (p.aberration as number) ?? 0,
+      w,
+      h,
+      w / Math.max(h, 1),
+    ])
+  },
+}
+
+// 2D sibling of Fluted Glass: a grid of rounded lens cells, each magnifying
+// its own patch (privacy-glass block wall). Reuses the shadow/highlight model.
+export const glassMosaic: GpuEffectDefinition = {
+  id: 'gpu-glass-mosaic',
+  name: 'Glass Mosaic',
+  category: 'distort',
+  entryPoint: 'glassMosaicFragment',
+  uniformSize: 64,
+  shader: /* wgsl */ `
+struct GlassMosaicParams {
+  colorShadow: vec4f,
+  colorHighlight: vec4f,
+  settingsA: vec4f,
+  settingsB: vec4f,
+};
+@group(0) @binding(0) var texSampler: sampler;
+@group(0) @binding(1) var inputTex: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> params: GlassMosaicParams;
+
+@fragment
+fn glassMosaicFragment(input: VertexOutput) -> @location(0) vec4f {
+  let amount = params.settingsA.x;
+  let cells = max(params.settingsA.y, 1.0);
+  let shadowsAmount = clamp(params.settingsA.z, 0.0, 1.0);
+  let highlightsAmount = clamp(params.settingsA.w, 0.0, 1.0);
+  let aberration = params.settingsB.x;
+  let aspect = max(params.settingsB.w, 0.0001);
+
+  // Square-ish cells: cellsX counts columns across the width; rows scale by
+  // aspect so each tile stays roughly square regardless of frame proportions.
+  let cellUvSize = vec2f(1.0 / cells, aspect / cells);
+  let grid = input.uv / cellUvSize;
+  let local = fract(grid) - 0.5;                 // -0.5..0.5 within the cell
+  let localUv = local * cellUvSize;              // same offset, in uv space
+
+  // Spherical lens: magnify toward each cell centre, fading out near the rim.
+  let dd = dot(local * 2.0, local * 2.0);        // 0 centre .. up to 2 at corners
+  let lens = amount * pow(clamp(1.0 - dd, 0.0, 1.0), 0.5);
+  let sampleUv = input.uv - localUv * lens;
+
+  var color: vec4f;
+  if (aberration > 0.0) {
+    let ca = localUv * aberration;
+    let r = textureSample(inputTex, texSampler, sampleUv - ca).r;
+    let g = textureSample(inputTex, texSampler, sampleUv).g;
+    let b = textureSample(inputTex, texSampler, sampleUv + ca).b;
+    let a = textureSample(inputTex, texSampler, sampleUv).a;
+    color = vec4f(r, g, b, a);
+  } else {
+    color = textureSample(inputTex, texSampler, sampleUv);
+  }
+
+  // Rounded-square edge factor: 0 at the cell centre, 1 at the rim.
+  let edge = max(abs(local.x), abs(local.y)) * 2.0;
+  let fw = fwidth(edge) + 0.001;
+
+  // Bright bevel just inside each cell border.
+  var highlights = smoothstep(1.0 - 6.0 * fw, 1.0 - 2.0 * fw, edge);
+  highlights *= highlightsAmount;
+
+  // Darker mortar at the seams + a gentle vignette toward the rim.
+  let gap = smoothstep(1.0 - 2.0 * fw, 1.0, edge);
+  var shadows = pow(edge, 3.0) * 0.5 + gap;
+  shadows = clamp(shadows * shadowsAmount, 0.0, 1.0);
+
+  // Diagonal bevel (light from top-left) gives each tile a glassy roundness.
+  let bevel = (-local.x - local.y) * amount * 0.5;
+
+  let shadowColor = params.colorShadow;
+  let highlightColor = params.colorHighlight;
+
+  var rgb = color.rgb * (1.0 + bevel);
+  rgb = mix(rgb, shadowColor.rgb, 0.5 * shadows * shadowColor.a);
+  rgb += highlightColor.rgb * highlights * highlightColor.a;
+  rgb = clamp(rgb, vec3f(0.0), vec3f(1.0));
+
+  return vec4f(rgb, color.a);
+}`,
+  params: {
+    colorShadow: { type: 'color', label: 'Shadow Color', default: '#000000' },
+    colorHighlight: { type: 'color', label: 'Highlight Color', default: '#ffffff' },
+    amount: {
+      type: 'number',
+      label: 'Amount',
+      default: 0.55,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    cells: {
+      type: 'number',
+      label: 'Cells',
+      default: 18,
+      min: 2,
+      max: 80,
+      step: 1,
+      animatable: true,
+    },
+    shadows: {
+      type: 'number',
+      label: 'Shadows',
+      default: 0.3,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    highlights: {
+      type: 'number',
+      label: 'Highlights',
+      default: 0.12,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+    aberration: {
+      type: 'number',
+      label: 'Aberration',
+      default: 0,
+      min: 0,
+      max: 1,
+      step: 0.01,
+      animatable: true,
+    },
+  },
+  packUniforms: (p, w, h) => {
+    const shadow = parseHexColor((p.colorShadow as string) ?? '#000000', [0, 0, 0, 1])
+    const highlight = parseHexColor((p.colorHighlight as string) ?? '#ffffff', [1, 1, 1, 1])
+    return new Float32Array([
+      shadow[0],
+      shadow[1],
+      shadow[2],
+      shadow[3],
+      highlight[0],
+      highlight[1],
+      highlight[2],
+      highlight[3],
+      (p.amount as number) ?? 0.55,
+      (p.cells as number) ?? 18,
+      (p.shadows as number) ?? 0.3,
+      (p.highlights as number) ?? 0.12,
+      (p.aberration as number) ?? 0,
+      w,
+      h,
+      w / Math.max(h, 1),
+    ])
+  },
+}
+
 export const blocks: GpuEffectDefinition = {
   id: 'gpu-blocks',
   name: 'Blocks',

@@ -46,6 +46,7 @@
       "deleteTitle": "복합 클립 삭제",
       "enter": "열기",
       "itemCount": "{{count}}개 항목",
+      "openAsTab": "탭으로 열기",
       "rename": "이름 변경",
       "sectionTitle": "복합 클립"
     },

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { TimelineItem, TimelineTrack } from '@/types/timeline'
+import type { TimelineItem, TimelineTrack, ProjectMarker } from '@/types/timeline'
 import type { AudioEqSettings } from '@/types/audio'
 import type { Transition } from '@/types/transition'
 import type { ItemKeyframes } from '@/types/keyframe'
@@ -23,6 +23,11 @@ export interface SubComposition {
   durationInFrames: number
   backgroundColor?: string
   busAudioEq?: AudioEqSettings
+  /** Per-sequence timeline markers (independent of Main's). */
+  markers?: ProjectMarker[]
+  /** Per-sequence in/out playback range. */
+  inPoint?: number | null
+  outPoint?: number | null
 }
 
 function buildCompositionsMediaDependencyIds(compositions: SubComposition[]): string[] {

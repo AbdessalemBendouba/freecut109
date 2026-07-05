@@ -26,6 +26,7 @@ import { useTimelineSettingsStore } from './timeline-settings-store'
 import { useTimelineCommandStore } from './timeline-command-store'
 import { useCompositionsStore } from './compositions-store'
 import { useCompositionNavigationStore } from './composition-navigation-store'
+import { useSequencesStore } from './sequences-store'
 import { getProject, updateProject, saveProjectThumbnail } from '@/infrastructure/storage'
 import {
   importCanvasRenderOrchestrator,
@@ -748,8 +749,20 @@ export function buildTimelineFromStores(): ProjectTimeline {
           durationInFrames: c.durationInFrames,
           ...(c.backgroundColor && { backgroundColor: c.backgroundColor }),
           ...(c.busAudioEq && { busAudioEq: c.busAudioEq }),
+          ...(c.markers?.length && { markers: c.markers as ProjectTimeline['markers'] }),
+          ...(c.inPoint != null && { inPoint: c.inPoint }),
+          ...(c.outPoint != null && { outPoint: c.outPoint }),
         })),
       }
+    })(),
+    // Standalone timeline tabs (multi-timeline) — keep only ids that resolve to
+    // an existing composition so tabs never dangle.
+    ...(() => {
+      const compIds = new Set(useCompositionsStore.getState().compositions.map((c) => c.id))
+      const topLevelSequenceIds = useSequencesStore
+        .getState()
+        .topLevelSequenceIds.filter((id) => compIds.has(id))
+      return topLevelSequenceIds.length > 0 ? { topLevelSequenceIds } : {}
     })(),
   }
 
@@ -761,26 +774,35 @@ export async function saveTimeline(projectId: string): Promise<void> {
   const event = logger.startEvent('saveTimeline', opId)
   event.set('projectId', projectId)
 
-  // If currently editing a sub-composition, navigate back to root to save
-  // the main timeline data, then restore the full breadcrumb path after save completes.
+  // Serialization reads Main from the live stores, so if the user is on a
+  // sequence tab (or drilled into a compound clip) we reset to Main to build the
+  // project, then restore their tab + drill-in path afterwards. The tab root
+  // (breadcrumbs[0]) is restored via switchToSequence; deeper levels via enter.
   const navStore = useCompositionNavigationStore.getState()
-  const previousBreadcrumbs = navStore.breadcrumbs
-    .filter((breadcrumb) => breadcrumb.compositionId !== null)
-    .map((breadcrumb) => ({
-      compositionId: breadcrumb.compositionId!,
-      label: breadcrumb.label,
-      entryItemId: breadcrumb.entryItemId,
-    }))
-  if (previousBreadcrumbs.length > 0) {
+  const restoreTabId = navStore.breadcrumbs[0]?.compositionId ?? null
+  const drillPath = navStore.breadcrumbs.slice(1).map((breadcrumb) => ({
+    compositionId: breadcrumb.compositionId!,
+    label: breadcrumb.label,
+    entryItemId: breadcrumb.entryItemId,
+  }))
+  const needsRestore = restoreTabId !== null || drillPath.length > 0
+  // Preserve the playhead within the active tab: the reset + re-enter below would
+  // otherwise jump it on every autosave.
+  const savedCurrentFrame = usePlaybackStore.getState().currentFrame
+  if (needsRestore) {
     navStore.resetToRoot()
   }
 
   const restoreCompositionPath = () => {
-    for (const breadcrumb of previousBreadcrumbs) {
+    if (restoreTabId !== null) {
+      useCompositionNavigationStore.getState().switchToSequence(restoreTabId)
+    }
+    for (const breadcrumb of drillPath) {
       useCompositionNavigationStore
         .getState()
         .enterComposition(breadcrumb.compositionId, breadcrumb.label, breadcrumb.entryItemId)
     }
+    usePlaybackStore.getState().setCurrentFrame(savedCurrentFrame)
   }
 
   // Read directly from domain stores (for the event log + thumbnail; the
@@ -789,6 +811,15 @@ export async function saveTimeline(projectId: string): Promise<void> {
   const transitionsState = useTransitionsStore.getState()
   const keyframesState = useKeyframesStore.getState()
   const currentFrame = usePlaybackStore.getState().currentFrame
+
+  // Build the (Main-rooted) timeline and restore the user's tab/drill context
+  // NOW, before any await — keeping the temporary swap to Main synchronous so
+  // autosave never visibly parks the editor on Main across the async storage +
+  // thumbnail work below.
+  const sanitizedTimeline = buildTimelineFromStores()
+  if (needsRestore) {
+    restoreCompositionPath()
+  }
 
   event.merge({
     itemCount: itemsState.items.length,
@@ -809,8 +840,6 @@ export async function saveTimeline(projectId: string): Promise<void> {
       width: project.metadata?.width,
       height: project.metadata?.height,
     })
-
-    const sanitizedTimeline = buildTimelineFromStores()
 
     // Generate thumbnail — prefer capturing the existing preview canvas
     // (near-free: reuses the already-initialized scrub renderer with cached
@@ -907,17 +936,8 @@ export async function saveTimeline(projectId: string): Promise<void> {
 
     const updatedAt = Date.now()
     event.success({ updatedAt, thumbnailId })
-
-    // Re-enter the sub-composition the user was editing before save
-    if (previousBreadcrumbs.length > 0) {
-      restoreCompositionPath()
-    }
   } catch (error) {
     event.failure(error)
-    // Re-enter even on failure so user doesn't lose their editing context
-    if (previousBreadcrumbs.length > 0) {
-      restoreCompositionPath()
-    }
     throw error
   }
 }
@@ -1002,12 +1022,27 @@ export async function hydrateTimelineStoresFromProject(project: Project): Promis
           durationInFrames: c.durationInFrames,
           ...(c.backgroundColor && { backgroundColor: c.backgroundColor }),
           ...(c.busAudioEq && { busAudioEq: c.busAudioEq }),
+          markers: c.markers ?? [],
+          inPoint: c.inPoint ?? null,
+          outPoint: c.outPoint ?? null,
         })),
       )
       useCompositionsStore.getState().setCompositions(hydratedCompositions)
     } else {
       useCompositionsStore.getState().setCompositions([])
     }
+
+    // Restore standalone timeline tabs (multi-timeline). Filter to ids that
+    // resolve to a hydrated composition so tabs never dangle.
+    const hydratedCompositionIds = new Set(
+      useCompositionsStore.getState().compositions.map((c) => c.id),
+    )
+    useSequencesStore.getState().reset()
+    useSequencesStore
+      .getState()
+      .setTopLevelSequenceIds(
+        (t.topLevelSequenceIds ?? []).filter((id) => hydratedCompositionIds.has(id)),
+      )
 
     // Reset composition navigation to root on load
     useCompositionNavigationStore.getState().resetToRoot()
@@ -1035,6 +1070,7 @@ export async function hydrateTimelineStoresFromProject(project: Project): Promis
     useMarkersStore.getState().setInPoint(null)
     useMarkersStore.getState().setOutPoint(null)
     useCompositionsStore.getState().setCompositions([])
+    useSequencesStore.getState().reset()
     useCompositionNavigationStore.getState().resetToRoot()
     useTimelineSettingsStore.getState().setScrollPosition(0)
     useZoomStore.getState().setZoomLevel(1)

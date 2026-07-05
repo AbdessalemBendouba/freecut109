@@ -18,11 +18,13 @@ import { useTransitionsStore } from '../transitions-store'
 import { useKeyframesStore } from '../keyframes-store'
 import { useTimelineSettingsStore } from '../timeline-settings-store'
 import { useCompositionsStore, type SubComposition } from '../compositions-store'
+import { useSequencesStore } from '../sequences-store'
+import { useTimelineCommandStore } from '../timeline-command-store'
 import { useEditorStore } from '@/shared/state/editor'
 import { useSelectionStore } from '@/shared/state/selection'
 import { DEFAULT_TRACK_HEIGHT } from '../../constants'
 import { DEFAULT_PROJECT_HEIGHT, DEFAULT_PROJECT_WIDTH } from '@/shared/projects/defaults'
-import { useCompositionNavigationStore } from '../composition-navigation-store'
+import { useCompositionNavigationStore, getActiveTabId } from '../composition-navigation-store'
 import { useProjectStore } from '@/features/timeline/deps/projects'
 import {
   getLinkedCompositionAudioCompanion,
@@ -261,6 +263,17 @@ export function renameCompoundClip(compositionId: string, nextName: string): boo
           ...stash,
           items: renameCompositionReferences(stash.items, compositionId, trimmedName),
         })),
+        // Keep Main (held aside on a sequence tab) consistent with the rename.
+        mainHolder: state.mainHolder
+          ? {
+              ...state.mainHolder,
+              items: renameCompositionReferences(
+                state.mainHolder.items,
+                compositionId,
+                trimmedName,
+              ),
+            }
+          : null,
       }))
 
       useTimelineSettingsStore.getState().markDirty()
@@ -975,19 +988,37 @@ export function deleteCompoundClips(compositionIds: string[]): boolean {
           ]
         })
       useCompositionsStore.getState().setCompositions(nextCompositions)
+      // Drop any deleted sequences from the standalone-timeline tab set.
+      useSequencesStore.getState().pruneToValidSequenceIds(nextCompositions.map((c) => c.id))
+      // Drop each deleted composition's parked undo history so it can't linger.
+      for (const deletedId of targetIds) {
+        useTimelineCommandStore.getState().removeContext(deletedId)
+      }
 
       const latestNavState = useCompositionNavigationStore.getState()
-      if (latestNavState.stashStack.length > 0) {
+      if (latestNavState.stashStack.length > 0 || latestNavState.mainHolder) {
         useCompositionNavigationStore.setState((state) => ({
           stashStack: state.stashStack.map((stash) => {
-            const sanitizedStash = sanitizeTimelineSnapshot(stash, targetIdSet)
+            const sanitized = sanitizeTimelineSnapshot(stash, targetIdSet)
             return {
               ...stash,
-              items: sanitizedStash.items,
-              transitions: sanitizedStash.transitions,
-              keyframes: sanitizedStash.keyframes,
+              items: sanitized.items,
+              transitions: sanitized.transitions,
+              keyframes: sanitized.keyframes,
             }
           }),
+          // Main (held aside on a sequence tab) must also drop deleted references.
+          mainHolder: state.mainHolder
+            ? (() => {
+                const sanitized = sanitizeTimelineSnapshot(state.mainHolder, targetIdSet)
+                return {
+                  ...state.mainHolder,
+                  items: sanitized.items,
+                  transitions: sanitized.transitions,
+                  keyframes: sanitized.keyframes,
+                }
+              })()
+            : null,
         }))
       }
 
@@ -997,4 +1028,114 @@ export function deleteCompoundClips(compositionIds: string[]): boolean {
     },
     { compositionIds: targetIds },
   )
+}
+
+/** Generate a default, non-colliding name for a new standalone sequence. */
+function nextSequenceName(): string {
+  const existing = new Set(useCompositionsStore.getState().compositions.map((c) => c.name))
+  let n = useSequencesStore.getState().topLevelSequenceIds.length + 1
+  let candidate = `Sequence ${n}`
+  while (existing.has(candidate)) {
+    n += 1
+    candidate = `Sequence ${n}`
+  }
+  return candidate
+}
+
+/**
+ * Create a new empty standalone sequence (a top-level timeline tab) and switch
+ * to it. The sequence is a {@link SubComposition} with its own tracks that
+ * inherits the project canvas + fps. Registry creation is undoable; tab
+ * membership is derived state (the tab bar intersects with existing
+ * compositions), so it is added outside the command wrapper.
+ */
+export function createSequence(name?: string): string {
+  const id = crypto.randomUUID()
+  const projectMetadata = useProjectStore.getState().currentProject?.metadata
+  const width = projectMetadata?.width ?? DEFAULT_PROJECT_WIDTH
+  const height = projectMetadata?.height ?? DEFAULT_PROJECT_HEIGHT
+  const backgroundColor = projectMetadata?.backgroundColor
+  const fps = useTimelineSettingsStore.getState().fps
+  const sequenceName = name?.trim() || nextSequenceName()
+
+  const makeTrack = (label: string, kind: TrackKind, order: number): TimelineTrack => ({
+    id: crypto.randomUUID(),
+    name: label,
+    kind,
+    height: DEFAULT_TRACK_HEIGHT,
+    locked: false,
+    syncLock: true,
+    visible: true,
+    muted: false,
+    solo: false,
+    volume: 0,
+    order,
+    items: [],
+  })
+
+  const sequence: SubComposition = {
+    id,
+    name: sequenceName,
+    items: [],
+    tracks: [makeTrack('V1', 'video', 0), makeTrack('A1', 'audio', 1)],
+    transitions: [],
+    keyframes: [],
+    fps,
+    width,
+    height,
+    durationInFrames: 0,
+    ...(backgroundColor && { backgroundColor }),
+  }
+
+  execute(
+    'CREATE_SEQUENCE',
+    () => {
+      useCompositionsStore.getState().addComposition(sequence)
+      // Tab membership is captured by the undo snapshot, so add it inside the
+      // command — undo/redo then roll it back with the composition.
+      useSequencesStore.getState().addTopLevelSequence(id)
+    },
+    { sequenceId: id },
+  )
+  useTimelineSettingsStore.getState().markDirty()
+  useCompositionNavigationStore.getState().switchToSequence(id)
+  return id
+}
+
+/**
+ * Open a composition for editing. If it's a top-level sequence tab, switch to
+ * that tab (its own root — no Main above it); otherwise drill into it as a
+ * compound clip from the current context.
+ */
+export function openComposition(compositionId: string, label?: string, entryItemId?: string): void {
+  if (useSequencesStore.getState().isTopLevelSequence(compositionId)) {
+    useCompositionNavigationStore.getState().switchToSequence(compositionId)
+    return
+  }
+  const name =
+    label ?? useCompositionsStore.getState().getComposition(compositionId)?.name ?? 'Composition'
+  useCompositionNavigationStore.getState().enterComposition(compositionId, name, entryItemId)
+}
+
+/** Promote an existing composition (compound clip) to a standalone tab and open it. */
+export function openCompositionAsTab(compositionId: string): void {
+  if (!useCompositionsStore.getState().getComposition(compositionId)) return
+  useSequencesStore.getState().addTopLevelSequence(compositionId)
+  useTimelineSettingsStore.getState().markDirty()
+  useCompositionNavigationStore.getState().switchToSequence(compositionId)
+}
+
+/**
+ * Close a standalone-sequence tab. The underlying composition stays in the
+ * registry (still reachable from the media library and any wrapper clips that
+ * reference it); only the tab membership is removed. Switches to Main first if
+ * the closed tab is currently active.
+ */
+export function closeSequenceTab(compositionId: string): void {
+  const nav = useCompositionNavigationStore.getState()
+  if (getActiveTabId(nav.breadcrumbs) === compositionId) {
+    nav.switchToSequence(null)
+  }
+  useSequencesStore.getState().removeTopLevelSequence(compositionId)
+  useTimelineSettingsStore.getState().markDirty()
 }

@@ -5,6 +5,7 @@ import { useKeyframesStore } from '../keyframes-store'
 import { useMarkersStore } from '../markers-store'
 import { useTimelineSettingsStore } from '../timeline-settings-store'
 import { useCompositionsStore } from '../compositions-store'
+import { useSequencesStore } from '../sequences-store'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useProjectStore } from '@/features/timeline/deps/projects'
 import { updateProject } from '@/infrastructure/storage'
@@ -101,6 +102,7 @@ export function captureSnapshot(): TimelineSnapshot {
     keyframes: keyframesState.keyframes,
     markers: markersState.markers,
     compositions: compositionsState.compositions,
+    topLevelSequenceIds: useSequencesStore.getState().topLevelSequenceIds,
     inPoint: markersState.inPoint,
     outPoint: markersState.outPoint,
     fps: settingsState.fps,
@@ -140,8 +142,10 @@ export function restoreSnapshot(snapshot: TimelineSnapshot): void {
   useMarkersStore.getState().setInPoint(sanitizedInOutPoints.inPoint)
   useMarkersStore.getState().setOutPoint(sanitizedInOutPoints.outPoint)
 
-  // Restore compositions
+  // Restore compositions + their standalone-timeline tab membership together,
+  // so undoing a sequence creation removes the tab id instead of dangling it.
   useCompositionsStore.getState().setCompositions(snapshot.compositions)
+  useSequencesStore.getState().setTopLevelSequenceIds(snapshot.topLevelSequenceIds)
 
   // Restore settings
   useTimelineSettingsStore.getState().setFps(snapshot.fps)
@@ -170,6 +174,7 @@ export function snapshotsEqual(a: TimelineSnapshot, b: TimelineSnapshot): boolea
     a.keyframes === b.keyframes &&
     a.markers === b.markers &&
     a.compositions === b.compositions &&
+    a.topLevelSequenceIds === b.topLevelSequenceIds &&
     a.inPoint === b.inPoint &&
     a.outPoint === b.outPoint &&
     a.fps === b.fps &&

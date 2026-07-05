@@ -23,6 +23,8 @@ import { useEditorStore } from '@/shared/state/editor'
 import {
   deleteCompoundClips,
   getCompoundClipDeletionImpact,
+  openComposition,
+  openCompositionAsTab,
   renameCompoundClip,
   useCompositionsStore,
   useCompositionNavigationStore,
@@ -54,7 +56,6 @@ export function CompositionsSection() {
   const { t } = useTranslation()
   const compositions = useCompositionsStore((s) => s.compositions)
   const compositionById = useCompositionsStore((s) => s.compositionById)
-  const enterComposition = useCompositionNavigationStore((s) => s.enterComposition)
   const activeCompositionId = useCompositionNavigationStore((s) => s.activeCompositionId)
 
   const viewMode = useMediaLibraryStore((s) => s.viewMode)
@@ -82,15 +83,17 @@ export function CompositionsSection() {
     editValueRef.current = editValue
   }, [editValue])
 
-  const handleEnter = useCallback(
-    (comp: SubComposition) => {
-      enterComposition(comp.id, comp.name)
-    },
-    [enterComposition],
-  )
+  const handleEnter = useCallback((comp: SubComposition) => {
+    // Sequence tabs switch to their own tab; plain compound clips drill in.
+    openComposition(comp.id, comp.name)
+  }, [])
 
   const handleDeleteRequest = useCallback((comp: SubComposition) => {
     setDeleteTarget(comp)
+  }, [])
+
+  const handleOpenAsTab = useCallback((comp: SubComposition) => {
+    openCompositionAsTab(comp.id)
   }, [])
 
   const handleCompositionSelect = useCallback((compositionId: string, event?: React.MouseEvent) => {
@@ -172,12 +175,20 @@ export function CompositionsSection() {
           {
             onSelect: (event: React.MouseEvent) => handleCompositionSelect(comp.id, event),
             onEnter: () => handleEnter(comp),
+            onOpenAsTab: () => handleOpenAsTab(comp),
             onDelete: () => handleDeleteRequest(comp),
             onStartRename: () => handleStartRename(comp),
           },
         ]),
       ),
-    [compositions, handleCompositionSelect, handleDeleteRequest, handleEnter, handleStartRename],
+    [
+      compositions,
+      handleCompositionSelect,
+      handleDeleteRequest,
+      handleEnter,
+      handleOpenAsTab,
+      handleStartRename,
+    ],
   )
 
   const deleteImpact = deleteTarget
@@ -240,6 +251,7 @@ export function CompositionsSection() {
                 onEditValueChange={setEditValue}
                 onSelect={handlers.onSelect}
                 onEnter={handlers.onEnter}
+                onOpenAsTab={handlers.onOpenAsTab}
                 onDelete={handlers.onDelete}
                 onStartRename={handlers.onStartRename}
                 onCommitRename={handleCommitRename}
@@ -301,6 +313,7 @@ interface CompositionCardProps {
   onEditValueChange: (value: string) => void
   onSelect: (event: React.MouseEvent) => void
   onEnter: () => void
+  onOpenAsTab: () => void
   onDelete: () => void
   onStartRename: () => void
   onCommitRename: (id: string) => void
@@ -330,6 +343,7 @@ const CompositionCardInternal = memo(function CompositionCardInternal({
   onEditValueChange,
   onSelect,
   onEnter,
+  onOpenAsTab,
   onDelete,
   onStartRename,
   onCommitRename,
@@ -558,6 +572,9 @@ const CompositionCardInternal = memo(function CompositionCardInternal({
 
         <ContextMenuContent>
           <ContextMenuItem onClick={onEnter}>{t('media.compositions.enter')}</ContextMenuItem>
+          <ContextMenuItem onClick={onOpenAsTab}>
+            {t('media.compositions.openAsTab')}
+          </ContextMenuItem>
           <ContextMenuItem onClick={onStartRename}>
             {t('media.compositions.rename')}
           </ContextMenuItem>
@@ -643,6 +660,9 @@ const CompositionCardInternal = memo(function CompositionCardInternal({
 
       <ContextMenuContent>
         <ContextMenuItem onClick={onEnter}>{t('media.compositions.enter')}</ContextMenuItem>
+        <ContextMenuItem onClick={onOpenAsTab}>
+          {t('media.compositions.openAsTab')}
+        </ContextMenuItem>
         <ContextMenuItem onClick={onStartRename}>{t('media.compositions.rename')}</ContextMenuItem>
         <ContextMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
           {t('common.delete')}

@@ -84,8 +84,7 @@
       "selectFormat": "Format auswählen",
       "selectQuality": "Qualität auswählen",
       "selectResolution": "Auflösung auswählen",
-      "video": "Video",
-      "subtitles": "Untertitel",
+      "sequence": "Sequenz",
       "subtitleMode": {
         "off": "Aus",
         "burn": "Einbrennen",
@@ -95,7 +94,9 @@
         "burnDescription": "Untertitel werden ins Video eingebrannt – in jedem Player sichtbar.",
         "sidecarDescription": "Sauberes Video plus separate .srt-Untertiteldatei.",
         "embeddedDescription": "Eine umschaltbare Untertitelspur (WebM/MKV)."
-      }
+      },
+      "subtitles": "Untertitel",
+      "video": "Video"
     },
     "videoContainer": {
       "mp4": "Breite Unterstützung, ideal zum Teilen",

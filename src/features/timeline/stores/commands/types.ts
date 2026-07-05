@@ -17,6 +17,8 @@ export interface TimelineSnapshot {
   keyframes: ItemKeyframes[]
   markers: ProjectMarker[]
   compositions: SubComposition[]
+  /** Standalone-timeline tab membership — undone with the compositions it references. */
+  topLevelSequenceIds: string[]
   inPoint: number | null
   outPoint: number | null
   fps: number

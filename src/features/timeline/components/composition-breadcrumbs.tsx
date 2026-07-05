@@ -3,15 +3,17 @@ import { ChevronRight } from 'lucide-react'
 import { useCompositionNavigationStore } from '../stores/composition-navigation-store'
 
 /**
- * Breadcrumb navigation for composition hierarchy.
- * Shows "Main Timeline > Pre-Comp 1 > ..." and allows clicking to navigate.
- * Only visible when inside a sub-composition.
+ * Breadcrumb navigation for the drill-in path within the active tab. The trail
+ * root (`breadcrumbs[0]`) is the tab itself — the Main timeline or a standalone
+ * sequence — so it reads "Main > Compound Clip" on the Main tab and
+ * "Sequence 1 > Compound Clip" on a sequence tab. Renders nothing at a tab root
+ * (no drill-in), where the sequence tab bar already shows where you are.
  */
 export const CompositionBreadcrumbs = memo(function CompositionBreadcrumbs() {
   const breadcrumbs = useCompositionNavigationStore((s) => s.breadcrumbs)
   const navigateTo = useCompositionNavigationStore((s) => s.navigateTo)
 
-  // Don't render when at root (only "Main Timeline")
+  // Nothing to show until there is a drill-in below the current tab root.
   if (breadcrumbs.length <= 1) return null
 
   return (

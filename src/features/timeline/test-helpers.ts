@@ -4,6 +4,11 @@ import { useTimelineSettingsStore } from './stores/timeline-settings-store'
 import { useTransitionsStore } from './stores/transitions-store'
 import { useKeyframesStore } from './stores/keyframes-store'
 import { useCompositionsStore } from './stores/compositions-store'
+import { useMarkersStore } from './stores/markers-store'
+import { useSequencesStore } from './stores/sequences-store'
+import { useCompositionNavigationStore } from './stores/composition-navigation-store'
+import { useTimelineCommandStore } from './stores/timeline-command-store'
+import { setActiveCompositionId } from './stores/composition-navigation-active'
 
 type TimelineTrackOverrides = Partial<TimelineTrack> & Pick<TimelineTrack, 'id' | 'name' | 'order'>
 
@@ -105,4 +110,18 @@ export function resetTimelineCompositionTestState() {
   useTransitionsStore.getState().setTransitions([])
   useKeyframesStore.getState().setKeyframes([])
   useCompositionsStore.getState().setCompositions([])
+  useMarkersStore.getState().setMarkers([])
+  useMarkersStore.getState().setInOutPoints(null, null)
+  // Reset multi-timeline / navigation singletons so sequence state never leaks
+  // across test files sharing a worker (mainHolder in particular would be
+  // restored into the live stores by resetToRoot).
+  useSequencesStore.getState().reset()
+  useCompositionNavigationStore.setState({
+    breadcrumbs: [{ compositionId: null, label: 'Main Timeline' }],
+    activeCompositionId: null,
+    stashStack: [],
+    mainHolder: null,
+  })
+  setActiveCompositionId(null)
+  useTimelineCommandStore.getState().clearHistory()
 }

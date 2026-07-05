@@ -84,8 +84,7 @@
       "selectFormat": "Sélectionner un format",
       "selectQuality": "Sélectionner une qualité",
       "selectResolution": "Sélectionner une résolution",
-      "video": "Vidéo",
-      "subtitles": "Sous-titres",
+      "sequence": "Séquence",
       "subtitleMode": {
         "off": "Désactivé",
         "burn": "Incrustés",
@@ -95,7 +94,9 @@
         "burnDescription": "Les sous-titres sont incrustés dans la vidéo, visibles sur tous les lecteurs.",
         "sidecarDescription": "Vidéo sans incrustation et un fichier de sous-titres .srt séparé.",
         "embeddedDescription": "Une piste de sous-titres activable (WebM/MKV)."
-      }
+      },
+      "subtitles": "Sous-titres",
+      "video": "Vidéo"
     },
     "videoContainer": {
       "mp4": "Très large compatibilité, idéal pour le partage",

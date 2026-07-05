@@ -46,6 +46,7 @@
       "deleteTitle": "Excluir clipe composto",
       "enter": "Entrar",
       "itemCount": "{{count}} itens",
+      "openAsTab": "Abrir como aba",
       "rename": "Renomear",
       "sectionTitle": "Clipes compostos"
     },

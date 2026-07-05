@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -58,9 +58,12 @@ import {
   rangesFromMarkers,
 } from '../utils/build-render-job'
 import { useRenderQueueStore, type RenderJob } from '../stores/render-queue-store'
-import { useProjectStore } from '@/features/export/deps/projects'
-import { DEFAULT_PROJECT_HEIGHT, DEFAULT_PROJECT_WIDTH } from '@/shared/projects/defaults'
-import { useTimelineStore } from '@/features/export/deps/timeline'
+import {
+  getActiveExportSequenceId,
+  getExportableSequence,
+  listExportableSequences,
+  type ExportableSequence,
+} from '@/features/export/deps/timeline-compositions'
 import { formatTimecode, framesToSeconds } from '@/shared/utils/time-utils'
 import type { ExportPreflightResult } from '../utils/export-preflight'
 import { assessExportPreflight, summarizePreflightSeverity } from '../utils/export-preflight'
@@ -292,21 +295,39 @@ function ExportPreflightPanel({ preflight }: { preflight: ExportPreflightResult 
 
 export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogProps) {
   const { t } = useTranslation()
-  const projectWidth = useProjectStore(
-    (s) => s.currentProject?.metadata.width ?? DEFAULT_PROJECT_WIDTH,
+  // Which sequence to export (Main or a standalone tab). Snapshotted when the
+  // dialog opens (reset to the active tab) and re-read when the picker changes.
+  // Sourced read-only so the editor view is never disturbed; the timeline isn't
+  // edited while the modal is up, so a snapshot on open is sufficient.
+  const [selectedSequenceId, setSelectedSequenceId] = useState<string | null>(null)
+  const [sequenceOptions, setSequenceOptions] = useState<
+    Array<{ id: string | null; name: string }>
+  >([])
+  const [exportable, setExportable] = useState<ExportableSequence>(() =>
+    getExportableSequence(null),
   )
-  const projectHeight = useProjectStore(
-    (s) => s.currentProject?.metadata.height ?? DEFAULT_PROJECT_HEIGHT,
-  )
-  // Timeline state for in/out points and duration calculation
-  const fps = useTimelineStore((s) => s.fps)
-  const tracks = useTimelineStore((s) => s.tracks ?? [])
-  const items = useTimelineStore((s) => s.items)
-  const transitions = useTimelineStore((s) => s.transitions ?? [])
-  const keyframes = useTimelineStore((s) => s.keyframes ?? [])
-  const inPoint = useTimelineStore((s) => s.inPoint)
-  const outPoint = useTimelineStore((s) => s.outPoint)
-  const markers = useTimelineStore((s) => s.markers ?? [])
+  useEffect(() => {
+    if (!open) return
+    const id = getActiveExportSequenceId()
+    setSelectedSequenceId(id)
+    setSequenceOptions(listExportableSequences())
+    setExportable(getExportableSequence(id))
+  }, [open])
+  const handleSelectSequence = useCallback((id: string | null) => {
+    setSelectedSequenceId(id)
+    setExportable(getExportableSequence(id))
+  }, [])
+
+  // Resolution + timeline data all follow the selected sequence.
+  const projectWidth = exportable.width
+  const projectHeight = exportable.height
+  const fps = exportable.fps
+  const tracks = exportable.tracks
+  const items = exportable.items
+  const transitions = exportable.transitions
+  const keyframes = exportable.keyframes
+  const inPoint = exportable.inPoint
+  const outPoint = exportable.outPoint
   const brokenMediaIds = useBrokenMediaIds()
   const enqueueJobs = useRenderQueueStore((s) => s.enqueueJobs)
 
@@ -504,17 +525,17 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
     await startExport(buildExtendedSettings())
   }
 
-  // The active render range (whole project unless in/out points are set).
-  const queueRange = (): { inPoint: number | null; outPoint: number | null } =>
-    renderWholeProject || !hasInOutPoints
+  // The active render range for a sequence (whole timeline unless in/out set).
+  const queueRange = (seq: ExportableSequence): { inPoint: number | null; outPoint: number | null } =>
+    renderWholeProject || seq.inPoint === null || seq.outPoint === null || seq.outPoint <= seq.inPoint
       ? { inPoint: null, outPoint: null }
-      : { inPoint, outPoint }
+      : { inPoint: seq.inPoint, outPoint: seq.outPoint }
 
   // The frame window segment generators split over: the active range, or the
   // whole timeline when no in/out points are set.
-  const segmentWindow = (): { start: number; end: number } => {
-    const range = queueRange()
-    return { start: range.inPoint ?? 0, end: range.outPoint ?? timelineDurationFrames }
+  const segmentWindow = (seq: ExportableSequence): { start: number; end: number } => {
+    const range = queueRange(seq)
+    return { start: range.inPoint ?? 0, end: range.outPoint ?? seq.durationFrames }
   }
 
   // Close the export dialog and open the queue panel. Called BEFORE building
@@ -542,31 +563,51 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
     }
   }
 
+  // Re-read the selected sequence at click time so a queued export always
+  // reflects the current timeline, not a snapshot that went stale while the
+  // dialog stayed open.
+  const captureSelection = () => getExportableSequence(selectedSequenceId)
+
   const handleAddCurrentRange = () => {
-    void enqueueAndReveal(async (settings) => [await buildRenderJob({ settings, ...queueRange() })])
+    const seq = captureSelection()
+    void enqueueAndReveal(async (settings) => [
+      await buildRenderJob({ settings, ...queueRange(seq), sequence: seq }),
+    ])
   }
 
   const handleAddMarkerSegments = () => {
-    const { start, end } = segmentWindow()
-    const ranges = rangesFromMarkers(markers, start, end)
+    const seq = captureSelection()
+    const { start, end } = segmentWindow(seq)
+    const ranges = rangesFromMarkers(seq.markers, start, end)
     if (ranges.length <= 1) {
       toast.info(t('export.renderQueue.noMarkers'))
       return
     }
     void enqueueAndReveal((settings) =>
-      buildSegmentJobs(settings, ranges, (i) => t('export.renderQueue.partLabel', { n: i + 1 })),
+      buildSegmentJobs(
+        settings,
+        ranges,
+        (i) => t('export.renderQueue.partLabel', { n: i + 1 }),
+        seq,
+      ),
     )
   }
 
   const handleSplitChunks = (seconds: number) => {
-    const { start, end } = segmentWindow()
-    const ranges = rangesFromFixedDuration(start, end, Math.max(1, Math.round(seconds * fps)))
+    const seq = captureSelection()
+    const { start, end } = segmentWindow(seq)
+    const ranges = rangesFromFixedDuration(start, end, Math.max(1, Math.round(seconds * seq.fps)))
     if (ranges.length === 0) {
       toast.info(t('export.renderQueue.nothingToRender'))
       return
     }
     void enqueueAndReveal((settings) =>
-      buildSegmentJobs(settings, ranges, (i) => t('export.renderQueue.partLabel', { n: i + 1 })),
+      buildSegmentJobs(
+        settings,
+        ranges,
+        (i) => t('export.renderQueue.partLabel', { n: i + 1 }),
+        seq,
+      ),
     )
   }
 
@@ -849,6 +890,32 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
           <div className="py-4">
             <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
               <div className="space-y-4">
+                {/* Sequence picker — only when there's more than the Main timeline */}
+                {sequenceOptions.length > 1 && (
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="sequence" className="text-sm font-medium">
+                      {t('export.settings.sequence')}
+                    </Label>
+                    <Select
+                      value={selectedSequenceId ?? '__main__'}
+                      onValueChange={(value) =>
+                        handleSelectSequence(value === '__main__' ? null : value)
+                      }
+                    >
+                      <SelectTrigger id="sequence" className="w-[180px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sequenceOptions.map((option) => (
+                          <SelectItem key={option.id ?? '__main__'} value={option.id ?? '__main__'}>
+                            {option.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
                 {/* Export Mode: Video or Audio Toggle Group */}
                 <div className="flex items-center justify-between">
                   <Label className="text-sm font-medium">{t('export.settings.exportType')}</Label>

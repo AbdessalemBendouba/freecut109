@@ -6,14 +6,40 @@ import { formatTimelineCommandLabel } from './commands/labels'
 import { emitUiSound } from '@/shared/ui/ui-sound'
 
 /**
+ * Sentinel context key for the Main timeline (activeCompositionId === null).
+ * Undo/redo history is scoped per editing context so an entry captured while
+ * one sequence/composition is live can never be applied while another is live
+ * (which would restore the wrong content into the live domain stores).
+ */
+export const ROOT_HISTORY_CONTEXT = '__root__'
+
+function historyContextKey(compositionId: string | null): string {
+  return compositionId ?? ROOT_HISTORY_CONTEXT
+}
+
+interface HistoryStacks {
+  undoStack: CommandEntry[]
+  redoStack: CommandEntry[]
+}
+
+/**
  * Command store state.
  * Maintains undo/redo stacks and provides atomic history management.
+ *
+ * `undoStack`/`redoStack` are always the *active* context's stacks. Inactive
+ * contexts' stacks are parked in `stacksByContext` and swapped in by
+ * {@link CommandStoreActions.setActiveContext} when navigation changes which
+ * sequence/composition is live.
  */
 interface CommandStoreState {
   undoStack: CommandEntry[]
   redoStack: CommandEntry[]
   canUndo: boolean
   canRedo: boolean
+  /** Parked stacks for non-active contexts, keyed by composition id / root sentinel. */
+  stacksByContext: Record<string, HistoryStacks>
+  /** The context key whose stacks are currently in undoStack/redoStack. */
+  activeContextKey: string
 }
 
 /**
@@ -69,6 +95,22 @@ interface CommandStoreActions {
    * Used for drag operations where snapshot is captured at start and committed at end.
    */
   addUndoEntry: (command: TimelineCommand, beforeSnapshot: TimelineSnapshot) => void
+
+  /**
+   * Switch the active undo/redo context to the given composition (null = Main
+   * timeline). Parks the current stacks and swaps in the target context's
+   * stacks (empty if none). Called by composition navigation whenever the live
+   * timeline content changes, so undo/redo always operate on the content that
+   * is actually on screen.
+   */
+  setActiveContext: (compositionId: string | null) => void
+
+  /**
+   * Drop a composition's parked undo/redo history entirely. Called when the
+   * composition is deleted so its stack chain can't linger in memory or be
+   * reused. If it happens to be the active context, its live stacks are cleared.
+   */
+  removeContext: (compositionId: string) => void
 }
 
 export const useTimelineCommandStore = create<CommandStoreState & CommandStoreActions>()(
@@ -78,6 +120,8 @@ export const useTimelineCommandStore = create<CommandStoreState & CommandStoreAc
     redoStack: [],
     canUndo: false,
     canRedo: false,
+    stacksByContext: {},
+    activeContextKey: ROOT_HISTORY_CONTEXT,
 
     // Execute a command
     execute: <T>(command: TimelineCommand, action: () => T): T => {
@@ -154,13 +198,15 @@ export const useTimelineCommandStore = create<CommandStoreState & CommandStoreAc
       }))
     },
 
-    // Clear history
+    // Clear history — wipes every context, not just the active one.
     clearHistory: () =>
       set({
         undoStack: [],
         redoStack: [],
         canUndo: false,
         canRedo: false,
+        stacksByContext: {},
+        activeContextKey: ROOT_HISTORY_CONTEXT,
       }),
 
     // Get last command type
@@ -202,6 +248,39 @@ export const useTimelineCommandStore = create<CommandStoreState & CommandStoreAc
           canRedo: false,
         }))
       }
+    },
+
+    setActiveContext: (compositionId) => {
+      const key = historyContextKey(compositionId)
+      const state = get()
+      if (key === state.activeContextKey) return
+
+      const incoming = state.stacksByContext[key] ?? { undoStack: [], redoStack: [] }
+      // Park the active stacks under their key; pull the target out of the map.
+      const { [key]: _incoming, ...others } = state.stacksByContext
+      set({
+        stacksByContext: {
+          ...others,
+          [state.activeContextKey]: { undoStack: state.undoStack, redoStack: state.redoStack },
+        },
+        activeContextKey: key,
+        undoStack: incoming.undoStack,
+        redoStack: incoming.redoStack,
+        canUndo: incoming.undoStack.length > 0,
+        canRedo: incoming.redoStack.length > 0,
+      })
+    },
+
+    removeContext: (compositionId) => {
+      const key = historyContextKey(compositionId)
+      const state = get()
+      if (key === state.activeContextKey) {
+        set({ undoStack: [], redoStack: [], canUndo: false, canRedo: false })
+        return
+      }
+      if (!(key in state.stacksByContext)) return
+      const { [key]: _removed, ...others } = state.stacksByContext
+      set({ stacksByContext: others })
     },
   }),
 )

@@ -8,7 +8,7 @@ import { useSelectionStore } from '@/shared/state/selection'
 import { useTimelineStore } from '../../stores/timeline-store'
 import { useTransitionsStore } from '../../stores/transitions-store'
 import { useMarkersStore } from '../../stores/markers-store'
-import { useCompositionNavigationStore } from '../../stores/composition-navigation-store'
+import { openComposition } from '../../stores/actions/composition-actions'
 import { frameToPixelsNow, pixelsToFrameNow } from '../../utils/zoom-conversions'
 import { getVisibleTrackIds } from '../../utils/group-utils'
 import { getFilteredItemSnapEdges } from '../../utils/timeline-snap-utils'
@@ -204,14 +204,13 @@ export function useTimelineItemPointerHandlers({
       if (trackLocked) return
       if (activeToolRef.current === 'razor') return
 
-      // Compound clip wrappers: enter the sub-composition
+      // Compound clip wrappers: open the sub-composition. A sequence tab
+      // switches to its tab (its own root); a plain compound clip drills in.
       if (
         (item.type === 'composition' || (item.type === 'audio' && item.compositionId)) &&
         item.compositionId
       ) {
-        useCompositionNavigationStore
-          .getState()
-          .enterComposition(item.compositionId, item.label, item.id)
+        openComposition(item.compositionId, item.label, item.id)
         return
       }
 

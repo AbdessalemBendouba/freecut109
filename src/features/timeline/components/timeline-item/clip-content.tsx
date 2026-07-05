@@ -1,10 +1,11 @@
-import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link2 } from 'lucide-react'
 import { perfMarkRender } from '@/shared/logging/perf-marks'
 import type { TimelineItem } from '@/types/timeline'
 import { useSettingsStore } from '@/features/timeline/deps/settings'
 import { useMediaLibraryStore } from '@/features/timeline/deps/media-library-store'
 import { useCompositionsStore } from '../../stores/compositions-store'
+import { useSequencesStore } from '../../stores/sequences-store'
 import { useItemsStore } from '../../stores/items-store'
 import { useClipVisibility } from '../../hooks/use-clip-visibility'
 import { useZoomStore } from '../../stores/zoom-store'
@@ -251,6 +252,14 @@ export const ClipContent = memo(function ClipContent({
       [compositionId],
     ),
   )
+  // A clip that references a standalone sequence reads "Sequence"; a plain
+  // pre-comp reads "Compound".
+  const isSequenceClip = useSequencesStore(
+    useCallback(
+      (s) => (compositionId ? s.topLevelSequenceIds.includes(compositionId) : false),
+      [compositionId],
+    ),
+  )
   const hasCompositionAudioCompanion = useItemsStore(
     useCallback(
       (s) => item.type === 'composition' && hasLinkedAudioCompanion(s.items, item),
@@ -290,7 +299,7 @@ export const ClipContent = memo(function ClipContent({
     linkedSyncOffsetFrames === null ? null : formatSignedFrameDelta(linkedSyncOffsetFrames, fps)
 
   const renderTitleText = useCallback(
-    (label: string) => (
+    (label: string, badge?: ReactNode) => (
       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
         {linkedSyncOffsetLabel && (
           <span
@@ -316,6 +325,7 @@ export const ClipContent = memo(function ClipContent({
             <Link2 className="h-3 w-3" />
           </span>
         )}
+        {badge}
         <span className="min-w-0 truncate">{label}</span>
       </div>
     ),
@@ -392,13 +402,17 @@ export const ClipContent = memo(function ClipContent({
           lineHeight: EDITOR_LAYOUT_CSS_VALUES.timelineClipLabelRowHeight,
         }}
       >
-        <span className="rounded bg-violet-950/40 px-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-violet-100/90">
-          Compound
-        </span>
-        <div className="min-w-0 flex-1">{renderTitleText(label)}</div>
+        {/* Badge sits after the link icon so the link icon stays flush-left like
+            every other clip's label row. */}
+        {renderTitleText(
+          label,
+          <span className="shrink-0 rounded bg-violet-950/40 px-1.5 text-[9px] font-semibold uppercase tracking-[0.08em] text-violet-100/90">
+            {isSequenceClip ? 'Sequence' : 'Compound'}
+          </span>,
+        )}
       </div>
     ),
-    [renderTitleText],
+    [renderTitleText, isSequenceClip],
   )
 
   const showVisualContent = clipWidth >= FILMSTRIP_MIN_WIDTH_PX && !deferVisual
