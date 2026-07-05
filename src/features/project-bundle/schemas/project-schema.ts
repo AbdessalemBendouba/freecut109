@@ -558,6 +558,7 @@ const timelineSchema = z
     outPoint: z.number().int().min(0).optional(),
     markers: z.array(markerSchema).optional(),
     transitions: z.array(transitionSchema).optional(),
+    topLevelSequenceIds: z.array(z.string()).optional(),
     compositions: z.array(compositionSchema).optional(),
     keyframes: z.array(itemKeyframesSchema).optional(),
   })

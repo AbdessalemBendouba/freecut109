@@ -33,12 +33,24 @@ interface StashedTimeline {
 }
 
 interface CompositionNavigationState {
-  /** Stack of composition breadcrumbs — last entry is the current view */
+  /**
+   * Drill-in path *within the active tab*. `breadcrumbs[0]` is the tab root —
+   * the Main timeline (`compositionId: null`) or a standalone sequence
+   * (`compositionId: <seqId>`). Deeper entries are compound clips drilled into
+   * from that root. So a sequence tab is a genuine root: Main never appears
+   * above it.
+   */
   breadcrumbs: CompositionBreadcrumb[]
-  /** The compositionId currently being viewed (null = root timeline) */
+  /** The compositionId currently being viewed (null = Main timeline). */
   activeCompositionId: string | null
-  /** Stack of stashed timeline states for navigation history */
+  /** Stashed timeline states for drill-in within the active tab. */
   stashStack: StashedTimeline[]
+  /**
+   * Main timeline content, held aside while a sequence tab is active (Main is
+   * not in `stashStack` then — a sequence is its own root). `null` when the Main
+   * tab is active (Main is live, or stashed under a compound-clip drill-in).
+   */
+  mainHolder: StashedTimeline | null
 }
 
 interface CompositionNavigationActions {
@@ -50,15 +62,74 @@ interface CompositionNavigationActions {
   navigateTo: (index: number) => void
   /** Reset to root timeline */
   resetToRoot: () => void
+  /**
+   * Switch the active top-level tab (multi-timeline). `null` = the Main
+   * timeline; a sequence id enters that sequence as the first level. Flushes
+   * the outgoing tab (and any drill-in) back to the registry, then loads the
+   * target, restoring its saved view. Undo history follows via the underlying
+   * reset/enter transitions.
+   */
+  switchToSequence: (sequenceId: string | null) => void
 }
 
 import { useItemsStore } from './items-store'
 import { useTransitionsStore } from './transitions-store'
 import { useKeyframesStore } from './keyframes-store'
 import { useCompositionsStore } from './compositions-store'
+import { useMarkersStore } from './markers-store'
+import { useTimelineSettingsStore } from './timeline-settings-store'
+import { useZoomStore } from './zoom-store'
+import { useTimelineCommandStore } from './timeline-command-store'
+import { useSequencesStore, type SequenceViewState } from './sequences-store'
 import { useSelectionStore } from '@/shared/state/selection'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { setActiveCompositionId } from './composition-navigation-active'
+
+/**
+ * The active top-level tab is the breadcrumb root. `null` = Main timeline; a
+ * sequence tab is its own root, so its id sits at `breadcrumbs[0]`. Drilling
+ * into a compound clip does not change the tab (only deeper breadcrumbs change).
+ */
+export function getActiveTabId(breadcrumbs: CompositionBreadcrumb[]): string | null {
+  return breadcrumbs[0]?.compositionId ?? null
+}
+
+/** View-state map key for a tab (Main uses the root sentinel). */
+function tabViewKey(tabId: string | null): string {
+  return tabId ?? '__root__'
+}
+
+/** Snapshot the current view/playback state for the active tab. */
+function captureSequenceView(): SequenceViewState {
+  return {
+    currentFrame: usePlaybackStore.getState().currentFrame,
+    zoomLevel: useZoomStore.getState().level,
+    scrollPosition: useTimelineSettingsStore.getState().scrollPosition,
+    inPoint: useMarkersStore.getState().inPoint,
+    outPoint: useMarkersStore.getState().outPoint,
+    selectedItemIds: useSelectionStore.getState().selectedItemIds,
+  }
+}
+
+/**
+ * Apply a saved per-tab view, or sensible fresh-tab defaults when none exists.
+ * Playhead + selection for a fresh tab are left to enter/reset, which already
+ * set them; here we only reset the scroll/in-out that those paths don't touch.
+ */
+function applySequenceView(view: SequenceViewState | undefined): void {
+  if (view) {
+    useZoomStore.getState().setZoomLevel(view.zoomLevel)
+    useTimelineSettingsStore.getState().setScrollPosition(view.scrollPosition)
+    useMarkersStore.getState().setInPoint(view.inPoint)
+    useMarkersStore.getState().setOutPoint(view.outPoint)
+    usePlaybackStore.getState().setCurrentFrame(view.currentFrame)
+    useSelectionStore.getState().selectItems(view.selectedItemIds)
+  } else {
+    useTimelineSettingsStore.getState().setScrollPosition(0)
+    useMarkersStore.getState().setInPoint(null)
+    useMarkersStore.getState().setOutPoint(null)
+  }
+}
 
 /** Save current items/tracks/transitions/keyframes from domain stores into a stash entry. */
 function captureCurrentTimeline(compositionId: string | null): StashedTimeline {
@@ -151,6 +222,7 @@ export const useCompositionNavigationStore = create<
   breadcrumbs: [{ compositionId: null, label: 'Main Timeline' }],
   activeCompositionId: null,
   stashStack: [],
+  mainHolder: null,
 
   enterComposition: (compositionId, label, entryItemId) => {
     // Pause playback before switching timeline context
@@ -192,6 +264,7 @@ export const useCompositionNavigationStore = create<
     usePlaybackStore.getState().setCurrentFrame(localFrame)
 
     setActiveCompositionId(compositionId)
+    useTimelineCommandStore.getState().setActiveContext(compositionId)
     set({
       breadcrumbs: [
         ...state.breadcrumbs,
@@ -223,6 +296,7 @@ export const useCompositionNavigationStore = create<
     const lastEntry = newBreadcrumbs[newBreadcrumbs.length - 1]!
 
     setActiveCompositionId(lastEntry.compositionId)
+    useTimelineCommandStore.getState().setActiveContext(lastEntry.compositionId)
     set({
       breadcrumbs: newBreadcrumbs,
       activeCompositionId: lastEntry.compositionId,
@@ -257,6 +331,7 @@ export const useCompositionNavigationStore = create<
     const lastEntry = newBreadcrumbs[newBreadcrumbs.length - 1]!
 
     setActiveCompositionId(lastEntry.compositionId)
+    useTimelineCommandStore.getState().setActiveContext(lastEntry.compositionId)
     set({
       breadcrumbs: newBreadcrumbs,
       activeCompositionId: lastEntry.compositionId,
@@ -268,24 +343,75 @@ export const useCompositionNavigationStore = create<
     // Pause playback before switching timeline context
     usePlaybackStore.getState().pause()
 
-    const state = get()
-
-    // Save current sub-comp changes
-    if (state.activeCompositionId !== null) {
-      saveCurrentToComposition(state.activeCompositionId)
+    // Unwind any drill-in within the current tab, restoring each parent level.
+    while (get().breadcrumbs.length > 1) {
+      get().exitComposition()
     }
 
-    // Restore root stash (first entry if exists)
-    if (state.stashStack.length > 0) {
-      const rootStash = state.stashStack[0]!
-      restoreTimeline(rootStash)
+    // If on a sequence tab, flush it to the registry and bring Main back live.
+    const state = get()
+    if (state.mainHolder) {
+      if (state.activeCompositionId !== null) {
+        saveCurrentToComposition(state.activeCompositionId)
+      }
+      restoreTimeline(state.mainHolder)
     }
 
     setActiveCompositionId(null)
+    useTimelineCommandStore.getState().setActiveContext(null)
     set({
       breadcrumbs: [{ compositionId: null, label: 'Main Timeline' }],
       activeCompositionId: null,
       stashStack: [],
+      mainHolder: null,
     })
+  },
+
+  switchToSequence: (sequenceId) => {
+    usePlaybackStore.getState().pause()
+
+    const state = get()
+    const currentTabId = getActiveTabId(state.breadcrumbs)
+
+    if (currentTabId === sequenceId) {
+      // Already on this tab; collapse any drill-in back to its root.
+      if (state.breadcrumbs.length > 1) {
+        get().navigateTo(0)
+      }
+      return
+    }
+
+    // Save the outgoing tab's view before tearing down its context.
+    useSequencesStore.getState().saveSequenceView(tabViewKey(currentTabId), captureSequenceView())
+
+    // Return to Main: flushes drill-in + the outgoing sequence back to the
+    // registry, restores Main to the live stores, and swaps undo history to the
+    // Main context.
+    get().resetToRoot()
+
+    if (sequenceId !== null) {
+      const comp = useCompositionsStore.getState().getComposition(sequenceId)
+      if (!comp) {
+        // Target was deleted out from under us — stay on Main.
+        applySequenceView(useSequencesStore.getState().getSequenceView(tabViewKey(null)))
+        return
+      }
+      // Make the sequence a genuine root: hold Main aside, load the sequence
+      // into the live stores as breadcrumbs[0]. Main never sits above it.
+      const mainStash = captureCurrentTimeline(null)
+      loadComposition(sequenceId)
+      usePlaybackStore.getState().setCurrentFrame(0)
+      setActiveCompositionId(sequenceId)
+      useTimelineCommandStore.getState().setActiveContext(sequenceId)
+      set({
+        breadcrumbs: [{ compositionId: sequenceId, label: comp.name }],
+        activeCompositionId: sequenceId,
+        stashStack: [],
+        mainHolder: mainStash,
+      })
+    }
+
+    // Restore the target tab's saved view (or fresh-tab defaults).
+    applySequenceView(useSequencesStore.getState().getSequenceView(tabViewKey(sequenceId)))
   },
 }))

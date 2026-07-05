@@ -9,6 +9,8 @@ export {
   deleteCompoundClips,
   getCompoundClipDeletionImpact,
   getMediaDeletionImpact,
+  openComposition,
+  openCompositionAsTab,
   removeTimelineItemsExact,
   removeProjectItems,
   renameCompoundClip,

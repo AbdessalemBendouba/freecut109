@@ -10,6 +10,10 @@
 import type { ExtendedExportSettings } from '@/types/export'
 import type { ProjectMarker } from '@/types/timeline'
 import { useTimelineStore } from '@/features/export/deps/timeline'
+import {
+  getActiveCompositionId,
+  useCompositionsStore,
+} from '@/features/export/deps/timeline-compositions'
 import { useProjectStore } from '@/features/export/deps/projects'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { DEFAULT_PROJECT_HEIGHT, DEFAULT_PROJECT_WIDTH } from '@/shared/projects/defaults'
@@ -53,8 +57,18 @@ function captureTimeline(): TimelineCapture {
   const currentProject = useProjectStore.getState().currentProject
   const playback = usePlaybackStore.getState()
 
-  const width = currentProject?.metadata?.width ?? DEFAULT_PROJECT_WIDTH
-  const height = currentProject?.metadata?.height ?? DEFAULT_PROJECT_HEIGHT
+  // Export "what you see": the live timeline stores already hold the active
+  // sequence tab's tracks/items/fps. Source the canvas from the active sequence
+  // too (falling back to the project) so a sequence with its own dimensions
+  // renders at its own resolution rather than the root project's.
+  const activeCompositionId = getActiveCompositionId()
+  const activeComposition = activeCompositionId
+    ? useCompositionsStore.getState().getComposition(activeCompositionId)
+    : undefined
+
+  const width = activeComposition?.width ?? currentProject?.metadata?.width ?? DEFAULT_PROJECT_WIDTH
+  const height =
+    activeComposition?.height ?? currentProject?.metadata?.height ?? DEFAULT_PROJECT_HEIGHT
 
   const snapshot: RenderJobSnapshot = {
     tracks: clone(tl.tracks),
@@ -64,7 +78,7 @@ function captureTimeline(): TimelineCapture {
     fps: tl.fps,
     width,
     height,
-    backgroundColor: currentProject?.metadata?.backgroundColor,
+    backgroundColor: activeComposition?.backgroundColor ?? currentProject?.metadata?.backgroundColor,
     busAudioEq: playback.busAudioEq,
     masterBusDb: playback.masterBusDb,
   }

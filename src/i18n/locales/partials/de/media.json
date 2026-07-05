@@ -46,6 +46,7 @@
       "deleteTitle": "Zusammengesetzten Clip löschen",
       "enter": "Öffnen",
       "itemCount": "{{count}} Elemente",
+      "openAsTab": "Als Tab öffnen",
       "rename": "Umbenennen",
       "sectionTitle": "Zusammengesetzte Clips"
     },

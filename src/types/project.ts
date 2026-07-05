@@ -211,6 +211,13 @@ export interface ProjectTimeline {
   }>
   // Transitions between clips
   transitions?: Transition[]
+  /**
+   * Ordered ids of sub-compositions promoted to standalone timeline tabs
+   * ("sequences"), shown alongside the implicit Main timeline. Order = tab
+   * order. Ids that don't resolve to an entry in `compositions` are pruned on
+   * load. Absent/empty means the project has only the Main timeline.
+   */
+  topLevelSequenceIds?: string[]
   // Sub-compositions (pre-comps)
   compositions?: Array<{
     id: string

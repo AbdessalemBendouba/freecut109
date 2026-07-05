@@ -46,6 +46,7 @@
       "deleteTitle": "Bileşik klibi sil",
       "enter": "Gir",
       "itemCount": "{{count}} öğe",
+      "openAsTab": "Sekme olarak aç",
       "rename": "Yeniden adlandır",
       "sectionTitle": "Bileşik Klipler"
     },

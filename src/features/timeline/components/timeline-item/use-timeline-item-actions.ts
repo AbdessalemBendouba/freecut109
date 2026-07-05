@@ -21,7 +21,6 @@ import {
 } from '@/features/timeline/deps/media-transcription-service'
 import { useTimelineStore } from '../../stores/timeline-store'
 import { useItemsStore } from '../../stores/items-store'
-import { useCompositionNavigationStore } from '../../stores/composition-navigation-store'
 import {
   insertFreezeFrame,
   linkItems,
@@ -29,7 +28,7 @@ import {
   splitItemAtFrames,
   unlinkItems,
 } from '../../stores/actions/item-actions'
-import { createPreComp, dissolvePreComp } from '../../stores/actions/composition-actions'
+import { createPreComp, dissolvePreComp, openComposition } from '../../stores/actions/composition-actions'
 import {
   type TimelineItemOverlay,
   useTimelineItemOverlayStore,
@@ -328,7 +327,7 @@ export function useTimelineItemActions({
       return
     }
 
-    useCompositionNavigationStore.getState().enterComposition(compositionId, itemLabel, item.id)
+    openComposition(compositionId, itemLabel, item.id)
   }, [isCompositionItem, compositionId, itemLabel, item.id])
 
   const handleDissolveComposition = useCallback(() => {

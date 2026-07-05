@@ -46,6 +46,7 @@
       "deleteTitle": "複合クリップを削除",
       "enter": "開く",
       "itemCount": "{{count}} 個の項目",
+      "openAsTab": "タブとして開く",
       "rename": "名前を変更",
       "sectionTitle": "複合クリップ"
     },

@@ -46,6 +46,7 @@
       "deleteTitle": "Eliminar clip compuesto",
       "enter": "Entrar",
       "itemCount": "{{count}} elementos",
+      "openAsTab": "Abrir como pestaña",
       "rename": "Renombrar",
       "sectionTitle": "Clips compuestos"
     },

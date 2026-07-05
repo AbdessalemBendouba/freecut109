@@ -225,11 +225,28 @@ export function removeProjectItems(itemIds: string[]): boolean {
             }
       })
 
+      // Main, held aside while a sequence tab is active, must lose the items too.
+      const mainHolder = latestNavState.mainHolder
+      let nextMainHolder = mainHolder
+      if (mainHolder) {
+        const sanitizedMain = sanitizeSnapshotByItemIds(mainHolder, targetIdSet)
+        if (sanitizedMain.removedItemIds.length > 0) {
+          removedAny = true
+          nextMainHolder = {
+            ...mainHolder,
+            items: sanitizedMain.items,
+            transitions: sanitizedMain.transitions,
+            keyframes: sanitizedMain.keyframes,
+          }
+        }
+      }
+
       if (removedAny) {
         useCompositionsStore.getState().setCompositions(nextCompositions)
         useCompositionNavigationStore.setState((state) => ({
           ...state,
           stashStack: nextStashStack,
+          mainHolder: nextMainHolder,
         }))
         useSelectionStore.getState().clearSelection()
         useTimelineSettingsStore.getState().markDirty()
@@ -279,7 +296,8 @@ export function updateProjectItem(itemId: string, updates: Partial<TimelineItem>
           : composition
       })
 
-      const nextStashStack = useCompositionNavigationStore.getState().stashStack.map((stash) => {
+      const latestNavState = useCompositionNavigationStore.getState()
+      const nextStashStack = latestNavState.stashStack.map((stash) => {
         const nextItems = applyItemUpdates(stash.items, itemId, updates)
         if (nextItems.changed) {
           changed = true
@@ -293,6 +311,17 @@ export function updateProjectItem(itemId: string, updates: Partial<TimelineItem>
           : stash
       })
 
+      // Main, held aside while a sequence tab is active, must see the update too.
+      const mainHolder = latestNavState.mainHolder
+      let nextMainHolder = mainHolder
+      if (mainHolder) {
+        const nextItems = applyItemUpdates(mainHolder.items, itemId, updates)
+        if (nextItems.changed) {
+          changed = true
+          nextMainHolder = { ...mainHolder, items: nextItems.items }
+        }
+      }
+
       if (!changed) {
         return false
       }
@@ -301,6 +330,7 @@ export function updateProjectItem(itemId: string, updates: Partial<TimelineItem>
       useCompositionNavigationStore.setState((state) => ({
         ...state,
         stashStack: nextStashStack,
+        mainHolder: nextMainHolder,
       }))
 
       const positionChanged =

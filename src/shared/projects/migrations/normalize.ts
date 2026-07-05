@@ -238,8 +238,16 @@ function normalizeTimeline(timeline: ProjectTimeline): ProjectTimeline {
   const normalizedItems = timeline.items.map(normalizeItem)
   const normalizedTransitions = timeline.transitions?.map(normalizeTransition)
 
+  // Drop tab ids that don't resolve to a composition (and any duplicates), so
+  // standalone-timeline tabs never dangle after a composition is deleted.
+  const validCompositionIds = new Set((timeline.compositions ?? []).map((comp) => comp.id))
+  const normalizedTopLevelSequenceIds = timeline.topLevelSequenceIds
+    ? [...new Set(timeline.topLevelSequenceIds.filter((id) => validCompositionIds.has(id)))]
+    : undefined
+
   return {
     ...timeline,
+    topLevelSequenceIds: normalizedTopLevelSequenceIds,
     // Normalize tracks
     tracks: normalizedTracks,
     busAudioEq: normalizeAudioEqSettings(timeline.busAudioEq),

@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Plus, Minus, Rows4, Rows3, Rows2, Check, Video, AudioLines } from 'lucide-react'
 import { CompositionBreadcrumbs } from './composition-breadcrumbs'
+import { SequenceTabs } from './sequence-tabs'
 import { useCompositionNavigationStore } from '../stores/composition-navigation-store'
 import {
   trackDropIndexRef,
@@ -888,6 +889,9 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
         onZoomOut={zoomHandlers?.handleZoomOut}
         onZoomToFit={zoomHandlers?.handleZoomToFit}
       />
+
+      {/* Standalone-timeline (sequence) tabs — Main + top-level sequences */}
+      <SequenceTabs />
 
       {/* Composition Breadcrumbs - shown when inside a sub-composition */}
       <CompositionBreadcrumbs />
