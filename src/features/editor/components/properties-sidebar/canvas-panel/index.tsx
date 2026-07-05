@@ -10,6 +10,8 @@ import { useGizmoStore } from '@/features/editor/deps/preview'
 import { HexColorPicker } from 'react-colorful'
 import { toast } from 'sonner'
 import { PropertySection, PropertyRow, LinkedDimensions } from '../components'
+import { MarkerList } from '../marker-panel/marker-list'
+import { formatTimecodeDotFrames } from '@/shared/utils/time-utils'
 import { commitProjectMetadataChange } from '@/features/editor/utils/project-metadata-history'
 
 /**
@@ -209,15 +211,6 @@ export const CanvasPanel = memo(function CanvasPanel() {
     )
   }, [applyProjectMetadataChange, storedBackgroundColor])
 
-  // Format duration as MM:SS.FF
-  const formatDuration = (frames: number): string => {
-    const totalSeconds = frames / fps
-    const minutes = Math.floor(totalSeconds / 60)
-    const seconds = Math.floor(totalSeconds % 60)
-    const remainingFrames = frames % fps
-    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(remainingFrames).padStart(2, '0')}`
-  }
-
   if (!currentProject) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -295,7 +288,7 @@ export const CanvasPanel = memo(function CanvasPanel() {
       <PropertySection title={t('editor.canvasPanel.duration')} icon={Clock} defaultOpen={true}>
         <PropertyRow label={t('editor.canvasPanel.duration')}>
           <span className="text-xs text-muted-foreground tabular-nums">
-            {formatDuration(timelineDuration)}
+            {formatTimecodeDotFrames(timelineDuration, fps)}
           </span>
         </PropertyRow>
 
@@ -309,6 +302,11 @@ export const CanvasPanel = memo(function CanvasPanel() {
           <span className="text-xs text-muted-foreground tabular-nums">{timelineDuration} fr</span>
         </PropertyRow>
       </PropertySection>
+
+      <Separator />
+
+      {/* Project markers — reachable here whenever nothing else is selected */}
+      <MarkerList />
     </div>
   )
 })

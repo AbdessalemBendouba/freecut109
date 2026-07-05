@@ -231,6 +231,14 @@
       "color": "Couleur",
       "deleteMarker": "Supprimer le marqueur"
     },
+    "markerList": {
+      "title": "Marqueurs",
+      "empty": "Aucun marqueur",
+      "emptyHint": "Appuyez sur M pour ajouter un marqueur à la tête de lecture",
+      "clearAll": "Tout effacer",
+      "untitled": "Marqueur",
+      "remove": "Supprimer le marqueur"
+    },
     "canvasPanel": {
       "updateFailed": "Échec de la mise à jour des paramètres du canevas",
       "tryAgain": "Veuillez réessayer.",

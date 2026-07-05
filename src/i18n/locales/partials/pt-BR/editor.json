@@ -231,6 +231,14 @@
       "color": "Cor",
       "deleteMarker": "Excluir marcador"
     },
+    "markerList": {
+      "title": "Marcadores",
+      "empty": "Nenhum marcador",
+      "emptyHint": "Pressione M para adicionar um marcador no cursor de reprodução",
+      "clearAll": "Limpar tudo",
+      "untitled": "Marcador",
+      "remove": "Remover marcador"
+    },
     "canvasPanel": {
       "updateFailed": "Falha ao atualizar as configurações da tela",
       "tryAgain": "Tente novamente.",

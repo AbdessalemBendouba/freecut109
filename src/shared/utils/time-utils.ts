@@ -64,6 +64,23 @@ export function formatTimecodeCompact(frame: number, fps: number): string {
   return `${pad(minutes)}:${pad(seconds)}:${pad(frames)}`
 }
 
+/**
+ * Timecode with a dot before the frame count — MM:SS.FF, promoting to
+ * HH:MM:SS.FF once the duration reaches an hour. Used in the properties
+ * sidebar (canvas duration, marker times) where the dot-frame style
+ * distinguishes frames from seconds.
+ */
+export function formatTimecodeDotFrames(frame: number, fps: number): string {
+  validateFps(fps)
+
+  const totalSeconds = frame / fps
+  const { hours, minutes, seconds } = decomposeSeconds(totalSeconds)
+  const frames = Math.floor(frame % fps)
+
+  const base = `${pad(minutes)}:${pad(seconds)}.${pad(frames)}`
+  return hours > 0 ? `${pad(hours)}:${base}` : base
+}
+
 export function formatSignedFrameDelta(frameDelta: number, fps: number): string {
   const parts = formatTimecode(Math.abs(frameDelta), fps).split(':')
   while (parts.length > 2 && parts[0] === '00') {

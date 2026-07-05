@@ -231,6 +231,14 @@
       "color": "Color",
       "deleteMarker": "Eliminar marcador"
     },
+    "markerList": {
+      "title": "Marcadores",
+      "empty": "Sin marcadores",
+      "emptyHint": "Pulsa M para añadir un marcador en el cabezal",
+      "clearAll": "Borrar todo",
+      "untitled": "Marcador",
+      "remove": "Eliminar marcador"
+    },
     "canvasPanel": {
       "updateFailed": "Error al actualizar la configuración del lienzo",
       "tryAgain": "Inténtalo de nuevo.",
