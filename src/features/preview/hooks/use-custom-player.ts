@@ -166,6 +166,23 @@ export function useCustomPlayer(
     [playerRef, seekPlayerToFrame],
   )
 
+  // Pause playback when this hook mounts while already playing. That only
+  // happens on a mid-playback remount of the preview — e.g. switching to/from
+  // the Color workspace swaps VideoPreview<->ColorVideoPreview, remounting the
+  // Player. The fresh player starts paused at the preserved frame (via the
+  // Player's initialFrame), so keeping the store's `isPlaying` true would show
+  // a "playing" transport that never advances. Pausing keeps the transport
+  // consistent and the playhead where it was. (On the initial editor load the
+  // store is never playing, so this is a no-op.)
+  useEffect(() => {
+    const playback = usePlaybackStore.getState()
+    if (playback.isPlaying) {
+      playback.pause()
+    }
+    // Mount-only: intentionally no deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Detect when Player becomes ready
   useEffect(() => {
     if (playerRef.current && !playerReady) {

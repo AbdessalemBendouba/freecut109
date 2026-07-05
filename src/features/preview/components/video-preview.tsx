@@ -75,6 +75,15 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
   const setColorGradeSplitPosition = useGizmoStore((s) => s.setColorGradeSplitPosition)
   const currentFrame = usePlaybackStore((s) => s.currentFrame)
   const previewFrame = usePlaybackStore((s) => s.previewFrame)
+  // Capture the playhead once at mount so a workspace-driven remount (switching
+  // to/from Color swaps VideoPreview<->ColorVideoPreview, remounting the Player)
+  // starts the fresh clock at the current frame. Without this the new Player
+  // fires an initial onFrameChange(0) that, while playing, overwrites the
+  // playhead back to 0.
+  const initialPlayheadFrameRef = useRef<number | null>(null)
+  if (initialPlayheadFrameRef.current === null) {
+    initialPlayheadFrameRef.current = usePlaybackStore.getState().currentFrame
+  }
   const displayedFrame = usePreviewBridgeStore((s) => s.displayedFrame)
   const livePreviewEdits = useGizmoStore((s) => s.preview)
   const [playerDisplayedFrame, setPlayerDisplayedFrame] = useState<number | null>(null)
@@ -758,6 +767,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
       playerRenderSize={playerRenderSize}
       totalFrames={totalFrames}
       fps={fps}
+      initialFrame={initialPlayheadFrameRef.current ?? 0}
       isResolving={isResolving}
       isRenderedOverlayVisible={stageRenderedOverlayVisible}
       isSplitGradeAfterVisible={isSplitAfterVisible}
