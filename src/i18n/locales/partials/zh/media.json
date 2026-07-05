@@ -40,6 +40,7 @@
       "transcriptsReady": "转录已准备就绪"
     },
     "compositions": {
+      "compoundClipsGroup": "复合剪辑",
       "deleteBody": "要删除复合剪辑“{{name}}”吗？此操作无法撤消。",
       "deleteInstancesDetail": "使用此复合剪辑的 {{count}} 个时间线实例也将被移除。",
       "deleteInstancesTitle": "已链接的实例将被移除",
@@ -51,7 +52,8 @@
       "itemCount": "{{count}} 个项目",
       "openAsTab": "作为标签页打开",
       "rename": "重命名",
-      "sectionTitle": "复合剪辑"
+      "sectionTitle": "合成",
+      "sequencesGroup": "序列"
     },
     "deleteDialog": {
       "bodyMultiple": "这会从此项目中永久移除 {{count}} 个媒体项。此操作无法撤消。",

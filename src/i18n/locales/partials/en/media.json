@@ -40,6 +40,7 @@
       "transcriptsReady": "Transcripts Ready"
     },
     "compositions": {
+      "compoundClipsGroup": "Compound Clips",
       "deleteBody": "Delete compound clip \"{{name}}\"? This cannot be undone.",
       "deleteInstancesDetail": "{{count}} timeline instances that use this compound clip will also be removed.",
       "deleteInstancesTitle": "Linked instances will be removed",
@@ -51,7 +52,8 @@
       "itemCount": "{{count}} items",
       "openAsTab": "Open as tab",
       "rename": "Rename",
-      "sectionTitle": "Compound Clips"
+      "sectionTitle": "Compositions",
+      "sequencesGroup": "Sequences"
     },
     "deleteDialog": {
       "bodyMultiple": "This will permanently remove {{count}} media items from this project. This action cannot be undone.",

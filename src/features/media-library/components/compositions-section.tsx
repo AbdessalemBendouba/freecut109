@@ -58,6 +58,7 @@ export function CompositionsSection() {
   const compositions = useCompositionsStore((s) => s.compositions)
   const compositionById = useCompositionsStore((s) => s.compositionById)
   const activeCompositionId = useCompositionNavigationStore((s) => s.activeCompositionId)
+  const topLevelSequenceIds = useSequencesStore((s) => s.topLevelSequenceIds)
 
   const viewMode = useMediaLibraryStore((s) => s.viewMode)
   const mediaItemSize = useMediaLibraryStore((s) => s.mediaItemSize)
@@ -71,14 +72,37 @@ export function CompositionsSection() {
   const [deleteTarget, setDeleteTarget] = useState<SubComposition | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
-  const compositionsRef = useRef(compositions)
+
+  // Sequences and compound clips are the same primitive; only top-level-tab
+  // membership distinguishes them. Partition for display (sequences first),
+  // but keep a single flat ordered list so range-select spans both groups.
+  const sequenceIdSet = useMemo(() => new Set(topLevelSequenceIds), [topLevelSequenceIds])
+  const { sequences, compoundClips } = useMemo(() => {
+    const seqs: SubComposition[] = []
+    const clips: SubComposition[] = []
+    for (const comp of compositions) {
+      if (sequenceIdSet.has(comp.id)) seqs.push(comp)
+      else clips.push(comp)
+    }
+    return { sequences: seqs, compoundClips: clips }
+  }, [compositions, sequenceIdSet])
+  const orderedCompositions = useMemo(
+    () => [...sequences, ...compoundClips],
+    [sequences, compoundClips],
+  )
+  // Only show the per-group sub-headers when both groups are populated —
+  // otherwise the section header alone is enough and a lone sub-header reads
+  // as redundant chrome.
+  const showGroupHeaders = sequences.length > 0 && compoundClips.length > 0
+
+  const compositionsRef = useRef(orderedCompositions)
   const editValueRef = useRef(editValue)
   const renameCancelledRef = useRef(false)
   const lastSelectedCompositionIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    compositionsRef.current = compositions
-  }, [compositions])
+    compositionsRef.current = orderedCompositions
+  }, [orderedCompositions])
 
   useEffect(() => {
     editValueRef.current = editValue
@@ -204,6 +228,45 @@ export function CompositionsSection() {
 
   if (compositions.length === 0) return null
 
+  const groupContainerClassName =
+    viewMode === 'grid' ? `grid ${GRID_GAP_BY_SIZE[mediaItemSize] ?? GRID_GAP_BY_SIZE[3]}` : 'space-y-1'
+  const groupContainerStyle: CSSProperties | undefined =
+    viewMode === 'grid'
+      ? {
+          gridTemplateColumns: `repeat(auto-fill, minmax(min(${GRID_MIN_SIZE_PX[mediaItemSize] ?? GRID_MIN_SIZE_PX[3]}px, 100%), 1fr))`,
+        }
+      : undefined
+
+  const renderCard = (comp: SubComposition) => {
+    const handlers = cardHandlersById.get(comp.id)
+    if (!handlers) return null
+    const Card = viewMode === 'grid' ? GridCompositionCard : ListCompositionCard
+
+    return (
+      <Card
+        key={comp.id}
+        composition={comp}
+        selected={selectedCompositionIdSet.has(comp.id)}
+        isTranscriptionDialogOpen={isTranscriptionDialogOpen}
+        dragDisabled={wouldCreateCompositionCycle({
+          parentCompositionId: activeCompositionId,
+          insertedCompositionId: comp.id,
+          compositionById,
+        })}
+        isEditing={editingId === comp.id}
+        editValue={editValue}
+        onEditValueChange={setEditValue}
+        onSelect={handlers.onSelect}
+        onEnter={handlers.onEnter}
+        onOpenAsTab={handlers.onOpenAsTab}
+        onDelete={handlers.onDelete}
+        onStartRename={handlers.onStartRename}
+        onCommitRename={handleCommitRename}
+        onCancelRename={handleCancelRename}
+      />
+    )
+  }
+
   return (
     <>
       <Collapsible open={open} onOpenChange={setOpen}>
@@ -222,50 +285,33 @@ export function CompositionsSection() {
             {compositions.length}
           </span>
         </CollapsibleTrigger>
-        <CollapsibleContent
-          className={cn(
-            'pt-1 pb-2',
-            viewMode === 'grid'
-              ? `grid ${GRID_GAP_BY_SIZE[mediaItemSize] ?? GRID_GAP_BY_SIZE[3]}`
-              : 'space-y-1',
+        <CollapsibleContent className="pt-1 pb-2 space-y-2">
+          {sequences.length > 0 && (
+            <div>
+              {showGroupHeaders && (
+                <CompositionGroupHeader
+                  label={t('media.compositions.sequencesGroup')}
+                  count={sequences.length}
+                />
+              )}
+              <div className={groupContainerClassName} style={groupContainerStyle}>
+                {sequences.map(renderCard)}
+              </div>
+            </div>
           )}
-          style={
-            viewMode === 'grid'
-              ? {
-                  gridTemplateColumns: `repeat(auto-fill, minmax(min(${GRID_MIN_SIZE_PX[mediaItemSize] ?? GRID_MIN_SIZE_PX[3]}px, 100%), 1fr))`,
-                }
-              : undefined
-          }
-        >
-          {compositions.map((comp) => {
-            const handlers = cardHandlersById.get(comp.id)
-            if (!handlers) return null
-            const Card = viewMode === 'grid' ? GridCompositionCard : ListCompositionCard
-
-            return (
-              <Card
-                key={comp.id}
-                composition={comp}
-                selected={selectedCompositionIdSet.has(comp.id)}
-                isTranscriptionDialogOpen={isTranscriptionDialogOpen}
-                dragDisabled={wouldCreateCompositionCycle({
-                  parentCompositionId: activeCompositionId,
-                  insertedCompositionId: comp.id,
-                  compositionById,
-                })}
-                isEditing={editingId === comp.id}
-                editValue={editValue}
-                onEditValueChange={setEditValue}
-                onSelect={handlers.onSelect}
-                onEnter={handlers.onEnter}
-                onOpenAsTab={handlers.onOpenAsTab}
-                onDelete={handlers.onDelete}
-                onStartRename={handlers.onStartRename}
-                onCommitRename={handleCommitRename}
-                onCancelRename={handleCancelRename}
-              />
-            )
-          })}
+          {compoundClips.length > 0 && (
+            <div>
+              {showGroupHeaders && (
+                <CompositionGroupHeader
+                  label={t('media.compositions.compoundClipsGroup')}
+                  count={compoundClips.length}
+                />
+              )}
+              <div className={groupContainerClassName} style={groupContainerStyle}>
+                {compoundClips.map(renderCard)}
+              </div>
+            </div>
+          )}
         </CollapsibleContent>
       </Collapsible>
 
@@ -325,6 +371,17 @@ export function CompositionsSection() {
         </AlertDialogContent>
       </AlertDialog>
     </>
+  )
+}
+
+function CompositionGroupHeader({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex items-center gap-1.5 px-1 pt-1 pb-1">
+      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
+        {label}
+      </span>
+      <span className="text-[10px] tabular-nums text-muted-foreground/50">{count}</span>
+    </div>
   )
 }
 

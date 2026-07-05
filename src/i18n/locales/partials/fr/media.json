@@ -40,6 +40,7 @@
       "transcriptsReady": "Transcriptions prêtes"
     },
     "compositions": {
+      "compoundClipsGroup": "Clips composés",
       "deleteBody": "Supprimer le clip composé \"{{name}}\" ? Cette action est irréversible.",
       "deleteInstancesDetail": "{{count}} instances de la timeline qui utilisent ce clip composé seront également supprimées.",
       "deleteInstancesTitle": "Les instances liées seront supprimées",
@@ -51,7 +52,8 @@
       "itemCount": "{{count}} éléments",
       "openAsTab": "Ouvrir comme onglet",
       "rename": "Renommer",
-      "sectionTitle": "Clips composés"
+      "sectionTitle": "Compositions",
+      "sequencesGroup": "Séquences"
     },
     "deleteDialog": {
       "bodyMultiple": "Cela supprimera définitivement {{count}} éléments multimédias de ce projet. Cette action est irréversible.",

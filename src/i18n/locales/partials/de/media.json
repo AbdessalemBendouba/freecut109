@@ -40,6 +40,7 @@
       "transcriptsReady": "Transkripte bereit"
     },
     "compositions": {
+      "compoundClipsGroup": "Zusammengesetzte Clips",
       "deleteBody": "Zusammengesetzten Clip \"{{name}}\" löschen? Dies kann nicht rückgängig gemacht werden.",
       "deleteInstancesDetail": "{{count}} Timeline-Instanzen, die diesen zusammengesetzten Clip verwenden, werden ebenfalls entfernt.",
       "deleteInstancesTitle": "Verknüpfte Instanzen werden entfernt",
@@ -51,7 +52,8 @@
       "itemCount": "{{count}} Elemente",
       "openAsTab": "Als Tab öffnen",
       "rename": "Umbenennen",
-      "sectionTitle": "Zusammengesetzte Clips"
+      "sectionTitle": "Kompositionen",
+      "sequencesGroup": "Sequenzen"
     },
     "deleteDialog": {
       "bodyMultiple": "Dadurch werden {{count}} Medienelemente dauerhaft aus diesem Projekt entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",

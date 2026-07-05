@@ -40,6 +40,7 @@
       "transcriptsReady": "Transcricoes prontas"
     },
     "compositions": {
+      "compoundClipsGroup": "Clipes compostos",
       "deleteBody": "Excluir o clipe composto \"{{name}}\"? Esta ação não pode ser desfeita.",
       "deleteInstancesDetail": "{{count}} instâncias da linha do tempo que usam este clipe composto também serão removidas.",
       "deleteInstancesTitle": "As instâncias vinculadas serão removidas",
@@ -51,7 +52,8 @@
       "itemCount": "{{count}} itens",
       "openAsTab": "Abrir como aba",
       "rename": "Renomear",
-      "sectionTitle": "Clipes compostos"
+      "sectionTitle": "Composições",
+      "sequencesGroup": "Sequências"
     },
     "deleteDialog": {
       "bodyMultiple": "Isso removerá permanentemente {{count}} itens de mídia deste projeto. Esta ação não pode ser desfeita.",

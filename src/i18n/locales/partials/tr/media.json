@@ -40,6 +40,7 @@
       "transcriptsReady": "Transkriptler hazır"
     },
     "compositions": {
+      "compoundClipsGroup": "Bileşik Klipler",
       "deleteBody": "Bu bileşik klip silinsin mi?",
       "deleteInstancesDetail": "Bu bileşik klibi kullanan {{count}} zaman çizelgesi örneği de kaldırılacak.",
       "deleteInstancesTitle": "Bağlı örnekler kaldırılacak",
@@ -51,7 +52,8 @@
       "itemCount": "{{count}} öğe",
       "openAsTab": "Sekme olarak aç",
       "rename": "Yeniden adlandır",
-      "sectionTitle": "Bileşik Klipler"
+      "sectionTitle": "Kompozisyonlar",
+      "sequencesGroup": "Sekanslar"
     },
     "deleteDialog": {
       "bodyMultiple": "Bu projeden {{count}} medya öğesi kalıcı olarak kaldırılacak. Bu işlem geri alınamaz.",
