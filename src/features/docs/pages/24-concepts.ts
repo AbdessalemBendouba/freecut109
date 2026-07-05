@@ -37,7 +37,7 @@ const page = {
             'A **project** holds a timeline, its settings (resolution and frame rate), and references to the media you use.',
             'The timeline stacks **tracks**; higher tracks render over lower ones.',
             'A **clip** on the timeline is a window into a source file — trimming a clip changes which part of the source plays, it does not alter the file.',
-            'Group a section into a **compound clip** to reuse it, and use an **adjustment layer** to affect every clip below it.',
+            'Group a section into a **compound clip** to reuse it — or open it as a **sequence**, a self-contained timeline you switch to from the tab bar — and use an **adjustment layer** to affect every clip below it.',
           ],
         },
       ],

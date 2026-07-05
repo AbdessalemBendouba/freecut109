@@ -26,6 +26,11 @@ const page = {
           tone: 'info',
           text: 'Higher resolution and quality take longer and produce larger files.',
         },
+        {
+          kind: 'note',
+          tone: 'tip',
+          text: 'When a project has more than the Main timeline, a **Sequence** menu at the top of the dialog picks which timeline to export — at its own resolution and range.',
+        },
       ],
     },
     {

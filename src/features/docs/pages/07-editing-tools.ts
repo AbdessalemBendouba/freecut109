@@ -65,7 +65,7 @@ const page = {
           kind: 'list',
           items: [
             'Insert a **freeze frame** at the playhead with `Shift+F` to hold a single frame.',
-            'Group a run of clips into a **compound clip** to reuse or simplify a busy section.',
+            'Group a run of clips into a **compound clip** to reuse or simplify a busy section, or open it as a **sequence** tab to edit it as a standalone timeline.',
             'Use the **Bento layout** dialog to arrange selected visual clips into a structured grid.',
           ],
         },

@@ -73,12 +73,13 @@ const page = {
           items: [
             'Group a section of the timeline into a **compound clip** that behaves like a single reusable media item.',
             'Compound clips appear in the media library and can be placed again like any other asset.',
+            'Right-click a compound clip and choose **Open as tab** to edit it as a standalone **sequence**.',
           ],
         },
         {
           kind: 'note',
           tone: 'info',
-          text: 'Nesting is one level deep — a compound clip cannot contain another compound clip.',
+          text: 'Compound clips can be nested — one can contain another — as long as the chain never loops back on itself.',
         },
       ],
     },
