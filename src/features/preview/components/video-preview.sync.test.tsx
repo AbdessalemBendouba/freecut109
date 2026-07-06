@@ -2022,8 +2022,11 @@ describe('VideoPreview sync behavior', () => {
       } as unknown as TimelineItem,
     ])
 
+    // The timeline contains a gpu-effect clip, so the overlay stays warm from
+    // the start (project-level always-on) rather than switching on at the clip
+    // boundary — this is what makes the effect appear instantly on landing.
     const { scrubCanvas } = await renderPreviewAfterInitialSeek()
-    expect(scrubCanvas.style.visibility).toBe('hidden')
+    expect(scrubCanvas.style.visibility).toBe('visible')
 
     act(() => {
       usePlaybackStore.getState().setCurrentFrame(24)
@@ -2067,8 +2070,10 @@ describe('VideoPreview sync behavior', () => {
 
     mockedPlayerFrame = 24
 
+    // Corner-pin is overlay-only content, so the overlay is warm from the start
+    // (project-level always-on) even though the Player already sits at the frame.
     const { scrubCanvas } = await renderPreviewAfterInitialSeek()
-    expect(scrubCanvas.style.visibility).toBe('hidden')
+    expect(scrubCanvas.style.visibility).toBe('visible')
 
     act(() => {
       usePlaybackStore.getState().setCurrentFrame(24)

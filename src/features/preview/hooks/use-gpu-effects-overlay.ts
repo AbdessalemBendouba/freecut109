@@ -70,6 +70,32 @@ function subCompositionNeedsRenderedOverlayPath(
 }
 
 /**
+ * Frame-independent scan: does the timeline contain ANY content that can only
+ * be shown through the GPU overlay (enabled GPU effects, non-normal blend modes,
+ * corner pin, text motion) — anywhere, on any clip, at any time?
+ *
+ * When true, the caller keeps the overlay active for the whole session instead
+ * of flipping it on per-frame as the playhead enters each such clip. The
+ * per-frame flip is a reactive React-state round-trip, so effects would
+ * otherwise pop in a few frames late on every skim/playback entry. Trading a
+ * ~1-2ms GPU composite over non-effect clips for instant effects is worth it;
+ * projects with no such content keep the fast DOM path (this returns false).
+ */
+export function timelineHasContinuousOverlayContent(
+  items: TimelineItem[],
+  compositionById?: Record<string, SubComposition>,
+): boolean {
+  return items.some((item) => {
+    if (needsRenderedOverlayPath(item)) return true
+    if (item.type === 'composition' && compositionById) {
+      const subComp = compositionById[item.compositionId]
+      if (subComp && subCompositionNeedsRenderedOverlayPath(subComp, compositionById)) return true
+    }
+    return false
+  })
+}
+
+/**
  * Detects whether the composition renderer overlay should stay active
  * outside of scrub-driven updates.
  *
@@ -163,24 +189,30 @@ export function useGpuEffectsOverlay(..._args: unknown[]) {
         : undefined
 
       setNeedsOverlay((prev) => {
-        const next = shouldForceContinuousPreviewOverlay(
-          items,
-          transitions,
-          frame,
-          previewEffectsByItemId,
-          compositionById,
-          // Keep the continuous (fast-scrub) overlay forced across an active
-          // transition window during playback as well as scrubbing — not only
-          // when a participant has GPU effects/blend/corner-pin. Otherwise a
-          // plain transition can drop the continuous overlay mid-window (e.g.
-          // when an unrelated effected/composition item that happened to be
-          // keeping it on ends at the cut), switching to the buffered overlay
-          // path which can leave frames un-rendered and collapse the wipe to
-          // one clip for the rest of the transition. Forcing it for the whole
-          // window keeps every transition on the per-frame render path that
-          // already works for the transitions that look correct today.
-          { forceTransitionFrames: playback.previewFrame !== null || playback.isPlaying },
-        )
+        // Option 1: if the timeline contains any overlay-only content anywhere,
+        // keep the overlay warm for the whole session so effects/blend/corner-pin
+        // are instant on skim + playback instead of lagging the reactive per-frame
+        // flag. Otherwise fall back to the frame-based decision (transitions etc.).
+        const next =
+          timelineHasContinuousOverlayContent(items, compositionById) ||
+          shouldForceContinuousPreviewOverlay(
+            items,
+            transitions,
+            frame,
+            previewEffectsByItemId,
+            compositionById,
+            // Keep the continuous (fast-scrub) overlay forced across an active
+            // transition window during playback as well as scrubbing — not only
+            // when a participant has GPU effects/blend/corner-pin. Otherwise a
+            // plain transition can drop the continuous overlay mid-window (e.g.
+            // when an unrelated effected/composition item that happened to be
+            // keeping it on ends at the cut), switching to the buffered overlay
+            // path which can leave frames un-rendered and collapse the wipe to
+            // one clip for the rest of the transition. Forcing it for the whole
+            // window keeps every transition on the per-frame render path that
+            // already works for the transitions that look correct today.
+            { forceTransitionFrames: playback.previewFrame !== null || playback.isPlaying },
+          )
         return prev === next ? prev : next
       })
     }
