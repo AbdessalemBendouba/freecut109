@@ -214,6 +214,23 @@ export type LottieItem = BaseTimelineItem & {
   totalFrames: number
   // Loop the animation when the clip outlives one playthrough (default true)
   loop?: boolean
+  // --- Editing controls (all optional; consumed by mapTimelineFrameToLottieFrame) ---
+  // `speed` and `isReversed` are inherited from BaseTimelineItem but note: Lottie
+  // uses a dedicated `reversed` flag so it never triggers video reverse-conform.
+  /** Play the animation backward. */
+  reversed?: boolean
+  /** How the animation repeats while looping (default 'loop'). */
+  loopMode?: 'loop' | 'pingpong'
+  /** First source frame of the animation to play (default 0). */
+  segmentStart?: number
+  /** Last source frame of the animation to play (default totalFrames - 1). */
+  segmentEnd?: number
+  /**
+   * Per-layer text replacements for template Lotties, keyed by the text layer's
+   * stable key (see `extractLottieTextLayers`). Applied to raw `.json` Lotties
+   * before render; `.lottie` archives are not supported for text edits.
+   */
+  textOverrides?: Record<string, string>
 }
 
 export type ShapeType =

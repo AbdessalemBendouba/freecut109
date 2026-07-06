@@ -265,6 +265,17 @@
       "speed": "Geschwindigkeit",
       "resetSpeed": "Auf 1x zurücksetzen"
     },
+    "lottieSection": {
+      "title": "Lottie",
+      "speed": "Geschwindigkeit",
+      "resetSpeed": "Auf 1x zurücksetzen",
+      "reverse": "Rückwärts",
+      "loop": "Schleife",
+      "pingpong": "Ping-Pong",
+      "trimIn": "Startbild",
+      "trimOut": "Endbild",
+      "text": "Text"
+    },
     "cornerPinSection": {
       "title": "Eckpunkt-Verzerrung",
       "exitEditor": "Eckpunkt-Editor verlassen",

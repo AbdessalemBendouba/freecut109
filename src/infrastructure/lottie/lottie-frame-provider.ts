@@ -46,11 +46,20 @@ export interface LottieFrameMapInput {
   frameRate: number
   /** Whether to loop when the clip outlives the animation. */
   loop: boolean
+  /** Play the segment backward (default false). */
+  reversed?: boolean
+  /** Repeat style while looping (default 'loop'). */
+  loopMode?: 'loop' | 'pingpong'
+  /** First source frame to play (default 0). */
+  segmentStart?: number
+  /** Last source frame to play (default totalFrames - 1). */
+  segmentEnd?: number
 }
 
 /**
- * Map a clip-local timeline frame to a Lottie frame index.
- * Clamped to `[0, totalFrames - 1]` — dotlottie's valid seek range.
+ * Map a clip-local timeline frame to a Lottie frame index, honoring speed,
+ * reverse, an in/out segment, and loop style. The result is always clamped to
+ * the active segment and to `[0, totalFrames - 1]` (dotlottie's valid range).
  */
 export function mapTimelineFrameToLottieFrame({
   localFrame,
@@ -59,15 +68,40 @@ export function mapTimelineFrameToLottieFrame({
   totalFrames,
   frameRate,
   loop,
+  reversed = false,
+  loopMode = 'loop',
+  segmentStart,
+  segmentEnd,
 }: LottieFrameMapInput): number {
   if (totalFrames <= 0 || projectFps <= 0 || frameRate <= 0) return 0
-  const seconds = (localFrame / projectFps) * (speed ?? 1)
-  let lottieFrame = seconds * frameRate
   const maxFrame = totalFrames - 1
+
+  // Resolve and sanitize the active segment [segStart, segEnd] within the range.
+  const segStart = Math.max(0, Math.min(segmentStart ?? 0, maxFrame))
+  const segEnd = Math.max(segStart, Math.min(segmentEnd ?? maxFrame, maxFrame))
+  const segLen = segEnd - segStart
+  // A zero-length segment is a frozen poster frame.
+  if (segLen <= 0) return segStart
+
+  // Frames elapsed within the segment at the requested speed.
+  const elapsed = (localFrame / projectFps) * (speed ?? 1) * frameRate
+
+  let offset: number
   if (loop) {
-    lottieFrame = ((lottieFrame % totalFrames) + totalFrames) % totalFrames
+    if (loopMode === 'pingpong') {
+      const period = segLen * 2
+      const m = ((elapsed % period) + period) % period
+      offset = m <= segLen ? m : period - m
+    } else {
+      offset = ((elapsed % segLen) + segLen) % segLen
+    }
+  } else {
+    // Past the end, hold the final frame (dotlottie clamps anyway).
+    offset = Math.max(0, Math.min(elapsed, segLen))
   }
-  return Math.max(0, Math.min(lottieFrame, maxFrame))
+
+  const frame = reversed ? segEnd - offset : segStart + offset
+  return Math.max(segStart, Math.min(frame, segEnd))
 }
 
 /**
@@ -205,11 +239,21 @@ export async function renderLottieThumbnail(
 export class LottieExportProvider {
   private readonly renderers = new Map<string, LottieRenderer>()
 
-  /** Warm a renderer for a source at a target size. Safe to call repeatedly. */
-  async preload(key: string, src: string, width: number, height: number): Promise<void> {
+  /**
+   * Warm a renderer for a source at a target size. Safe to call repeatedly.
+   * Pass `data` (patched JSON string) to render text-overridden content instead
+   * of loading `src` directly.
+   */
+  async preload(
+    key: string,
+    src: string,
+    width: number,
+    height: number,
+    data?: string,
+  ): Promise<void> {
     if (this.renderers.has(key)) return
     const canvas = new OffscreenCanvas(Math.max(1, width), Math.max(1, height))
-    const renderer = new LottieRenderer({ canvas, src })
+    const renderer = new LottieRenderer(data ? { canvas, data } : { canvas, src })
     this.renderers.set(key, renderer)
     await renderer.ready
   }

@@ -23,6 +23,7 @@ import type {
   CompositionItem,
 } from '@/types/timeline'
 import { LottieExportProvider } from '@/infrastructure/lottie/lottie-frame-provider'
+import { resolveLottieOverrideData } from '@/infrastructure/lottie/lottie-text'
 import type { ItemKeyframes } from '@/types/keyframe'
 import type { ItemEffect } from '@/types/effects'
 import type { ResolvedTransform } from '@/types/transform'
@@ -939,7 +940,19 @@ export async function createCompositionRenderer(
                 lottieItem.sourceHeight && lottieItem.sourceHeight > 0
                   ? lottieItem.sourceHeight
                   : 512
-              await lottieProvider.preload(lottieItem.id, lottieItem.src, w, h)
+              // Patch template text before warming so exports reflect overrides.
+              const overrideData = await resolveLottieOverrideData(
+                lottieItem.src,
+                lottieItem.textOverrides,
+              )
+              if (isDisposed) return
+              await lottieProvider.preload(
+                lottieItem.id,
+                lottieItem.src,
+                w,
+                h,
+                overrideData ?? undefined,
+              )
               // Bail if the engine was disposed mid-load so we don't register a
               // renderer into a torn-down provider (dispose() → destroy()).
               if (isDisposed) return

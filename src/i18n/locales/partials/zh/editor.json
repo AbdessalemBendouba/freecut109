@@ -265,6 +265,17 @@
       "speed": "速度",
       "resetSpeed": "重置为 1x"
     },
+    "lottieSection": {
+      "title": "Lottie",
+      "speed": "速度",
+      "resetSpeed": "重置为 1x",
+      "reverse": "反向",
+      "loop": "循环",
+      "pingpong": "乒乓",
+      "trimIn": "起始帧",
+      "trimOut": "结束帧",
+      "text": "文本"
+    },
     "cornerPinSection": {
       "title": "边角定位",
       "exitEditor": "退出边角定位编辑器",

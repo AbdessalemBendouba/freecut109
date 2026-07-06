@@ -265,6 +265,17 @@
       "speed": "Hız",
       "resetSpeed": "1x'e sıfırla"
     },
+    "lottieSection": {
+      "title": "Lottie",
+      "speed": "Hız",
+      "resetSpeed": "1x'e sıfırla",
+      "reverse": "Ters",
+      "loop": "Döngü",
+      "pingpong": "Ping-pong",
+      "trimIn": "Başlangıç karesi",
+      "trimOut": "Bitiş karesi",
+      "text": "Metin"
+    },
     "cornerPinSection": {
       "title": "Köşe Sabitleme",
       "exitEditor": "Köşe sabitleme düzenleyicisinden çık",

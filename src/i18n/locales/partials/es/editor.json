@@ -265,6 +265,17 @@
       "speed": "Velocidad",
       "resetSpeed": "Restablecer a 1x"
     },
+    "lottieSection": {
+      "title": "Lottie",
+      "speed": "Velocidad",
+      "resetSpeed": "Restablecer a 1x",
+      "reverse": "Invertir",
+      "loop": "Bucle",
+      "pingpong": "Ping-pong",
+      "trimIn": "Fotograma inicial",
+      "trimOut": "Fotograma final",
+      "text": "Texto"
+    },
     "cornerPinSection": {
       "title": "Corrección de esquinas",
       "exitEditor": "Salir del editor de esquinas",

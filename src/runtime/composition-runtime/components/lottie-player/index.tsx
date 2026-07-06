@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AbsoluteFill, useSequenceContext } from '@/runtime/composition-runtime/deps/player'
 import { useVideoConfig } from '../../hooks/use-player-compat'
 import {
   LottieRenderer,
   mapTimelineFrameToLottieFrame,
 } from '@/infrastructure/lottie/lottie-frame-provider'
+import { resolveLottieOverrideData } from '@/infrastructure/lottie/lottie-text'
 import type { LottieItem } from '@/types/timeline'
 
 interface LottiePlayerProps {
@@ -29,8 +30,14 @@ export const LottiePlayer: React.FC<LottiePlayerProps> = ({ item }) => {
   const localFrame = sequenceContext?.localFrame ?? 0
   const { fps } = useVideoConfig()
 
-  // (Re)create the renderer when the source changes. autoResize lets dotlottie
-  // size its render target to the displayed canvas (crisp on clip resize).
+  // Serialize overrides so the renderer only rebuilds when the text changes.
+  const overridesKey = useMemo(
+    () => JSON.stringify(item.textOverrides ?? null),
+    [item.textOverrides],
+  )
+
+  // (Re)create the renderer when the source (or text overrides) change.
+  // autoResize lets dotlottie size its render target to the displayed canvas.
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || !item.src) return
@@ -38,22 +45,32 @@ export const LottiePlayer: React.FC<LottiePlayerProps> = ({ item }) => {
     setLoaded(false)
     setFailed(false)
 
-    const renderer = new LottieRenderer({ canvas, src: item.src, autoResize: true })
-    rendererRef.current = renderer
-
     let cancelled = false
-    renderer.ready.then(() => {
+    let renderer: LottieRenderer | null = null
+
+    void (async () => {
+      // Patch template text before render; falls back to the raw src on null.
+      const overrideData = await resolveLottieOverrideData(item.src, item.textOverrides)
+      if (cancelled) return
+      renderer = new LottieRenderer(
+        overrideData
+          ? { canvas, data: overrideData, autoResize: true }
+          : { canvas, src: item.src, autoResize: true },
+      )
+      rendererRef.current = renderer
+      await renderer.ready
       if (cancelled) return
       if (renderer.isLoaded) setLoaded(true)
       else setFailed(true)
-    })
+    })()
 
     return () => {
       cancelled = true
-      renderer.destroy()
+      renderer?.destroy()
       rendererRef.current = null
     }
-  }, [item.src])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- overridesKey stands in for item.textOverrides
+  }, [item.src, overridesKey])
 
   // Seek to the frame for the current timeline position.
   useEffect(() => {
@@ -66,9 +83,25 @@ export const LottiePlayer: React.FC<LottiePlayerProps> = ({ item }) => {
       totalFrames: item.totalFrames,
       frameRate: item.frameRate,
       loop: item.loop ?? true,
+      reversed: item.reversed,
+      loopMode: item.loopMode,
+      segmentStart: item.segmentStart,
+      segmentEnd: item.segmentEnd,
     })
     renderer.renderFrame(lottieFrame)
-  }, [localFrame, loaded, fps, item.speed, item.totalFrames, item.frameRate, item.loop])
+  }, [
+    localFrame,
+    loaded,
+    fps,
+    item.speed,
+    item.totalFrames,
+    item.frameRate,
+    item.loop,
+    item.reversed,
+    item.loopMode,
+    item.segmentStart,
+    item.segmentEnd,
+  ])
 
   if (failed) {
     return (

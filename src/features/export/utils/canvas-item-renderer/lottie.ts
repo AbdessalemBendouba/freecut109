@@ -27,6 +27,10 @@ export function renderLottieItem(
     totalFrames: item.totalFrames,
     frameRate: item.frameRate,
     loop: item.loop ?? true,
+    reversed: item.reversed,
+    loopMode: item.loopMode,
+    segmentStart: item.segmentStart,
+    segmentEnd: item.segmentEnd,
   })
 
   const source = lottieProvider.renderFrame(item.id, lottieFrame)

@@ -265,6 +265,17 @@
       "speed": "Velocidade",
       "resetSpeed": "Redefinir para 1x"
     },
+    "lottieSection": {
+      "title": "Lottie",
+      "speed": "Velocidade",
+      "resetSpeed": "Redefinir para 1x",
+      "reverse": "Inverter",
+      "loop": "Repetir",
+      "pingpong": "Ping-pong",
+      "trimIn": "Quadro inicial",
+      "trimOut": "Quadro final",
+      "text": "Texto"
+    },
     "cornerPinSection": {
       "title": "Fixação de cantos",
       "exitEditor": "Sair do editor de cantos",

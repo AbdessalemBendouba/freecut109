@@ -265,6 +265,17 @@
       "speed": "Vitesse",
       "resetSpeed": "Réinitialiser à 1x"
     },
+    "lottieSection": {
+      "title": "Lottie",
+      "speed": "Vitesse",
+      "resetSpeed": "Réinitialiser à 1x",
+      "reverse": "Inverser",
+      "loop": "Boucle",
+      "pingpong": "Ping-pong",
+      "trimIn": "Image de début",
+      "trimOut": "Image de fin",
+      "text": "Texte"
+    },
     "cornerPinSection": {
       "title": "Calage des coins",
       "exitEditor": "Quitter l'éditeur de coins",

@@ -265,6 +265,17 @@
       "speed": "速度",
       "resetSpeed": "1xにリセット"
     },
+    "lottieSection": {
+      "title": "Lottie",
+      "speed": "速度",
+      "resetSpeed": "1xにリセット",
+      "reverse": "逆再生",
+      "loop": "ループ",
+      "pingpong": "ピンポン",
+      "trimIn": "開始フレーム",
+      "trimOut": "終了フレーム",
+      "text": "テキスト"
+    },
     "cornerPinSection": {
       "title": "コーナーピン",
       "exitEditor": "コーナーピンエディターを終了",
