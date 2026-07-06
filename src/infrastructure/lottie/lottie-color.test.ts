@@ -56,9 +56,10 @@ describe('hex <-> lottie rgb', () => {
 
 describe('extractLottieColorLayers', () => {
   it('lists static solids in depth-first order, skipping animated and non-shape layers', () => {
+    // "Fill 1" / "Stroke 1" are editor-generated defaults, not author names.
     expect(extractLottieColorLayers(animation())).toEqual([
-      { key: 'c0', color: '#ff0000', label: 'Fill 1', named: true },
-      { key: 'c1', color: '#000000', label: 'Stroke 1', named: true },
+      { key: 'c0', color: '#ff0000', label: 'Fill 1', named: false },
+      { key: 'c1', color: '#000000', label: 'Stroke 1', named: false },
     ])
   })
 
@@ -72,6 +73,30 @@ describe('extractLottieColorLayers', () => {
     }
     expect(extractLottieColorLayers(anim)).toEqual([
       { key: 'c0', color: '#ffffff', label: 'Fill', named: false },
+    ])
+  })
+
+  it('treats generated names (Fill 1, Stroke) as not-named but real names as named', () => {
+    const anim = {
+      w: 1,
+      h: 1,
+      fr: 30,
+      op: 1,
+      layers: [
+        {
+          ty: 4,
+          shapes: [
+            { ty: 'fl', nm: 'Fill 2', c: { a: 0, k: [1, 0, 0] } },
+            { ty: 'st', nm: 'Stroke', c: { a: 0, k: [0, 1, 0] } },
+            { ty: 'fl', nm: 'coat-back', c: { a: 0, k: [0, 0, 1] } },
+          ],
+        },
+      ],
+    }
+    expect(extractLottieColorLayers(anim).map((c) => [c.label, c.named])).toEqual([
+      ['Fill 2', false],
+      ['Stroke', false],
+      ['coat-back', true],
     ])
   })
 

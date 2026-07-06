@@ -102,6 +102,16 @@ function trimmedName(v: unknown): string {
   return typeof v === 'string' && v.trim() ? v.trim() : ''
 }
 
+// After Effects / Lottie editors auto-name every fill/stroke "Fill", "Fill 1",
+// "Stroke 2", etc. Those defaults are noise, not author intent, so they don't
+// count as a "named" (customization-point) color.
+const GENERATED_COLOR_NAME = /^(fill|stroke)(\s+\d+)?$/i
+
+/** True when `name` is a real author name rather than an editor-generated default. */
+function isAuthorColorName(name: string): boolean {
+  return name.length > 0 && !GENERATED_COLOR_NAME.test(name)
+}
+
 /**
  * The color slot of one fill/stroke shape item, or none for non-color/gradient
  * shapes. Solid fills/strokes contribute one slot (static or animated).
@@ -175,7 +185,7 @@ function walkColorSlots(
       const kind = item?.ty === 'st' ? 'Stroke' : 'Fill'
       const shapeName = trimmedName(item?.nm)
       const label = shapeName || (layerName ? `${layerName} ${kind}` : kind)
-      for (const slot of slotsForShapeItem(item, label, !!shapeName)) {
+      for (const slot of slotsForShapeItem(item, label, isAuthorColorName(shapeName))) {
         visit(slot, `c${ordinal}`)
         ordinal += 1
       }
