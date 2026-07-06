@@ -214,6 +214,49 @@ export type LottieItem = BaseTimelineItem & {
   totalFrames: number
   // Loop the animation when the clip outlives one playthrough (default true)
   loop?: boolean
+  // --- Editing controls (all optional; consumed by mapTimelineFrameToLottieFrame) ---
+  // `speed` and `isReversed` are inherited from BaseTimelineItem but note: Lottie
+  // uses a dedicated `reversed` flag so it never triggers video reverse-conform.
+  /** Play the animation backward. */
+  reversed?: boolean
+  /** How the animation repeats while looping (default 'loop'). */
+  loopMode?: 'loop' | 'pingpong'
+  /** First source frame of the animation to play (default 0). */
+  segmentStart?: number
+  /** Last source frame of the animation to play (default totalFrames - 1). */
+  segmentEnd?: number
+  /**
+   * Selected animation id for a multi-animation `.lottie` archive (default: the
+   * manifest's primary animation). Switching this re-derives the clip's
+   * timing/size from the chosen animation.
+   */
+  animationId?: string
+  /**
+   * Selected dotLottie theme id — a named rule set (from the `.lottie` manifest)
+   * recoloring/retexting the animation's slots, applied via `setThemeData`.
+   * Undefined renders the animation as authored.
+   */
+  themeId?: string
+  /**
+   * Per-layer text replacements for template Lotties, keyed by the text layer's
+   * stable key (see `extractLottieTextLayers`). Applied before render to both
+   * raw `.json` and `.lottie` archives (images inlined).
+   */
+  textOverrides?: Record<string, string>
+  /**
+   * Per-color solid fill/stroke replacements for template Lotties, keyed by the
+   * color's stable ordinal key (see `extractLottieColorLayers`) with `#rrggbb`
+   * hex values. Applied before render to both raw `.json` and `.lottie`
+   * archives. Animated colors freeze to the chosen color; gradients are
+   * recolored via themes/slots, not here.
+   */
+  colorOverrides?: Record<string, string>
+  /**
+   * Scalar/vector value-slot overrides keyed by slot id (see
+   * `extractLottieValueSlots`): a number for a scalar slot, `[x, y]` for a
+   * vector slot. Applied natively via dotlottie's slot setters after load.
+   */
+  slotOverrides?: Record<string, number | [number, number]>
 }
 
 export type ShapeType =

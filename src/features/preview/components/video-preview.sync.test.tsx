@@ -454,6 +454,20 @@ function getDisplayedFrame() {
   return usePreviewBridgeStore.getState().displayedFrame
 }
 
+function getCanvasDrawImageCallCount() {
+  const results = canvasGetContextSpy?.mock.results as
+    | Array<{ type: string; value: unknown }>
+    | undefined
+  return (
+    results?.reduce((total: number, result) => {
+      if (result.type !== 'return' || !result.value) return total
+      const drawImage = (result.value as { drawImage?: unknown }).drawImage
+      if (typeof drawImage !== 'function' || !('mock' in drawImage)) return total
+      return total + (drawImage as { mock: { calls: unknown[] } }).mock.calls.length
+    }, 0) ?? 0
+  )
+}
+
 function resetStores() {
   usePlaybackStore.setState({
     currentFrame: 0,
@@ -1477,7 +1491,10 @@ describe('VideoPreview sync behavior', () => {
       expect(beforeLayer).toHaveStyle({ width: '100%', height: '100%' })
       expect(beforeLayer?.style.clipPath).toBe('inset(0 50% 0 0)')
       expect(beforeLayer?.style.overflow).toBe('')
-      expect(scrubCanvas).toHaveStyle({ width: '100%', height: '100%' })
+      expect(scrubCanvas.style.width).toMatch(/^calc\(100% \+ /)
+      expect(scrubCanvas.style.height).toMatch(/^calc\(100% \+ /)
+      expect(scrubCanvas.style.left).not.toBe('')
+      expect(scrubCanvas.style.top).not.toBe('')
       expect(container.querySelector('[data-grade-comparison-after-layer="true"]')).not.toBeNull()
     })
 
@@ -2022,8 +2039,11 @@ describe('VideoPreview sync behavior', () => {
       } as unknown as TimelineItem,
     ])
 
+    // The timeline contains a gpu-effect clip, so the overlay stays warm from
+    // the start (project-level always-on) rather than switching on at the clip
+    // boundary — this is what makes the effect appear instantly on landing.
     const { scrubCanvas } = await renderPreviewAfterInitialSeek()
-    expect(scrubCanvas.style.visibility).toBe('hidden')
+    expect(scrubCanvas.style.visibility).toBe('visible')
 
     act(() => {
       usePlaybackStore.getState().setCurrentFrame(24)
@@ -2067,8 +2087,10 @@ describe('VideoPreview sync behavior', () => {
 
     mockedPlayerFrame = 24
 
+    // Corner-pin is overlay-only content, so the overlay is warm from the start
+    // (project-level always-on) even though the Player already sits at the frame.
     const { scrubCanvas } = await renderPreviewAfterInitialSeek()
-    expect(scrubCanvas.style.visibility).toBe('hidden')
+    expect(scrubCanvas.style.visibility).toBe('visible')
 
     act(() => {
       usePlaybackStore.getState().setCurrentFrame(24)
@@ -2336,7 +2358,7 @@ describe('VideoPreview sync behavior', () => {
     })
   })
 
-  it('keeps settled skim presentation across preview effect refreshes', async () => {
+  it('repaints the settled skim overlay immediately after preview resize', async () => {
     const { container, rerender } = render(
       <VideoPreview
         project={{ width: 1920, height: 1080, backgroundColor: '#000000' }}
@@ -2362,10 +2384,15 @@ describe('VideoPreview sync behavior', () => {
       expect(scrubCanvas.style.visibility).toBe('visible')
     })
 
+    const drawImageCallsBeforeResize = getCanvasDrawImageCallCount()
+    const widthBeforeResize = scrubCanvas.width
+    const renderer = rendererMockState.instances[rendererMockState.instances.length - 1]!
+    renderer.renderFrame.mockClear()
+
     rerender(
       <VideoPreview
         project={{ width: 1920, height: 1080, backgroundColor: '#000000' }}
-        containerSize={{ width: 1281, height: 720 }}
+        containerSize={{ width: 960, height: 540 }}
       />,
     )
 
@@ -2373,7 +2400,10 @@ describe('VideoPreview sync behavior', () => {
       expect(usePlaybackStore.getState().previewFrame).toBeNull()
       expect(getDisplayedFrame()).toBe(48)
       expect(scrubCanvas.style.visibility).toBe('visible')
+      expect(scrubCanvas.width).not.toBe(widthBeforeResize)
+      expect(getCanvasDrawImageCallCount()).toBeGreaterThan(drawImageCallsBeforeResize)
     })
+    expect(renderer.renderFrame).not.toHaveBeenCalled()
   })
 
   it('does not enter scrub mode or repaint when clicking the already displayed settled frame', async () => {
@@ -2657,8 +2687,8 @@ describe('VideoPreview sync behavior', () => {
 
     expect(source).not.toBeNull()
     expect(source).not.toBe(scrubCanvas)
-    expect(source?.width).toBe(scrubCanvas.width)
-    expect(source?.height).toBe(scrubCanvas.height)
+    expect(source?.width).toBe(1920)
+    expect(source?.height).toBe(1080)
     expect(renderer.renderFrame).not.toHaveBeenCalled()
     expect(scopeRenderer.renderFrame).toHaveBeenCalledWith(30)
   })
@@ -2686,8 +2716,8 @@ describe('VideoPreview sync behavior', () => {
 
     expect(source).not.toBeNull()
     expect(source).not.toBe(scrubCanvas)
-    expect(source?.width).toBe(scrubCanvas.width)
-    expect(source?.height).toBe(scrubCanvas.height)
+    expect(source?.width).toBe(1920)
+    expect(source?.height).toBe(1080)
     expect(renderer.renderFrame).not.toHaveBeenCalled()
     expect(scopeRenderer.renderFrame).toHaveBeenCalledWith(30)
   })

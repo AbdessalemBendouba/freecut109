@@ -1147,7 +1147,12 @@ fn halftoneFragment(input: VertexOutput) -> @location(0) vec4f {
 
   opacity = clamp(opacity, 0.0, 1.0) * sourceAlpha;
 
-  return vec4f(clamp(color, vec3f(0.0), vec3f(1.0)) * sourceAlpha, opacity);
+  // Output STRAIGHT alpha (RGB not premultiplied) — the final blit premultiplies
+  // once for the premultiplied output canvas. Multiplying RGB by sourceAlpha here
+  // too would premultiply twice on masked/transparent content (sourceAlpha^2),
+  // darkening the mask edge into a visible seam. Opaque pixels (sourceAlpha = 1)
+  // are unchanged.
+  return vec4f(clamp(color, vec3f(0.0), vec3f(1.0)), opacity);
 }`,
   params: {
     colorFront: { type: 'color', label: 'Front Color', default: '#2b2b2b' },

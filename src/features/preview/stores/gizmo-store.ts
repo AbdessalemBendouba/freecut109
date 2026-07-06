@@ -20,6 +20,18 @@ function clampColorGradeSplitPosition(position: number): number {
   )
 }
 
+/**
+ * Live Lottie edits previewed without touching the timeline store, so dragging a
+ * color / slot / text updates the canvas without spamming undo history. The
+ * render engine merges these over the item (see `getLiveItemSnapshot`); each
+ * field, when present, replaces the committed map wholesale.
+ */
+export interface LottiePreview {
+  colorOverrides?: Record<string, string>
+  textOverrides?: Record<string, string>
+  slotOverrides?: Record<string, number | [number, number]>
+}
+
 /** Item properties that can be previewed (non-transform) */
 export interface ItemPropertiesPreview {
   fadeIn?: number
@@ -119,6 +131,8 @@ export interface ItemPreview {
   properties?: ItemPropertiesPreview
   /** Effects preview */
   effects?: ItemEffect[]
+  /** Live Lottie color/text/slot edits (see {@link LottiePreview}) */
+  lottie?: LottiePreview
 }
 
 interface GizmoStoreState {
@@ -254,6 +268,9 @@ interface GizmoStoreActions {
    * Convenience method for effects sliders.
    */
   setEffectsPreviewNew: (effects: Record<string, ItemEffect[]>) => void
+
+  /** Set (or clear, with null) the live Lottie edit preview for one item. */
+  setLottiePreviewNew: (itemId: string, lottie: LottiePreview | null) => void
 
   /** Toggle preview-only color grade bypass (before/after comparison) */
   toggleColorGradeBypass: () => void
@@ -509,6 +526,18 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
       }
     }
     set({ preview: merged })
+  },
+
+  setLottiePreviewNew: (itemId, lottie) => {
+    const current = get().preview ?? {}
+    const existing = current[itemId]
+    if (lottie === null) {
+      if (!existing?.lottie) return // nothing to clear
+      const { lottie: _dropped, ...rest } = existing
+      set({ preview: { ...current, [itemId]: rest } })
+      return
+    }
+    set({ preview: { ...current, [itemId]: { ...existing, lottie } } })
   },
 
   toggleColorGradeBypass: () =>

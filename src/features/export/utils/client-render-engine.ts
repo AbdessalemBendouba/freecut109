@@ -23,6 +23,7 @@ import type {
   CompositionItem,
 } from '@/types/timeline'
 import { LottieExportProvider } from '@/infrastructure/lottie/lottie-frame-provider'
+import { resolveLottieRenderSpec } from '@/infrastructure/lottie/lottie-text'
 import type { ItemKeyframes } from '@/types/keyframe'
 import type { ItemEffect } from '@/types/effects'
 import type { ResolvedTransform } from '@/types/transform'
@@ -167,6 +168,27 @@ function recordScrubPerf(frame: number, path: ScrubPerfSample['path'], startMs: 
   } catch {
     /* User Timing unavailable — ignore */
   }
+}
+
+/**
+ * Identity of a Lottie item's animation/theme selection + text/color overrides.
+ * When this changes the preloaded dotlottie renderer must be rebuilt with a
+ * fresh render spec (see the preview freshness sync in `renderFrame`).
+ */
+function lottieOverrideSignature(item: {
+  animationId?: string
+  themeId?: string
+  textOverrides?: Record<string, string>
+  colorOverrides?: Record<string, string>
+  slotOverrides?: Record<string, number | [number, number]>
+}): string {
+  return JSON.stringify({
+    a: item.animationId ?? null,
+    m: item.themeId ?? null,
+    t: item.textOverrides ?? null,
+    c: item.colorOverrides ?? null,
+    s: item.slotOverrides ?? null,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +418,45 @@ export async function createCompositionRenderer(
   // Lottie animations: rendered on demand via dotlottie-web (no frame pre-extraction).
   const lottieItems: LottieItem[] = []
   const lottieProvider = new LottieExportProvider()
+
+  // Preview only: a persistent renderer outlives edits, so when a top-level
+  // Lottie's text/color overrides change we must rebuild its dotlottie renderer
+  // with freshly patched data (the frame mapping already reads live timing).
+  // Cheap when nothing changed (a signature compare); export never calls this
+  // (it preloads final overrides once). Sub-comp Lotties are out of scope.
+  const liveLottieItem = (baseItem: LottieItem): LottieItem => {
+    const live = getLiveItemSnapshot?.(baseItem.id)
+    return live && live.type === 'lottie' ? live : baseItem
+  }
+  const lottieOverridesAreStale = (): boolean =>
+    lottieItems.some(
+      (baseItem) =>
+        lottieProvider.getSignature(baseItem.id) !==
+        lottieOverrideSignature(liveLottieItem(baseItem)),
+    )
+  const ensureLottieOverridesFresh = async (): Promise<void> => {
+    await Promise.all(
+      lottieItems.map(async (baseItem) => {
+        const item = liveLottieItem(baseItem)
+        if (!item.src) return
+        const signature = lottieOverrideSignature(item)
+        if (lottieProvider.getSignature(baseItem.id) === signature) return
+        const w = item.sourceWidth && item.sourceWidth > 0 ? item.sourceWidth : 512
+        const h = item.sourceHeight && item.sourceHeight > 0 ? item.sourceHeight : 512
+        const spec = await resolveLottieRenderSpec(item.src, item)
+        await lottieProvider.rebuild(
+          baseItem.id,
+          item.src,
+          w,
+          h,
+          spec.data ?? undefined,
+          signature,
+          spec.themeData ?? undefined,
+          spec.slots ?? undefined,
+        )
+      }),
+    )
+  }
 
   for (const track of tracks) {
     for (const item of track.items ?? []) {
@@ -939,7 +1000,20 @@ export async function createCompositionRenderer(
                 lottieItem.sourceHeight && lottieItem.sourceHeight > 0
                   ? lottieItem.sourceHeight
                   : 512
-              await lottieProvider.preload(lottieItem.id, lottieItem.src, w, h)
+              // Resolve animation/theme + text/color edits before warming so
+              // exports reflect them.
+              const spec = await resolveLottieRenderSpec(lottieItem.src, lottieItem)
+              if (isDisposed) return
+              await lottieProvider.preload(
+                lottieItem.id,
+                lottieItem.src,
+                w,
+                h,
+                spec.data ?? undefined,
+                lottieOverrideSignature(lottieItem),
+                spec.themeData ?? undefined,
+                spec.slots ?? undefined,
+              )
               // Bail if the engine was disposed mid-load so we don't register a
               // renderer into a torn-down provider (dispose() → destroy()).
               if (isDisposed) return
@@ -1165,7 +1239,17 @@ export async function createCompositionRenderer(
         const subImagePromises: Promise<void>[] = []
         const subGifItems: ImageItem[] = []
         const subWebpItems: ImageItem[] = []
-        const subLottieItems: Array<{ id: string; src: string; w: number; h: number }> = []
+        const subLottieItems: Array<{
+          id: string
+          src: string
+          w: number
+          h: number
+          animationId?: string
+          themeId?: string
+          textOverrides?: Record<string, string>
+          colorOverrides?: Record<string, string>
+          slotOverrides?: Record<string, number | [number, number]>
+        }> = []
 
         for (const { subItem, src } of subCompMediaItems) {
           if (subItem.type === 'lottie' && !lottieProvider.get(subItem.id)) {
@@ -1179,6 +1263,11 @@ export async function createCompositionRenderer(
                 lottieItem.sourceHeight && lottieItem.sourceHeight > 0
                   ? lottieItem.sourceHeight
                   : 512,
+              animationId: lottieItem.animationId,
+              themeId: lottieItem.themeId,
+              textOverrides: lottieItem.textOverrides,
+              colorOverrides: lottieItem.colorOverrides,
+              slotOverrides: lottieItem.slotOverrides,
             })
           }
           if (subItem.type === 'image' && !imageElements.has(subItem.id)) {
@@ -1280,14 +1369,29 @@ export async function createCompositionRenderer(
           await Promise.all(subWebpPromises)
         }
 
-        // Preload sub-comp Lottie renderers
+        // Preload sub-comp Lottie renderers, applying animation/theme + text/
+        // color edits so compound-clip Lotties reflect them on export (parity
+        // with preview).
         if (hasDom && subLottieItems.length > 0) {
           await Promise.all(
-            subLottieItems.map((it) =>
-              lottieProvider.preload(it.id, it.src, it.w, it.h).catch((err) => {
+            subLottieItems.map(async (it) => {
+              try {
+                const spec = await resolveLottieRenderSpec(it.src, it)
+                if (isDisposed) return
+                await lottieProvider.preload(
+                  it.id,
+                  it.src,
+                  it.w,
+                  it.h,
+                  spec.data ?? undefined,
+                  lottieOverrideSignature(it),
+                  spec.themeData ?? undefined,
+                  spec.slots ?? undefined,
+                )
+              } catch (err) {
                 getLog().error('Failed to preload sub-comp Lottie', { itemId: it.id, error: err })
-              }),
-            ),
+              }
+            }),
           )
         }
 
@@ -1325,6 +1429,13 @@ export async function createCompositionRenderer(
       // refresh, effects added after renderer creation stay invisible.
       if (renderMode === 'preview') {
         refreshSubCompRenderData(useCompositionsStore.getState().compositionById)
+      }
+
+      // Rebuild any Lottie whose text/color overrides changed since preload, so
+      // live recolor/text edits show up. The sync guard keeps this ~free on the
+      // hot path — the await only runs the frame after an override edit.
+      if (renderMode === 'preview' && lottieItems.length > 0 && lottieOverridesAreStale()) {
+        await ensureLottieOverridesFresh()
       }
 
       // Clear canvas

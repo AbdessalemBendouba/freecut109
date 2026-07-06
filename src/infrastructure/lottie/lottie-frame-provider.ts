@@ -13,6 +13,7 @@
  * Preview uses {@link LottieRenderer} directly against a visible canvas.
  */
 import { DotLottie } from '@lottiefiles/dotlottie-web'
+import type { LottieSlotValue } from './lottie-slots'
 // Bundle the WASM alongside the app so it resolves without the default CDN.
 // Use the package's `exports`-mapped subpath (NOT `/dist/...`) so Node's strict
 // exports resolution (Vitest) can resolve it too, not just Vite.
@@ -46,11 +47,20 @@ export interface LottieFrameMapInput {
   frameRate: number
   /** Whether to loop when the clip outlives the animation. */
   loop: boolean
+  /** Play the segment backward (default false). */
+  reversed?: boolean
+  /** Repeat style while looping (default 'loop'). */
+  loopMode?: 'loop' | 'pingpong'
+  /** First source frame to play (default 0). */
+  segmentStart?: number
+  /** Last source frame to play (default totalFrames - 1). */
+  segmentEnd?: number
 }
 
 /**
- * Map a clip-local timeline frame to a Lottie frame index.
- * Clamped to `[0, totalFrames - 1]` — dotlottie's valid seek range.
+ * Map a clip-local timeline frame to a Lottie frame index, honoring speed,
+ * reverse, an in/out segment, and loop style. The result is always clamped to
+ * the active segment and to `[0, totalFrames - 1]` (dotlottie's valid range).
  */
 export function mapTimelineFrameToLottieFrame({
   localFrame,
@@ -59,15 +69,45 @@ export function mapTimelineFrameToLottieFrame({
   totalFrames,
   frameRate,
   loop,
+  reversed = false,
+  loopMode = 'loop',
+  segmentStart,
+  segmentEnd,
 }: LottieFrameMapInput): number {
   if (totalFrames <= 0 || projectFps <= 0 || frameRate <= 0) return 0
-  const seconds = (localFrame / projectFps) * (speed ?? 1)
-  let lottieFrame = seconds * frameRate
   const maxFrame = totalFrames - 1
+
+  // Resolve and sanitize the active segment [segStart, segEnd] within the range.
+  const segStart = Math.max(0, Math.min(segmentStart ?? 0, maxFrame))
+  const segEnd = Math.max(segStart, Math.min(segmentEnd ?? maxFrame, maxFrame))
+  const segSpan = segEnd - segStart
+  // A zero-length segment is a frozen poster frame.
+  if (segSpan <= 0) return segStart
+
+  // Frames elapsed within the segment at the requested speed.
+  const elapsed = (localFrame / projectFps) * (speed ?? 1) * frameRate
+
+  let offset: number
   if (loop) {
-    lottieFrame = ((lottieFrame % totalFrames) + totalFrames) % totalFrames
+    if (loopMode === 'pingpong') {
+      // Ping-pong reflects at the endpoints, so segEnd is reached at m === segSpan.
+      const period = segSpan * 2
+      const m = ((elapsed % period) + period) % period
+      offset = m <= segSpan ? m : period - m
+    } else {
+      // A loop cycles through all frames segStart..segEnd inclusive, then wraps —
+      // so the period is the frame *count* (span + 1), not the span, or the final
+      // frame is skipped before wrapping.
+      const frameCount = segSpan + 1
+      offset = ((elapsed % frameCount) + frameCount) % frameCount
+    }
+  } else {
+    // Past the end, hold the final frame (dotlottie clamps anyway).
+    offset = Math.max(0, Math.min(elapsed, segSpan))
   }
-  return Math.max(0, Math.min(lottieFrame, maxFrame))
+
+  const frame = reversed ? segEnd - offset : segStart + offset
+  return Math.max(segStart, Math.min(frame, segEnd))
 }
 
 /**
@@ -87,6 +127,17 @@ export class LottieRenderer {
     src?: string
     /** Raw animation JSON string. */
     data?: string
+    /**
+     * dotLottie theme rule JSON (`{ rules: [...] }`) applied via `setThemeData`
+     * once the animation loads — recolors/retexts the animation's slots.
+     */
+    themeData?: string
+    /**
+     * Scalar/vector slot overrides applied natively (`setScalarSlot` /
+     * `setVectorSlot`) once the animation loads, after the theme so an explicit
+     * override wins. Keyed by slot id.
+     */
+    slots?: Record<string, LottieSlotValue>
     /**
      * Track the canvas's display size and re-render crisply on resize. Enable
      * for a visible preview canvas; leave off (default) for a fixed-size
@@ -115,6 +166,16 @@ export class LottieRenderer {
     this._ready = new Promise<void>((resolve) => {
       const onLoad = () => {
         this._loaded = true
+        // Apply the theme + slot overrides to the loaded animation before the
+        // first render; the external setFrame that follows draws them.
+        if (config.themeData) {
+          try {
+            this.dotLottie.setThemeData(config.themeData)
+          } catch {
+            // ignore a malformed/unsupported theme — render stays as-authored
+          }
+        }
+        this.applySlots(config.slots)
         resolve()
       }
       // Guard against a load that already completed synchronously.
@@ -154,6 +215,28 @@ export class LottieRenderer {
   get frameRate(): number {
     const d = this.duration
     return d > 0 ? this.totalFrames / d : 30
+  }
+
+  /**
+   * Apply scalar/vector slot overrides via dotlottie's native setters, routing
+   * each by the slot's declared type. Unknown ids / type mismatches are ignored.
+   */
+  private applySlots(slots: Record<string, LottieSlotValue> | undefined): void {
+    if (!slots) return
+    for (const [id, value] of Object.entries(slots)) {
+      try {
+        // `getSlotType` reports position slots as 'vector'; `setVectorSlot`
+        // handles both.
+        const type = this.dotLottie.getSlotType(id)
+        if (type === 'scalar' && typeof value === 'number') {
+          this.dotLottie.setScalarSlot(id, value)
+        } else if (type === 'vector' && Array.isArray(value)) {
+          this.dotLottie.setVectorSlot(id, value)
+        }
+      } catch {
+        // ignore a single bad slot — the rest still apply
+      }
+    }
   }
 
   /** Render a specific Lottie frame synchronously into the bound canvas. */
@@ -204,14 +287,80 @@ export async function renderLottieThumbnail(
  */
 export class LottieExportProvider {
   private readonly renderers = new Map<string, LottieRenderer>()
+  /** Override signature the current renderer for a key was built with. */
+  private readonly signatures = new Map<string, string>()
+  /** In-flight rebuilds, keyed by item key, so concurrent renders dedupe. */
+  private readonly rebuilds = new Map<string, { signature: string; promise: Promise<void> }>()
 
-  /** Warm a renderer for a source at a target size. Safe to call repeatedly. */
-  async preload(key: string, src: string, width: number, height: number): Promise<void> {
+  /**
+   * Warm a renderer for a source at a target size. Safe to call repeatedly.
+   * Pass `data` (patched JSON string) to render text/color-overridden content
+   * instead of loading `src` directly, and `signature` to record which override
+   * state that data represents (see {@link getSignature} / {@link rebuild}).
+   */
+  async preload(
+    key: string,
+    src: string,
+    width: number,
+    height: number,
+    data?: string,
+    signature?: string,
+    themeData?: string,
+    slots?: Record<string, LottieSlotValue>,
+  ): Promise<void> {
     if (this.renderers.has(key)) return
     const canvas = new OffscreenCanvas(Math.max(1, width), Math.max(1, height))
-    const renderer = new LottieRenderer({ canvas, src })
+    const renderer = new LottieRenderer(
+      data ? { canvas, data, themeData, slots } : { canvas, src, themeData, slots },
+    )
     this.renderers.set(key, renderer)
+    if (signature !== undefined) this.signatures.set(key, signature)
     await renderer.ready
+  }
+
+  /** The override signature the key's current renderer was built with. */
+  getSignature(key: string): string | undefined {
+    return this.signatures.get(key)
+  }
+
+  /**
+   * Rebuild a key's renderer with fresh override `data` (or the raw `src` when
+   * null) after its text/color overrides changed. Concurrent calls for the same
+   * signature share one rebuild; the previous renderer is disposed once the new
+   * one is ready so a render mid-rebuild still draws the old frame. Used by the
+   * live preview — export preloads final overrides once and never rebuilds.
+   */
+  async rebuild(
+    key: string,
+    src: string,
+    width: number,
+    height: number,
+    data: string | undefined,
+    signature: string,
+    themeData?: string,
+    slots?: Record<string, LottieSlotValue>,
+  ): Promise<void> {
+    if (this.signatures.get(key) === signature) return
+    const inFlight = this.rebuilds.get(key)
+    if (inFlight && inFlight.signature === signature) return inFlight.promise
+
+    const promise = (async () => {
+      const canvas = new OffscreenCanvas(Math.max(1, width), Math.max(1, height))
+      const renderer = new LottieRenderer(
+        data ? { canvas, data, themeData, slots } : { canvas, src, themeData, slots },
+      )
+      await renderer.ready
+      const previous = this.renderers.get(key)
+      this.renderers.set(key, renderer)
+      this.signatures.set(key, signature)
+      previous?.destroy()
+    })()
+    this.rebuilds.set(key, { signature, promise })
+    try {
+      await promise
+    } finally {
+      if (this.rebuilds.get(key)?.promise === promise) this.rebuilds.delete(key)
+    }
   }
 
   /** Render `lottieFrame` and return the OffscreenCanvas to composite, or null. */
@@ -229,5 +378,7 @@ export class LottieExportProvider {
   destroy(): void {
     for (const r of this.renderers.values()) r.destroy()
     this.renderers.clear()
+    this.signatures.clear()
+    this.rebuilds.clear()
   }
 }

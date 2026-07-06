@@ -48,7 +48,12 @@ vi.mock('@/features/preview/deps/composition-runtime', () => ({
   ),
 }))
 
-import { getPreviewPixelSnapOffset, getPreviewPixelSnapSize } from '../utils/preview-pixel-snap'
+import {
+  getPreviewPixelSnapOffset,
+  getPreviewPixelSnapSize,
+  getPreviewPlayerSize,
+} from '../utils/preview-pixel-snap'
+import { getPreviewDisplayEdgePadding } from '../utils/preview-display-canvas'
 import { PreviewStage } from './preview-stage'
 
 function createInputProps(): CompositionInputProps {
@@ -124,6 +129,46 @@ describe('getPreviewPixelSnapSize', () => {
   })
 })
 
+describe('getPreviewPlayerSize', () => {
+  it('keeps auto-fit preview dimensions aspect-stable on the device pixel grid', () => {
+    expect(
+      getPreviewPlayerSize({
+        sourceSize: { width: 1920, height: 1080 },
+        containerSize: { width: 1029.328125, height: 579 },
+        zoom: -1,
+        devicePixelRatio: 1,
+      }),
+    ).toEqual({ width: 1024, height: 576 })
+  })
+
+  it('preserves normal fixed zoom sizing', () => {
+    expect(
+      getPreviewPlayerSize({
+        sourceSize: { width: 1920, height: 1080 },
+        containerSize: { width: 1029.328125, height: 579 },
+        zoom: 0.5,
+        devicePixelRatio: 1,
+      }),
+    ).toEqual({ width: 960, height: 540 })
+  })
+})
+
+describe('getPreviewDisplayEdgePadding', () => {
+  it('uses source-pixel padding that lands on whole screen pixels at fixed zooms', () => {
+    const renderSize = { width: 1920, height: 1080 }
+
+    expect(getPreviewDisplayEdgePadding({ width: 480, height: 270 }, renderSize, 1)).toBe(4)
+    expect(getPreviewDisplayEdgePadding({ width: 960, height: 540 }, renderSize, 1)).toBe(2)
+    expect(getPreviewDisplayEdgePadding({ width: 1440, height: 810 }, renderSize, 1)).toBe(4)
+  })
+
+  it('falls back to a minimal source-pixel pad for non-terminating auto-fit scales', () => {
+    expect(
+      getPreviewDisplayEdgePadding({ width: 992, height: 558 }, { width: 1920, height: 1080 }, 1),
+    ).toBe(1)
+  })
+})
+
 describe('PreviewStage', () => {
   it('passes proxy playback mode down to nested composition rendering', () => {
     playbackState.useProxy = true
@@ -152,7 +197,7 @@ describe('PreviewStage', () => {
     expect(screen.getByTestId('main-composition')).toHaveAttribute('data-use-proxy-media', 'true')
   })
 
-  it('keeps render surfaces on one exact geometry and passes that geometry to Player layout', () => {
+  it('keeps the player on exact geometry and pads rendered overlay canvases at the clipped edge', () => {
     render(
       <PreviewStage
         backgroundRef={createRef<HTMLDivElement>()}
@@ -184,9 +229,12 @@ describe('PreviewStage', () => {
     expect(player.style.marginTop).toBe('')
 
     canvases.forEach((canvas) => {
-      expect(canvas).toHaveStyle({ width: '100%', height: '100%' })
-      expect(canvas.style.left).toBe('')
-      expect(canvas.style.top).toBe('')
+      expect(canvas).toHaveStyle({
+        width: 'calc(100% + 2px)',
+        height: 'calc(100% + 2px)',
+        left: '-1px',
+        top: '-1px',
+      })
     })
   })
 
@@ -200,7 +248,12 @@ describe('PreviewStage', () => {
     expect(beforeLayer).toHaveStyle({ width: '100%', height: '100%' })
     expect(beforeLayer.style.clipPath).toBe('inset(0 50% 0 0)')
     expect(beforeLayer.style.overflow).toBe('')
-    expect(scrubCanvas).toHaveStyle({ width: '100%', height: '100%' })
+    expect(scrubCanvas).toHaveStyle({
+      width: 'calc(100% + 2px)',
+      height: 'calc(100% + 2px)',
+      left: '-1px',
+      top: '-1px',
+    })
     expect(scrubCanvas.style.clipPath).toBe('')
     expect(screen.getByLabelText('Split grade comparison')).toBeTruthy()
     expect(screen.getByText('Before')).toBeTruthy()
@@ -224,7 +277,12 @@ describe('PreviewStage', () => {
     expect(beforeLayer).toHaveStyle({ width: '100%' })
     expect(beforeLayer.style.clipPath).toBe('inset(0 65% 0 0)')
     expect(beforeLayer.style.overflow).toBe('')
-    expect(scrubCanvas).toHaveStyle({ width: '100%', height: '100%' })
+    expect(scrubCanvas).toHaveStyle({
+      width: 'calc(100% + 2px)',
+      height: 'calc(100% + 2px)',
+      left: '-1px',
+      top: '-1px',
+    })
     expect(scrubCanvas.style.clipPath).toBe('')
     expect(wipeHandle).toHaveAttribute('aria-valuenow', '35')
 

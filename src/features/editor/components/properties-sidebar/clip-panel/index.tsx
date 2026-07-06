@@ -24,6 +24,7 @@ import { LayoutSection } from './layout-section'
 import { FillSection } from './fill-section'
 import { VideoSection } from './video-section'
 import { GifSection } from './gif-section'
+import { LottieSection } from './lottie-section'
 import { ShapeSection } from './shape-section'
 import { CornerPinSection } from './corner-pin-section'
 
@@ -74,8 +75,10 @@ function computeItemTypeInfo(items: TimelineItem[]) {
       types.has('shape') ||
       types.has('adjustment') ||
       types.has('composition') ||
-      types.has('subtitle'),
+      types.has('subtitle') ||
+      types.has('lottie'),
     hasVideoItems: types.has('video'),
+    hasLottieItems: types.has('lottie'),
     hasGifItems,
     hasAudioItems: types.has('video') || types.has('audio'),
     hasTextItems: types.has('text'),
@@ -160,6 +163,7 @@ export const ClipPanel = memo(function ClipPanel() {
   const {
     hasVisualItems,
     hasVideoItems,
+    hasLottieItems,
     hasGifItems,
     hasAudioItems,
     hasTextItems,
@@ -276,7 +280,11 @@ export const ClipPanel = memo(function ClipPanel() {
     return { label: t('editor.clipPanel.tabEffects'), icon: Sparkles }
   }
   const tabGridColsClass =
-    availableTabs.length <= 1 ? 'grid-cols-1' : availableTabs.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
+    availableTabs.length <= 1
+      ? 'grid-cols-1'
+      : availableTabs.length === 2
+        ? 'grid-cols-2'
+        : 'grid-cols-3'
 
   if (selectedItems.length === 0) {
     return null
@@ -340,6 +348,7 @@ export const ClipPanel = memo(function ClipPanel() {
                 </Suspense>
               )}
               {hasGifItems && <GifSection items={selectedItems} />}
+              {hasLottieItems && <LottieSection items={selectedItems} />}
             </div>
           )}
         </TabsContent>

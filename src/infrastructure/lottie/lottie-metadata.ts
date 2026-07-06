@@ -72,53 +72,66 @@ function isZipArchive(bytes: Uint8Array): boolean {
   )
 }
 
+/** The archive entry path for an animation id, or undefined if absent. */
+function animationEntryForId(entries: string[], id: string): string | undefined {
+  // Plain string match (not a manifest-controlled RegExp) to avoid ReDoS and
+  // regex-metacharacter mismatches on the id.
+  const suffix = `animations/${id}.json`.toLowerCase()
+  return entries.find((p) => {
+    const lower = p.toLowerCase()
+    return lower === suffix || lower.endsWith(`/${suffix}`)
+  })
+}
+
 /**
- * Read the first embedded animation's metadata from a `.lottie` (dotLottie ZIP).
+ * Animation JSON entries in a `.lottie` (dotLottie ZIP), best-match first.
  * dotLottie stores animations at `animations/<id>.json` and lists them in
- * `manifest.json`; we honor the manifest order when present, else fall back to
- * the first `animations/*.json` entry.
+ * `manifest.json`. When `preferredId` is given (a user-selected animation) it
+ * is moved to the front; otherwise the manifest's first animation leads, so we
+ * probe the animation that actually plays by default. Shared by metadata
+ * parsing and full-animation extraction.
  */
-function parseDotLottieArchive(bytes: Uint8Array): LottieMetadata | null {
+function orderedAnimationEntries(
+  files: Record<string, Uint8Array>,
+  preferredId?: string,
+): string[] {
+  const animationEntries = Object.keys(files).filter((p) =>
+    /(^|\/)animations\/[^/]+\.json$/i.test(p),
+  )
+  if (animationEntries.length === 0) return []
+
+  const front = (id: string | undefined): string[] | null => {
+    if (!id) return null
+    const entry = animationEntryForId(animationEntries, id)
+    return entry ? [entry, ...animationEntries.filter((p) => p !== entry)] : null
+  }
+
+  const preferred = front(preferredId)
+  if (preferred) return preferred
+
+  const manifestKey = Object.keys(files).find((p) => /(^|\/)manifest\.json$/i.test(p))
+  if (!manifestKey) return animationEntries
+  try {
+    const manifest = JSON.parse(new TextDecoder().decode(files[manifestKey]!)) as {
+      animations?: Array<{ id?: string }>
+    }
+    return front(manifest.animations?.[0]?.id) ?? animationEntries
+  } catch {
+    // ignore a malformed manifest — fall back to entry order
+    return animationEntries
+  }
+}
+
+/** Read an animation's metadata from a `.lottie` (dotLottie ZIP). */
+function parseDotLottieArchive(bytes: Uint8Array, animationId?: string): LottieMetadata | null {
   let files: Record<string, Uint8Array>
   try {
     files = unzipSync(bytes)
   } catch {
     return null
   }
-
   const decoder = new TextDecoder()
-  const animationEntries = Object.keys(files).filter((p) =>
-    /(^|\/)animations\/[^/]+\.json$/i.test(p),
-  )
-  if (animationEntries.length === 0) return null
-
-  // Prefer the manifest's first animation id so we probe the animation that
-  // actually plays by default (matters for multi-animation archives).
-  let orderedEntries = animationEntries
-  const manifestKey = Object.keys(files).find((p) => /(^|\/)manifest\.json$/i.test(p))
-  if (manifestKey) {
-    try {
-      const manifest = JSON.parse(decoder.decode(files[manifestKey]!)) as {
-        animations?: Array<{ id?: string }>
-      }
-      const firstId = manifest.animations?.[0]?.id
-      if (firstId) {
-        // Plain string match (not a manifest-controlled RegExp) to avoid ReDoS
-        // and regex-metacharacter mismatches on the id.
-        const suffix = `animations/${firstId}.json`.toLowerCase()
-        const preferred = animationEntries.find((p) => {
-          const lower = p.toLowerCase()
-          return lower === suffix || lower.endsWith(`/${suffix}`)
-        })
-        if (preferred)
-          orderedEntries = [preferred, ...animationEntries.filter((p) => p !== preferred)]
-      }
-    } catch {
-      // ignore a malformed manifest — fall back to entry order
-    }
-  }
-
-  for (const entry of orderedEntries) {
+  for (const entry of orderedAnimationEntries(files, animationId)) {
     try {
       const meta = parseLottieMetadata(JSON.parse(decoder.decode(files[entry]!)))
       if (meta) return meta
@@ -129,13 +142,273 @@ function parseDotLottieArchive(bytes: Uint8Array): LottieMetadata | null {
   return null
 }
 
+const IMAGE_MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+}
+
+function mimeFromName(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  return IMAGE_MIME[ext] ?? 'application/octet-stream'
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000 // chunk the spread so we never blow the call-stack arg limit
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+/**
+ * Rewrite a `.lottie` animation's `images/*` assets as inline data URIs, using
+ * the archive's file bytes, so the animation JSON renders standalone (no side
+ * channel). Assets already inlined (`data:`) or missing from the archive are
+ * left untouched.
+ */
+function inlineArchiveImages(
+  data: Record<string, unknown>,
+  files: Record<string, Uint8Array>,
+): void {
+  const assets = data.assets
+  if (!Array.isArray(assets)) return
+  const keys = Object.keys(files)
+  for (const raw of assets) {
+    const asset = raw as { p?: unknown; u?: unknown; e?: unknown }
+    const p = asset?.p
+    if (typeof p !== 'string' || p.startsWith('data:')) continue
+    const dir = typeof asset.u === 'string' ? asset.u : ''
+    const candidates = [`${dir}${p}`, `images/${p}`, p].map((c) => c.toLowerCase())
+    const entry = keys.find((k) => {
+      const lower = k.toLowerCase()
+      return candidates.includes(lower) || candidates.some((c) => lower.endsWith(`/${c}`))
+    })
+    if (!entry) continue
+    try {
+      asset.p = `data:${mimeFromName(p)};base64,${bytesToBase64(files[entry]!)}`
+      asset.u = ''
+      asset.e = 1
+    } catch {
+      // leave the asset reference as-is if encoding fails
+    }
+  }
+}
+
+function asLottieObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && Array.isArray((value as { layers?: unknown }).layers)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+/**
+ * Parse an animation of a Lottie source into a plain object, auto-detecting raw
+ * `.json` vs a `.lottie` ZIP archive. `animationId` selects a specific animation
+ * from a multi-animation archive (falls back to the primary animation when the
+ * id is absent); ignored for raw `.json`. When `inlineImages` is set, embedded
+ * `images/*` archive assets are rewritten as data URIs so the returned JSON
+ * renders standalone — needed to patch and render `.lottie` overrides without
+ * re-zipping. Returns null when the bytes are not a valid Lottie.
+ */
+export function extractLottieAnimation(
+  bytes: Uint8Array,
+  inlineImages = false,
+  animationId?: string,
+): Record<string, unknown> | null {
+  if (isZipArchive(bytes)) {
+    let files: Record<string, Uint8Array>
+    try {
+      files = unzipSync(bytes)
+    } catch {
+      return null
+    }
+    const decoder = new TextDecoder()
+    for (const entry of orderedAnimationEntries(files, animationId)) {
+      try {
+        const data = asLottieObject(JSON.parse(decoder.decode(files[entry]!)))
+        if (!data) continue
+        if (inlineImages) inlineArchiveImages(data, files)
+        return data
+      } catch {
+        // try the next animation entry
+      }
+    }
+    return null
+  }
+  try {
+    return asLottieObject(JSON.parse(new TextDecoder().decode(bytes)))
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Fetch a Lottie `src` (blob/URL) and return its primary animation as a plain
+ * object, auto-detecting `.json` vs `.lottie`. See {@link extractLottieAnimation}
+ * for `inlineImages`. Returns null on any fetch/parse failure.
+ */
+export async function fetchLottieAnimation(
+  src: string,
+  inlineImages = false,
+  animationId?: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const buffer = await (await fetch(src)).arrayBuffer()
+    return extractLottieAnimation(new Uint8Array(buffer), inlineImages, animationId)
+  } catch {
+    return null
+  }
+}
+
+// --- Manifest, themes, markers (dotLottie packaging metadata) ----------------
+// A `.lottie` archive can bundle several animations, named color/text *themes*
+// (rule sets targeting the animation's slots), and each animation can carry
+// named *markers* (labelled frame ranges). We surface these so the editor can
+// offer animation/theme pickers and marker-based segment selection.
+
+/** A named animation in a dotLottie archive. */
+export interface LottieAnimationEntry {
+  id: string
+}
+
+/** dotLottie manifest summary: the animations and themes it bundles. */
+export interface LottieManifestInfo {
+  animations: LottieAnimationEntry[]
+  /** Theme ids applicable across the archive. */
+  themes: string[]
+}
+
+/** A labelled frame range inside a Lottie animation (`markers[]`). */
+export interface LottieMarker {
+  name: string
+  /** First frame of the marked range (source frames). */
+  start: number
+  /** Length of the marked range in source frames (0 = a single-frame cue). */
+  duration: number
+}
+
+function readArchiveFiles(bytes: Uint8Array): Record<string, Uint8Array> | null {
+  if (!isZipArchive(bytes)) return null
+  try {
+    return unzipSync(bytes)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Summarize a `.lottie` archive's manifest: its animation ids and theme ids.
+ * Returns null for raw `.json` (no manifest) or an unreadable/absent manifest.
+ * Theme ids come from the top-level `themes[]`, unioned with any referenced by
+ * individual animations, so a picker sees every theme regardless of nesting.
+ */
+export function extractLottieManifest(bytes: Uint8Array): LottieManifestInfo | null {
+  const files = readArchiveFiles(bytes)
+  if (!files) return null
+  const manifestKey = Object.keys(files).find((p) => /(^|\/)manifest\.json$/i.test(p))
+  if (!manifestKey) return null
+  try {
+    const manifest = JSON.parse(new TextDecoder().decode(files[manifestKey]!)) as {
+      animations?: Array<{ id?: unknown; themes?: unknown }>
+      themes?: Array<{ id?: unknown }>
+    }
+    const animations: LottieAnimationEntry[] = []
+    const themeIds = new Set<string>()
+    for (const raw of manifest.themes ?? []) {
+      if (typeof raw?.id === 'string' && raw.id) themeIds.add(raw.id)
+    }
+    for (const raw of manifest.animations ?? []) {
+      if (typeof raw?.id !== 'string' || !raw.id) continue
+      animations.push({ id: raw.id })
+      if (Array.isArray(raw.themes)) {
+        for (const t of raw.themes) if (typeof t === 'string' && t) themeIds.add(t)
+      }
+    }
+    if (animations.length === 0 && themeIds.size === 0) return null
+    return { animations, themes: [...themeIds] }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Read a theme's rule JSON (`{ rules: [...] }`) from a `.lottie` archive, ready
+ * to hand to dotlottie's `setThemeData`. dotLottie stores themes at
+ * `themes/<id>.json`. Returns null when the archive or theme is absent.
+ */
+export function extractLottieThemeData(bytes: Uint8Array, themeId: string): string | null {
+  const files = readArchiveFiles(bytes)
+  if (!files) return null
+  const suffix = `themes/${themeId}.json`.toLowerCase()
+  const key = Object.keys(files).find((p) => {
+    const lower = p.toLowerCase()
+    return lower === suffix || lower.endsWith(`/${suffix}`)
+  })
+  if (!key) return null
+  try {
+    return new TextDecoder().decode(files[key]!)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Read the named markers of an already-parsed Lottie animation object. Lottie
+ * stores markers at the top-level `markers[]` as `{ tm, cm, dr }` (time,
+ * comment/name, duration — all in source frames). Unnamed markers are skipped.
+ */
+export function readLottieMarkers(animation: unknown): LottieMarker[] {
+  const markers = (animation as { markers?: unknown } | null)?.markers
+  if (!Array.isArray(markers)) return []
+  const result: LottieMarker[] = []
+  for (const raw of markers) {
+    const m = raw as { tm?: unknown; cm?: unknown; dr?: unknown }
+    const name = typeof m?.cm === 'string' ? m.cm.trim() : ''
+    if (!name) continue
+    const start = typeof m.tm === 'number' && m.tm >= 0 ? m.tm : 0
+    const duration = typeof m.dr === 'number' && m.dr > 0 ? m.dr : 0
+    result.push({ name, start, duration })
+  }
+  return result
+}
+
+/** Fetch a Lottie `src` and summarize its dotLottie manifest. Null on failure. */
+export async function fetchLottieManifest(src: string): Promise<LottieManifestInfo | null> {
+  try {
+    const buffer = await (await fetch(src)).arrayBuffer()
+    return extractLottieManifest(new Uint8Array(buffer))
+  } catch {
+    return null
+  }
+}
+
+/** Fetch a Lottie `src` and read a theme's rule JSON. Null on failure/absence. */
+export async function fetchLottieThemeData(src: string, themeId: string): Promise<string | null> {
+  try {
+    const buffer = await (await fetch(src)).arrayBuffer()
+    return extractLottieThemeData(new Uint8Array(buffer), themeId)
+  } catch {
+    return null
+  }
+}
+
 /**
  * Extract Lottie metadata from raw file bytes, auto-detecting `.json` vs the
- * `.lottie` ZIP archive. Returns null when the bytes are not a valid Lottie.
+ * `.lottie` ZIP archive. When `animationId` is given, reads that animation's
+ * timing from a multi-animation archive (else the primary animation). Returns
+ * null when the bytes are not a valid Lottie.
  */
-export function parseLottieFileBytes(bytes: Uint8Array): LottieMetadata | null {
+export function parseLottieFileBytes(
+  bytes: Uint8Array,
+  animationId?: string,
+): LottieMetadata | null {
   if (isZipArchive(bytes)) {
-    return parseDotLottieArchive(bytes)
+    return parseDotLottieArchive(bytes, animationId)
   }
   try {
     return parseLottieMetadata(new TextDecoder().decode(bytes))

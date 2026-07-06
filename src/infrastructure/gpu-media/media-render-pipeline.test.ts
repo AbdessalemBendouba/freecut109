@@ -29,6 +29,20 @@ function createPipelineHarness() {
 }
 
 describe('MediaRenderPipeline', () => {
+  it('samples media texture pixels from texel centers to avoid edge seams', () => {
+    const { device } = createPipelineHarness()
+    const shaderCode = device.createShaderModule.mock.calls[0]?.[0]?.code as string
+
+    expect(shaderCode).toContain('let unclampedSourcePixel')
+    expect(shaderCode).toContain('let sourceMin = u.sourceRect.xy + vec2f(0.5)')
+    expect(shaderCode).toContain(
+      'let sourceMax = u.sourceRect.xy + max(u.sourceRect.zw - vec2f(0.5), vec2f(0.5))',
+    )
+    expect(shaderCode).toContain(
+      'let sourcePixel = clamp(unclampedSourcePixel, sourceMin, sourceMax)',
+    )
+  })
+
   it('uploads a media source and renders it into the output texture', () => {
     const { commandEncoder, device, inputTexture, outputTexture, pass, pipeline, queue } =
       createPipelineHarness()

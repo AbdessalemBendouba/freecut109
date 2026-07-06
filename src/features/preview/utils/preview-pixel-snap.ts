@@ -11,6 +11,17 @@ const MIN_PIXEL_SNAP_DELTA = 0.001
 
 export const ZERO_PIXEL_SNAP_OFFSET: PixelSnapOffset = { x: 0, y: 0 }
 
+function greatestCommonDivisor(a: number, b: number): number {
+  let x = Math.abs(Math.round(a))
+  let y = Math.abs(Math.round(b))
+  while (y > 0) {
+    const next = x % y
+    x = y
+    y = next
+  }
+  return x || 1
+}
+
 function normalizeDevicePixelRatio(devicePixelRatio: number): number {
   return Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? devicePixelRatio : 1
 }
@@ -46,6 +57,51 @@ export function getPreviewPixelSnapSize(
   }
 }
 
+function floorCssPixel(value: number, devicePixelRatio: number): number {
+  if (!Number.isFinite(value)) return 0
+  const dpr = normalizeDevicePixelRatio(devicePixelRatio)
+  return Math.max(0, Math.floor(value * dpr + MIN_PIXEL_SNAP_DELTA) / dpr)
+}
+
+function getAspectStableFitSize({
+  sourceSize,
+  containerSize,
+  devicePixelRatio,
+}: {
+  sourceSize: PixelSnapSize
+  containerSize: PixelSnapSize
+  devicePixelRatio: number
+}): PixelSnapSize {
+  const dpr = normalizeDevicePixelRatio(devicePixelRatio)
+  const aspectRatio = sourceSize.width / sourceSize.height
+  const sourceWidth = Math.max(1, Math.round(sourceSize.width))
+  const sourceHeight = Math.max(1, Math.round(sourceSize.height))
+  const divisor = greatestCommonDivisor(sourceWidth, sourceHeight)
+  const unitWidth = sourceWidth / divisor
+  const unitHeight = sourceHeight / divisor
+  const maxDeviceWidth = Math.max(0, Math.floor(containerSize.width * dpr + MIN_PIXEL_SNAP_DELTA))
+  const maxDeviceHeight = Math.max(0, Math.floor(containerSize.height * dpr + MIN_PIXEL_SNAP_DELTA))
+  const unitCount = Math.floor(
+    Math.min(maxDeviceWidth / unitWidth, maxDeviceHeight / unitHeight),
+  )
+
+  if (unitCount > 0) {
+    return {
+      width: (unitWidth * unitCount) / dpr,
+      height: (unitHeight * unitCount) / dpr,
+    }
+  }
+
+  const containerAspectRatio = containerSize.width / containerSize.height
+  if (containerAspectRatio > aspectRatio) {
+    const height = floorCssPixel(containerSize.height, dpr)
+    return { width: height * aspectRatio, height }
+  }
+
+  const width = floorCssPixel(containerSize.width, dpr)
+  return { width, height: width / aspectRatio }
+}
+
 function getDevicePixelRatio(): number {
   return typeof window === 'undefined' ? 1 : window.devicePixelRatio
 }
@@ -60,21 +116,7 @@ export function getPreviewPlayerSize({
 
   if (zoom === -1) {
     if (containerSize.width > 0 && containerSize.height > 0) {
-      const containerAspectRatio = containerSize.width / containerSize.height
-
-      if (containerAspectRatio > aspectRatio) {
-        const { height } = getPreviewPixelSnapSize(
-          { width: containerSize.height * aspectRatio, height: containerSize.height },
-          devicePixelRatio,
-        )
-        return { width: height * aspectRatio, height }
-      }
-
-      const { width } = getPreviewPixelSnapSize(
-        { width: containerSize.width, height: containerSize.width / aspectRatio },
-        devicePixelRatio,
-      )
-      return { width, height: width / aspectRatio }
+      return getAspectStableFitSize({ sourceSize, containerSize, devicePixelRatio })
     }
 
     return sourceSize
