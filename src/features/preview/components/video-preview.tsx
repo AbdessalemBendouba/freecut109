@@ -34,6 +34,10 @@ import { usePreviewViewModel } from '../hooks/use-preview-view-model'
 import { usePreviewTransitionSessionController } from '../hooks/use-preview-transition-session-controller'
 import { useGizmoStore } from '../stores/gizmo-store'
 import { FAST_SCRUB_RENDERER_ENABLED } from '../utils/preview-constants'
+import {
+  drawSourceToPreviewDisplayCanvas,
+  getPreviewDisplayCanvasBackingSize,
+} from '../utils/preview-display-canvas'
 import { importCompositionRenderer, type CompositionRendererInstance } from '../deps/export'
 
 interface VideoPreviewProps {
@@ -371,9 +375,10 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
   useLayoutEffect(() => {
     const canvas = gpuEffectsCanvasRef.current
     if (!canvas) return
-    if (canvas.width !== playerRenderSize.width) canvas.width = playerRenderSize.width
-    if (canvas.height !== playerRenderSize.height) canvas.height = playerRenderSize.height
-  }, [gpuEffectsCanvasRef, playerRenderSize.height, playerRenderSize.width])
+    const backingSize = getPreviewDisplayCanvasBackingSize(playerSize, playerRenderSize)
+    if (canvas.width !== backingSize.width) canvas.width = backingSize.width
+    if (canvas.height !== backingSize.height) canvas.height = backingSize.height
+  }, [gpuEffectsCanvasRef, playerRenderSize, playerSize])
 
   const ensureSplitAfterRenderer =
     useCallback(async (): Promise<CompositionRendererInstance | null> => {
@@ -523,6 +528,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
       isResolving,
       forceFastScrubOverlay,
       items,
+      playerSize,
       playerRenderSize,
       renderSize,
       fastScrubInputProps,
@@ -710,8 +716,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
 
           const displayCtx = displayCanvas.getContext('2d')
           if (!displayCtx) return
-          displayCtx.clearRect(0, 0, displayCanvas.width, displayCanvas.height)
-          displayCtx.drawImage(offscreen, 0, 0, displayCanvas.width, displayCanvas.height)
+          drawSourceToPreviewDisplayCanvas(displayCtx, displayCanvas, offscreen)
           setSplitAfterRenderedFrame(targetFrame)
         }
       } finally {

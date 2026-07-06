@@ -1477,7 +1477,10 @@ describe('VideoPreview sync behavior', () => {
       expect(beforeLayer).toHaveStyle({ width: '100%', height: '100%' })
       expect(beforeLayer?.style.clipPath).toBe('inset(0 50% 0 0)')
       expect(beforeLayer?.style.overflow).toBe('')
-      expect(scrubCanvas).toHaveStyle({ width: '100%', height: '100%' })
+      expect(scrubCanvas.style.width).toMatch(/^calc\(100% \+ /)
+      expect(scrubCanvas.style.height).toMatch(/^calc\(100% \+ /)
+      expect(scrubCanvas.style.left).not.toBe('')
+      expect(scrubCanvas.style.top).not.toBe('')
       expect(container.querySelector('[data-grade-comparison-after-layer="true"]')).not.toBeNull()
     })
 
@@ -2662,8 +2665,8 @@ describe('VideoPreview sync behavior', () => {
 
     expect(source).not.toBeNull()
     expect(source).not.toBe(scrubCanvas)
-    expect(source?.width).toBe(scrubCanvas.width)
-    expect(source?.height).toBe(scrubCanvas.height)
+    expect(source?.width).toBe(1920)
+    expect(source?.height).toBe(1080)
     expect(renderer.renderFrame).not.toHaveBeenCalled()
     expect(scopeRenderer.renderFrame).toHaveBeenCalledWith(30)
   })
@@ -2691,8 +2694,8 @@ describe('VideoPreview sync behavior', () => {
 
     expect(source).not.toBeNull()
     expect(source).not.toBe(scrubCanvas)
-    expect(source?.width).toBe(scrubCanvas.width)
-    expect(source?.height).toBe(scrubCanvas.height)
+    expect(source?.width).toBe(1920)
+    expect(source?.height).toBe(1080)
     expect(renderer.renderFrame).not.toHaveBeenCalled()
     expect(scopeRenderer.renderFrame).toHaveBeenCalledWith(30)
   })

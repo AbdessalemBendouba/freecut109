@@ -35,6 +35,10 @@ import {
   FAST_SCRUB_RENDERER_ENABLED,
   blobToDataUrl,
 } from '../utils/preview-constants'
+import {
+  copyPreviewDisplayCanvasContent,
+  getPreviewDisplayCanvasBackingSize,
+} from '../utils/preview-display-canvas'
 import { setActivePreviewScrubbingCache } from '../utils/preview-scrubbing-cache-bridge'
 import { warmDecoderPrewarmWorkerPool } from '../utils/decoder-prewarm'
 import { collectVisualInvalidationRanges } from '../utils/preview-frame-invalidation'
@@ -62,6 +66,7 @@ interface UsePreviewRendererControllerParams {
   isResolving: boolean
   forceFastScrubOverlay: boolean
   items: TimelineItem[]
+  playerSize: { width: number; height: number }
   playerRenderSize: { width: number; height: number }
   renderSize: { width: number; height: number }
   fastScrubInputProps: CompositionInputProps
@@ -136,6 +141,7 @@ export function usePreviewRendererController({
   isResolving,
   forceFastScrubOverlay,
   items,
+  playerSize,
   playerRenderSize,
   renderSize,
   fastScrubInputProps,
@@ -219,9 +225,10 @@ export function usePreviewRendererController({
   useLayoutEffect(() => {
     const canvas = scrubCanvasRef.current
     if (!canvas) return
-    if (canvas.width !== playerRenderSize.width) canvas.width = playerRenderSize.width
-    if (canvas.height !== playerRenderSize.height) canvas.height = playerRenderSize.height
-  }, [playerRenderSize.height, playerRenderSize.width, scrubCanvasRef])
+    const backingSize = getPreviewDisplayCanvasBackingSize(playerSize, playerRenderSize)
+    if (canvas.width !== backingSize.width) canvas.width = backingSize.width
+    if (canvas.height !== backingSize.height) canvas.height = backingSize.height
+  }, [playerRenderSize, playerSize, scrubCanvasRef])
 
   const disposeFastScrubRenderer = useCallback(() => {
     scrubInitPromiseRef.current = null
@@ -1148,22 +1155,20 @@ export function usePreviewRendererController({
         return null
       }
 
+      const targetWidth = Math.max(1, playerRenderSize.width)
+      const targetHeight = Math.max(1, playerRenderSize.height)
+
       let snapshot = captureDisplaySnapshotCanvasRef.current
-      if (
-        !snapshot ||
-        snapshot.width !== displayCanvas.width ||
-        snapshot.height !== displayCanvas.height
-      ) {
-        snapshot = new OffscreenCanvas(displayCanvas.width, displayCanvas.height)
+      if (!snapshot || snapshot.width !== targetWidth || snapshot.height !== targetHeight) {
+        snapshot = new OffscreenCanvas(targetWidth, targetHeight)
         captureDisplaySnapshotCanvasRef.current = snapshot
       }
       const snapshotCtx = snapshot.getContext('2d')
       if (!snapshotCtx) return null
-      snapshotCtx.clearRect(0, 0, snapshot.width, snapshot.height)
-      snapshotCtx.drawImage(displayCanvas, 0, 0)
+      copyPreviewDisplayCanvasContent(displayCanvas, snapshotCtx)
       return snapshot
     },
-    [scrubCanvasRef],
+    [playerRenderSize.height, playerRenderSize.width, scrubCanvasRef],
   )
 
   const captureLiveScopeRenderedSnapshot = useCallback(

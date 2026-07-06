@@ -62,6 +62,7 @@ import {
   resolveBoundarySourcePrewarmCacheUpdate,
   resolvePrewarmFrameQueueAfterEnqueue,
 } from '../utils/render-pump-prewarm-plan'
+import { drawSourceToPreviewDisplayCanvas } from '../utils/preview-display-canvas'
 import type { TransitionPreviewSessionTrace } from './use-preview-transition-session-controller'
 import { createLogger } from '@/shared/logging/logger'
 import { isPreviewTraceEnabled, recordPumpTrace } from '@/shared/logging/preview-trace'
@@ -281,8 +282,7 @@ export function usePreviewRenderPump({
       if (!displayCanvas) return
       const displayCtx = displayCanvas.getContext('2d')
       if (!displayCtx) return
-      displayCtx.clearRect(0, 0, displayCanvas.width, displayCanvas.height)
-      displayCtx.drawImage(source, 0, 0, displayCanvas.width, displayCanvas.height)
+      drawSourceToPreviewDisplayCanvas(displayCtx, displayCanvas, source)
       setDisplayedFrame(renderedFrame)
     }
 

@@ -116,7 +116,10 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   if (u.flip.y < 0.0) {
     localUv.y = 1.0 - localUv.y;
   }
-  let sourcePixel = u.sourceRect.xy + localUv * u.sourceRect.zw;
+  let unclampedSourcePixel = u.sourceRect.xy + localUv * u.sourceRect.zw;
+  let sourceMin = u.sourceRect.xy + vec2f(0.5);
+  let sourceMax = u.sourceRect.xy + max(u.sourceRect.zw - vec2f(0.5), vec2f(0.5));
+  let sourcePixel = clamp(unclampedSourcePixel, sourceMin, sourceMax);
   let sourceUv = sourcePixel / max(u.sourceSize, vec2f(0.001));
   let color = textureSampleLevel(sourceTex, texSampler, sourceUv, 0.0);
   let viewportLocal = samplePixel - u.destRect.xy;
