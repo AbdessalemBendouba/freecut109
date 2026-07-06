@@ -88,22 +88,6 @@ describe('CompositorPipeline', () => {
     ).toBe(true)
   })
 
-  it('samples regular layer textures from texel centers to avoid edge seams', () => {
-    const { device } = createPipelineHarness()
-
-    const shaderSources = (
-      device.createShaderModule.mock.calls as unknown as Array<[GPUShaderModuleDescriptor]>
-    ).map(([descriptor]) => descriptor.code)
-    expect(
-      shaderSources.some(
-        (code) =>
-          code.includes('let layerDimensions = textureDimensions(layerTex)') &&
-          code.includes('let layerTexelInset = vec2f(0.5)') &&
-          code.includes('let sampleUV = clamp(layerUV, layerTexelInset'),
-      ),
-    ).toBe(true)
-  })
-
   it('binds independent uniforms for masked and unmasked layers encoded in one command buffer', () => {
     const { commandEncoder, device, pipeline, queue } = createPipelineHarness()
     const maskedLayerUniform = {

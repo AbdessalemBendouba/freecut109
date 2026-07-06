@@ -302,45 +302,6 @@ describe('CompositionContent keyframes', () => {
     expect(screen.getByTestId('sub-item-sub-audio-audio-only')).toBeInTheDocument()
   })
 
-  it('lays out nested composition visuals at the parent size without a transformed clip wrapper', () => {
-    const subComp = makeTestSubComposition({
-      id: 'sub-comp-direct-layout',
-      name: 'Direct layout precomp',
-      width: 1920,
-      height: 1080,
-      items: [makeNestedVideoItem({ id: 'sub-video-direct-layout' })],
-    })
-
-    storeTestSubComposition(subComp)
-
-    const compositionItem = makeParentCompositionItem({
-      id: 'parent-comp-item-direct-layout',
-      compositionId: subComp.id,
-      compositionWidth: 1920,
-      compositionHeight: 1080,
-    })
-
-    const { container } = render(
-      <VideoConfigProvider fps={30} width={1280} height={720} durationInFrames={120}>
-        <CompositionContent item={compositionItem} />
-      </VideoConfigProvider>,
-    )
-
-    const styles = Array.from(container.querySelectorAll('div[style]')).map(
-      (element) => element.getAttribute('style') ?? '',
-    )
-
-    expect(styles.some((style) => style.includes('transform: scale('))).toBe(false)
-    expect(
-      styles.some(
-        (style) =>
-          style.includes('width: 1280px') &&
-          style.includes('height: 720px') &&
-          style.includes('overflow: hidden'),
-      ),
-    ).toBe(true)
-  })
-
   it('clears stale nested media src until fresh blob urls exist', () => {
     const subComp = makeTestSubComposition({
       id: 'sub-comp-stale-audio',

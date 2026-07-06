@@ -117,10 +117,7 @@ fn compositeFragment(input: VertexOutput) -> @location(0) vec4f {
   // Transform UV to sample layer texture
   let layerUV = transformUV(input.uv);
   let inBounds = layerUV.x >= 0.0 && layerUV.x <= 1.0 && layerUV.y >= 0.0 && layerUV.y <= 1.0;
-  let layerDimensions = textureDimensions(layerTex);
-  let layerTextureSize = vec2f(f32(layerDimensions.x), f32(layerDimensions.y));
-  let layerTexelInset = vec2f(0.5) / max(layerTextureSize, vec2f(1.0));
-  let sampleUV = clamp(layerUV, layerTexelInset, vec2f(1.0) - layerTexelInset);
+  let sampleUV = clamp(layerUV, vec2f(0.0), vec2f(1.0));
   var layerColor = textureSampleLevel(layerTex, texSampler, sampleUV, 0.0);
 
   // Apply mask

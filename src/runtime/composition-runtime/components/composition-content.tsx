@@ -539,14 +539,17 @@ export const CompositionContent = React.memo<CompositionContentProps>(
       )
     }
 
-    const containerRenderWidth = Math.max(1, containerDims.width)
-    const containerRenderHeight = Math.max(1, containerDims.height)
+    // CSS scale from sub-comp native resolution to parent container dimensions
+    const scaleX = subComp.width > 0 ? containerDims.width / subComp.width : 1
+    const scaleY = subComp.height > 0 ? containerDims.height / subComp.height : 1
 
     return (
       <div
         style={{
-          width: containerRenderWidth,
-          height: containerRenderHeight,
+          width: subComp.width,
+          height: subComp.height,
+          transform: `scale(${scaleX}, ${scaleY})`,
+          transformOrigin: '0 0',
           overflow: 'hidden',
           position: 'relative',
           visibility: parentVisible ? 'visible' : 'hidden',
@@ -555,12 +558,12 @@ export const CompositionContent = React.memo<CompositionContentProps>(
         <CompositionSpaceProvider
           projectWidth={subComp.width}
           projectHeight={subComp.height}
-          renderWidth={containerRenderWidth}
-          renderHeight={containerRenderHeight}
+          renderWidth={subComp.width}
+          renderHeight={subComp.height}
         >
           <VideoConfigProvider
-            width={containerRenderWidth}
-            height={containerRenderHeight}
+            width={subComp.width}
+            height={subComp.height}
             fps={subComp.fps}
             durationInFrames={subComp.durationInFrames}
           >
