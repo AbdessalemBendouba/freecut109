@@ -146,6 +146,7 @@
       "groupAudio": "Audio",
       "groupGifs": "GIFs",
       "groupImages": "Images",
+      "groupLottie": "Lottie",
       "groupVideos": "Videos",
       "import": "Import",
       "importCopyToWorkspace": "Copy into workspace",
@@ -190,7 +191,8 @@
       "typeShort": {
         "video": "VIDEO",
         "audio": "AUDIO",
-        "image": "IMAGE"
+        "image": "IMAGE",
+        "lottie": "LOTTIE"
       },
       "sortShort": {
         "name": "NAME",
@@ -279,6 +281,7 @@
     "type": {
       "audio": "Audio",
       "image": "Image",
+      "lottie": "Lottie",
       "video": "Video"
     },
     "unsupportedCodec": {

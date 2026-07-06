@@ -18,9 +18,11 @@ import type {
   TimelineItem,
   VideoItem,
   ImageItem,
+  LottieItem,
   ShapeItem,
   CompositionItem,
 } from '@/types/timeline'
+import { LottieExportProvider } from '@/infrastructure/lottie/lottie-frame-provider'
 import type { ItemKeyframes } from '@/types/keyframe'
 import type { ItemEffect } from '@/types/effects'
 import type { ResolvedTransform } from '@/types/transform'
@@ -391,8 +393,15 @@ export async function createCompositionRenderer(
   const webpItems: ImageItem[] = []
   const gifFramesMap = new Map<string, CachedGifFrames>()
 
+  // Lottie animations: rendered on demand via dotlottie-web (no frame pre-extraction).
+  const lottieItems: LottieItem[] = []
+  const lottieProvider = new LottieExportProvider()
+
   for (const track of tracks) {
     for (const item of track.items ?? []) {
+      if (item.type === 'lottie' && (item as LottieItem).src) {
+        lottieItems.push(item as LottieItem)
+      }
       if (item.type === 'image' && (item as ImageItem).src) {
         const imageItem = item as ImageItem
 
@@ -552,6 +561,7 @@ export async function createCompositionRenderer(
     reverseVideoFrameCache,
     imageElements,
     gifFramesMap,
+    lottieProvider,
     keyframesMap,
     adjustmentLayers,
     getPreviewEffectsOverride,
@@ -797,6 +807,10 @@ export async function createCompositionRenderer(
         throw new Error('WORKER_REQUIRES_MAIN_THREAD:animated-image')
       }
 
+      if (!hasDom && lottieItems.length > 0) {
+        throw new Error('WORKER_REQUIRES_MAIN_THREAD:lottie')
+      }
+
       // === Initialize mediabunny video extractors (primary method) ===
       if (prioritizedMainVideoIds.length > 0) {
         await initializeMediabunnyForItems(prioritizedMainVideoIds)
@@ -907,6 +921,28 @@ export async function createCompositionRenderer(
         getLog().debug('All GIF frames loaded', { loadedCount: gifFramesMap.size })
       }
 
+      // Preload Lottie renderers (main thread only). Each renders into its own
+      // OffscreenCanvas at native animation resolution; frames are drawn on demand.
+      if (hasDom && lottieItems.length > 0) {
+        getLog().debug('Preloading Lottie animations', { lottieCount: lottieItems.length })
+        await Promise.all(
+          lottieItems.map(async (lottieItem) => {
+            try {
+              const w =
+                lottieItem.sourceWidth && lottieItem.sourceWidth > 0 ? lottieItem.sourceWidth : 512
+              const h =
+                lottieItem.sourceHeight && lottieItem.sourceHeight > 0
+                  ? lottieItem.sourceHeight
+                  : 512
+              await lottieProvider.preload(lottieItem.id, lottieItem.src, w, h)
+            } catch (err) {
+              getLog().error('Failed to preload Lottie', { itemId: lottieItem.id, error: err })
+            }
+          }),
+        )
+        getLog().debug('All Lottie animations loaded')
+      }
+
       // Load animated WebP frames via cache service (main thread only)
       if (hasDom && webpItems.length > 0) {
         getLog().debug('Preloading animated WebP frames', { webpCount: webpItems.length })
@@ -992,7 +1028,8 @@ export async function createCompositionRenderer(
         }
 
         for (const subItem of subComp.items) {
-          if (subItem.type !== 'video' && subItem.type !== 'image') continue
+          if (subItem.type !== 'video' && subItem.type !== 'image' && subItem.type !== 'lottie')
+            continue
           if (subItem.mediaId) {
             const src = blobUrlManager.get(subItem.mediaId)
             if (src) {
@@ -1001,7 +1038,7 @@ export async function createCompositionRenderer(
               pendingResolutions.push({ subItem, mediaId: subItem.mediaId })
             }
           } else {
-            const src = (subItem as VideoItem | ImageItem).src ?? ''
+            const src = (subItem as VideoItem | ImageItem | LottieItem).src ?? ''
             if (src) subCompMediaItems.push({ subItem, src })
           }
         }
@@ -1120,8 +1157,22 @@ export async function createCompositionRenderer(
         const subImagePromises: Promise<void>[] = []
         const subGifItems: ImageItem[] = []
         const subWebpItems: ImageItem[] = []
+        const subLottieItems: Array<{ id: string; src: string; w: number; h: number }> = []
 
         for (const { subItem, src } of subCompMediaItems) {
+          if (subItem.type === 'lottie' && !lottieProvider.get(subItem.id)) {
+            const lottieItem = subItem as LottieItem
+            subLottieItems.push({
+              id: lottieItem.id,
+              src,
+              w:
+                lottieItem.sourceWidth && lottieItem.sourceWidth > 0 ? lottieItem.sourceWidth : 512,
+              h:
+                lottieItem.sourceHeight && lottieItem.sourceHeight > 0
+                  ? lottieItem.sourceHeight
+                  : 512,
+            })
+          }
           if (subItem.type === 'image' && !imageElements.has(subItem.id)) {
             const imageItem = subItem as ImageItem
             const itemWithSrc = { ...imageItem, src } as ImageItem
@@ -1221,11 +1272,23 @@ export async function createCompositionRenderer(
           await Promise.all(subWebpPromises)
         }
 
+        // Preload sub-comp Lottie renderers
+        if (hasDom && subLottieItems.length > 0) {
+          await Promise.all(
+            subLottieItems.map((it) =>
+              lottieProvider.preload(it.id, it.src, it.w, it.h).catch((err) => {
+                getLog().error('Failed to preload sub-comp Lottie', { itemId: it.id, error: err })
+              }),
+            ),
+          )
+        }
+
         getLog().debug('Sub-composition media loaded', {
           videos: subCompMediaItems.filter((s) => s.subItem.type === 'video').length,
           images: subCompMediaItems.filter((s) => s.subItem.type === 'image').length,
           gifs: subGifItems.length,
           webps: subWebpItems.length,
+          lotties: subLottieItems.length,
         })
       }
 
@@ -1963,6 +2026,7 @@ export async function createCompositionRenderer(
       }
       imageElements.clear()
       gifFramesMap.clear() // Clear GIF frame references (actual frames are managed by gifFrameCache)
+      lottieProvider.destroy() // Tear down dotlottie WASM instances
       subCompRenderData.clear() // Release sub-composition render data references
       subCompRenderDataSource.clear()
       prewarmCtx = null

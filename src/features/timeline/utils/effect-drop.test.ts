@@ -60,6 +60,18 @@ function makeItem(id: string, type: TimelineItem['type']): TimelineItem {
         shapeType: 'rectangle',
         fillColor: '#fff',
       }
+    case 'lottie':
+      return {
+        id,
+        type,
+        trackId: 'track-1',
+        from: 0,
+        durationInFrames: 30,
+        label: id,
+        src: 'blob:lottie',
+        frameRate: 30,
+        totalFrames: 60,
+      }
     case 'adjustment':
       return { id, type, trackId: 'track-1', from: 0, durationInFrames: 30, label: id }
     case 'composition':

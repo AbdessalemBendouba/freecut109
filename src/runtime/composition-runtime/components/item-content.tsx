@@ -9,6 +9,7 @@ import { CustomDecoderAudio } from './custom-decoder-audio'
 import { PitchCorrectedAudio } from './pitch-corrected-audio'
 import type { AudioPlaybackProps } from './audio-playback-props'
 import { GifPlayer } from './gif-player'
+import { LottiePlayer } from './lottie-player'
 import { ItemVisualWrapper } from './item-visual-wrapper'
 import { TextContent } from './text-content'
 import { SubtitleSegmentContent } from './subtitle-segment-content'
@@ -560,6 +561,38 @@ export const ItemContent = React.memo<ItemProps>(
           }}
         >
           {imageContent}
+        </ItemVisualWrapper>
+      )
+    }
+
+    if (item.type === 'lottie') {
+      const mediaSource = getSourceDimensions(item)
+      if (!item.src) {
+        return (
+          <AbsoluteFill
+            style={{
+              backgroundColor: '#1a1a1a',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <p style={{ color: '#666', fontSize: 14 }}>Lottie not loaded</p>
+          </AbsoluteFill>
+        )
+      }
+      return (
+        <ItemVisualWrapper
+          item={item}
+          masks={masks}
+          mediaContent={{
+            fitMode: 'contain',
+            sourceWidth: mediaSource?.width,
+            sourceHeight: mediaSource?.height,
+            crop: item.crop,
+          }}
+        >
+          <LottiePlayer item={item} />
         </ItemVisualWrapper>
       )
     }

@@ -9,6 +9,7 @@ import type {
 } from '../types'
 import type { MediaMetadata } from '@/types/storage'
 import { loadMediaLibraryService } from './media-library-service-access'
+import { getMediaType } from '../utils/validation'
 import { createLogger, createOperationId } from '@/shared/logging/logger'
 import { proxyService } from '../services/proxy-service'
 import { getSharedProxyKey } from '../utils/proxy-key'
@@ -571,9 +572,10 @@ export const useFilteredMediaItems = () => {
     )
   }
 
-  // Filter by type
+  // Filter by type — getMediaType maps mime → kind (handles application/lottie+json,
+  // which a `mimeType.startsWith('lottie')` check would miss).
   if (filterByType) {
-    filtered = filtered.filter((item) => item.mimeType.startsWith(filterByType))
+    filtered = filtered.filter((item) => getMediaType(item.mimeType) === filterByType)
   }
 
   // Sort

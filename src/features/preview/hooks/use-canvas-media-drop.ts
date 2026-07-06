@@ -60,8 +60,8 @@ interface PlaceMediaOnCanvasParams {
 
 function isVisualMediaType(
   value: unknown,
-): value is Extract<DroppableMediaType, 'video' | 'image'> {
-  return value === 'video' || value === 'image'
+): value is Extract<DroppableMediaType, 'video' | 'image' | 'lottie'> {
+  return value === 'video' || value === 'image' || value === 'lottie'
 }
 
 function normalizeMatchedProjectDimension(value: number): number {

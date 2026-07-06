@@ -202,6 +202,20 @@ export type ImageItem = BaseTimelineItem & {
   sourceHeight?: number
 }
 
+export type LottieItem = BaseTimelineItem & {
+  type: 'lottie'
+  src: string // blob URL to the Lottie JSON
+  thumbnailUrl?: string
+  // Source dimensions (intrinsic size from the animation's w/h)
+  sourceWidth?: number
+  sourceHeight?: number
+  // Animation timing (from the Lottie's fr / op-ip), for timeline<->lottie frame mapping
+  frameRate: number
+  totalFrames: number
+  // Loop the animation when the clip outlives one playthrough (default true)
+  loop?: boolean
+}
+
 export type ShapeType =
   | 'rectangle'
   | 'circle'
@@ -319,6 +333,7 @@ export type TimelineItem =
   | AudioItem
   | TextItem
   | ImageItem
+  | LottieItem
   | ShapeItem
   | AdjustmentItem
   | CompositionItem

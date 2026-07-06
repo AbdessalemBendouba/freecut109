@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
+import { LottieExportProvider } from '@/infrastructure/lottie/lottie-frame-provider'
 import '@/shared/timeline/transitions'
 import type { ItemEffect } from '@/types/effects'
 import type { ItemKeyframes } from '@/types/keyframe'
@@ -891,6 +892,7 @@ describe('renderTransitionToGpuTexture', () => {
       mediabunnyFailureCountByItem: new Map(),
       imageElements: new Map(),
       gifFramesMap: new Map(),
+      lottieProvider: new LottieExportProvider(),
       keyframesMap: new Map(),
       adjustmentLayers: [],
       subCompRenderData: new Map(),
@@ -1731,6 +1733,7 @@ describe('renderTransitionToGpuTexture', () => {
         ],
       ]),
       gifFramesMap: new Map(),
+      lottieProvider: new LottieExportProvider(),
       keyframesMap: new Map(),
       adjustmentLayers: [],
       subCompRenderData: new Map([

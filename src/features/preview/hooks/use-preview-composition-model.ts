@@ -305,7 +305,10 @@ export function buildPreviewCompositionData({
     for (const item of track.items) {
       if (
         !item.mediaId ||
-        (item.type !== 'video' && item.type !== 'audio' && item.type !== 'image')
+        (item.type !== 'video' &&
+          item.type !== 'audio' &&
+          item.type !== 'image' &&
+          item.type !== 'lottie')
       ) {
         resolvedItems.push(item)
         fastScrubItems.push(item)

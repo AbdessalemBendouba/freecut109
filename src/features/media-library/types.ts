@@ -64,7 +64,7 @@ export interface MediaLibraryState {
   selectedMediaIds: string[]
   selectedCompositionIds: string[]
   searchQuery: string
-  filterByType: 'video' | 'audio' | 'image' | null
+  filterByType: 'video' | 'audio' | 'image' | 'lottie' | null
   sortBy: 'name' | 'date' | 'size'
   viewMode: 'grid' | 'list'
   /** Grid item size (1 = largest / fewer columns, 5 = smallest / more columns) */
@@ -160,7 +160,7 @@ export interface MediaLibraryActions {
 
   // Filters & Search
   setSearchQuery: (query: string) => void
-  setFilterByType: (type: 'video' | 'audio' | 'image' | null) => void
+  setFilterByType: (type: 'video' | 'audio' | 'image' | 'lottie' | null) => void
   setSortBy: (sortBy: 'name' | 'date' | 'size') => void
   setViewMode: (viewMode: 'grid' | 'list') => void
   setMediaItemSize: (size: number) => void

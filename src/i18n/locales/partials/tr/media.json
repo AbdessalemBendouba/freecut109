@@ -136,6 +136,7 @@
       "groupAudio": "Ses",
       "groupGifs": "GIF'ler",
       "groupImages": "Görseller",
+      "groupLottie": "Lottie",
       "groupVideos": "Videolar",
       "import": "İçe aktar",
       "importFromUrlDescription": "Doğrudan URL'den bir medya dosyası içe aktarın.",
@@ -177,7 +178,8 @@
       "typeShort": {
         "video": "VİDEO",
         "audio": "SES",
-        "image": "GÖRSEL"
+        "image": "GÖRSEL",
+        "lottie": "LOTTIE"
       },
       "sortShort": {
         "name": "AD",
@@ -266,6 +268,7 @@
     "type": {
       "audio": "Ses",
       "image": "Görsel",
+      "lottie": "Lottie",
       "video": "Video"
     },
     "unsupportedCodec": {

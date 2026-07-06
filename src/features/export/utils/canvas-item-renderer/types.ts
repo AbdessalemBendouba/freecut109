@@ -15,6 +15,7 @@ import type { ItemEffect } from '@/types/effects'
 import type { ResolvedTransform } from '@/types/transform'
 import type { ScrubbingCache } from '@/features/export/deps/preview'
 import type { CachedGifFrames } from '@/features/export/deps/timeline-gif-cache'
+import type { LottieExportProvider } from '@/infrastructure/lottie/lottie-frame-provider'
 import type { CanvasPool, TextMeasurementCache } from '../canvas-pool'
 import type { VideoFrameSource } from '../shared-video-extractor'
 import type { ReverseVideoFrameCache } from '../reverse-video-frame-cache'
@@ -121,6 +122,8 @@ export interface ItemRenderContext {
   // Image / GIF state
   imageElements: Map<string, WorkerLoadedImage>
   gifFramesMap: Map<string, CachedGifFrames>
+  /** Preloaded Lottie renderers keyed by item id; renders a frame on demand. */
+  lottieProvider: LottieExportProvider
 
   // Keyframes & adjustment layers
   keyframesMap: Map<string, ItemKeyframes>

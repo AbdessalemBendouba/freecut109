@@ -1,7 +1,7 @@
-import type { AudioItem, ImageItem, TimelineItem, VideoItem } from '@/types/timeline'
+import type { AudioItem, ImageItem, LottieItem, TimelineItem, VideoItem } from '@/types/timeline'
 import { computeInitialTransform } from './transform-init'
 
-export type MediaTimelineItemType = 'video' | 'audio' | 'image'
+export type MediaTimelineItemType = 'video' | 'audio' | 'image' | 'lottie'
 
 export interface MediaTimelinePlacement {
   trackId: string
@@ -171,6 +171,21 @@ export function buildMediaTimelineItem(params: {
       type: 'video',
       ...visualFields,
     } as VideoItem
+  }
+
+  if (params.mediaType === 'lottie') {
+    return {
+      ...baseItem,
+      type: 'lottie',
+      src: params.blobUrl,
+      thumbnailUrl: params.thumbnailUrl || undefined,
+      sourceWidth: params.media.width || undefined,
+      sourceHeight: params.media.height || undefined,
+      frameRate: params.media.fps || 30,
+      totalFrames: Math.max(1, Math.round((params.media.duration || 0) * (params.media.fps || 30))),
+      loop: true,
+      transform: visualFields.transform,
+    } as LottieItem
   }
 
   return {

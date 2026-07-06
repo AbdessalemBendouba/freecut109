@@ -31,6 +31,8 @@ const SUPPORTED_IMAGE_TYPES = [
   'image/svg+xml', // .svg files
 ]
 
+const SUPPORTED_LOTTIE_TYPES = ['application/lottie+json']
+
 const GENERIC_BROWSER_MIME_TYPES = new Set(['', 'application/octet-stream', 'binary/octet-stream'])
 const EXTENSION_PREFERRED_MIME_TYPES = new Set(['.mkv', '.m4a'])
 
@@ -56,6 +58,9 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
+  // Lottie
+  '.json': 'application/lottie+json',
+  '.lottie': 'application/lottie+json',
 }
 
 /**
@@ -102,13 +107,14 @@ export function validateMediaFile(file: File): ValidationResult {
     ...SUPPORTED_VIDEO_TYPES,
     ...SUPPORTED_AUDIO_TYPES,
     ...SUPPORTED_IMAGE_TYPES,
+    ...SUPPORTED_LOTTIE_TYPES,
   ]
 
   const mimeType = getMimeType(file)
   if (!allSupportedTypes.includes(mimeType)) {
     return {
       valid: false,
-      error: `Unsupported file type: ${mimeType || file.name.split('.').pop()}. Supported types: video (mp4, webm, mov, mkv, avi), audio (mp3, wav, aac, m4a, ogg/opus), image (jpg/jpeg, png, gif, webp, svg)`,
+      error: `Unsupported file type: ${mimeType || file.name.split('.').pop()}. Supported types: video (mp4, webm, mov, mkv, avi), audio (mp3, wav, aac, m4a, ogg/opus), image (jpg/jpeg, png, gif, webp, svg), lottie (json)`,
     }
   }
 
@@ -126,7 +132,7 @@ export function validateMediaFile(file: File): ValidationResult {
 /**
  * Get media type from MIME type
  */
-export function getMediaType(mimeType: string): 'video' | 'audio' | 'image' | 'unknown' {
+export function getMediaType(mimeType: string): 'video' | 'audio' | 'image' | 'lottie' | 'unknown' {
   if (SUPPORTED_VIDEO_TYPES.includes(mimeType)) {
     return 'video'
   }
@@ -136,7 +142,17 @@ export function getMediaType(mimeType: string): 'video' | 'audio' | 'image' | 'u
   if (SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
     return 'image'
   }
+  if (SUPPORTED_LOTTIE_TYPES.includes(mimeType)) {
+    return 'lottie'
+  }
   return 'unknown'
+}
+
+/**
+ * Whether a MIME type is a Lottie animation (`application/lottie+json`).
+ */
+export function isLottieMime(mimeType: string): boolean {
+  return SUPPORTED_LOTTIE_TYPES.includes(mimeType)
 }
 
 /**

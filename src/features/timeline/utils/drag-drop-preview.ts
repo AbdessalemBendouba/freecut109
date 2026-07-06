@@ -8,6 +8,7 @@ export type TimelineGhostPreviewType =
   | 'shape'
   | 'adjustment'
   | 'image'
+  | 'lottie'
   | 'composition'
   | 'external-file'
 
@@ -45,7 +46,7 @@ export function getGhostHighlightClasses(ghostPreviews: TimelineGhostPreviewLike
   if (ghostPreviews.some((ghost) => ghost.type === 'adjustment')) {
     return 'border-slate-400/60 bg-slate-400/10'
   }
-  if (ghostPreviews.some((ghost) => ghost.type === 'image')) {
+  if (ghostPreviews.some((ghost) => ghost.type === 'image' || ghost.type === 'lottie')) {
     return 'border-timeline-image/60 bg-timeline-image/10'
   }
   if (ghostPreviews.some((ghost) => ghost.type === 'composition')) {
@@ -87,7 +88,7 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 export function isDroppableMediaType(value: unknown): value is DroppableMediaType {
-  return value === 'video' || value === 'audio' || value === 'image'
+  return value === 'video' || value === 'audio' || value === 'image' || value === 'lottie'
 }
 
 export function isValidDragMediaItem(value: unknown): value is DragMediaItem {
@@ -117,7 +118,10 @@ export async function resolveExternalDragPreviewEntries(
   }
 
   return entries.flatMap((entry) =>
-    entry.mediaType === 'video' || entry.mediaType === 'audio' || entry.mediaType === 'image'
+    entry.mediaType === 'video' ||
+    entry.mediaType === 'audio' ||
+    entry.mediaType === 'image' ||
+    entry.mediaType === 'lottie'
       ? [
           {
             label: entry.file.name,

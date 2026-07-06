@@ -21,11 +21,12 @@ import { useSourcePlayerStore } from '@/shared/state/source-player'
 import { useMediaLibraryStore } from '@/features/preview/deps/media-library'
 import { shouldSeekPlayingMedia } from '../utils/source-media-sync'
 import { SourceAudioWaveform } from './source-audio-waveform'
+import { LottieRenderer } from '@/infrastructure/lottie/lottie-frame-provider'
 
 interface SourceCompositionProps {
   mediaId?: string
   src: string
-  mediaType: 'video' | 'audio' | 'image'
+  mediaType: 'video' | 'audio' | 'image' | 'lottie'
   pausedFrameSource?: 'clock' | 'source-player'
   forceFastScrub?: boolean
 }
@@ -91,7 +92,51 @@ export function SourceComposition({
   if (mediaType === 'image') {
     return <ImageSource src={src} />
   }
+  if (mediaType === 'lottie') {
+    return <LottieSource src={src} />
+  }
   return <AudioSource mediaId={mediaId} src={src} />
+}
+
+function LottieSource({ src }: { src: string }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const clock = useClock()
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !src) return
+    const renderer = new LottieRenderer({ canvas, src, autoResize: true })
+    let raf = 0
+    let lastFrame = -1
+    let loaded = false
+    renderer.ready.then(() => {
+      loaded = renderer.isLoaded
+    })
+    // Drive frames from the source clock imperatively (no per-frame React render).
+    const tick = () => {
+      if (loaded) {
+        const total = renderer.totalFrames
+        const frame =
+          total > 0 ? Math.max(0, Math.min(Math.round(clock.currentFrame), total - 1)) : 0
+        if (frame !== lastFrame) {
+          renderer.renderFrame(frame)
+          lastFrame = frame
+        }
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      renderer.destroy()
+    }
+  }, [src, clock])
+
+  return (
+    <AbsoluteFill>
+      <canvas ref={canvasRef} style={{ width: '100%', height: '100%', display: 'block' }} />
+    </AbsoluteFill>
+  )
 }
 
 function VideoSource({

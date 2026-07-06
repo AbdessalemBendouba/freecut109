@@ -146,6 +146,7 @@ vi.mock('@/features/media-library/deps/timeline-services', () => ({
 vi.mock('../utils/validation', () => ({
   validateMediaFile: vi.fn(() => ({ valid: true })),
   getMimeType: vi.fn((file: File) => file.type || 'application/octet-stream'),
+  isLottieMime: vi.fn(() => false),
 }))
 
 vi.mock('../utils/proxy-key', () => ({

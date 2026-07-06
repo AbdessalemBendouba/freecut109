@@ -3,7 +3,7 @@ import { getMediaType, getMimeType, validateMediaFile } from './validation'
 export interface ExtractedMediaFileEntry {
   handle: FileSystemFileHandle
   file: File
-  mediaType: 'video' | 'audio' | 'image' | 'unknown'
+  mediaType: 'video' | 'audio' | 'image' | 'lottie' | 'unknown'
 }
 
 export interface ExtractedMediaFileDropResult {

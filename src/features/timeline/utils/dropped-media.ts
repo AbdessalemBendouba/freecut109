@@ -18,10 +18,14 @@ export interface TimelineLinkedMediaPlacement {
 }
 
 export function getDroppedMediaDurationInFrames(
-  media: Pick<MediaMetadata, 'duration'>,
+  media: Pick<MediaMetadata, 'duration'> & Partial<Pick<MediaMetadata, 'fps'>>,
   mediaType: DroppableMediaType,
   timelineFps: number,
 ): number {
+  if (mediaType === 'lottie') {
+    return Math.round(media.duration * (media.fps || timelineFps))
+  }
+
   const durationInFrames = Math.round(media.duration * timelineFps)
   if (durationInFrames > 0) {
     return durationInFrames

@@ -5,6 +5,7 @@ export const MEDIA_FILE_PICKER_TYPES = [
       'video/*': ['.mp4', '.webm', '.mov', '.avi', '.mkv'],
       'audio/*': ['.mp3', '.wav', '.ogg', '.m4a', '.aac'],
       'image/*': ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'],
+      'application/lottie+json': ['.json', '.lottie'],
     },
   },
 ] satisfies FilePickerAcceptType[]

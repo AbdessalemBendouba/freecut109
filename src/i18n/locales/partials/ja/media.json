@@ -136,6 +136,7 @@
       "groupAudio": "オーディオ",
       "groupGifs": "GIF",
       "groupImages": "画像",
+      "groupLottie": "Lottie",
       "groupVideos": "ビデオ",
       "import": "インポート",
       "importFromUrlDescription": "直接URLからメディアファイルを読み込みます。",
@@ -177,7 +178,8 @@
       "typeShort": {
         "video": "ビデオ",
         "audio": "音声",
-        "image": "画像"
+        "image": "画像",
+        "lottie": "LOTTIE"
       },
       "sortShort": {
         "name": "名前",
@@ -266,6 +268,7 @@
     "type": {
       "audio": "音声",
       "image": "画像",
+      "lottie": "Lottie",
       "video": "ビデオ"
     },
     "unsupportedCodec": {

@@ -136,6 +136,7 @@
       "groupAudio": "Audio",
       "groupGifs": "GIFs",
       "groupImages": "Bilder",
+      "groupLottie": "Lottie",
       "groupVideos": "Videos",
       "import": "Importieren",
       "importFromUrlDescription": "Importiere eine Mediendatei über eine direkte URL.",
@@ -177,7 +178,8 @@
       "typeShort": {
         "video": "VIDEO",
         "audio": "AUDIO",
-        "image": "BILD"
+        "image": "BILD",
+        "lottie": "LOTTIE"
       },
       "sortShort": {
         "name": "NAME",
@@ -266,6 +268,7 @@
     "type": {
       "audio": "Audio",
       "image": "Bild",
+      "lottie": "Lottie",
       "video": "Video"
     },
     "unsupportedCodec": {
