@@ -38,7 +38,7 @@ interface SourceEditContext {
     mimeType: string
     fileName: string
   }
-  mediaType: 'video' | 'audio' | 'image'
+  mediaType: 'video' | 'audio' | 'image' | 'lottie'
   hasAudio: boolean
   canvasWidth: number
   canvasHeight: number
@@ -123,7 +123,7 @@ async function resolveSourceEditContext(): Promise<SourceEditContext | null> {
     } else if (mediaType === 'audio' && !sourcePatchAudioEnabled) {
       toast.warning('Enable the A source patch target to edit audio')
     } else if (
-      (mediaType === 'video' || mediaType === 'image') &&
+      (mediaType === 'video' || mediaType === 'image' || mediaType === 'lottie') &&
       !sourcePatchVideoEnabled &&
       !hasAudio
     ) {
@@ -185,7 +185,10 @@ function createTimelineItems(ctx: SourceEditContext) {
   if (ctx.mediaType === 'audio' && !ctx.audioTrackId) {
     return []
   }
-  if ((ctx.mediaType === 'video' || ctx.mediaType === 'image') && !ctx.videoTrackId) {
+  if (
+    (ctx.mediaType === 'video' || ctx.mediaType === 'image' || ctx.mediaType === 'lottie') &&
+    !ctx.videoTrackId
+  ) {
     return []
   }
 

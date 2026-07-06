@@ -1,9 +1,9 @@
-import { getMediaType, getMimeType, validateMediaFile } from './validation'
+import { getMediaType, getMimeType, validateMediaFileContent } from './validation'
 
 export interface ExtractedMediaFileEntry {
   handle: FileSystemFileHandle
   file: File
-  mediaType: 'video' | 'audio' | 'image' | 'unknown'
+  mediaType: 'video' | 'audio' | 'image' | 'lottie' | 'unknown'
 }
 
 export interface ExtractedMediaFileDropResult {
@@ -65,7 +65,7 @@ export async function extractValidMediaFileEntriesFromDataTransfer(
     const fileHandle = handle as FileSystemFileHandle
     try {
       const file = await fileHandle.getFile()
-      const validation = validateMediaFile(file)
+      const validation = await validateMediaFileContent(file)
       if (!validation.valid) {
         errors.push(`${file.name}: ${validation.error}`)
         continue

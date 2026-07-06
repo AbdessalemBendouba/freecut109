@@ -147,7 +147,8 @@ export function planTrackMediaDropPlacements<T>(params: {
     }
 
     const isVideoWithAudio = entry.mediaType === 'video' && !!entry.hasLinkedAudio
-    const isVisualMedia = entry.mediaType === 'video' || entry.mediaType === 'image'
+    const isVisualMedia =
+      entry.mediaType === 'video' || entry.mediaType === 'image' || entry.mediaType === 'lottie'
     const targetTrackKind = getTrackKind(targetTrack)
     const requiredPrimaryKind: TrackKind = isVisualMedia ? 'video' : 'audio'
 

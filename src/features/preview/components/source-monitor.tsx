@@ -128,7 +128,7 @@ function SourcePatchDestinationPicker({
           variant="ghost"
           size="sm"
           className={cn(
-            'h-6 min-w-[3.75rem] justify-between gap-1 px-1.5 font-mono text-[10px]',
+            'h-6 min-w-15 justify-between gap-1 px-1.5 font-mono text-[10px]',
             !selectedTrackId && 'text-muted-foreground',
           )}
           aria-label={`Choose ${kindLabel.toLowerCase()} source patch destination`}
@@ -286,7 +286,7 @@ const SourceMonitorContent = memo(function SourceMonitorContent({
 interface SourceMonitorInnerProps {
   mediaId: string
   src: string
-  mediaType: 'video' | 'audio' | 'image'
+  mediaType: 'video' | 'audio' | 'image' | 'lottie'
   hasAudio: boolean
   fileName: string
   mediaWidth: number
@@ -558,7 +558,7 @@ function SourcePlaybackControls({
 }: {
   durationInFrames: number
   fps: number
-  mediaType: 'video' | 'audio' | 'image'
+  mediaType: 'video' | 'audio' | 'image' | 'lottie'
   hasAudio: boolean
   interactive: boolean
   seekFrame: number | null
@@ -1182,7 +1182,7 @@ function SourcePlaybackControls({
     <div className="@container flex flex-col shrink-0">
       {/* Seek bar row with I/O region above and editing buttons */}
       <div className="border-t border-border panel-header flex items-center gap-2 px-4 h-7 shrink-0">
-        <div className="flex-1 flex flex-col justify-center gap-[2px] min-w-0">
+        <div className="flex-1 flex flex-col justify-center gap-0.5 min-w-0">
           {/* I/O region strip — styled like timeline I/O controls */}
           {interactive && (inPct !== null || outPct !== null) && (
             <div ref={ioStripMeasureRef} className="w-full h-2.5 relative shrink-0">

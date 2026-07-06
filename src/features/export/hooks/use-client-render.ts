@@ -208,7 +208,12 @@ export function useClientRender(): UseClientRenderReturn {
             totalResolvedItems++
             if ('src' in item && item.src) {
               itemsWithSrc++
-            } else if (item.type === 'video' || item.type === 'audio' || item.type === 'image') {
+            } else if (
+              item.type === 'video' ||
+              item.type === 'audio' ||
+              item.type === 'image' ||
+              item.type === 'lottie'
+            ) {
               itemsMissingSrc++
               log.warn('Media item missing src after resolve', {
                 opId,

@@ -40,15 +40,20 @@
       "transcriptsReady": "文字起こしが完了しました"
     },
     "compositions": {
+      "compoundClipsGroup": "複合クリップ",
       "deleteBody": "複合クリップ「{{name}}」を削除しますか？この操作は元に戻せません。",
       "deleteInstancesDetail": "この複合クリップを使用しているタイムライン上の {{count}} 個のインスタンスも削除されます。",
       "deleteInstancesTitle": "リンクされたインスタンスが削除されます",
+      "deleteSequenceBody": "シーケンス「{{name}}」を削除しますか？この操作は元に戻せません。",
+      "deleteSequenceInstancesDetail": "このシーケンスを使用しているタイムライン上の {{count}} 個のインスタンスも削除されます。",
+      "deleteSequenceTitle": "シーケンスを削除",
       "deleteTitle": "複合クリップを削除",
       "enter": "開く",
       "itemCount": "{{count}} 個の項目",
       "openAsTab": "タブとして開く",
       "rename": "名前を変更",
-      "sectionTitle": "複合クリップ"
+      "sectionTitle": "コンポジション",
+      "sequencesGroup": "シーケンス"
     },
     "deleteDialog": {
       "bodyMultiple": "{{count}} 個のメディア項目をこのプロジェクトから完全に削除します。この操作は元に戻せません。",
@@ -128,10 +133,11 @@
       "generatingProxies": "プロキシを生成中…",
       "generatingTranscripts": "文字起こしを生成中…",
       "gridItemSize": "サムネイルサイズ",
-      "groupAudio": "オーディオグループ",
-      "groupGifs": "GIFグループ",
-      "groupImages": "画像グループ",
-      "groupVideos": "ビデオグループ",
+      "groupAudio": "オーディオ",
+      "groupGifs": "GIF",
+      "groupImages": "画像",
+      "groupLottie": "Lottie",
+      "groupVideos": "ビデオ",
       "import": "インポート",
       "importFromUrlDescription": "直接URLからメディアファイルを読み込みます。",
       "importFromUrlHint": "動画、音声、画像、または GIF ファイルへの直接リンクを貼り付けてください。",
@@ -156,6 +162,9 @@
       "selectedAssetsCount": "{{count}} 個の選択済みアセット",
       "selectedAssetsCount_one": "{{count}} 個の選択済みアセット",
       "selectedAssetsCount_other": "{{count}} 個の選択済みアセット",
+      "sequencesCount": "{{count}} 個のシーケンス",
+      "sequencesCount_one": "{{count}} 個のシーケンス",
+      "sequencesCount_other": "{{count}} 個のシーケンス",
       "showMediaLibrary": "メディアライブラリを表示",
       "sortDate": "日付で並べ替え",
       "sortName": "名前で並べ替え",
@@ -169,7 +178,8 @@
       "typeShort": {
         "video": "ビデオ",
         "audio": "音声",
-        "image": "画像"
+        "image": "画像",
+        "lottie": "LOTTIE"
       },
       "sortShort": {
         "name": "名前",
@@ -258,6 +268,7 @@
     "type": {
       "audio": "音声",
       "image": "画像",
+      "lottie": "Lottie",
       "video": "ビデオ"
     },
     "unsupportedCodec": {

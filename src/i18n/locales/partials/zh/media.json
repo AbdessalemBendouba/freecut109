@@ -40,15 +40,20 @@
       "transcriptsReady": "转录已准备就绪"
     },
     "compositions": {
+      "compoundClipsGroup": "复合剪辑",
       "deleteBody": "要删除复合剪辑“{{name}}”吗？此操作无法撤消。",
       "deleteInstancesDetail": "使用此复合剪辑的 {{count}} 个时间线实例也将被移除。",
       "deleteInstancesTitle": "已链接的实例将被移除",
+      "deleteSequenceBody": "要删除序列“{{name}}”吗？此操作无法撤消。",
+      "deleteSequenceInstancesDetail": "使用此序列的 {{count}} 个时间线实例也将被移除。",
+      "deleteSequenceTitle": "删除序列",
       "deleteTitle": "删除复合剪辑",
       "enter": "进入",
       "itemCount": "{{count}} 个项目",
       "openAsTab": "作为标签页打开",
       "rename": "重命名",
-      "sectionTitle": "复合剪辑"
+      "sectionTitle": "合成",
+      "sequencesGroup": "序列"
     },
     "deleteDialog": {
       "bodyMultiple": "这会从此项目中永久移除 {{count}} 个媒体项。此操作无法撤消。",
@@ -128,10 +133,11 @@
       "generatingProxies": "正在生成代理…",
       "generatingTranscripts": "正在生成字幕…",
       "gridItemSize": "缩略图大小",
-      "groupAudio": "音频分组",
-      "groupGifs": "GIF 分组",
-      "groupImages": "图像分组",
-      "groupVideos": "视频分组",
+      "groupAudio": "音频",
+      "groupGifs": "GIF",
+      "groupImages": "图像",
+      "groupLottie": "Lottie",
+      "groupVideos": "视频",
       "import": "导入",
       "importFromUrlDescription": "从直接 URL 导入媒体文件。",
       "importFromUrlHint": "粘贴指向视频、音频、图片或 GIF 文件的直接链接。",
@@ -156,6 +162,9 @@
       "selectedAssetsCount": "{{count}} 个所选素材",
       "selectedAssetsCount_one": "{{count}} 个所选素材",
       "selectedAssetsCount_other": "{{count}} 个所选素材",
+      "sequencesCount": "{{count}} 个序列",
+      "sequencesCount_one": "{{count}} 个序列",
+      "sequencesCount_other": "{{count}} 个序列",
       "showMediaLibrary": "显示媒体库",
       "sortDate": "按日期排序",
       "sortName": "按名称排序",
@@ -169,7 +178,8 @@
       "typeShort": {
         "video": "视频",
         "audio": "音频",
-        "image": "图像"
+        "image": "图像",
+        "lottie": "LOTTIE"
       },
       "sortShort": {
         "name": "名称",
@@ -258,6 +268,7 @@
     "type": {
       "audio": "音频",
       "image": "图像",
+      "lottie": "Lottie",
       "video": "视频"
     },
     "unsupportedCodec": {

@@ -231,6 +231,14 @@
       "color": "Farbe",
       "deleteMarker": "Marker löschen"
     },
+    "markerList": {
+      "title": "Marker",
+      "empty": "Keine Marker",
+      "emptyHint": "Drücke M, um am Abspielkopf einen Marker hinzuzufügen",
+      "clearAll": "Alle löschen",
+      "untitled": "Marker",
+      "remove": "Marker entfernen"
+    },
     "canvasPanel": {
       "updateFailed": "Canvas-Einstellungen konnten nicht aktualisiert werden",
       "tryAgain": "Bitte erneut versuchen.",

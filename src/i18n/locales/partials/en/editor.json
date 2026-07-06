@@ -231,6 +231,14 @@
       "color": "Color",
       "deleteMarker": "Delete Marker"
     },
+    "markerList": {
+      "title": "Markers",
+      "empty": "No markers",
+      "emptyHint": "Press M to add a marker at the playhead",
+      "clearAll": "Clear all",
+      "untitled": "Marker",
+      "remove": "Remove marker"
+    },
     "canvasPanel": {
       "updateFailed": "Failed to update canvas settings",
       "tryAgain": "Please try again.",

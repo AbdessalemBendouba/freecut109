@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vite-plus/test'
+import { LottieExportProvider } from '@/infrastructure/lottie/lottie-frame-provider'
 import type { CompositionItem, ImageItem, ShapeItem } from '@/types/timeline'
 import type { ItemRenderContext, ItemTransform, SubCompRenderData } from './canvas-item-renderer'
 
@@ -86,6 +87,7 @@ function createCompositionMaskRenderHarness(params: {
     mediabunnyFailureCountByItem: new Map(),
     imageElements: params.imageElements ?? new Map(),
     gifFramesMap: new Map(),
+    lottieProvider: new LottieExportProvider(),
     keyframesMap: new Map(),
     adjustmentLayers: [],
     subCompRenderData: new Map([[params.compositionItem.compositionId, params.subData]]),

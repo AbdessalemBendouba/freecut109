@@ -231,6 +231,14 @@
       "color": "颜色",
       "deleteMarker": "删除标记"
     },
+    "markerList": {
+      "title": "标记",
+      "empty": "暂无标记",
+      "emptyHint": "按 M 在播放头处添加标记",
+      "clearAll": "全部清除",
+      "untitled": "标记",
+      "remove": "移除标记"
+    },
     "canvasPanel": {
       "updateFailed": "更新画布设置失败",
       "tryAgain": "请重试。",

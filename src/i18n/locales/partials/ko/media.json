@@ -40,15 +40,20 @@
       "transcriptsReady": "전사가 준비되었습니다"
     },
     "compositions": {
-      "deleteBody": "복합 클립 \"{{name}}\"을(를) 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
+      "compoundClipsGroup": "복합 클립",
+      "deleteBody": "복합 클립 “{{name}}”을(를) 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
       "deleteInstancesDetail": "이 복합 클립을 사용하는 타임라인 인스턴스 {{count}}개도 함께 제거됩니다.",
       "deleteInstancesTitle": "연결된 인스턴스가 제거됩니다",
+      "deleteSequenceBody": "시퀀스 “{{name}}”을(를) 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
+      "deleteSequenceInstancesDetail": "이 시퀀스를 사용하는 타임라인 인스턴스 {{count}}개도 함께 제거됩니다.",
+      "deleteSequenceTitle": "시퀀스 삭제",
       "deleteTitle": "복합 클립 삭제",
       "enter": "열기",
       "itemCount": "{{count}}개 항목",
       "openAsTab": "탭으로 열기",
       "rename": "이름 변경",
-      "sectionTitle": "복합 클립"
+      "sectionTitle": "컴포지션",
+      "sequencesGroup": "시퀀스"
     },
     "deleteDialog": {
       "bodyMultiple": "이 프로젝트에서 미디어 항목 {{count}}개를 영구적으로 제거합니다. 이 작업은 되돌릴 수 없습니다.",
@@ -128,10 +133,11 @@
       "generatingProxies": "프록시 생성 중…",
       "generatingTranscripts": "전사 생성 중…",
       "gridItemSize": "썸네일 크기",
-      "groupAudio": "오디오 그룹",
-      "groupGifs": "GIF 그룹",
-      "groupImages": "이미지 그룹",
-      "groupVideos": "비디오 그룹",
+      "groupAudio": "오디오",
+      "groupGifs": "GIF",
+      "groupImages": "이미지",
+      "groupLottie": "Lottie",
+      "groupVideos": "비디오",
       "import": "가져오기",
       "importFromUrlDescription": "직접 URL에서 미디어 파일을 가져옵니다.",
       "importFromUrlHint": "비디오, 오디오, 이미지 또는 GIF 파일의 직접 링크를 붙여넣으세요.",
@@ -156,6 +162,9 @@
       "selectedAssetsCount": "선택한 에셋 {{count}}개",
       "selectedAssetsCount_one": "선택한 에셋 {{count}}개",
       "selectedAssetsCount_other": "선택한 에셋 {{count}}개",
+      "sequencesCount": "시퀀스 {{count}}개",
+      "sequencesCount_one": "시퀀스 {{count}}개",
+      "sequencesCount_other": "시퀀스 {{count}}개",
       "showMediaLibrary": "미디어 라이브러리 표시",
       "sortDate": "날짜순 정렬",
       "sortName": "이름순 정렬",
@@ -169,7 +178,8 @@
       "typeShort": {
         "video": "비디오",
         "audio": "오디오",
-        "image": "이미지"
+        "image": "이미지",
+        "lottie": "LOTTIE"
       },
       "sortShort": {
         "name": "이름",
@@ -258,6 +268,7 @@
     "type": {
       "audio": "오디오",
       "image": "이미지",
+      "lottie": "Lottie",
       "video": "비디오"
     },
     "unsupportedCodec": {

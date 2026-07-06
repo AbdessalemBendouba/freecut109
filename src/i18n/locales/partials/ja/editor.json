@@ -231,6 +231,14 @@
       "color": "色",
       "deleteMarker": "マーカーを削除"
     },
+    "markerList": {
+      "title": "マーカー",
+      "empty": "マーカーがありません",
+      "emptyHint": "M キーで再生ヘッドにマーカーを追加",
+      "clearAll": "すべて削除",
+      "untitled": "マーカー",
+      "remove": "マーカーを削除"
+    },
     "canvasPanel": {
       "updateFailed": "キャンバス設定の更新に失敗しました",
       "tryAgain": "もう一度お試しください。",

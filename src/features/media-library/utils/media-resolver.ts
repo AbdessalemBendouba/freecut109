@@ -140,7 +140,10 @@ export async function resolveMediaUrls(
       // Only resolve media items with mediaId
       if (
         item.mediaId &&
-        (item.type === 'video' || item.type === 'audio' || item.type === 'image')
+        (item.type === 'video' ||
+          item.type === 'audio' ||
+          item.type === 'image' ||
+          item.type === 'lottie')
       ) {
         const promise = resolveMediaUrl(item.mediaId).then((blobUrl) => {
           // For video items in preview mode, prefer proxy URL if available

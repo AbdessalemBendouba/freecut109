@@ -92,7 +92,10 @@ function resolveSubCompItem(
 ): TimelineItem {
   if (
     subItem.mediaId &&
-    (subItem.type === 'video' || subItem.type === 'audio' || subItem.type === 'image')
+    (subItem.type === 'video' ||
+      subItem.type === 'audio' ||
+      subItem.type === 'image' ||
+      subItem.type === 'lottie')
   ) {
     const sourceSrc = blobUrlManager.get(subItem.mediaId) ?? ''
 

@@ -5,7 +5,7 @@ const page = {
   slug: 'timeline',
   title: 'Basic Timeline Editing',
   description:
-    'Tracks, adding clips, selection, split and join, deleting, snapping, markers, ranges, and zoom.',
+    'Tracks, adding clips, selection, split and join, deleting, snapping, markers, ranges, sequences, and zoom.',
   category: 'Core Editing',
   related: ['editing-tools', 'preview', 'keyboard-shortcuts'],
   sections: [
@@ -66,6 +66,29 @@ const page = {
             'Add a marker with `M` for notes and timing references; jump between markers with `[` and `]`.',
             'Set an in point (`I`) and out point (`O`) to define a range for preview and export; clear them with `Alt+X`.',
           ],
+        },
+      ],
+    },
+    {
+      title: 'Sequences (multi-timeline)',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: 'A **sequence** is a self-contained timeline with its own tracks, clips, markers, and in/out range. The tab bar above the timeline lists the **Main** timeline plus every sequence — click a tab to switch which one you are editing.',
+        },
+        {
+          kind: 'list',
+          items: [
+            'Create a sequence with **+** on the tab bar; it opens as its own tab.',
+            'Double-click a tab to **rename** it; the **⋯** menu lets you **Close tab** (keeps it in the Media panel) or **Delete sequence** entirely.',
+            'A **compound clip** can be opened in a sequence tab — in the Media panel, right-click a compound clip and choose **Open as tab** to edit it as a standalone timeline.',
+            'Drop a sequence onto the timeline to nest it as a clip (shown with a **SEQUENCE** badge); double-click that clip to jump to its tab.',
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'Each sequence keeps its own markers, in/out range, view, and undo history — switching tabs never mixes them.',
         },
       ],
     },

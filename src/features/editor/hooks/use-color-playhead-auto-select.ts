@@ -8,6 +8,7 @@ import type { TimelineItem } from '@/types/timeline'
 const GRADE_TYPE_PRIORITY: Record<TimelineItem['type'], number> = {
   video: 0,
   image: 1,
+  lottie: 1,
   composition: 2,
   adjustment: 3,
   shape: 4,

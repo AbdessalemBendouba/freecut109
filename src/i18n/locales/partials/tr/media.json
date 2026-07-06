@@ -40,15 +40,20 @@
       "transcriptsReady": "Transkriptler hazır"
     },
     "compositions": {
+      "compoundClipsGroup": "Bileşik Klipler",
       "deleteBody": "Bu bileşik klip silinsin mi?",
       "deleteInstancesDetail": "Bu bileşik klibi kullanan {{count}} zaman çizelgesi örneği de kaldırılacak.",
       "deleteInstancesTitle": "Bağlı örnekler kaldırılacak",
+      "deleteSequenceBody": "Bu sekans silinsin mi?",
+      "deleteSequenceInstancesDetail": "Bu sekansı kullanan {{count}} zaman çizelgesi örneği de kaldırılacak.",
+      "deleteSequenceTitle": "Sekansı sil",
       "deleteTitle": "Bileşik klibi sil",
       "enter": "Gir",
       "itemCount": "{{count}} öğe",
       "openAsTab": "Sekme olarak aç",
       "rename": "Yeniden adlandır",
-      "sectionTitle": "Bileşik Klipler"
+      "sectionTitle": "Kompozisyonlar",
+      "sequencesGroup": "Sekanslar"
     },
     "deleteDialog": {
       "bodyMultiple": "Bu projeden {{count}} medya öğesi kalıcı olarak kaldırılacak. Bu işlem geri alınamaz.",
@@ -131,6 +136,7 @@
       "groupAudio": "Ses",
       "groupGifs": "GIF'ler",
       "groupImages": "Görseller",
+      "groupLottie": "Lottie",
       "groupVideos": "Videolar",
       "import": "İçe aktar",
       "importFromUrlDescription": "Doğrudan URL'den bir medya dosyası içe aktarın.",
@@ -156,6 +162,9 @@
       "selectedAssetsCount": "{{count}} seçili varlık",
       "selectedAssetsCount_one": "{{count}} seçili varlık",
       "selectedAssetsCount_other": "{{count}} seçili varlık",
+      "sequencesCount": "{{count}} sekans",
+      "sequencesCount_one": "{{count}} sekans",
+      "sequencesCount_other": "{{count}} sekans",
       "showMediaLibrary": "Medya kitaplığını göster",
       "sortDate": "Tarihe göre sırala",
       "sortName": "Ada göre sırala",
@@ -169,7 +178,8 @@
       "typeShort": {
         "video": "VİDEO",
         "audio": "SES",
-        "image": "GÖRSEL"
+        "image": "GÖRSEL",
+        "lottie": "LOTTIE"
       },
       "sortShort": {
         "name": "AD",
@@ -258,6 +268,7 @@
     "type": {
       "audio": "Ses",
       "image": "Görsel",
+      "lottie": "Lottie",
       "video": "Video"
     },
     "unsupportedCodec": {

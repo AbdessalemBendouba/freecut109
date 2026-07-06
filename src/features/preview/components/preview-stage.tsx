@@ -30,6 +30,8 @@ interface PreviewStageProps {
   playerRenderSize: { width: number; height: number }
   totalFrames: number
   fps: number
+  /** Frame to start the player clock at on mount (preserves the playhead across remounts). */
+  initialFrame?: number
   isResolving: boolean
   isRenderedOverlayVisible: boolean
   isSplitGradeAfterVisible?: boolean
@@ -56,6 +58,7 @@ export const PreviewStage = memo(function PreviewStage({
   playerRenderSize,
   totalFrames,
   fps,
+  initialFrame = 0,
   isResolving,
   isRenderedOverlayVisible,
   isSplitGradeAfterVisible = false,
@@ -240,6 +243,7 @@ export const PreviewStage = memo(function PreviewStage({
                 ref={playerRef}
                 durationInFrames={totalFrames}
                 fps={fps}
+                initialFrame={initialFrame}
                 width={playerRenderSize.width}
                 height={playerRenderSize.height}
                 autoPlay={false}

@@ -18,7 +18,10 @@ const EDGE_BUDGETS = [
   // transcript editor / auto-captions and the media-library Parakeet/Whisper
   // pipeline now interoperate through more deps/ adapter contracts.
   { edge: 'timeline -> media-library', maxImports: 16, maxFiles: 7 },
-  { edge: 'media-library -> timeline', maxImports: 20, maxFiles: 5 },
+  // Raised for the multi-timeline sequences + compositions feature: the media
+  // library's compositions/sequences section reaches the sequences store,
+  // composition-navigation store and cycle guard through deps/ adapters.
+  { edge: 'media-library -> timeline', maxImports: 21, maxFiles: 5 },
   { edge: 'composition-runtime -> player', maxImports: 8, maxFiles: 2 },
 ];
 

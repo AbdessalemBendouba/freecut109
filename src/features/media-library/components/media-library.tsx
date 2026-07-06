@@ -37,6 +37,7 @@ import {
   Sparkles,
   FileText,
   ScanSearch,
+  FileJson,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { importSceneBrowserPanel, useSceneBrowserStore } from '../deps/scene-browser'
@@ -142,6 +143,7 @@ const GROUP_ICONS = {
   audio: FileAudio,
   image: ImageIcon,
   gif: Film,
+  lottie: FileJson,
 } as const
 
 interface MediaTypeGroupProps {
@@ -217,7 +219,7 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [headerCompactLevel, setHeaderCompactLevel] = useState(0)
   const [openGroups, setOpenGroups] = useState<Set<string>>(
-    () => new Set(['video', 'audio', 'image', 'gif']),
+    () => new Set(['video', 'audio', 'image', 'gif', 'lottie']),
   )
   const [showImportUrlDialog, setShowImportUrlDialog] = useState(false)
   const [importUrlValue, setImportUrlValue] = useState('')
@@ -265,13 +267,14 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
     const groups: {
       key: string
       label: string
-      icon: 'video' | 'audio' | 'image' | 'gif'
+      icon: 'video' | 'audio' | 'image' | 'gif' | 'lottie'
       items: MediaMetadata[]
     }[] = []
     const videos: MediaMetadata[] = []
     const audio: MediaMetadata[] = []
     const gifs: MediaMetadata[] = []
     const images: MediaMetadata[] = []
+    const lotties: MediaMetadata[] = []
     for (const item of filteredMediaItems) {
       if (item.mimeType === 'image/gif') {
         gifs.push(item)
@@ -279,6 +282,7 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
         const t = getMediaType(item.mimeType)
         if (t === 'video') videos.push(item)
         else if (t === 'audio') audio.push(item)
+        else if (t === 'lottie') lotties.push(item)
         else images.push(item)
       }
     }
@@ -305,6 +309,13 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
       })
     if (gifs.length > 0)
       groups.push({ key: 'gif', label: t('media.library.groupGifs'), icon: 'gif', items: gifs })
+    if (lotties.length > 0)
+      groups.push({
+        key: 'lottie',
+        label: t('media.library.groupLottie'),
+        icon: 'lottie',
+        items: lotties,
+      })
     return groups
   }, [filteredMediaItems, t])
   const compositions = useCompositionsStore((s) => s.compositions)
@@ -1013,6 +1024,13 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
                   >
                     <ImageIcon className="w-3 h-3 mr-2" />
                     {t('media.type.image')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setFilterByType('lottie')}
+                    className="text-xs hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <FileJson className="w-3 h-3 mr-2" />
+                    {t('media.type.lottie')}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

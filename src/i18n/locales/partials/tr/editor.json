@@ -231,6 +231,14 @@
       "color": "Renk",
       "deleteMarker": "İşaretçiyi Sil"
     },
+    "markerList": {
+      "title": "İşaretçiler",
+      "empty": "İşaretçi yok",
+      "emptyHint": "Oynatma başlığına işaretçi eklemek için M tuşuna basın",
+      "clearAll": "Tümünü temizle",
+      "untitled": "İşaretçi",
+      "remove": "İşaretçiyi kaldır"
+    },
     "canvasPanel": {
       "updateFailed": "Tuval ayarları güncellenemedi",
       "tryAgain": "Lütfen tekrar deneyin.",

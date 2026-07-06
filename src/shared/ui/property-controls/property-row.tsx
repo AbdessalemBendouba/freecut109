@@ -13,9 +13,7 @@ interface PropertyRowProps {
  * Label on left, control on right.
  */
 export function PropertyRow({ label, children, tooltip, className }: PropertyRowProps) {
-  const labelContent = (
-    <span className="text-xs text-muted-foreground min-w-[56px] text-right">{label}</span>
-  )
+  const labelContent = <span className="text-xs text-muted-foreground min-w-[56px]">{label}</span>
 
   return (
     <div className={cn('flex items-center justify-between gap-2 min-w-0 py-1', className)}>

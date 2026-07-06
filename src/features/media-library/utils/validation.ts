@@ -2,6 +2,8 @@
  * Media file validation utilities
  */
 
+import { parseLottieFileBytes } from '@/infrastructure/lottie/lottie-metadata'
+
 // Supported file types based on requirements
 const SUPPORTED_VIDEO_TYPES = [
   'video/mp4',
@@ -31,8 +33,14 @@ const SUPPORTED_IMAGE_TYPES = [
   'image/svg+xml', // .svg files
 ]
 
+const SUPPORTED_LOTTIE_TYPES = ['application/lottie+json']
+
 const GENERIC_BROWSER_MIME_TYPES = new Set(['', 'application/octet-stream', 'binary/octet-stream'])
-const EXTENSION_PREFERRED_MIME_TYPES = new Set(['.mkv', '.m4a'])
+// Extensions whose browser-reported MIME must be overridden by the extension
+// mapping. `.mkv`/`.m4a` vary across browsers; `.json` is reported as the
+// non-media `application/json`, so a Lottie `.json` would otherwise be rejected
+// as unsupported before the content sniff in `validateMediaFileContent` runs.
+const EXTENSION_PREFERRED_MIME_TYPES = new Set(['.mkv', '.m4a', '.json'])
 
 // Extension to MIME type mapping for fallback when browser doesn't provide MIME type
 const EXTENSION_TO_MIME: Record<string, string> = {
@@ -56,6 +64,9 @@ const EXTENSION_TO_MIME: Record<string, string> = {
   '.gif': 'image/gif',
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
+  // Lottie
+  '.json': 'application/lottie+json',
+  '.lottie': 'application/lottie+json',
 }
 
 /**
@@ -65,8 +76,8 @@ export function getMimeType(file: File): string {
   const ext = file.name.toLowerCase().match(/\.[^.]+$/)?.[0]
   const extensionMimeType = ext ? EXTENSION_TO_MIME[ext] : undefined
 
-  // Prefer the extension for formats whose browser-reported MIME commonly
-  // varies despite the media kind staying the same (for example .mkv, .m4a).
+  // Prefer the extension for formats whose browser-reported MIME can't be
+  // trusted for the media kind (see EXTENSION_PREFERRED_MIME_TYPES).
   if (ext && extensionMimeType && EXTENSION_PREFERRED_MIME_TYPES.has(ext)) {
     return extensionMimeType
   }
@@ -102,13 +113,14 @@ export function validateMediaFile(file: File): ValidationResult {
     ...SUPPORTED_VIDEO_TYPES,
     ...SUPPORTED_AUDIO_TYPES,
     ...SUPPORTED_IMAGE_TYPES,
+    ...SUPPORTED_LOTTIE_TYPES,
   ]
 
   const mimeType = getMimeType(file)
   if (!allSupportedTypes.includes(mimeType)) {
     return {
       valid: false,
-      error: `Unsupported file type: ${mimeType || file.name.split('.').pop()}. Supported types: video (mp4, webm, mov, mkv, avi), audio (mp3, wav, aac, m4a, ogg/opus), image (jpg/jpeg, png, gif, webp, svg)`,
+      error: `Unsupported file type: ${mimeType || file.name.split('.').pop()}. Supported types: video (mp4, webm, mov, mkv, avi), audio (mp3, wav, aac, m4a, ogg/opus), image (jpg/jpeg, png, gif, webp, svg), lottie (json, lottie)`,
     }
   }
 
@@ -124,9 +136,36 @@ export function validateMediaFile(file: File): ValidationResult {
 }
 
 /**
+ * Content-aware validation. Runs the synchronous checks, then — for anything
+ * admitted as Lottie — confirms the bytes actually parse as a Lottie animation.
+ *
+ * A `.json` (or any file the browser reported with a generic MIME) is typed as
+ * `application/lottie+json` purely from its extension, so ordinary JSON would
+ * otherwise slip through the sync gate and only fail deep in the import pipeline
+ * with an opaque "Not a valid Lottie animation" error. Sniffing here keeps
+ * non-Lottie files out of the Lottie import path entirely. `parseLottieFileBytes`
+ * is WASM-free (fflate only), so this stays cheap.
+ */
+export async function validateMediaFileContent(file: File): Promise<ValidationResult> {
+  const base = validateMediaFile(file)
+  if (!base.valid) {
+    return base
+  }
+
+  if (isLottieMime(getMimeType(file))) {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    if (!parseLottieFileBytes(bytes)) {
+      return { valid: false, error: `Not a valid Lottie animation: ${file.name}` }
+    }
+  }
+
+  return base
+}
+
+/**
  * Get media type from MIME type
  */
-export function getMediaType(mimeType: string): 'video' | 'audio' | 'image' | 'unknown' {
+export function getMediaType(mimeType: string): 'video' | 'audio' | 'image' | 'lottie' | 'unknown' {
   if (SUPPORTED_VIDEO_TYPES.includes(mimeType)) {
     return 'video'
   }
@@ -136,7 +175,17 @@ export function getMediaType(mimeType: string): 'video' | 'audio' | 'image' | 'u
   if (SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
     return 'image'
   }
+  if (SUPPORTED_LOTTIE_TYPES.includes(mimeType)) {
+    return 'lottie'
+  }
   return 'unknown'
+}
+
+/**
+ * Whether a MIME type is a Lottie animation (`application/lottie+json`).
+ */
+export function isLottieMime(mimeType: string): boolean {
+  return SUPPORTED_LOTTIE_TYPES.includes(mimeType)
 }
 
 /**

@@ -81,7 +81,8 @@ import {
   getThumbnailDimensions,
   persistGeneratedMediaAsset,
 } from './media-asset-helpers'
-import { validateMediaFile, getMimeType } from '../utils/validation'
+import { validateMediaFileContent, getMimeType, isLottieMime } from '../utils/validation'
+import { parseLottieFileBytes } from '@/infrastructure/lottie/lottie-metadata'
 import { getSharedProxyKey } from '../utils/proxy-key'
 import { mediaProcessorService } from './media-processor-service'
 import { generateThumbnail } from '../utils/thumbnail-generator'
@@ -229,6 +230,61 @@ class MediaLibraryService {
     ])
     if (promises.length === 0) return
     await Promise.allSettled(promises)
+  }
+
+  /**
+   * Parse a Lottie JSON file into the intrinsic fields needed to populate a
+   * `MediaMetadata` record. Lottie can't go through the metadata worker's
+   * `createImageBitmap` path (it's JSON, not a rasterizable image), so this
+   * runs on the main thread — mirroring the SVG main-thread thumbnail fallback.
+   *
+   * Uses the WASM-free `lottie-metadata` module (fflate unzip for `.lottie`),
+   * so no dotlottie-web WASM is pulled into the import path.
+   */
+  private async parseLottieFile(
+    file: File,
+  ): Promise<{ width: number; height: number; fps: number; duration: number }> {
+    // Read raw bytes so we can handle both `.json` Lottie and `.lottie`
+    // (dotLottie ZIP archive) — `parseLottieFileBytes` auto-detects the format.
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const meta = parseLottieFileBytes(bytes)
+    if (!meta) {
+      throw new Error(`Not a valid Lottie animation: ${file.name}`)
+    }
+
+    return {
+      width: meta.width,
+      height: meta.height,
+      fps: meta.frameRate,
+      duration: meta.durationSeconds,
+    }
+  }
+
+  /**
+   * Render a representative frame of a Lottie to a thumbnail blob (fit within
+   * 320px, preserving aspect). Lazily imports the dotlottie-web renderer so the
+   * WASM isn't pulled into the import path unless a Lottie is actually imported.
+   */
+  private async generateLottieThumbnailBlob(
+    file: File,
+    width: number,
+    height: number,
+  ): Promise<{ blob: Blob; width: number; height: number } | undefined> {
+    try {
+      const dims = getThumbnailDimensions(Math.max(1, width), Math.max(1, height), 320)
+      const url = URL.createObjectURL(file)
+      try {
+        const { renderLottieThumbnail } =
+          await import('@/infrastructure/lottie/lottie-frame-provider')
+        const blob = await renderLottieThumbnail(url, dims.width, dims.height)
+        return blob ? { blob, width: dims.width, height: dims.height } : undefined
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    } catch (error) {
+      logger.warn('Failed to generate Lottie thumbnail:', error)
+      return undefined
+    }
   }
 
   private async deleteTranscriptSafely(mediaId: string): Promise<void> {
@@ -427,7 +483,7 @@ class MediaLibraryService {
     file: File,
     projectId: string,
   ): Promise<MediaMetadata & { isDuplicate?: boolean; hasUnsupportedCodec?: boolean }> {
-    const validationResult = validateMediaFile(file)
+    const validationResult = await validateMediaFileContent(file)
     if (!validationResult.valid) {
       throw new Error(validationResult.error)
     }
@@ -447,6 +503,43 @@ class MediaLibraryService {
     }
 
     const resolvedMimeType = getMimeType(file)
+
+    // Lottie is JSON/ZIP, not a rasterizable image — parse metadata and render a
+    // thumbnail on the main thread (mirrors the SVG fallback), skipping the worker.
+    if (isLottieMime(resolvedMimeType)) {
+      const lottie = await this.parseLottieFile(file)
+      const thumb = await this.generateLottieThumbnailBlob(file, lottie.width, lottie.height)
+      const mediaId = crypto.randomUUID()
+      const createdAt = Date.now()
+      const opfsPath = buildGeneratedMediaOpfsPath(mediaId)
+      const mediaMetadata: MediaMetadata = {
+        id: mediaId,
+        storageType: 'opfs',
+        opfsPath,
+        fileName: file.name,
+        fileSize: file.size,
+        mimeType: resolvedMimeType,
+        duration: lottie.duration,
+        width: lottie.width,
+        height: lottie.height,
+        fps: lottie.fps,
+        codec: 'lottie',
+        bitrate: 0,
+        tags: [],
+        createdAt,
+        updatedAt: createdAt,
+      }
+
+      return persistGeneratedMediaAsset({
+        file,
+        projectId,
+        mediaMetadata,
+        thumbnailBlob: thumb?.blob,
+        thumbnailWidth: thumb?.width,
+        thumbnailHeight: thumb?.height,
+      })
+    }
+
     const { metadata, thumbnail } = await mediaProcessorService.processMedia(
       file,
       resolvedMimeType,
@@ -627,7 +720,7 @@ class MediaLibraryService {
     }
 
     // Stage 2: Validation
-    const validationResult = validateMediaFile(file)
+    const validationResult = await validateMediaFileContent(file)
     if (!validationResult.valid) {
       throw new Error(validationResult.error)
     }
@@ -723,6 +816,61 @@ class MediaLibraryService {
 
     // Stage 4: Process media in worker (metadata + thumbnail in one pass, off main thread)
     const resolvedMimeType = getMimeType(file)
+
+    // Lottie is JSON/ZIP, not a rasterizable image — parse metadata and render a
+    // thumbnail on the main thread (mirrors the SVG fallback), skipping the worker.
+    if (isLottieMime(resolvedMimeType)) {
+      const lottie = await this.parseLottieFile(file)
+      const id = crypto.randomUUID()
+      const createdAt = Date.now()
+
+      const thumb = await this.generateLottieThumbnailBlob(file, lottie.width, lottie.height)
+      let thumbnailId: string | undefined
+      if (thumb) {
+        try {
+          thumbnailId = crypto.randomUUID()
+          const thumbnailData: ThumbnailData = {
+            id: thumbnailId,
+            mediaId: id,
+            blob: thumb.blob,
+            timestamp: 1,
+            width: thumb.width,
+            height: thumb.height,
+          }
+          await saveThumbnailDB(thumbnailData)
+        } catch (error) {
+          logger.warn('Failed to save Lottie thumbnail:', error)
+          thumbnailId = undefined
+        }
+      }
+
+      const mediaMetadata: MediaMetadata = {
+        id,
+        storageType: 'handle',
+        fileHandle: handle,
+        fileName: file.name,
+        fileSize: file.size,
+        fileLastModified: file.lastModified,
+        mimeType: resolvedMimeType,
+        duration: lottie.duration,
+        width: lottie.width,
+        height: lottie.height,
+        fps: lottie.fps,
+        codec: 'lottie',
+        bitrate: 0,
+        thumbnailId,
+        tags: [],
+        createdAt,
+        updatedAt: createdAt,
+      }
+
+      await createMediaDB(mediaMetadata)
+      mirrorSourceToWorkspaceInBackground(id, file, file.name)
+      await associateMediaWithProject(projectId, id)
+
+      return mediaMetadata
+    }
+
     const id = crypto.randomUUID()
     let thumbnailId: string | undefined
 

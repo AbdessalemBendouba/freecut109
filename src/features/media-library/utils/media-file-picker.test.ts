@@ -58,6 +58,8 @@ describe('media-file-picker', () => {
       'GIF',
       'WebP',
       'SVG',
+      'JSON',
+      'LOTTIE',
     ])
   })
 })

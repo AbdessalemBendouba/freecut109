@@ -7,6 +7,7 @@
 import type {
   CompositionItem,
   ImageItem,
+  LottieItem,
   ShapeItem,
   SubtitleSegmentItem,
   TextItem,
@@ -35,6 +36,7 @@ import {
 } from './shared'
 import { renderVideoItem } from './video'
 import { renderImageItem } from './image'
+import { renderLottieItem } from './lottie'
 import { getTextRasterCacheKey, renderSubtitleSegmentItem, renderTextItem } from './text'
 import { isTextMotionActive } from '@/shared/typography/text-motion'
 import { renderCompositionItem } from './composition'
@@ -171,6 +173,9 @@ async function renderItemContent(
     case 'image':
       renderImageItem(ctx, effectiveItem as ImageItem, transform, rctx, frame)
       break
+    case 'lottie':
+      renderLottieItem(ctx, effectiveItem as LottieItem, transform, rctx, frame)
+      break
     case 'text': {
       const textItem = effectiveItem as TextItem
       // Motion text: while a per-unit window is active, paint glyph-by-glyph
@@ -184,7 +189,11 @@ async function renderItemContent(
           rctx.canvasSettings.fps,
           textItem.durationInFrames,
         )
-          ? { relativeFrame, fps: rctx.canvasSettings.fps, durationInFrames: textItem.durationInFrames }
+          ? {
+              relativeFrame,
+              fps: rctx.canvasSettings.fps,
+              durationInFrames: textItem.durationInFrames,
+            }
           : undefined
       renderTextItem(ctx, textItem, transform, rctx, motion)
       break

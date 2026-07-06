@@ -7,12 +7,17 @@ All notable changes to FreeCut. Weekly CalVer: `YYYY.MM.DD` = the Monday of the 
 ## [Current] — week of 2026-06-29
 
 ### Added
+- Sequences — build multiple timelines in one project and switch between them in tabs
+- Export any sequence, not just the main timeline
+- Motion text — animate text by character, word, or line
 - Per-clip easing editor: preset curves, draggable handles, live preview, and custom presets
+- Color picker gains hex/alpha input and an in-app eyedropper
+- Optional interface sounds with a voice picker
+- Redesigned keyboard-shortcut editor in Settings
 - Subtitle export modes: off, burn in, sidecar file, or embedded track
 - Edit ProRes footage — import, preview, thumbnails, and export
 - Procedural motion modifiers — drift, breath, shake, sway, and spin, with one-click bake to keyframes
-- Audio-reactive motion that animates from your clip's sound
-- New GPU effects: gradient map, VHS, CRT, Droste, and block glitch
+- New GPU effects: gradient map, VHS, CRT, Droste, block glitch, glass distortion, ink, and pixel sort
 - ASCII effect now supports custom text, fonts, and glyph character sets
 
 ### Fixed

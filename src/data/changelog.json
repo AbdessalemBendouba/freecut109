@@ -1,11 +1,29 @@
 {
   "current": {
     "version": "current",
-    "date": "2026-07-02",
+    "date": "2026-07-05",
     "groups": {
       "added": [
         {
+          "title": "Sequences — build multiple timelines in one project and switch between them in tabs"
+        },
+        {
+          "title": "Export any sequence, not just the main timeline"
+        },
+        {
+          "title": "Motion text — animate text by character, word, or line"
+        },
+        {
           "title": "Per-clip easing editor: preset curves, draggable handles, live preview, and custom presets"
+        },
+        {
+          "title": "Color picker gains hex/alpha input and an in-app eyedropper"
+        },
+        {
+          "title": "Optional interface sounds with a voice picker"
+        },
+        {
+          "title": "Redesigned keyboard-shortcut editor in Settings"
         },
         {
           "title": "Subtitle export modes: off, burn in, sidecar file, or embedded track"
@@ -17,10 +35,7 @@
           "title": "Procedural motion modifiers — drift, breath, shake, sway, and spin, with one-click bake to keyframes"
         },
         {
-          "title": "Audio-reactive motion that animates from your clip's sound"
-        },
-        {
-          "title": "New GPU effects: gradient map, VHS, CRT, Droste, and block glitch"
+          "title": "New GPU effects: gradient map, VHS, CRT, Droste, block glitch, glass distortion, ink, and pixel sort"
         },
         {
           "title": "ASCII effect now supports custom text, fonts, and glyph character sets"

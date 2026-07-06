@@ -40,15 +40,20 @@
       "transcriptsReady": "Transkripte bereit"
     },
     "compositions": {
+      "compoundClipsGroup": "Zusammengesetzte Clips",
       "deleteBody": "Zusammengesetzten Clip \"{{name}}\" löschen? Dies kann nicht rückgängig gemacht werden.",
       "deleteInstancesDetail": "{{count}} Timeline-Instanzen, die diesen zusammengesetzten Clip verwenden, werden ebenfalls entfernt.",
       "deleteInstancesTitle": "Verknüpfte Instanzen werden entfernt",
+      "deleteSequenceBody": "Sequenz \"{{name}}\" löschen? Dies kann nicht rückgängig gemacht werden.",
+      "deleteSequenceInstancesDetail": "{{count}} Timeline-Instanzen, die diese Sequenz verwenden, werden ebenfalls entfernt.",
+      "deleteSequenceTitle": "Sequenz löschen",
       "deleteTitle": "Zusammengesetzten Clip löschen",
       "enter": "Öffnen",
       "itemCount": "{{count}} Elemente",
       "openAsTab": "Als Tab öffnen",
       "rename": "Umbenennen",
-      "sectionTitle": "Zusammengesetzte Clips"
+      "sectionTitle": "Kompositionen",
+      "sequencesGroup": "Sequenzen"
     },
     "deleteDialog": {
       "bodyMultiple": "Dadurch werden {{count}} Medienelemente dauerhaft aus diesem Projekt entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
@@ -128,10 +133,11 @@
       "generatingProxies": "Proxys werden erstellt…",
       "generatingTranscripts": "Transkripte werden erstellt…",
       "gridItemSize": "Vorschaugröße",
-      "groupAudio": "Audio gruppieren",
-      "groupGifs": "GIFs gruppieren",
-      "groupImages": "Bilder gruppieren",
-      "groupVideos": "Videos gruppieren",
+      "groupAudio": "Audio",
+      "groupGifs": "GIFs",
+      "groupImages": "Bilder",
+      "groupLottie": "Lottie",
+      "groupVideos": "Videos",
       "import": "Importieren",
       "importFromUrlDescription": "Importiere eine Mediendatei über eine direkte URL.",
       "importFromUrlHint": "Füge einen direkten Link zu einer Video-, Audio-, Bild- oder GIF-Datei ein.",
@@ -156,6 +162,9 @@
       "selectedAssetsCount": "{{count}} ausgewählte Assets",
       "selectedAssetsCount_one": "{{count}} ausgewähltes Asset",
       "selectedAssetsCount_other": "{{count}} ausgewählte Assets",
+      "sequencesCount": "{{count}} Sequenzen",
+      "sequencesCount_one": "{{count}} Sequenz",
+      "sequencesCount_other": "{{count}} Sequenzen",
       "showMediaLibrary": "Medienbibliothek anzeigen",
       "sortDate": "Nach Datum sortieren",
       "sortName": "Nach Name sortieren",
@@ -169,7 +178,8 @@
       "typeShort": {
         "video": "VIDEO",
         "audio": "AUDIO",
-        "image": "BILD"
+        "image": "BILD",
+        "lottie": "LOTTIE"
       },
       "sortShort": {
         "name": "NAME",
@@ -258,6 +268,7 @@
     "type": {
       "audio": "Audio",
       "image": "Bild",
+      "lottie": "Lottie",
       "video": "Video"
     },
     "unsupportedCodec": {

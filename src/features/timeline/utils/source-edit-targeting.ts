@@ -233,7 +233,7 @@ export function resolveSourceEditTrackTargets(params: {
   activeTrackId?: string | null
   preferredVideoTrackId?: string | null
   preferredAudioTrackId?: string | null
-  mediaType: 'video' | 'audio' | 'image'
+  mediaType: 'video' | 'audio' | 'image' | 'lottie'
   hasAudio: boolean
   patchVideo: boolean
   patchAudio: boolean
@@ -259,7 +259,8 @@ export function resolveSourceEditTrackTargets(params: {
     findUnlockedTrackById(tracks, preferredVideoTrackId) ??
     findUnlockedTrackById(tracks, preferredAudioTrackId) ??
     null
-  const wantsVideo = (mediaType === 'video' || mediaType === 'image') && patchVideo
+  const wantsVideo =
+    (mediaType === 'video' || mediaType === 'image' || mediaType === 'lottie') && patchVideo
   const wantsAudio = ((mediaType === 'video' && hasAudio) || mediaType === 'audio') && patchAudio
 
   if (!wantsVideo && !wantsAudio) {

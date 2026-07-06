@@ -4,7 +4,13 @@ import type {
   CanvasSettings,
   TransformProperties,
 } from '@/types/transform'
-import type { TimelineItem, VideoItem, ImageItem, CompositionItem } from '@/types/timeline'
+import type {
+  TimelineItem,
+  VideoItem,
+  ImageItem,
+  LottieItem,
+  CompositionItem,
+} from '@/types/timeline'
 import { useMediaLibraryStore } from '@/runtime/composition-runtime/deps/media-library-store'
 
 function buildCssTransform(rotation: number, transform?: TransformProperties): string | undefined {
@@ -89,13 +95,13 @@ export function getSourceDimensions(item: TimelineItem): SourceDimensions | unde
       }
     }
   }
-  if (item.type === 'image') {
-    const imageItem = item as ImageItem
-    if (imageItem.sourceWidth && imageItem.sourceHeight) {
-      return { width: imageItem.sourceWidth, height: imageItem.sourceHeight }
+  if (item.type === 'image' || item.type === 'lottie') {
+    const visualItem = item as ImageItem | LottieItem
+    if (visualItem.sourceWidth && visualItem.sourceHeight) {
+      return { width: visualItem.sourceWidth, height: visualItem.sourceHeight }
     }
-    if (imageItem.mediaId) {
-      const media = useMediaLibraryStore.getState().mediaById[imageItem.mediaId]
+    if (visualItem.mediaId) {
+      const media = useMediaLibraryStore.getState().mediaById[visualItem.mediaId]
       if (media?.width && media?.height) {
         return { width: media.width, height: media.height }
       }

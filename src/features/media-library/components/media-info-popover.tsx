@@ -8,6 +8,7 @@ import {
   Maximize2,
   HardDrive,
   FileType,
+  FileJson,
   Loader2,
   FileText,
   Link,
@@ -78,7 +79,9 @@ export function MediaInfoPopover({
       ? t('media.type.video')
       : mediaType === 'audio'
         ? t('media.type.audio')
-        : t('media.type.image')
+        : mediaType === 'lottie'
+          ? t('media.type.lottie')
+          : t('media.type.image')
   const isTranscribable = mediaType === 'video' || mediaType === 'audio'
 
   const rows: Array<{ icon: React.ReactNode; label: string; value: string }> = []
@@ -89,7 +92,10 @@ export function MediaInfoPopover({
     value: `${typeLabel} (${media.mimeType.split('/')[1]})`,
   })
 
-  if ((mediaType === 'video' || mediaType === 'audio') && media.duration > 0) {
+  if (
+    (mediaType === 'video' || mediaType === 'audio' || mediaType === 'lottie') &&
+    media.duration > 0
+  ) {
     rows.push({
       icon: <Clock className="w-3 h-3" />,
       label: t('media.info.duration'),
@@ -97,7 +103,11 @@ export function MediaInfoPopover({
     })
   }
 
-  if ((mediaType === 'video' || mediaType === 'image') && media.width > 0 && media.height > 0) {
+  if (
+    (mediaType === 'video' || mediaType === 'image' || mediaType === 'lottie') &&
+    media.width > 0 &&
+    media.height > 0
+  ) {
     rows.push({
       icon: <Maximize2 className="w-3 h-3" />,
       label: t('media.info.dimensions'),
@@ -208,6 +218,7 @@ export function MediaInfoPopover({
           {mediaType === 'video' && <Video className="w-3.5 h-3.5 text-primary" />}
           {mediaType === 'audio' && <FileAudio className="w-3.5 h-3.5 text-green-500" />}
           {mediaType === 'image' && <ImageIcon className="w-3.5 h-3.5 text-blue-500" />}
+          {mediaType === 'lottie' && <FileJson className="w-3.5 h-3.5 text-purple-500" />}
           <span className="text-[11px] font-medium text-foreground truncate">{media.fileName}</span>
         </div>
 

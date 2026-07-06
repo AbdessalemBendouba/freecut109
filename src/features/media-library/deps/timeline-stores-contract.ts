@@ -1,5 +1,6 @@
 export { useTimelineStore } from '@/features/timeline/stores/timeline-store'
 export { useCompositionNavigationStore } from '@/features/timeline/stores/composition-navigation-store'
+export { useSequencesStore } from '@/features/timeline/stores/sequences-store'
 export {
   useCompositionsStore,
   type SubComposition,
