@@ -37,6 +37,7 @@ import {
 } from '../utils/preview-constants'
 import {
   copyPreviewDisplayCanvasContent,
+  drawSourceToPreviewDisplayCanvas,
   getPreviewDisplayCanvasBackingSize,
 } from '../utils/preview-display-canvas'
 import { setActivePreviewScrubbingCache } from '../utils/preview-scrubbing-cache-bridge'
@@ -228,7 +229,24 @@ export function usePreviewRendererController({
     const backingSize = getPreviewDisplayCanvasBackingSize(playerSize, playerRenderSize)
     if (canvas.width !== backingSize.width) canvas.width = backingSize.width
     if (canvas.height !== backingSize.height) canvas.height = backingSize.height
-  }, [playerRenderSize, playerSize, scrubCanvasRef])
+    if (!showFastScrubOverlayRef.current && !showPlaybackTransitionOverlayRef.current) return
+    const renderedFrame = scrubOffscreenRenderedFrameRef.current
+    const offscreen = scrubOffscreenCanvasRef.current
+    if (renderedFrame === null || !offscreen) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    drawSourceToPreviewDisplayCanvas(ctx, canvas, offscreen)
+    setDisplayedFrame(renderedFrame)
+  }, [
+    playerRenderSize,
+    playerSize,
+    scrubCanvasRef,
+    scrubOffscreenCanvasRef,
+    scrubOffscreenRenderedFrameRef,
+    setDisplayedFrame,
+    showFastScrubOverlayRef,
+    showPlaybackTransitionOverlayRef,
+  ])
 
   const disposeFastScrubRenderer = useCallback(() => {
     scrubInitPromiseRef.current = null
