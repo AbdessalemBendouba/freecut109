@@ -31,7 +31,13 @@ ${FULLSCREEN_VERTEX}
 @group(0) @binding(1) var inputTex: texture_2d<f32>;
 @fragment
 fn blitFragment(input: VertexOutput) -> @location(0) vec4f {
-  return textureSample(inputTex, texSampler, input.uv);
+  // Effect textures carry straight (non-premultiplied) alpha, but the output
+  // canvas is configured alphaMode:'premultiplied'. Premultiply here so that a
+  // pixel an effect left with colour at alpha 0 (e.g. a gradient map over a
+  // transparent Lottie) reads as fully transparent instead of leaking that
+  // colour over the layers below. Opaque pixels (a = 1) are unchanged.
+  let c = textureSample(inputTex, texSampler, input.uv);
+  return vec4f(c.rgb * c.a, c.a);
 }
 `
 
