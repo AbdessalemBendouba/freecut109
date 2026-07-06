@@ -81,7 +81,7 @@ import {
   getThumbnailDimensions,
   persistGeneratedMediaAsset,
 } from './media-asset-helpers'
-import { validateMediaFile, getMimeType, isLottieMime } from '../utils/validation'
+import { validateMediaFileContent, getMimeType, isLottieMime } from '../utils/validation'
 import { parseLottieFileBytes } from '@/infrastructure/lottie/lottie-metadata'
 import { getSharedProxyKey } from '../utils/proxy-key'
 import { mediaProcessorService } from './media-processor-service'
@@ -483,7 +483,7 @@ class MediaLibraryService {
     file: File,
     projectId: string,
   ): Promise<MediaMetadata & { isDuplicate?: boolean; hasUnsupportedCodec?: boolean }> {
-    const validationResult = validateMediaFile(file)
+    const validationResult = await validateMediaFileContent(file)
     if (!validationResult.valid) {
       throw new Error(validationResult.error)
     }
@@ -720,7 +720,7 @@ class MediaLibraryService {
     }
 
     // Stage 2: Validation
-    const validationResult = validateMediaFile(file)
+    const validationResult = await validateMediaFileContent(file)
     if (!validationResult.valid) {
       throw new Error(validationResult.error)
     }

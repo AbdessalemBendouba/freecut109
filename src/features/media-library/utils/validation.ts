@@ -2,6 +2,8 @@
  * Media file validation utilities
  */
 
+import { parseLottieFileBytes } from '@/infrastructure/lottie/lottie-metadata'
+
 // Supported file types based on requirements
 const SUPPORTED_VIDEO_TYPES = [
   'video/mp4',
@@ -127,6 +129,33 @@ export function validateMediaFile(file: File): ValidationResult {
   }
 
   return { valid: true }
+}
+
+/**
+ * Content-aware validation. Runs the synchronous checks, then — for anything
+ * admitted as Lottie — confirms the bytes actually parse as a Lottie animation.
+ *
+ * A `.json` (or any file the browser reported with a generic MIME) is typed as
+ * `application/lottie+json` purely from its extension, so ordinary JSON would
+ * otherwise slip through the sync gate and only fail deep in the import pipeline
+ * with an opaque "Not a valid Lottie animation" error. Sniffing here keeps
+ * non-Lottie files out of the Lottie import path entirely. `parseLottieFileBytes`
+ * is WASM-free (fflate only), so this stays cheap.
+ */
+export async function validateMediaFileContent(file: File): Promise<ValidationResult> {
+  const base = validateMediaFile(file)
+  if (!base.valid) {
+    return base
+  }
+
+  if (isLottieMime(getMimeType(file))) {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    if (!parseLottieFileBytes(bytes)) {
+      return { valid: false, error: `Not a valid Lottie animation: ${file.name}` }
+    }
+  }
+
+  return base
 }
 
 /**

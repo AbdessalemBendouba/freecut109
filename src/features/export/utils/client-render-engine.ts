@@ -777,10 +777,15 @@ export async function createCompositionRenderer(
     ) {
       // Composition items require the compositions store which only exists on main thread.
       // Workers get a fresh, empty Zustand store, so sub-comp data can never be resolved.
-      // Bail early to trigger the main-thread fallback path.
-      const hasCompositionItems = tracks.some((t) =>
-        (t.items ?? []).some((i) => i.type === 'composition'),
-      )
+      // Bail early to trigger the main-thread fallback path. Use reachability rather than a
+      // narrow `type === 'composition'` scan so sub-comps referenced only through a linked-audio
+      // wrapper item are caught too — otherwise nested Lottie/GIF/WebP (invisible to the
+      // top-level media lists) would slip past into the sub-comp preload and export blank.
+      const hasCompositionItems =
+        collectReachableCompositionIdsFromTracks(
+          tracks,
+          useCompositionsStore.getState().compositionById,
+        ).length > 0
       if (!hasDom && hasCompositionItems) {
         throw new Error('WORKER_REQUIRES_MAIN_THREAD:composition')
       }
