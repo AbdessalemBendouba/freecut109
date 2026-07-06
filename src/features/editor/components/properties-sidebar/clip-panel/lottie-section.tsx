@@ -28,6 +28,7 @@ import {
   type LottieMarker,
 } from '@/infrastructure/lottie/lottie-metadata'
 import { resolveMediaUrl } from '@/features/editor/deps/media-library'
+import { useGizmoStore } from '@/features/editor/deps/preview'
 import { PropertySection, PropertyRow, NumberInput, ColorPicker } from '../components'
 import { getMixedValue } from '../utils'
 
@@ -48,10 +49,14 @@ function isLottieItem(item: TimelineItem): item is LottieItem {
 function TextLayerInput({
   layer,
   override,
+  onLive,
   onCommit,
 }: {
   layer: LottieTextLayer
   override: string | undefined
+  /** Live preview on each keystroke (no undo entry). */
+  onLive: (key: string, value: string) => void
+  /** Final commit on blur/Enter. */
   onCommit: (key: string, value: string) => void
 }) {
   const committed = override ?? layer.text
@@ -67,7 +72,11 @@ function TextLayerInput({
   return (
     <Input
       value={draft}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => {
+        const value = e.target.value
+        setDraft(value)
+        onLive(layer.key, value)
+      }}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === 'Enter') e.currentTarget.blur()
@@ -89,6 +98,10 @@ function TextLayerInput({
 export function LottieSection({ items }: { items: TimelineItem[] }) {
   const { t } = useTranslation()
   const updateItem = useTimelineStore((s) => s.updateItem)
+  // Live edit preview: drags/keystrokes update the canvas through this channel
+  // (read by the render engine's getLiveItemSnapshot) without a timeline-store
+  // commit, so a single color/slot/text edit is one undo entry, not dozens.
+  const setLottiePreview = useGizmoStore((s) => s.setLottiePreviewNew)
 
   const lottieItems = useMemo(() => items.filter(isLottieItem), [items])
   const ids = useMemo(() => lottieItems.map((i) => i.id), [lottieItems])
@@ -255,19 +268,39 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
     [single, markers, updateItem],
   )
 
-  const handleTextCommit = useCallback(
-    (key: string, value: string) => {
-      if (!single) return
-      const next = { ...(single.textOverrides ?? {}) }
+  // Clear this clip's live preview when the clip changes or the panel unmounts,
+  // so a preview left mid-drag never lingers on the canvas.
+  useEffect(() => {
+    if (!singleId) return
+    return () => setLottiePreview(singleId, null)
+  }, [singleId, setLottiePreview])
+
+  const nextTextMap = useCallback(
+    (key: string, value: string): Record<string, string> | undefined => {
+      const next = { ...(single?.textOverrides ?? {}) }
       const layer = textLayers.find((l) => l.key === key)
       // Drop the override when the text is reverted to the animation's original.
       if (layer && value === layer.text) delete next[key]
       else next[key] = value
-      updateItem(single.id, {
-        textOverrides: Object.keys(next).length > 0 ? next : undefined,
-      })
+      return Object.keys(next).length > 0 ? next : undefined
     },
-    [single, textLayers, updateItem],
+    [single, textLayers],
+  )
+
+  const previewText = useCallback(
+    (key: string, value: string) => {
+      if (single) setLottiePreview(single.id, { textOverrides: nextTextMap(key, value) })
+    },
+    [single, nextTextMap, setLottiePreview],
+  )
+
+  const handleTextCommit = useCallback(
+    (key: string, value: string) => {
+      if (!single) return
+      updateItem(single.id, { textOverrides: nextTextMap(key, value) })
+      setLottiePreview(single.id, null)
+    },
+    [single, nextTextMap, updateItem, setLottiePreview],
   )
 
   // Group the extracted colors by their original value so a color shared across
@@ -287,21 +320,35 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
     }))
   }, [colorLayers, t])
 
-  const commitColorGroup = useCallback(
-    (keys: string[], original: string, value: string) => {
-      if (!single) return
-      const next = { ...(single.colorOverrides ?? {}) }
+  const nextColorMap = useCallback(
+    (keys: string[], original: string, value: string): Record<string, string> | undefined => {
+      const next = { ...(single?.colorOverrides ?? {}) }
       // Reverting to the original color drops the override for every shape.
       const revert = value.toLowerCase() === original.toLowerCase()
       for (const key of keys) {
         if (revert) delete next[key]
         else next[key] = value
       }
-      updateItem(single.id, {
-        colorOverrides: Object.keys(next).length > 0 ? next : undefined,
-      })
+      return Object.keys(next).length > 0 ? next : undefined
     },
-    [single, updateItem],
+    [single],
+  )
+
+  const previewColorGroup = useCallback(
+    (keys: string[], original: string, value: string) => {
+      if (single)
+        setLottiePreview(single.id, { colorOverrides: nextColorMap(keys, original, value) })
+    },
+    [single, nextColorMap, setLottiePreview],
+  )
+
+  const commitColorGroup = useCallback(
+    (keys: string[], original: string, value: string) => {
+      if (!single) return
+      updateItem(single.id, { colorOverrides: nextColorMap(keys, original, value) })
+      setLottiePreview(single.id, null)
+    },
+    [single, nextColorMap, updateItem, setLottiePreview],
   )
 
   const resetAllColors = useCallback(() => {
@@ -313,20 +360,37 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
 
   // Value slots (scalar/vector) applied natively. Reverting to the slot's
   // authored default drops the override.
-  const commitSlot = useCallback(
-    (id: string, next: number | [number, number], original: number | [number, number]) => {
-      if (!single) return
+  const nextSlotMap = useCallback(
+    (
+      id: string,
+      next: number | [number, number],
+      original: number | [number, number],
+    ): Record<string, number | [number, number]> | undefined => {
       const revert = Array.isArray(next)
         ? Array.isArray(original) && next[0] === original[0] && next[1] === original[1]
         : next === original
-      const overrides = { ...(single.slotOverrides ?? {}) }
+      const overrides = { ...(single?.slotOverrides ?? {}) }
       if (revert) delete overrides[id]
       else overrides[id] = next
-      updateItem(single.id, {
-        slotOverrides: Object.keys(overrides).length > 0 ? overrides : undefined,
-      })
+      return Object.keys(overrides).length > 0 ? overrides : undefined
     },
-    [single, updateItem],
+    [single],
+  )
+
+  const previewSlot = useCallback(
+    (id: string, next: number | [number, number], original: number | [number, number]) => {
+      if (single) setLottiePreview(single.id, { slotOverrides: nextSlotMap(id, next, original) })
+    },
+    [single, nextSlotMap, setLottiePreview],
+  )
+
+  const commitSlot = useCallback(
+    (id: string, next: number | [number, number], original: number | [number, number]) => {
+      if (!single) return
+      updateItem(single.id, { slotOverrides: nextSlotMap(id, next, original) })
+      setLottiePreview(single.id, null)
+    },
+    [single, nextSlotMap, updateItem, setLottiePreview],
   )
 
   const resetAllSlots = useCallback(() => {
@@ -468,6 +532,7 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
               key={layer.key}
               layer={layer}
               override={single.textOverrides?.[layer.key]}
+              onLive={previewText}
               onCommit={handleTextCommit}
             />
           ))}
@@ -498,6 +563,7 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
               label={group.label}
               color={single.colorOverrides?.[group.keys[0]!] ?? group.original}
               defaultColor={group.original}
+              onLiveChange={(c) => previewColorGroup(group.keys, group.original, c)}
               onChange={(c) => commitColorGroup(group.keys, group.original, c)}
               onReset={() => commitColorGroup(group.keys, group.original, group.original)}
             />
@@ -532,6 +598,7 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
                   <NumberInput
                     value={value}
                     onChange={(v) => commitSlot(slot.id, v, slot.value)}
+                    onLiveChange={(v) => previewSlot(slot.id, v, slot.value)}
                     step={0.1}
                     className="w-full"
                   />
@@ -545,11 +612,13 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
                   <NumberInput
                     value={vec[0]}
                     onChange={(v) => commitSlot(slot.id, [v, vec[1]], slot.value)}
+                    onLiveChange={(v) => previewSlot(slot.id, [v, vec[1]], slot.value)}
                     className="flex-1 min-w-0"
                   />
                   <NumberInput
                     value={vec[1]}
                     onChange={(v) => commitSlot(slot.id, [vec[0], v], slot.value)}
+                    onLiveChange={(v) => previewSlot(slot.id, [vec[0], v], slot.value)}
                     className="flex-1 min-w-0"
                   />
                 </div>

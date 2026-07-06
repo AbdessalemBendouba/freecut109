@@ -246,7 +246,15 @@ export function usePreviewCompositionModel({
   fastScrubKeyframesByItemIdRef.current = fastScrubKeyframesByItemId
 
   const getLiveItemSnapshot = useCallback((itemId: string) => {
-    return fastScrubLiveItemsByIdRef.current.get(itemId)
+    const item = fastScrubLiveItemsByIdRef.current.get(itemId)
+    // Merge any live Lottie edit preview (color/text/slot drag) so the canvas
+    // reflects it without a timeline-store commit. Each present field replaces
+    // the committed map wholesale; absent fields fall through to `item`.
+    if (item?.type === 'lottie') {
+      const lottiePreview = useGizmoStore.getState().preview?.[itemId]?.lottie
+      if (lottiePreview) return { ...item, ...lottiePreview }
+    }
+    return item
   }, [])
 
   const getLiveKeyframes = useCallback((itemId: string) => {
