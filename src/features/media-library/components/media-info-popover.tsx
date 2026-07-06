@@ -8,6 +8,7 @@ import {
   Maximize2,
   HardDrive,
   FileType,
+  FileJson,
   Loader2,
   FileText,
   Link,
@@ -217,6 +218,7 @@ export function MediaInfoPopover({
           {mediaType === 'video' && <Video className="w-3.5 h-3.5 text-primary" />}
           {mediaType === 'audio' && <FileAudio className="w-3.5 h-3.5 text-green-500" />}
           {mediaType === 'image' && <ImageIcon className="w-3.5 h-3.5 text-blue-500" />}
+          {mediaType === 'lottie' && <FileJson className="w-3.5 h-3.5 text-purple-500" />}
           <span className="text-[11px] font-medium text-foreground truncate">{media.fileName}</span>
         </div>
 

@@ -61,7 +61,7 @@ export function mapTimelineFrameToLottieFrame({
   loop,
 }: LottieFrameMapInput): number {
   if (totalFrames <= 0 || projectFps <= 0 || frameRate <= 0) return 0
-  const seconds = (localFrame / projectFps) * (speed || 1)
+  const seconds = (localFrame / projectFps) * (speed ?? 1)
   let lottieFrame = seconds * frameRate
   const maxFrame = totalFrames - 1
   if (loop) {

@@ -81,7 +81,7 @@ const page = {
           items: [
             'Create a sequence with **+** on the tab bar; it opens as its own tab.',
             'Double-click a tab to **rename** it; the **⋯** menu lets you **Close tab** (keeps it in the Media panel) or **Delete sequence** entirely.',
-            'A sequence is the same thing as a **compound clip** — in the Media panel, right-click a compound clip and choose **Open as tab** to edit it as a standalone timeline.',
+            'A **compound clip** can be opened in a sequence tab — in the Media panel, right-click a compound clip and choose **Open as tab** to edit it as a standalone timeline.',
             'Drop a sequence onto the timeline to nest it as a clip (shown with a **SEQUENCE** badge); double-click that clip to jump to its tab.',
           ],
         },

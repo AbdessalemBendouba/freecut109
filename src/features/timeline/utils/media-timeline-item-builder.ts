@@ -174,17 +174,14 @@ export function buildMediaTimelineItem(params: {
   }
 
   if (params.mediaType === 'lottie') {
+    const frameRate = params.media.fps || 30
     return {
       ...baseItem,
       type: 'lottie',
-      src: params.blobUrl,
-      thumbnailUrl: params.thumbnailUrl || undefined,
-      sourceWidth: params.media.width || undefined,
-      sourceHeight: params.media.height || undefined,
-      frameRate: params.media.fps || 30,
-      totalFrames: Math.max(1, Math.round((params.media.duration || 0) * (params.media.fps || 30))),
+      ...visualFields,
+      frameRate,
+      totalFrames: Math.max(1, Math.round((params.media.duration || 0) * frameRate)),
       loop: true,
-      transform: visualFields.transform,
     } as LottieItem
   }
 

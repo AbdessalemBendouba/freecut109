@@ -41,10 +41,10 @@
     },
     "compositions": {
       "compoundClipsGroup": "Clipes compostos",
-      "deleteBody": "Excluir o clipe composto \"{{name}}\"? Esta ação não pode ser desfeita.",
+      "deleteBody": "Excluir o clipe composto “{{name}}”? Esta ação não pode ser desfeita.",
       "deleteInstancesDetail": "{{count}} instâncias da linha do tempo que usam este clipe composto também serão removidas.",
       "deleteInstancesTitle": "As instâncias vinculadas serão removidas",
-      "deleteSequenceBody": "Excluir a sequência \"{{name}}\"? Esta ação não pode ser desfeita.",
+      "deleteSequenceBody": "Excluir a sequência “{{name}}”? Esta ação não pode ser desfeita.",
       "deleteSequenceInstancesDetail": "{{count}} instâncias da linha do tempo que usam esta sequência também serão removidas.",
       "deleteSequenceTitle": "Excluir sequência",
       "deleteTitle": "Excluir clipe composto",

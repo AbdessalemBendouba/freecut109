@@ -940,6 +940,9 @@ export async function createCompositionRenderer(
                   ? lottieItem.sourceHeight
                   : 512
               await lottieProvider.preload(lottieItem.id, lottieItem.src, w, h)
+              // Bail if the engine was disposed mid-load so we don't register a
+              // renderer into a torn-down provider (dispose() → destroy()).
+              if (isDisposed) return
             } catch (err) {
               getLog().error('Failed to preload Lottie', { itemId: lottieItem.id, error: err })
             }

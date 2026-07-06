@@ -43,7 +43,7 @@ export function useMediaLibraryDeletion({
   clearSelection,
   deleteMediaBatch,
 }: UseMediaLibraryDeletionParams) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isFocusedRef = useRef(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [pendingDeletion, setPendingDeletion] = useState<PendingLibraryDeletion>({
@@ -129,8 +129,10 @@ export function useMediaLibraryDeletion({
         parts.push(t('media.library.compoundClipsCount', { count: compoundClipCount }))
       }
     }
-    return parts.join(t('media.library.andJoiner'))
-  }, [pendingDeletion.compositionIds, pendingDeletion.mediaIds.length, t])
+    // Locale-aware conjunction ("A, B, and C") rather than repeating a joiner,
+    // which reads awkwardly for three-or-more parts.
+    return new Intl.ListFormat(i18n.language, { style: 'long', type: 'conjunction' }).format(parts)
+  }, [pendingDeletion.compositionIds, pendingDeletion.mediaIds.length, i18n.language, t])
 
   const affectedMediaImpact = useMemo(
     () =>

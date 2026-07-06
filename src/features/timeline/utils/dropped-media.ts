@@ -23,7 +23,9 @@ export function getDroppedMediaDurationInFrames(
   timelineFps: number,
 ): number {
   if (mediaType === 'lottie') {
-    return Math.round(media.duration * (media.fps || timelineFps))
+    const lottieFrames = Math.round(media.duration * (media.fps || timelineFps))
+    // Guard against missing/invalid metadata producing a zero-length clip.
+    return lottieFrames > 0 ? lottieFrames : timelineFps
   }
 
   const durationInFrames = Math.round(media.duration * timelineFps)

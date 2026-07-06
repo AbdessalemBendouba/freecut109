@@ -41,10 +41,10 @@
     },
     "compositions": {
       "compoundClipsGroup": "Clips composés",
-      "deleteBody": "Supprimer le clip composé \"{{name}}\" ? Cette action est irréversible.",
+      "deleteBody": "Supprimer le clip composé « {{name}} » ? Cette action est irréversible.",
       "deleteInstancesDetail": "{{count}} instances de la timeline qui utilisent ce clip composé seront également supprimées.",
       "deleteInstancesTitle": "Les instances liées seront supprimées",
-      "deleteSequenceBody": "Supprimer la séquence \"{{name}}\" ? Cette action est irréversible.",
+      "deleteSequenceBody": "Supprimer la séquence « {{name}} » ? Cette action est irréversible.",
       "deleteSequenceInstancesDetail": "{{count}} instances de la timeline qui utilisent cette séquence seront également supprimées.",
       "deleteSequenceTitle": "Supprimer la séquence",
       "deleteTitle": "Supprimer le clip composé",

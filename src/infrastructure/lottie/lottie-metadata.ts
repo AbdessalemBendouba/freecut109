@@ -103,9 +103,13 @@ function parseDotLottieArchive(bytes: Uint8Array): LottieMetadata | null {
       }
       const firstId = manifest.animations?.[0]?.id
       if (firstId) {
-        const preferred = animationEntries.find((p) =>
-          new RegExp(`(^|/)animations/${firstId}\\.json$`, 'i').test(p),
-        )
+        // Plain string match (not a manifest-controlled RegExp) to avoid ReDoS
+        // and regex-metacharacter mismatches on the id.
+        const suffix = `animations/${firstId}.json`.toLowerCase()
+        const preferred = animationEntries.find((p) => {
+          const lower = p.toLowerCase()
+          return lower === suffix || lower.endsWith(`/${suffix}`)
+        })
         if (preferred)
           orderedEntries = [preferred, ...animationEntries.filter((p) => p !== preferred)]
       }
