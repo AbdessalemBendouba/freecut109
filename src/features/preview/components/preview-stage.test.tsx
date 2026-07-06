@@ -48,7 +48,11 @@ vi.mock('@/features/preview/deps/composition-runtime', () => ({
   ),
 }))
 
-import { getPreviewPixelSnapOffset, getPreviewPixelSnapSize } from '../utils/preview-pixel-snap'
+import {
+  getPreviewPixelSnapOffset,
+  getPreviewPixelSnapSize,
+  getPreviewPlayerSize,
+} from '../utils/preview-pixel-snap'
 import { PreviewStage } from './preview-stage'
 
 function createInputProps(): CompositionInputProps {
@@ -121,6 +125,30 @@ describe('getPreviewPixelSnapSize', () => {
       width: 590.5,
       height: 332,
     })
+  })
+})
+
+describe('getPreviewPlayerSize', () => {
+  it('keeps auto-fit preview dimensions aspect-stable on the device pixel grid', () => {
+    expect(
+      getPreviewPlayerSize({
+        sourceSize: { width: 1920, height: 1080 },
+        containerSize: { width: 1029.328125, height: 579 },
+        zoom: -1,
+        devicePixelRatio: 1,
+      }),
+    ).toEqual({ width: 1024, height: 576 })
+  })
+
+  it('preserves normal fixed zoom sizing', () => {
+    expect(
+      getPreviewPlayerSize({
+        sourceSize: { width: 1920, height: 1080 },
+        containerSize: { width: 1029.328125, height: 579 },
+        zoom: 0.5,
+        devicePixelRatio: 1,
+      }),
+    ).toEqual({ width: 960, height: 540 })
   })
 })
 
