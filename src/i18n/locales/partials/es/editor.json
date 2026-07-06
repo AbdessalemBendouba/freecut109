@@ -274,7 +274,16 @@
       "pingpong": "Ping-pong",
       "trimIn": "Fotograma inicial",
       "trimOut": "Fotograma final",
-      "text": "Texto"
+      "text": "Texto",
+      "colors": "Colores",
+      "colorGroup": "{{count}} formas",
+      "resetColors": "Restablecer todo",
+      "animation": "Animación",
+      "animationN": "Animación {{index}}",
+      "theme": "Tema",
+      "themeNone": "Ninguno",
+      "marker": "Marcador",
+      "markerPlaceholder": "Ir al marcador…"
     },
     "cornerPinSection": {
       "title": "Corrección de esquinas",

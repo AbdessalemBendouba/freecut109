@@ -274,7 +274,16 @@
       "pingpong": "乒乓",
       "trimIn": "起始帧",
       "trimOut": "结束帧",
-      "text": "文本"
+      "text": "文本",
+      "colors": "颜色",
+      "colorGroup": "{{count}} 个形状",
+      "resetColors": "全部重置",
+      "animation": "动画",
+      "animationN": "动画 {{index}}",
+      "theme": "主题",
+      "themeNone": "无",
+      "marker": "标记",
+      "markerPlaceholder": "跳转到标记…"
     },
     "cornerPinSection": {
       "title": "边角定位",

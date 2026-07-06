@@ -274,7 +274,16 @@
       "pingpong": "ピンポン",
       "trimIn": "開始フレーム",
       "trimOut": "終了フレーム",
-      "text": "テキスト"
+      "text": "テキスト",
+      "colors": "カラー",
+      "colorGroup": "{{count}} 個のシェイプ",
+      "resetColors": "すべてリセット",
+      "animation": "アニメーション",
+      "animationN": "アニメーション {{index}}",
+      "theme": "テーマ",
+      "themeNone": "なし",
+      "marker": "マーカー",
+      "markerPlaceholder": "マーカーへ移動…"
     },
     "cornerPinSection": {
       "title": "コーナーピン",

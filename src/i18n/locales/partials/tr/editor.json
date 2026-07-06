@@ -274,7 +274,16 @@
       "pingpong": "Ping-pong",
       "trimIn": "Başlangıç karesi",
       "trimOut": "Bitiş karesi",
-      "text": "Metin"
+      "text": "Metin",
+      "colors": "Renkler",
+      "colorGroup": "{{count}} şekil",
+      "resetColors": "Tümünü sıfırla",
+      "animation": "Animasyon",
+      "animationN": "Animasyon {{index}}",
+      "theme": "Tema",
+      "themeNone": "Yok",
+      "marker": "İşaretçi",
+      "markerPlaceholder": "İşaretçiye git…"
     },
     "cornerPinSection": {
       "title": "Köşe Sabitleme",

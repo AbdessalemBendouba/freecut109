@@ -274,7 +274,16 @@
       "pingpong": "Ping-pong",
       "trimIn": "Start frame",
       "trimOut": "End frame",
-      "text": "Text"
+      "text": "Text",
+      "colors": "Colors",
+      "colorGroup": "{{count}} shapes",
+      "resetColors": "Reset all",
+      "animation": "Animation",
+      "animationN": "Animation {{index}}",
+      "theme": "Theme",
+      "themeNone": "None",
+      "marker": "Marker",
+      "markerPlaceholder": "Jump to marker…"
     },
     "cornerPinSection": {
       "title": "Corner Pin",

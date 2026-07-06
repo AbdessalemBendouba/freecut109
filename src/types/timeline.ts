@@ -226,11 +226,31 @@ export type LottieItem = BaseTimelineItem & {
   /** Last source frame of the animation to play (default totalFrames - 1). */
   segmentEnd?: number
   /**
+   * Selected animation id for a multi-animation `.lottie` archive (default: the
+   * manifest's primary animation). Switching this re-derives the clip's
+   * timing/size from the chosen animation.
+   */
+  animationId?: string
+  /**
+   * Selected dotLottie theme id — a named rule set (from the `.lottie` manifest)
+   * recoloring/retexting the animation's slots, applied via `setThemeData`.
+   * Undefined renders the animation as authored.
+   */
+  themeId?: string
+  /**
    * Per-layer text replacements for template Lotties, keyed by the text layer's
-   * stable key (see `extractLottieTextLayers`). Applied to raw `.json` Lotties
-   * before render; `.lottie` archives are not supported for text edits.
+   * stable key (see `extractLottieTextLayers`). Applied before render to both
+   * raw `.json` and `.lottie` archives (images inlined).
    */
   textOverrides?: Record<string, string>
+  /**
+   * Per-color solid fill/stroke replacements for template Lotties, keyed by the
+   * color's stable ordinal key (see `extractLottieColorLayers`) with `#rrggbb`
+   * hex values. Applied before render to both raw `.json` and `.lottie`
+   * archives. Animated colors freeze to the chosen color; gradients are
+   * recolored via themes/slots, not here.
+   */
+  colorOverrides?: Record<string, string>
 }
 
 export type ShapeType =

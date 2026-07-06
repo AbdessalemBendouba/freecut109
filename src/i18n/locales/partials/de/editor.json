@@ -274,7 +274,16 @@
       "pingpong": "Ping-Pong",
       "trimIn": "Startbild",
       "trimOut": "Endbild",
-      "text": "Text"
+      "text": "Text",
+      "colors": "Farben",
+      "colorGroup": "{{count}} Formen",
+      "resetColors": "Alle zurücksetzen",
+      "animation": "Animation",
+      "animationN": "Animation {{index}}",
+      "theme": "Thema",
+      "themeNone": "Keine",
+      "marker": "Marker",
+      "markerPlaceholder": "Zu Marker springen…"
     },
     "cornerPinSection": {
       "title": "Eckpunkt-Verzerrung",

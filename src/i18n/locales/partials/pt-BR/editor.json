@@ -274,7 +274,16 @@
       "pingpong": "Ping-pong",
       "trimIn": "Quadro inicial",
       "trimOut": "Quadro final",
-      "text": "Texto"
+      "text": "Texto",
+      "colors": "Cores",
+      "colorGroup": "{{count}} formas",
+      "resetColors": "Redefinir tudo",
+      "animation": "Animação",
+      "animationN": "Animação {{index}}",
+      "theme": "Tema",
+      "themeNone": "Nenhum",
+      "marker": "Marcador",
+      "markerPlaceholder": "Ir para o marcador…"
     },
     "cornerPinSection": {
       "title": "Fixação de cantos",

@@ -274,7 +274,16 @@
       "pingpong": "Ping-pong",
       "trimIn": "Image de début",
       "trimOut": "Image de fin",
-      "text": "Texte"
+      "text": "Texte",
+      "colors": "Couleurs",
+      "colorGroup": "{{count}} formes",
+      "resetColors": "Tout réinitialiser",
+      "animation": "Animation",
+      "animationN": "Animation {{index}}",
+      "theme": "Thème",
+      "themeNone": "Aucun",
+      "marker": "Repère",
+      "markerPlaceholder": "Aller au repère…"
     },
     "cornerPinSection": {
       "title": "Calage des coins",

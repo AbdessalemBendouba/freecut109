@@ -122,6 +122,11 @@ export class LottieRenderer {
     /** Raw animation JSON string. */
     data?: string
     /**
+     * dotLottie theme rule JSON (`{ rules: [...] }`) applied via `setThemeData`
+     * once the animation loads — recolors/retexts the animation's slots.
+     */
+    themeData?: string
+    /**
      * Track the canvas's display size and re-render crisply on resize. Enable
      * for a visible preview canvas; leave off (default) for a fixed-size
      * OffscreenCanvas (export), which has no client size to observe.
@@ -149,6 +154,15 @@ export class LottieRenderer {
     this._ready = new Promise<void>((resolve) => {
       const onLoad = () => {
         this._loaded = true
+        // Apply the theme to the loaded animation's slots before the first
+        // render; the external setFrame that follows draws it themed.
+        if (config.themeData) {
+          try {
+            this.dotLottie.setThemeData(config.themeData)
+          } catch {
+            // ignore a malformed/unsupported theme — render stays as-authored
+          }
+        }
         resolve()
       }
       // Guard against a load that already completed synchronously.
@@ -238,11 +252,16 @@ export async function renderLottieThumbnail(
  */
 export class LottieExportProvider {
   private readonly renderers = new Map<string, LottieRenderer>()
+  /** Override signature the current renderer for a key was built with. */
+  private readonly signatures = new Map<string, string>()
+  /** In-flight rebuilds, keyed by item key, so concurrent renders dedupe. */
+  private readonly rebuilds = new Map<string, { signature: string; promise: Promise<void> }>()
 
   /**
    * Warm a renderer for a source at a target size. Safe to call repeatedly.
-   * Pass `data` (patched JSON string) to render text-overridden content instead
-   * of loading `src` directly.
+   * Pass `data` (patched JSON string) to render text/color-overridden content
+   * instead of loading `src` directly, and `signature` to record which override
+   * state that data represents (see {@link getSignature} / {@link rebuild}).
    */
   async preload(
     key: string,
@@ -250,12 +269,61 @@ export class LottieExportProvider {
     width: number,
     height: number,
     data?: string,
+    signature?: string,
+    themeData?: string,
   ): Promise<void> {
     if (this.renderers.has(key)) return
     const canvas = new OffscreenCanvas(Math.max(1, width), Math.max(1, height))
-    const renderer = new LottieRenderer(data ? { canvas, data } : { canvas, src })
+    const renderer = new LottieRenderer(
+      data ? { canvas, data, themeData } : { canvas, src, themeData },
+    )
     this.renderers.set(key, renderer)
+    if (signature !== undefined) this.signatures.set(key, signature)
     await renderer.ready
+  }
+
+  /** The override signature the key's current renderer was built with. */
+  getSignature(key: string): string | undefined {
+    return this.signatures.get(key)
+  }
+
+  /**
+   * Rebuild a key's renderer with fresh override `data` (or the raw `src` when
+   * null) after its text/color overrides changed. Concurrent calls for the same
+   * signature share one rebuild; the previous renderer is disposed once the new
+   * one is ready so a render mid-rebuild still draws the old frame. Used by the
+   * live preview — export preloads final overrides once and never rebuilds.
+   */
+  async rebuild(
+    key: string,
+    src: string,
+    width: number,
+    height: number,
+    data: string | undefined,
+    signature: string,
+    themeData?: string,
+  ): Promise<void> {
+    if (this.signatures.get(key) === signature) return
+    const inFlight = this.rebuilds.get(key)
+    if (inFlight && inFlight.signature === signature) return inFlight.promise
+
+    const promise = (async () => {
+      const canvas = new OffscreenCanvas(Math.max(1, width), Math.max(1, height))
+      const renderer = new LottieRenderer(
+        data ? { canvas, data, themeData } : { canvas, src, themeData },
+      )
+      await renderer.ready
+      const previous = this.renderers.get(key)
+      this.renderers.set(key, renderer)
+      this.signatures.set(key, signature)
+      previous?.destroy()
+    })()
+    this.rebuilds.set(key, { signature, promise })
+    try {
+      await promise
+    } finally {
+      if (this.rebuilds.get(key)?.promise === promise) this.rebuilds.delete(key)
+    }
   }
 
   /** Render `lottieFrame` and return the OffscreenCanvas to composite, or null. */
@@ -273,5 +341,7 @@ export class LottieExportProvider {
   destroy(): void {
     for (const r of this.renderers.values()) r.destroy()
     this.renderers.clear()
+    this.signatures.clear()
+    this.rebuilds.clear()
   }
 }

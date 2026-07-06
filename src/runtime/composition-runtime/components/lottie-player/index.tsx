@@ -5,7 +5,7 @@ import {
   LottieRenderer,
   mapTimelineFrameToLottieFrame,
 } from '@/infrastructure/lottie/lottie-frame-provider'
-import { resolveLottieOverrideData } from '@/infrastructure/lottie/lottie-text'
+import { resolveLottieRenderSpec } from '@/infrastructure/lottie/lottie-text'
 import type { LottieItem } from '@/types/timeline'
 
 interface LottiePlayerProps {
@@ -30,10 +30,17 @@ export const LottiePlayer: React.FC<LottiePlayerProps> = ({ item }) => {
   const localFrame = sequenceContext?.localFrame ?? 0
   const { fps } = useVideoConfig()
 
-  // Serialize overrides so the renderer only rebuilds when the text changes.
+  // Serialize the render inputs so the renderer only rebuilds when the selected
+  // animation/theme or text/color edits change.
   const overridesKey = useMemo(
-    () => JSON.stringify(item.textOverrides ?? null),
-    [item.textOverrides],
+    () =>
+      JSON.stringify({
+        a: item.animationId ?? null,
+        m: item.themeId ?? null,
+        t: item.textOverrides ?? null,
+        c: item.colorOverrides ?? null,
+      }),
+    [item.animationId, item.themeId, item.textOverrides, item.colorOverrides],
   )
 
   // (Re)create the renderer when the source (or text overrides) change.
@@ -49,14 +56,16 @@ export const LottiePlayer: React.FC<LottiePlayerProps> = ({ item }) => {
     let renderer: LottieRenderer | null = null
 
     void (async () => {
-      // Patch template text before render; falls back to the raw src on null.
-      const overrideData = await resolveLottieOverrideData(item.src, item.textOverrides)
+      // Resolve the selected animation/theme + text/color edits before render;
+      // `data` is null when nothing needs patching (load `src` directly).
+      const spec = await resolveLottieRenderSpec(item.src, item)
       if (cancelled) return
-      renderer = new LottieRenderer(
-        overrideData
-          ? { canvas, data: overrideData, autoResize: true }
-          : { canvas, src: item.src, autoResize: true },
-      )
+      renderer = new LottieRenderer({
+        canvas,
+        autoResize: true,
+        themeData: spec.themeData ?? undefined,
+        ...(spec.data ? { data: spec.data } : { src: item.src }),
+      })
       rendererRef.current = renderer
       await renderer.ready
       if (cancelled) return
