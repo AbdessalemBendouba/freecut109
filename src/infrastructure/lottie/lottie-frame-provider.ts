@@ -13,6 +13,7 @@
  * Preview uses {@link LottieRenderer} directly against a visible canvas.
  */
 import { DotLottie } from '@lottiefiles/dotlottie-web'
+import type { LottieSlotValue } from './lottie-slots'
 // Bundle the WASM alongside the app so it resolves without the default CDN.
 // Use the package's `exports`-mapped subpath (NOT `/dist/...`) so Node's strict
 // exports resolution (Vitest) can resolve it too, not just Vite.
@@ -127,6 +128,12 @@ export class LottieRenderer {
      */
     themeData?: string
     /**
+     * Scalar/vector slot overrides applied natively (`setScalarSlot` /
+     * `setVectorSlot`) once the animation loads, after the theme so an explicit
+     * override wins. Keyed by slot id.
+     */
+    slots?: Record<string, LottieSlotValue>
+    /**
      * Track the canvas's display size and re-render crisply on resize. Enable
      * for a visible preview canvas; leave off (default) for a fixed-size
      * OffscreenCanvas (export), which has no client size to observe.
@@ -154,8 +161,8 @@ export class LottieRenderer {
     this._ready = new Promise<void>((resolve) => {
       const onLoad = () => {
         this._loaded = true
-        // Apply the theme to the loaded animation's slots before the first
-        // render; the external setFrame that follows draws it themed.
+        // Apply the theme + slot overrides to the loaded animation before the
+        // first render; the external setFrame that follows draws them.
         if (config.themeData) {
           try {
             this.dotLottie.setThemeData(config.themeData)
@@ -163,6 +170,7 @@ export class LottieRenderer {
             // ignore a malformed/unsupported theme — render stays as-authored
           }
         }
+        this.applySlots(config.slots)
         resolve()
       }
       // Guard against a load that already completed synchronously.
@@ -202,6 +210,28 @@ export class LottieRenderer {
   get frameRate(): number {
     const d = this.duration
     return d > 0 ? this.totalFrames / d : 30
+  }
+
+  /**
+   * Apply scalar/vector slot overrides via dotlottie's native setters, routing
+   * each by the slot's declared type. Unknown ids / type mismatches are ignored.
+   */
+  private applySlots(slots: Record<string, LottieSlotValue> | undefined): void {
+    if (!slots) return
+    for (const [id, value] of Object.entries(slots)) {
+      try {
+        // `getSlotType` reports position slots as 'vector'; `setVectorSlot`
+        // handles both.
+        const type = this.dotLottie.getSlotType(id)
+        if (type === 'scalar' && typeof value === 'number') {
+          this.dotLottie.setScalarSlot(id, value)
+        } else if (type === 'vector' && Array.isArray(value)) {
+          this.dotLottie.setVectorSlot(id, value)
+        }
+      } catch {
+        // ignore a single bad slot — the rest still apply
+      }
+    }
   }
 
   /** Render a specific Lottie frame synchronously into the bound canvas. */
@@ -271,11 +301,12 @@ export class LottieExportProvider {
     data?: string,
     signature?: string,
     themeData?: string,
+    slots?: Record<string, LottieSlotValue>,
   ): Promise<void> {
     if (this.renderers.has(key)) return
     const canvas = new OffscreenCanvas(Math.max(1, width), Math.max(1, height))
     const renderer = new LottieRenderer(
-      data ? { canvas, data, themeData } : { canvas, src, themeData },
+      data ? { canvas, data, themeData, slots } : { canvas, src, themeData, slots },
     )
     this.renderers.set(key, renderer)
     if (signature !== undefined) this.signatures.set(key, signature)
@@ -302,6 +333,7 @@ export class LottieExportProvider {
     data: string | undefined,
     signature: string,
     themeData?: string,
+    slots?: Record<string, LottieSlotValue>,
   ): Promise<void> {
     if (this.signatures.get(key) === signature) return
     const inFlight = this.rebuilds.get(key)
@@ -310,7 +342,7 @@ export class LottieExportProvider {
     const promise = (async () => {
       const canvas = new OffscreenCanvas(Math.max(1, width), Math.max(1, height))
       const renderer = new LottieRenderer(
-        data ? { canvas, data, themeData } : { canvas, src, themeData },
+        data ? { canvas, data, themeData, slots } : { canvas, src, themeData, slots },
       )
       await renderer.ready
       const previous = this.renderers.get(key)

@@ -283,7 +283,9 @@
       "theme": "테마",
       "themeNone": "없음",
       "marker": "마커",
-      "markerPlaceholder": "마커로 이동…"
+      "markerPlaceholder": "마커로 이동…",
+      "properties": "속성",
+      "resetProperties": "모두 재설정"
     },
     "cornerPinSection": {
       "title": "코너 핀",

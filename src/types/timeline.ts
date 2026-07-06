@@ -251,6 +251,12 @@ export type LottieItem = BaseTimelineItem & {
    * recolored via themes/slots, not here.
    */
   colorOverrides?: Record<string, string>
+  /**
+   * Scalar/vector value-slot overrides keyed by slot id (see
+   * `extractLottieValueSlots`): a number for a scalar slot, `[x, y]` for a
+   * vector slot. Applied natively via dotlottie's slot setters after load.
+   */
+  slotOverrides?: Record<string, number | [number, number]>
 }
 
 export type ShapeType =

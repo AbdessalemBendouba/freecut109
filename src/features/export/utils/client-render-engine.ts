@@ -180,12 +180,14 @@ function lottieOverrideSignature(item: {
   themeId?: string
   textOverrides?: Record<string, string>
   colorOverrides?: Record<string, string>
+  slotOverrides?: Record<string, number | [number, number]>
 }): string {
   return JSON.stringify({
     a: item.animationId ?? null,
     m: item.themeId ?? null,
     t: item.textOverrides ?? null,
     c: item.colorOverrides ?? null,
+    s: item.slotOverrides ?? null,
   })
 }
 
@@ -450,6 +452,7 @@ export async function createCompositionRenderer(
           spec.data ?? undefined,
           signature,
           spec.themeData ?? undefined,
+          spec.slots ?? undefined,
         )
       }),
     )
@@ -1009,6 +1012,7 @@ export async function createCompositionRenderer(
                 spec.data ?? undefined,
                 lottieOverrideSignature(lottieItem),
                 spec.themeData ?? undefined,
+                spec.slots ?? undefined,
               )
               // Bail if the engine was disposed mid-load so we don't register a
               // renderer into a torn-down provider (dispose() → destroy()).
@@ -1244,6 +1248,7 @@ export async function createCompositionRenderer(
           themeId?: string
           textOverrides?: Record<string, string>
           colorOverrides?: Record<string, string>
+          slotOverrides?: Record<string, number | [number, number]>
         }> = []
 
         for (const { subItem, src } of subCompMediaItems) {
@@ -1262,6 +1267,7 @@ export async function createCompositionRenderer(
               themeId: lottieItem.themeId,
               textOverrides: lottieItem.textOverrides,
               colorOverrides: lottieItem.colorOverrides,
+              slotOverrides: lottieItem.slotOverrides,
             })
           }
           if (subItem.type === 'image' && !imageElements.has(subItem.id)) {
@@ -1380,6 +1386,7 @@ export async function createCompositionRenderer(
                   spec.data ?? undefined,
                   lottieOverrideSignature(it),
                   spec.themeData ?? undefined,
+                  spec.slots ?? undefined,
                 )
               } catch (err) {
                 getLog().error('Failed to preload sub-comp Lottie', { itemId: it.id, error: err })

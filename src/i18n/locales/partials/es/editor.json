@@ -283,7 +283,9 @@
       "theme": "Tema",
       "themeNone": "Ninguno",
       "marker": "Marcador",
-      "markerPlaceholder": "Ir al marcador…"
+      "markerPlaceholder": "Ir al marcador…",
+      "properties": "Propiedades",
+      "resetProperties": "Restablecer todo"
     },
     "cornerPinSection": {
       "title": "Corrección de esquinas",

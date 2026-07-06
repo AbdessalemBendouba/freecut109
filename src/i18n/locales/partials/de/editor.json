@@ -283,7 +283,9 @@
       "theme": "Thema",
       "themeNone": "Keine",
       "marker": "Marker",
-      "markerPlaceholder": "Zu Marker springen…"
+      "markerPlaceholder": "Zu Marker springen…",
+      "properties": "Eigenschaften",
+      "resetProperties": "Alle zurücksetzen"
     },
     "cornerPinSection": {
       "title": "Eckpunkt-Verzerrung",

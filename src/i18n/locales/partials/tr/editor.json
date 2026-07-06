@@ -283,7 +283,9 @@
       "theme": "Tema",
       "themeNone": "Yok",
       "marker": "İşaretçi",
-      "markerPlaceholder": "İşaretçiye git…"
+      "markerPlaceholder": "İşaretçiye git…",
+      "properties": "Özellikler",
+      "resetProperties": "Tümünü sıfırla"
     },
     "cornerPinSection": {
       "title": "Köşe Sabitleme",

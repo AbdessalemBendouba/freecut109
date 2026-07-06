@@ -283,7 +283,9 @@
       "theme": "テーマ",
       "themeNone": "なし",
       "marker": "マーカー",
-      "markerPlaceholder": "マーカーへ移動…"
+      "markerPlaceholder": "マーカーへ移動…",
+      "properties": "プロパティ",
+      "resetProperties": "すべてリセット"
     },
     "cornerPinSection": {
       "title": "コーナーピン",

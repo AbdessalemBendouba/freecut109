@@ -198,6 +198,8 @@ export interface LottieRenderInput {
   themeId?: string
   textOverrides?: Record<string, string>
   colorOverrides?: Record<string, string>
+  /** Scalar/vector slot overrides applied natively after load (id → value). */
+  slotOverrides?: Record<string, number | [number, number]>
 }
 
 /** Everything the renderer needs beyond `src` to reflect the item's edits. */
@@ -209,6 +211,8 @@ export interface LottieRenderSpec {
   data: string | null
   /** Theme rule JSON to apply via `setThemeData` after load, or null. */
   themeData: string | null
+  /** Scalar/vector slot overrides applied natively after load, or null. */
+  slots: Record<string, number | [number, number]> | null
 }
 
 /**
@@ -246,5 +250,7 @@ export async function resolveLottieRenderSpec(
   }
 
   const themeData = input.themeId ? await fetchLottieThemeData(src, input.themeId) : null
-  return { data, themeData }
+  const slots =
+    input.slotOverrides && Object.keys(input.slotOverrides).length > 0 ? input.slotOverrides : null
+  return { data, themeData, slots }
 }

@@ -39,8 +39,9 @@ export const LottiePlayer: React.FC<LottiePlayerProps> = ({ item }) => {
         m: item.themeId ?? null,
         t: item.textOverrides ?? null,
         c: item.colorOverrides ?? null,
+        s: item.slotOverrides ?? null,
       }),
-    [item.animationId, item.themeId, item.textOverrides, item.colorOverrides],
+    [item.animationId, item.themeId, item.textOverrides, item.colorOverrides, item.slotOverrides],
   )
 
   // (Re)create the renderer when the source (or text overrides) change.
@@ -64,6 +65,7 @@ export const LottiePlayer: React.FC<LottiePlayerProps> = ({ item }) => {
         canvas,
         autoResize: true,
         themeData: spec.themeData ?? undefined,
+        slots: spec.slots ?? undefined,
         ...(spec.data ? { data: spec.data } : { src: item.src }),
       })
       rendererRef.current = renderer

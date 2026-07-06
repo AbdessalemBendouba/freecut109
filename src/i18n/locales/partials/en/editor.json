@@ -283,7 +283,9 @@
       "theme": "Theme",
       "themeNone": "None",
       "marker": "Marker",
-      "markerPlaceholder": "Jump to marker…"
+      "markerPlaceholder": "Jump to marker…",
+      "properties": "Properties",
+      "resetProperties": "Reset all"
     },
     "cornerPinSection": {
       "title": "Corner Pin",

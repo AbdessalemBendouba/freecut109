@@ -283,7 +283,9 @@
       "theme": "Thème",
       "themeNone": "Aucun",
       "marker": "Repère",
-      "markerPlaceholder": "Aller au repère…"
+      "markerPlaceholder": "Aller au repère…",
+      "properties": "Propriétés",
+      "resetProperties": "Tout réinitialiser"
     },
     "cornerPinSection": {
       "title": "Calage des coins",

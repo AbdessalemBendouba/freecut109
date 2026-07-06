@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileJson, Palette, RotateCcw, Type } from 'lucide-react'
+import { FileJson, Palette, RotateCcw, Sliders, Type } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -18,6 +18,7 @@ import {
   extractLottieColorLayers,
   type LottieColorLayer,
 } from '@/infrastructure/lottie/lottie-color'
+import { extractLottieValueSlots, type LottieValueSlot } from '@/infrastructure/lottie/lottie-slots'
 import {
   fetchLottieAnimation,
   fetchLottieManifest,
@@ -110,6 +111,7 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
   // (for `.lottie` archives) its bundled animations + themes.
   const [textLayers, setTextLayers] = useState<LottieTextLayer[]>([])
   const [colorLayers, setColorLayers] = useState<LottieColorLayer[]>([])
+  const [valueSlots, setValueSlots] = useState<LottieValueSlot[]>([])
   const [markers, setMarkers] = useState<LottieMarker[]>([])
   const [animations, setAnimations] = useState<LottieAnimationEntry[]>([])
   const [themes, setThemes] = useState<string[]>([])
@@ -134,6 +136,7 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
     const clear = () => {
       setTextLayers([])
       setColorLayers([])
+      setValueSlots([])
       setMarkers([])
       setAnimations([])
       setThemes([])
@@ -159,6 +162,7 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
       if (cancelled) return
       setTextLayers(animation ? extractLottieTextLayers(animation) : [])
       setColorLayers(animation ? extractLottieColorLayers(animation) : [])
+      setValueSlots(animation ? extractLottieValueSlots(animation) : [])
       setMarkers(animation ? readLottieMarkers(animation) : [])
       setAnimations(manifest?.animations ?? [])
       setThemes(manifest?.themes ?? [])
@@ -306,6 +310,30 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
 
   const hasColorOverrides =
     !!single?.colorOverrides && Object.keys(single.colorOverrides).length > 0
+
+  // Value slots (scalar/vector) applied natively. Reverting to the slot's
+  // authored default drops the override.
+  const commitSlot = useCallback(
+    (id: string, next: number | [number, number], original: number | [number, number]) => {
+      if (!single) return
+      const revert = Array.isArray(next)
+        ? Array.isArray(original) && next[0] === original[0] && next[1] === original[1]
+        : next === original
+      const overrides = { ...(single.slotOverrides ?? {}) }
+      if (revert) delete overrides[id]
+      else overrides[id] = next
+      updateItem(single.id, {
+        slotOverrides: Object.keys(overrides).length > 0 ? overrides : undefined,
+      })
+    },
+    [single, updateItem],
+  )
+
+  const resetAllSlots = useCallback(() => {
+    if (single) updateItem(single.id, { slotOverrides: undefined })
+  }, [single, updateItem])
+
+  const hasSlotOverrides = !!single?.slotOverrides && Object.keys(single.slotOverrides).length > 0
 
   if (lottieItems.length === 0) return null
 
@@ -474,6 +502,60 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
               onReset={() => commitColorGroup(group.keys, group.original, group.original)}
             />
           ))}
+        </div>
+      )}
+
+      {single && valueSlots.length > 0 && (
+        <div className="space-y-1.5 pt-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+              <Sliders className="w-3 h-3" />
+              {t('editor.lottieSection.properties')}
+            </div>
+            {hasSlotOverrides && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-[11px] text-muted-foreground"
+                onClick={resetAllSlots}
+              >
+                {t('editor.lottieSection.resetProperties')}
+              </Button>
+            )}
+          </div>
+          {valueSlots.map((slot) => {
+            const current = single.slotOverrides?.[slot.id]
+            if (slot.type === 'scalar') {
+              const value = typeof current === 'number' ? current : slot.value
+              return (
+                <PropertyRow key={slot.id} label={slot.label}>
+                  <NumberInput
+                    value={value}
+                    onChange={(v) => commitSlot(slot.id, v, slot.value)}
+                    step={0.1}
+                    className="w-full"
+                  />
+                </PropertyRow>
+              )
+            }
+            const vec = Array.isArray(current) ? current : slot.value
+            return (
+              <PropertyRow key={slot.id} label={slot.label}>
+                <div className="flex items-center gap-1 w-full">
+                  <NumberInput
+                    value={vec[0]}
+                    onChange={(v) => commitSlot(slot.id, [v, vec[1]], slot.value)}
+                    className="flex-1 min-w-0"
+                  />
+                  <NumberInput
+                    value={vec[1]}
+                    onChange={(v) => commitSlot(slot.id, [vec[0], v], slot.value)}
+                    className="flex-1 min-w-0"
+                  />
+                </div>
+              </PropertyRow>
+            )
+          })}
         </div>
       )}
     </PropertySection>

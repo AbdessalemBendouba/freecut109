@@ -283,7 +283,9 @@
       "theme": "主题",
       "themeNone": "无",
       "marker": "标记",
-      "markerPlaceholder": "跳转到标记…"
+      "markerPlaceholder": "跳转到标记…",
+      "properties": "属性",
+      "resetProperties": "全部重置"
     },
     "cornerPinSection": {
       "title": "边角定位",
