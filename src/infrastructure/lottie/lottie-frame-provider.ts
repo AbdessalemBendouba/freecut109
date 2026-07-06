@@ -80,9 +80,9 @@ export function mapTimelineFrameToLottieFrame({
   // Resolve and sanitize the active segment [segStart, segEnd] within the range.
   const segStart = Math.max(0, Math.min(segmentStart ?? 0, maxFrame))
   const segEnd = Math.max(segStart, Math.min(segmentEnd ?? maxFrame, maxFrame))
-  const segLen = segEnd - segStart
+  const segSpan = segEnd - segStart
   // A zero-length segment is a frozen poster frame.
-  if (segLen <= 0) return segStart
+  if (segSpan <= 0) return segStart
 
   // Frames elapsed within the segment at the requested speed.
   const elapsed = (localFrame / projectFps) * (speed ?? 1) * frameRate
@@ -90,15 +90,20 @@ export function mapTimelineFrameToLottieFrame({
   let offset: number
   if (loop) {
     if (loopMode === 'pingpong') {
-      const period = segLen * 2
+      // Ping-pong reflects at the endpoints, so segEnd is reached at m === segSpan.
+      const period = segSpan * 2
       const m = ((elapsed % period) + period) % period
-      offset = m <= segLen ? m : period - m
+      offset = m <= segSpan ? m : period - m
     } else {
-      offset = ((elapsed % segLen) + segLen) % segLen
+      // A loop cycles through all frames segStart..segEnd inclusive, then wraps —
+      // so the period is the frame *count* (span + 1), not the span, or the final
+      // frame is skipped before wrapping.
+      const frameCount = segSpan + 1
+      offset = ((elapsed % frameCount) + frameCount) % frameCount
     }
   } else {
     // Past the end, hold the final frame (dotlottie clamps anyway).
-    offset = Math.max(0, Math.min(elapsed, segLen))
+    offset = Math.max(0, Math.min(elapsed, segSpan))
   }
 
   const frame = reversed ? segEnd - offset : segStart + offset

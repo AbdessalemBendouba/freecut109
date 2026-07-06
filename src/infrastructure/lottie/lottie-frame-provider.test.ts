@@ -23,8 +23,15 @@ describe('mapTimelineFrameToLottieFrame', () => {
   })
 
   it('wraps within the animation when looping', () => {
-    // segLen = 99, so frame 120 wraps to 120 % 99 = 21.
-    expect(mapTimelineFrameToLottieFrame({ ...base, loop: true, localFrame: 120 })).toBe(21)
+    // 100 frames (0..99), so the loop period is 100: frame 120 wraps to 120 % 100 = 20.
+    expect(mapTimelineFrameToLottieFrame({ ...base, loop: true, localFrame: 120 })).toBe(20)
+  })
+
+  it('reaches the final frame before wrapping (no skipped last frame)', () => {
+    // 10 frames (0..9): the last frame must render, then wrap back to 0.
+    const tiny = { ...base, totalFrames: 10, loop: true }
+    expect(mapTimelineFrameToLottieFrame({ ...tiny, localFrame: 9 })).toBe(9)
+    expect(mapTimelineFrameToLottieFrame({ ...tiny, localFrame: 10 })).toBe(0)
   })
 
   it('scales by speed', () => {
@@ -44,8 +51,8 @@ describe('mapTimelineFrameToLottieFrame', () => {
     expect(mapTimelineFrameToLottieFrame({ ...seg, localFrame: 15 })).toBe(35)
     // Past segment end without loop, holds segEnd.
     expect(mapTimelineFrameToLottieFrame({ ...seg, localFrame: 500 })).toBe(60)
-    // Loop wraps within [20, 60] (segLen 40): elapsed 50 → 20 + (50 % 40) = 30.
-    expect(mapTimelineFrameToLottieFrame({ ...seg, loop: true, localFrame: 50 })).toBe(30)
+    // Loop wraps within [20, 60] (41 frames): elapsed 50 → 20 + (50 % 41) = 29.
+    expect(mapTimelineFrameToLottieFrame({ ...seg, loop: true, localFrame: 50 })).toBe(29)
   })
 
   it('freezes on a zero-length segment (poster frame)', () => {
