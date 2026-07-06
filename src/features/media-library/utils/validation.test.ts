@@ -9,8 +9,8 @@ import {
 // jsdom's File omits arrayBuffer(); give each instance its own so the
 // content-aware validator can read bytes without a global polyfill (which would
 // activate arrayBuffer-dependent paths in unrelated test files).
-function jsonFile(content: string, name: string): File {
-  const file = new File([content], name, { type: '' })
+function jsonFile(content: string, name: string, type = ''): File {
+  const file = new File([content], name, { type })
   const bytes = new TextEncoder().encode(content)
   Object.defineProperty(file, 'arrayBuffer', {
     configurable: true,
@@ -64,6 +64,25 @@ describe('validation', () => {
     const lottie = jsonFile(
       JSON.stringify({ w: 100, h: 100, fr: 30, ip: 0, op: 60, layers: [] }),
       'anim.json',
+    )
+
+    expect(await validateMediaFileContent(lottie)).toEqual({ valid: true })
+  })
+
+  it('resolves a .json reported as application/json to the Lottie MIME', () => {
+    // Browsers commonly report `.json` as the non-media `application/json`;
+    // it must still be treated as a Lottie candidate, not rejected outright.
+    const file = new File(['{}'], 'spinner.json', { type: 'application/json' })
+
+    expect(getMimeType(file)).toBe('application/lottie+json')
+    expect(validateMediaFile(file)).toEqual({ valid: true })
+  })
+
+  it('accepts a Lottie .json even when the browser reports application/json', async () => {
+    const lottie = jsonFile(
+      JSON.stringify({ w: 100, h: 100, fr: 30, ip: 0, op: 60, layers: [] }),
+      'spinner.json',
+      'application/json',
     )
 
     expect(await validateMediaFileContent(lottie)).toEqual({ valid: true })

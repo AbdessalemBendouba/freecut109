@@ -36,7 +36,11 @@ const SUPPORTED_IMAGE_TYPES = [
 const SUPPORTED_LOTTIE_TYPES = ['application/lottie+json']
 
 const GENERIC_BROWSER_MIME_TYPES = new Set(['', 'application/octet-stream', 'binary/octet-stream'])
-const EXTENSION_PREFERRED_MIME_TYPES = new Set(['.mkv', '.m4a'])
+// Extensions whose browser-reported MIME must be overridden by the extension
+// mapping. `.mkv`/`.m4a` vary across browsers; `.json` is reported as the
+// non-media `application/json`, so a Lottie `.json` would otherwise be rejected
+// as unsupported before the content sniff in `validateMediaFileContent` runs.
+const EXTENSION_PREFERRED_MIME_TYPES = new Set(['.mkv', '.m4a', '.json'])
 
 // Extension to MIME type mapping for fallback when browser doesn't provide MIME type
 const EXTENSION_TO_MIME: Record<string, string> = {
@@ -72,8 +76,8 @@ export function getMimeType(file: File): string {
   const ext = file.name.toLowerCase().match(/\.[^.]+$/)?.[0]
   const extensionMimeType = ext ? EXTENSION_TO_MIME[ext] : undefined
 
-  // Prefer the extension for formats whose browser-reported MIME commonly
-  // varies despite the media kind staying the same (for example .mkv, .m4a).
+  // Prefer the extension for formats whose browser-reported MIME can't be
+  // trusted for the media kind (see EXTENSION_PREFERRED_MIME_TYPES).
   if (ext && extensionMimeType && EXTENSION_PREFERRED_MIME_TYPES.has(ext)) {
     return extensionMimeType
   }
