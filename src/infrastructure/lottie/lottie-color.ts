@@ -27,6 +27,13 @@ export interface LottieColorLayer {
   color: string
   /** Human-readable label (shape/layer name, or a positional fallback). */
   label: string
+  /**
+   * Whether `label` is an author-given name (a color slot, or a shape with its
+   * own `nm`) rather than a generated fallback like `Fill`/`Stroke`. Named
+   * colors are the template's intended customization points; the UI surfaces
+   * them first and tucks the rest away.
+   */
+  named: boolean
 }
 
 type Rgb = [number, number, number]
@@ -36,6 +43,8 @@ interface ColorSlot {
   read: () => Rgb
   write: (rgb: Rgb) => void
   label: string
+  /** True when `label` is the shape's own `nm` (not a generated fallback). */
+  named: boolean
 }
 
 interface AnimatedValue {
@@ -97,7 +106,7 @@ function trimmedName(v: unknown): string {
  * The color slot of one fill/stroke shape item, or none for non-color/gradient
  * shapes. Solid fills/strokes contribute one slot (static or animated).
  */
-function slotsForShapeItem(item: LottieShapeItem, label: string): ColorSlot[] {
+function slotsForShapeItem(item: LottieShapeItem, label: string, named: boolean): ColorSlot[] {
   // Solid fill / stroke.
   if (item.ty === 'fl' || item.ty === 'st') {
     const c = item.c
@@ -111,6 +120,7 @@ function slotsForShapeItem(item: LottieShapeItem, label: string): ColorSlot[] {
       return [
         {
           label,
+          named,
           read: () => {
             const s = (keyframes[0] as { s: number[] }).s
             return [s[0]!, s[1]!, s[2]!]
@@ -129,6 +139,7 @@ function slotsForShapeItem(item: LottieShapeItem, label: string): ColorSlot[] {
     return [
       {
         label,
+        named,
         read: () => [k[0]!, k[1]!, k[2]!],
         write: (rgb) => {
           ;[k[0], k[1], k[2]] = rgb
@@ -164,7 +175,7 @@ function walkColorSlots(
       const kind = item?.ty === 'st' ? 'Stroke' : 'Fill'
       const shapeName = trimmedName(item?.nm)
       const label = shapeName || (layerName ? `${layerName} ${kind}` : kind)
-      for (const slot of slotsForShapeItem(item, label)) {
+      for (const slot of slotsForShapeItem(item, label, !!shapeName)) {
         visit(slot, `c${ordinal}`)
         ordinal += 1
       }
@@ -207,7 +218,13 @@ function slotColorLayers(data: Record<string, unknown>): LottieColorLayer[] {
   for (const [id, def] of Object.entries(slots as Record<string, SlotDef>)) {
     const rgb = slotColorValue(def?.p)
     if (!rgb) continue
-    result.push({ key: `s:${id}`, color: lottieRgbToHex(rgb), label: trimmedName(def?.nm) || id })
+    // A slot is an explicit author theming point — always treated as named.
+    result.push({
+      key: `s:${id}`,
+      color: lottieRgbToHex(rgb),
+      label: trimmedName(def?.nm) || id,
+      named: true,
+    })
   }
   return result
 }
@@ -277,7 +294,7 @@ export function extractLottieColorLayers(json: unknown): LottieColorLayer[] {
   if (!data) return []
   const result: LottieColorLayer[] = slotColorLayers(data)
   walkColorSlots(data, (slot, key) => {
-    result.push({ key, color: lottieRgbToHex(slot.read()), label: slot.label })
+    result.push({ key, color: lottieRgbToHex(slot.read()), label: slot.label, named: slot.named })
   })
   return result
 }

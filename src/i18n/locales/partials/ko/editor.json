@@ -285,7 +285,8 @@
       "marker": "마커",
       "markerPlaceholder": "마커로 이동…",
       "properties": "속성",
-      "resetProperties": "모두 재설정"
+      "resetProperties": "모두 재설정",
+      "otherColors": "기타 색상 ({{count}})"
     },
     "cornerPinSection": {
       "title": "코너 핀",

@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileJson, Palette, RotateCcw, Sliders, Type } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronRight,
+  FileJson,
+  Palette,
+  RotateCcw,
+  Sliders,
+  Type,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
@@ -306,19 +314,53 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
   // Group the extracted colors by their original value so a color shared across
   // multiple shapes is a single editable swatch (a palette): recoloring it
   // updates every shape that used it. Overrides are still stored per instance.
+  // A group is "named" when any member carries an author name (a slot or a named
+  // shape) — those are the template's intended customization points and are
+  // shown first; the anonymous rest (Fill/N shapes) tuck under a disclosure.
   const colorGroups = useMemo(() => {
-    const byOriginal = new Map<string, { keys: string[]; label: string }>()
+    const byOriginal = new Map<
+      string,
+      { keys: string[]; label: string; namedLabel: string | undefined }
+    >()
     for (const layer of colorLayers) {
       const group = byOriginal.get(layer.color)
-      if (group) group.keys.push(layer.key)
-      else byOriginal.set(layer.color, { keys: [layer.key], label: layer.label })
+      if (group) {
+        group.keys.push(layer.key)
+        if (!group.namedLabel && layer.named) group.namedLabel = layer.label
+      } else {
+        byOriginal.set(layer.color, {
+          keys: [layer.key],
+          label: layer.label,
+          namedLabel: layer.named ? layer.label : undefined,
+        })
+      }
     }
-    return Array.from(byOriginal, ([original, { keys, label }]) => ({
+    return Array.from(byOriginal, ([original, { keys, label, namedLabel }]) => ({
       original,
       keys,
-      label: keys.length > 1 ? t('editor.lottieSection.colorGroup', { count: keys.length }) : label,
+      named: namedLabel !== undefined,
+      // Prefer an author name; fall back to a count ("N shapes") or the fill label.
+      label:
+        namedLabel ??
+        (keys.length > 1 ? t('editor.lottieSection.colorGroup', { count: keys.length }) : label),
     }))
   }, [colorLayers, t])
+
+  const namedColorGroups = useMemo(() => colorGroups.filter((g) => g.named), [colorGroups])
+  const otherColorGroups = useMemo(() => colorGroups.filter((g) => !g.named), [colorGroups])
+  const [showOtherColors, setShowOtherColors] = useState(false)
+
+  const renderColorGroup = (group: { original: string; keys: string[]; label: string }) => (
+    <ColorPicker
+      key={group.original}
+      label={group.label}
+      color={single?.colorOverrides?.[group.keys[0]!] ?? group.original}
+      defaultColor={group.original}
+      onLiveChange={(c) => previewColorGroup(group.keys, group.original, c)}
+      onChange={(c) => commitColorGroup(group.keys, group.original, c)}
+      onReset={() => commitColorGroup(group.keys, group.original, group.original)}
+    />
+  )
 
   const nextColorMap = useCallback(
     (keys: string[], original: string, value: string): Record<string, string> | undefined => {
@@ -557,17 +599,30 @@ export function LottieSection({ items }: { items: TimelineItem[] }) {
               </Button>
             )}
           </div>
-          {colorGroups.map((group) => (
-            <ColorPicker
-              key={group.original}
-              label={group.label}
-              color={single.colorOverrides?.[group.keys[0]!] ?? group.original}
-              defaultColor={group.original}
-              onLiveChange={(c) => previewColorGroup(group.keys, group.original, c)}
-              onChange={(c) => commitColorGroup(group.keys, group.original, c)}
-              onReset={() => commitColorGroup(group.keys, group.original, group.original)}
-            />
-          ))}
+          {/* Author-named colors first (or everything, if nothing is named). */}
+          {(namedColorGroups.length > 0 ? namedColorGroups : otherColorGroups).map(
+            renderColorGroup,
+          )}
+
+          {/* The anonymous rest (Fill / N shapes) tuck under a disclosure. */}
+          {namedColorGroups.length > 0 && otherColorGroups.length > 0 && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-full justify-start gap-1 px-1 text-[11px] text-muted-foreground"
+                onClick={() => setShowOtherColors((v) => !v)}
+              >
+                {showOtherColors ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+                {t('editor.lottieSection.otherColors', { count: otherColorGroups.length })}
+              </Button>
+              {showOtherColors && otherColorGroups.map(renderColorGroup)}
+            </>
+          )}
         </div>
       )}
 

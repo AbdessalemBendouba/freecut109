@@ -285,7 +285,8 @@
       "marker": "标记",
       "markerPlaceholder": "跳转到标记…",
       "properties": "属性",
-      "resetProperties": "全部重置"
+      "resetProperties": "全部重置",
+      "otherColors": "其他颜色 ({{count}})"
     },
     "cornerPinSection": {
       "title": "边角定位",

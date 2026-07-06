@@ -285,7 +285,8 @@
       "marker": "İşaretçi",
       "markerPlaceholder": "İşaretçiye git…",
       "properties": "Özellikler",
-      "resetProperties": "Tümünü sıfırla"
+      "resetProperties": "Tümünü sıfırla",
+      "otherColors": "Diğer renkler ({{count}})"
     },
     "cornerPinSection": {
       "title": "Köşe Sabitleme",

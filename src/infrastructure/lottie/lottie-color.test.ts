@@ -57,8 +57,21 @@ describe('hex <-> lottie rgb', () => {
 describe('extractLottieColorLayers', () => {
   it('lists static solids in depth-first order, skipping animated and non-shape layers', () => {
     expect(extractLottieColorLayers(animation())).toEqual([
-      { key: 'c0', color: '#ff0000', label: 'Fill 1' },
-      { key: 'c1', color: '#000000', label: 'Stroke 1' },
+      { key: 'c0', color: '#ff0000', label: 'Fill 1', named: true },
+      { key: 'c1', color: '#000000', label: 'Stroke 1', named: true },
+    ])
+  })
+
+  it('marks fills without an author name as not-named (generated fallback label)', () => {
+    const anim = {
+      w: 1,
+      h: 1,
+      fr: 30,
+      op: 1,
+      layers: [{ ty: 4, shapes: [{ ty: 'fl', c: { a: 0, k: [1, 1, 1] } }] }],
+    }
+    expect(extractLottieColorLayers(anim)).toEqual([
+      { key: 'c0', color: '#ffffff', label: 'Fill', named: false },
     ])
   })
 
@@ -130,8 +143,8 @@ function mixed() {
 describe('extractLottieColorLayers — animated', () => {
   it('yields static and animated solid colors in document order', () => {
     expect(extractLottieColorLayers(mixed())).toEqual([
-      { key: 'c0', color: '#ffffff', label: 'Solid' },
-      { key: 'c1', color: '#ff0000', label: 'Pulse' }, // first keyframe's color
+      { key: 'c0', color: '#ffffff', label: 'Solid', named: true },
+      { key: 'c1', color: '#ff0000', label: 'Pulse', named: true }, // first keyframe's color
     ])
   })
 
@@ -208,8 +221,8 @@ function slotted() {
 describe('color slots', () => {
   it('surfaces color slots first (by id), and skips the slot-bound inline fill', () => {
     expect(extractLottieColorLayers(slotted())).toEqual([
-      { key: 's:accent', color: '#ff0000', label: 'accent' },
-      { key: 'c0', color: '#0000ff', label: 'Plain' }, // only the unbound fill
+      { key: 's:accent', color: '#ff0000', label: 'accent', named: true },
+      { key: 'c0', color: '#0000ff', label: 'Plain', named: true }, // only the unbound fill
     ])
   })
 

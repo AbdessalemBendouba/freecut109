@@ -285,7 +285,8 @@
       "marker": "Marcador",
       "markerPlaceholder": "Ir para o marcador…",
       "properties": "Propriedades",
-      "resetProperties": "Redefinir tudo"
+      "resetProperties": "Redefinir tudo",
+      "otherColors": "Outras cores ({{count}})"
     },
     "cornerPinSection": {
       "title": "Fixação de cantos",

@@ -285,7 +285,8 @@
       "marker": "マーカー",
       "markerPlaceholder": "マーカーへ移動…",
       "properties": "プロパティ",
-      "resetProperties": "すべてリセット"
+      "resetProperties": "すべてリセット",
+      "otherColors": "その他の色 ({{count}})"
     },
     "cornerPinSection": {
       "title": "コーナーピン",

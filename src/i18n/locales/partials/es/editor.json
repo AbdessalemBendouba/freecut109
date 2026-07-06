@@ -285,7 +285,8 @@
       "marker": "Marcador",
       "markerPlaceholder": "Ir al marcador…",
       "properties": "Propiedades",
-      "resetProperties": "Restablecer todo"
+      "resetProperties": "Restablecer todo",
+      "otherColors": "Otros colores ({{count}})"
     },
     "cornerPinSection": {
       "title": "Corrección de esquinas",

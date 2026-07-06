@@ -285,7 +285,8 @@
       "marker": "Marker",
       "markerPlaceholder": "Jump to marker…",
       "properties": "Properties",
-      "resetProperties": "Reset all"
+      "resetProperties": "Reset all",
+      "otherColors": "Other colors ({{count}})"
     },
     "cornerPinSection": {
       "title": "Corner Pin",

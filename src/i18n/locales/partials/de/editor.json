@@ -285,7 +285,8 @@
       "marker": "Marker",
       "markerPlaceholder": "Zu Marker springen…",
       "properties": "Eigenschaften",
-      "resetProperties": "Alle zurücksetzen"
+      "resetProperties": "Alle zurücksetzen",
+      "otherColors": "Weitere Farben ({{count}})"
     },
     "cornerPinSection": {
       "title": "Eckpunkt-Verzerrung",
