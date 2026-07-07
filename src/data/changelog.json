@@ -1,65 +1,92 @@
 {
   "current": {
     "version": "current",
-    "date": "2026-07-05",
+    "date": "2026-07-08",
     "groups": {
       "added": [
         {
-          "title": "Sequences — build multiple timelines in one project and switch between them in tabs"
+          "title": "Lottie animations — import .json and .lottie files and play them on the timeline"
         },
         {
-          "title": "Export any sequence, not just the main timeline"
-        },
-        {
-          "title": "Motion text — animate text by character, word, or line"
-        },
-        {
-          "title": "Per-clip easing editor: preset curves, draggable handles, live preview, and custom presets"
-        },
-        {
-          "title": "Color picker gains hex/alpha input and an in-app eyedropper"
-        },
-        {
-          "title": "Optional interface sounds with a voice picker"
-        },
-        {
-          "title": "Redesigned keyboard-shortcut editor in Settings"
-        },
-        {
-          "title": "Subtitle export modes: off, burn in, sidecar file, or embedded track"
-        },
-        {
-          "title": "Edit ProRes footage — import, preview, thumbnails, and export"
-        },
-        {
-          "title": "Procedural motion modifiers — drift, breath, shake, sway, and spin, with one-click bake to keyframes"
-        },
-        {
-          "title": "New GPU effects: gradient map, VHS, CRT, Droste, block glitch, glass distortion, ink, and pixel sort"
-        },
-        {
-          "title": "ASCII effect now supports custom text, fonts, and glyph character sets"
+          "title": "Customize Lottie colors, themes, text, and value slots, with live preview"
         }
       ],
       "fixed": [
         {
-          "title": "Fixed an export crash triggered by certain layered effects"
-        },
-        {
-          "title": "Preview no longer hangs mid-clip during playback"
+          "title": "Fixed edge seams and shimmer on GPU effects in the preview"
         }
       ],
       "improved": [
         {
-          "title": "Keyframe graph editor gains fit-to-view, a grid, and smoother scrolling"
-        },
-        {
-          "title": "Clearer Animate workflow with procedural and keyframe state indicators"
+          "title": "Effects apply to the preview instantly, without a warm-up delay"
         }
       ]
     }
   },
   "releases": [
+    {
+      "version": "2026.06.29",
+      "date": "2026-06-29",
+      "groups": {
+        "added": [
+          {
+            "title": "Sequences — build multiple timelines in one project and switch between them in tabs"
+          },
+          {
+            "title": "Export any sequence, not just the main timeline"
+          },
+          {
+            "title": "Motion text — animate text by character, word, or line"
+          },
+          {
+            "title": "Per-clip easing editor: preset curves, draggable handles, live preview, and custom presets"
+          },
+          {
+            "title": "Color picker gains hex/alpha input and an in-app eyedropper"
+          },
+          {
+            "title": "Optional interface sounds with a voice picker"
+          },
+          {
+            "title": "Redesigned keyboard-shortcut editor in Settings"
+          },
+          {
+            "title": "Subtitle export modes: off, burn in, sidecar file, or embedded track"
+          },
+          {
+            "title": "Edit ProRes footage — import, preview, and thumbnails"
+          },
+          {
+            "title": "Procedural motion modifiers — drift, breath, shake, sway, and spin, with one-click bake to keyframes"
+          },
+          {
+            "title": "New GPU effects: gradient map, VHS, CRT, Droste, block glitch, glass distortion, ink, and pixel sort"
+          },
+          {
+            "title": "ASCII effect now supports custom text, fonts, and glyph character sets"
+          },
+          {
+            "title": "Browse and jump to markers from a list in the properties sidebar"
+          }
+        ],
+        "fixed": [
+          {
+            "title": "Fixed an export crash triggered by certain layered effects"
+          },
+          {
+            "title": "Preview no longer hangs mid-clip during playback"
+          }
+        ],
+        "improved": [
+          {
+            "title": "Keyframe graph editor gains fit-to-view, a grid, and smoother scrolling"
+          },
+          {
+            "title": "Clearer Animate workflow with procedural and keyframe state indicators"
+          }
+        ]
+      }
+    },
     {
       "version": "2026.06.22",
       "date": "2026-06-22",

@@ -37,8 +37,30 @@ const page = {
             'A **project** holds a timeline, its settings (resolution and frame rate), and references to the media you use.',
             'The timeline stacks **tracks**; higher tracks render over lower ones.',
             'A **clip** on the timeline is a window into a source file — trimming a clip changes which part of the source plays, it does not alter the file.',
-            'Group a section into a **compound clip** to reuse it — or open it as a **sequence**, a self-contained timeline you switch to from the tab bar — and use an **adjustment layer** to affect every clip below it.',
+            'An **adjustment layer** is a clip that carries no media of its own — it applies its effects and color to every clip below it.',
           ],
+        },
+      ],
+    },
+    {
+      title: 'Sequences and compound clips',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: 'FreeCut has one primitive for **a timeline inside your project** — a composition. It shows up in two ways depending on how you use it.',
+        },
+        {
+          kind: 'list',
+          items: [
+            'A **sequence** is a standalone timeline in the same project, opened from a tab in the tab bar. Each sequence has its own tracks, clips, and edit history — the main timeline is itself a sequence.',
+            'A **compound clip** takes a section of the timeline and folds it into a single reusable media item. On the timeline it behaves like one clip — move, trim, add effects — while its contents live in their own timeline.',
+            'The two are the same thing seen differently: open a compound clip to edit its contents as a sequence, and any sequence can be dropped into another timeline as a compound clip.',
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'A composition can contain other compositions, but never itself — FreeCut blocks circular references, so a compound clip can never end up nested inside its own contents.',
         },
       ],
     },

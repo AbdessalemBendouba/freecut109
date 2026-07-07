@@ -68,8 +68,9 @@ The user asks "draft changelog bullets for this week" or similar. Produce bullet
 2. `git log <branch> --no-merges --pretty=format:"%H|%ad|%s" --date=short --since=<week-start> --until=<week-end>` — `--no-merges` filters out PR merge commits, which carry no useful subject. Range is usually `<last-rollup>..HEAD` or explicit `--since`/`--until`.
 3. Sanity-check: if the user just mentioned a specific commit you don't see in the output, you're on the wrong branch. Re-query.
 4. Apply curation rules (below). Drop noise, rewrite dev-speak into user language, dedupe revisits.
-5. Group into Added / Fixed / Improved.
-6. Show the result. Wait for approval before touching files.
+5. **Verify net state.** Before locking bullets, run the added-then-removed check ([Verify the net state, not the commit stream](#verify-the-net-state-not-the-commit-stream)): drop any Added/Improved bullet whose feature was torn out again before HEAD. This is a distinct pass from step 4 — the `feat` commit passes curation on its own; only cross-checking it against later teardown commits reveals it should go.
+6. Group into Added / Fixed / Improved.
+7. Show the result. Wait for approval before touching files.
 
 ### Append mode
 
@@ -147,6 +148,21 @@ When you spot a launch:
 - List the supporting facets only if they're not obviously implied (a language picker is implied by "translated UI"; ASS subtitle support inside subtitle editing might be worth its own bullet).
 - Resist the urge to itemize every commit just because they're all in the Added group.
 
+## Verify the net state, not the commit stream
+
+Commits are a *stream of deltas*; the changelog describes the *net difference* between the last release and HEAD. A feature added on Tuesday and ripped back out on Thursday is, to the user, as if it never shipped — there is nothing to announce. But the naive draft still emits an "Added" bullet, because the `feat(...)` commit is sitting right there in the log and nothing downstream cancels it *in the text*. The removal happened in the code, not in the commit subject you're reading.
+
+Before finalizing any **Added** or **Improved** bullet, confirm the thing it describes still exists at HEAD:
+
+1. **Find the teardown commits in the window.** Scan subjects for `/\b(remove|delete|drop|revert|roll ?back|back out|undo|kill|rip out|disable)\b/i`, and list file deletions with `git log <branch> --no-merges --diff-filter=D --since=<week-start> --until=<week-end> --name-only`.
+2. **Pair each candidate Added bullet against them by feature area, not literal path.** A feature can be dismantled by deleting a route, a menu entry, a flag, or a registry line without deleting the file that introduced it. Match on what the user would touch, not the filename.
+3. **Added and removed within the same window → drop the bullet entirely.** Not Added, not Fixed, not Removed. It nets to zero for the user; announcing it and then never shipping it is worse than silence.
+4. **When unsure whether it survived, verify against HEAD directly** — don't trust the `feat` commit alone. `git cat-file -e HEAD:<path>` for a file's existence, or grep HEAD for the symbol / route / UI label the feature exposes. If it's gone from HEAD, it's gone from the changelog.
+
+This generalizes the "reverts paired with a re-fix" rule below. It also catches the cases that rule misses: an add later removed with **no** replacement, an add superseded by a **differently-named** replacement (log only the survivor, worded as the survivor), and an experiment merged in one PR then reverted in another.
+
+**The one exception — removing something that already shipped.** If the removed feature was in a *prior release*, the user has been using it, so its removal is itself a user-facing change: they had it yesterday, it's gone today. That is worth announcing (and any migration note that comes with it). The JSON schema has no `Removed` group, so **surface it to the user** and let them decide wording and placement rather than silently dropping it or inventing a group. The added-then-removed-same-window case above is the opposite: the user never had it, so nothing is announced.
+
 ## Curation rules
 
 ### Drop
@@ -163,6 +179,7 @@ When you spot a launch:
 - **Hit-zone / drop-zone / ghost-position adjustments** — fold into the parent drag/drop feature. Never their own bullet.
 - **Internal perf on this week's new work** — perf commits that optimize code shipped earlier in the same week. The user experiences the feature once, smoothly. No separate "Improved" bullet.
 - Reverts paired with a subsequent re-fix in the same week — skip both, keep only the final correct implementation.
+- **Added-then-removed within the window** — any feature introduced and then torn out before HEAD (with or without a replacement). See [Verify the net state](#verify-the-net-state-not-the-commit-stream): it nets to zero, so drop the Added bullet. The exception is a feature that shipped in a *prior* release and is removed this week — that removal is user-facing; surface it.
 - "Update src/..." auto-subject merges (GitHub web-edit artifacts)
 - Revisits: if the same feature is improved multiple times in one week, dedupe to one bullet describing the final state.
 - Duplicates worded differently — drag overlays sticking, drag overlays hijacking lanes, stale drop overlays are all "dragging works better now." One bullet, not three.

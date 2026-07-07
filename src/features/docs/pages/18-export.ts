@@ -34,7 +34,7 @@ const page = {
       ],
     },
     {
-      title: 'Formats and subtitles',
+      title: 'Formats',
       blocks: [
         {
           kind: 'table',
@@ -42,15 +42,43 @@ const page = {
           rows: [
             ['Video containers', 'MP4, MOV, WebM, MKV'],
             ['Audio only', 'MP3, AAC, WAV'],
-            ['Embedded subtitles', 'MP4, MKV, WebM'],
+            ['Soft subtitle track', 'WebM, MKV'],
           ],
         },
         {
-          kind: 'list',
-          items: [
-            'Which codecs are available depends on your browser; FreeCut warns or falls back when one is not.',
-            'Turn on **Embed subtitles** to include transcript captions as a subtitle track.',
+          kind: 'note',
+          tone: 'info',
+          text: 'Which codecs are available depends on your browser; FreeCut warns or falls back when one is not.',
+        },
+      ],
+    },
+    {
+      title: 'Subtitles',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: 'When a video export has a transcript, the **Subtitles** control chooses how captions are included. The options adapt to the container you picked.',
+        },
+        {
+          kind: 'table',
+          headers: ['Mode', 'What it does'],
+          rows: [
+            ['**Off**', 'No captions in the exported video.'],
+            ['**Burn in**', 'Captions are drawn into the frame, so they show in every player.'],
+            [
+              '**Sidecar** `.srt`',
+              'Clean video plus a separate `.srt` subtitle file downloaded alongside it.',
+            ],
+            [
+              '**Embedded track**',
+              'A soft, toggleable subtitle track carried inside the container.',
+            ],
           ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'The embedded-track option appears only for `WebM` and `MKV`. On `MP4` and `MOV`, choose burn-in or a sidecar file, or switch container for a toggleable track.',
         },
         {
           kind: 'note',

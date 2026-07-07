@@ -4,7 +4,19 @@ All notable changes to FreeCut. Weekly CalVer: `YYYY.MM.DD` = the Monday of the 
 
 <!-- Entries below are generated via the `changelog` skill. Newest first. -->
 
-## [Current] — week of 2026-06-29
+## [Current] — week of 2026-07-06
+
+### Added
+- Lottie animations — import .json and .lottie files and play them on the timeline
+- Customize Lottie colors, themes, text, and value slots, with live preview
+
+### Fixed
+- Fixed edge seams and shimmer on GPU effects in the preview
+
+### Improved
+- Effects apply to the preview instantly, without a warm-up delay
+
+## [2026.06.29] — week of 2026-06-29 to 2026-07-05
 
 ### Added
 - Sequences — build multiple timelines in one project and switch between them in tabs
@@ -15,10 +27,11 @@ All notable changes to FreeCut. Weekly CalVer: `YYYY.MM.DD` = the Monday of the 
 - Optional interface sounds with a voice picker
 - Redesigned keyboard-shortcut editor in Settings
 - Subtitle export modes: off, burn in, sidecar file, or embedded track
-- Edit ProRes footage — import, preview, thumbnails, and export
+- Edit ProRes footage — import, preview, and thumbnails
 - Procedural motion modifiers — drift, breath, shake, sway, and spin, with one-click bake to keyframes
 - New GPU effects: gradient map, VHS, CRT, Droste, block glitch, glass distortion, ink, and pixel sort
 - ASCII effect now supports custom text, fonts, and glyph character sets
+- Browse and jump to markers from a list in the properties sidebar
 
 ### Fixed
 - Fixed an export crash triggered by certain layered effects

@@ -125,7 +125,9 @@ function DocsNavigation({ currentSlug }: { currentSlug?: string }) {
 
         return (
           <div key={group} className="space-y-1">
-            <p className="px-2 text-xs font-medium text-muted-foreground">{group}</p>
+            <p className="px-2 text-xs font-semibold uppercase tracking-wide text-primary">
+              {group}
+            </p>
             {pages.map((page) => (
               <Link
                 key={page.slug}

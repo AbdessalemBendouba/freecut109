@@ -65,6 +65,33 @@ const page = {
         },
       ],
     },
+    {
+      title: 'Markers',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: 'The properties panel lists every marker in the project under a **Markers** heading, sorted by time. The list is always available — it shows below the canvas settings when nothing is selected, and below the marker editor when a marker is selected — so you can browse and reach your markers regardless of what is selected.',
+        },
+        {
+          kind: 'list',
+          items: [
+            'Each row shows the marker color, its label (or a default name if it has none), and its timecode.',
+            'Select a row to make it the active marker and jump the playhead to that point.',
+            'Use the trash icon on a row to remove that single marker.',
+            '**Clear all** removes every marker at once.',
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'tip',
+          text: 'Press `M` to drop a marker at the playhead. When the list is empty it shows this hint.',
+        },
+        {
+          kind: 'paragraph',
+          text: 'Selecting a marker opens its editor above the list, where you can change the **Frame** position, edit the **Label**, and set the **Color** from a preset swatch or reset it to the default. The **Time** field shows the marker timecode as read-only, and **Delete Marker** removes it.',
+        },
+      ],
+    },
   ],
 } satisfies DocPageContent
 

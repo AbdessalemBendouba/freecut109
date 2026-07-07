@@ -71,11 +71,26 @@ const page = {
           kind: 'list',
           items: [
             'Click the **connector** between two keyframes to open the **easing editor**.',
-            'Browse a catalog of cubic-bezier and spring presets — filter by direction (**In / Out / In-Out**), and each tile shows an animated preview on hover. **Hold** freezes the value until the next key.',
+            'Browse preset curves under two tabs — **Cubic Easing** and **Spring**. Filter the easing presets by direction (**All / In / Out / In-Out**); each tile shows an animated preview on hover, and **Hold** freezes the value until the next key.',
             'Switch to **Edit** to shape the curve directly: drag the two control handles on the graph, or type exact values. Springs expose **tension**, **friction**, and **mass** and preview their real bounce.',
             'Feel the timing on **Position**, **Scale**, **Rotate**, or **Opacity** in the live preview, and **Pause** the loop.',
             'Save a tweaked curve as a **custom preset** with **Save As**, **Update** it later, or **Reset** back to the preset it came from. Custom presets are stored on your device and appear in every project.',
             'Copy, cut, paste, and delete keyframes, marquee-select groups, drag to retime, and `Alt`-drag to duplicate.',
+          ],
+        },
+      ],
+    },
+    {
+      title: 'Work in the value graph',
+      blocks: [
+        {
+          kind: 'list',
+          items: [
+            'Pick a property from the dropdown to edit its curve, or leave it on all to see the others as faded overlay curves. The keyframe count for the active property shows beside it.',
+            'The graph draws a labelled **grid** — frames or seconds across, values up — so you can read positions at a glance.',
+            'Frame the curve with **Fit to content**, or nudge the view with **Zoom in** / **Zoom out** and the mouse wheel. **Reset view** returns to the default fit.',
+            'Step through keys with the **previous** / **next** arrows, then type an exact frame (**F**) and value (**V**) for the selected keyframe.',
+            'While dragging a keyframe, hold **Shift** to lock it to one axis, or **Alt** to fine-adjust.',
           ],
         },
       ],
