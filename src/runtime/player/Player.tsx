@@ -398,12 +398,22 @@ const PlayerInner = forwardRef<PlayerRef, PlayerProps>(
     } = useBridgedTimelineContext()
     const emitter = usePlayerEmitter()
 
-    // Sync initial frame
+    // Sync initial frame — ONCE on mount only. The Clock is already created with
+    // `initialFrame` (see ClockBridgeProvider), so this is a belt-and-suspenders
+    // catch for the rare case it started at 0. It must NOT depend on
+    // `currentFrame`: doing so re-fires this seek every time the clock later
+    // reaches frame 0 (e.g. pressing "Go To Start"), yanking the playhead back to
+    // the stale mount-time `initialFrame`.
+    const hasSyncedInitialFrameRef = useRef(false)
     useEffect(() => {
-      if (initialFrame > 0 && currentFrame === 0) {
+      if (hasSyncedInitialFrameRef.current) return
+      hasSyncedInitialFrameRef.current = true
+      if (initialFrame > 0 && player.getCurrentFrame() === 0) {
         player.seek(initialFrame)
       }
-    }, [initialFrame, currentFrame, player])
+      // Mount-only: intentionally no reactive deps.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // Sync autoPlay
     useEffect(() => {

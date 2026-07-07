@@ -37,14 +37,42 @@ const page = {
             ['Blur', 'Gaussian, Box, Motion, Radial, Zoom'],
             [
               'Distort',
-              'Pixelate, RGB Split, Twirl, Wave, Bulge/Pinch, Kaleidoscope, Mirror, Fluted Glass, and more',
+              'Pixelate, RGB Split, Twirl, Wave, Bulge/Pinch, Kaleidoscope, Mirror, Fluted Glass, Ripple Glass, Glass Mosaic, Blocks, Droste, and more',
             ],
             [
               'Stylize',
-              'Vignette, Film Grain, Sharpen, Glow, Scanlines, CRT, Halftone, Dither, ASCII, VHS, glitch looks',
+              'Vignette, Film Grain, Sharpen, Glow, Scanlines, CRT, VHS, Halftone, Dither, ASCII, Ink, Pixel Sort, Block Glitch, Color Glitch',
             ],
             ['Keying', 'Chroma Key (green- and blue-screen removal)'],
           ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'All effects render on the GPU (WebGPU). Recent additions include **Gradient Map**, **VHS**, **CRT**, **Droste**, **Block Glitch**, the **Ripple Glass** and **Glass Mosaic** distortions, **Ink**, and **Pixel Sort**.',
+        },
+        {
+          kind: 'note',
+          tone: 'tip',
+          text: '**ASCII** can render its own characters: set **Character Set** to **Custom**, type your **Custom Characters** (the ramp goes densest to lightest), and choose a **Font** (Monospace, Courier, Consolas, or Lucida Console). Built-in sets include ASCII Ramp, Dense, Binary, and Symbols.',
+        },
+      ],
+    },
+    {
+      title: 'Color inputs and the eyedropper',
+      blocks: [
+        {
+          kind: 'list',
+          items: [
+            'Every color control accepts a **hex** value; type it directly into the field (it updates the preview as you go).',
+            'Where transparency is supported, the field takes 8-digit hex (`#rrggbbaa`) and the picker adds an alpha slider.',
+            'Click the **eyedropper** (pipette) to sample a color from anywhere in the app or preview; a magnifier loupe follows the cursor so you can land on the exact pixel, then click to apply.',
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'The eyedropper is a built-in in-app sampler (not the browser native one) and needs no permission prompt. The same tool backs the wheels in the Color workspace.',
         },
       ],
     },

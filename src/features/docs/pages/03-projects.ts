@@ -23,6 +23,50 @@ const page = {
       ],
     },
     {
+      title: 'Canvas size and aspect ratio',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: 'The canvas defines the frame your video is composed and exported in. Pick a size when you create a project, or change it any time from the **Canvas** panel while editing.',
+        },
+        {
+          kind: 'paragraph',
+          text: 'On **New Project**, the **Resolution** section offers ready-made presets for common platforms. Each preset card shows its pixel size and aspect ratio. Choose **Custom** to type an exact width and height instead.',
+        },
+        {
+          kind: 'table',
+          headers: ['Preset', 'Resolution', 'Aspect ratio'],
+          rows: [
+            ['YouTube 1080p', '`1920x1080`', '`16:9` landscape'],
+            ['Shorts / TikTok / Reels', '`1080x1920`', '`9:16` vertical'],
+            ['Instagram Square', '`1080x1080`', '`1:1` square'],
+            ['Instagram Portrait', '`1080x1350`', '`4:5` portrait'],
+            ['Twitter/X', '`1200x675`', '`16:9` landscape'],
+            ['LinkedIn', '`1200x627`', 'landscape'],
+            ['Custom', 'Your own values', 'Anything you enter'],
+          ],
+        },
+        {
+          kind: 'paragraph',
+          text: 'To change the size after the project exists:',
+        },
+        {
+          kind: 'steps',
+          items: [
+            'Deselect any clip so the properties sidebar shows the **Canvas** panel.',
+            'Edit the **W** and **H** fields to set the frame width and height in pixels.',
+            'Use **Swap** to flip width and height, for example to turn a landscape project into a vertical one.',
+            'Use **Reset** to return the canvas to `1920x1080`.',
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'Dimensions snap to even numbers and range from `320x240` up to `7680x4320`. Existing clips keep their current position and scale when the canvas changes, so reposition anything that now sits outside the new frame.',
+        },
+      ],
+    },
+    {
       title: 'Organize the project list',
       blocks: [
         {

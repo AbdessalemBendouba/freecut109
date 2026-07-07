@@ -66,7 +66,8 @@ request features, report bugs, and give feedback on browser-based editing workfl
 
 ### Timeline & Editing
 
-- Multi-track timeline with video, audio, text, image, shape, mask, and compound clip items
+- Multi-track timeline with video, audio, text, image, shape, mask, Lottie, and compound clip items
+- Multiple timelines per project as Sequences with tabs, unified with compound clips (open a compound clip as its own sequence)
 - Linked audio/video editing with split, join, ripple, rolling, slip, slide, and rate-stretch tools
 - Cut-centered transitions with live resize, alignment, source-time anchoring, and preview overlays
 - Track mute/visibility/lock controls, linked sync badges, track push/pull, and close-gap workflows
@@ -95,12 +96,13 @@ request features, report bugs, and give feedback on browser-based editing workfl
 All visual effects and compositing paths are WebGPU-first, with fallbacks where practical.
 
 - **Blur:** gaussian, box, motion, radial, zoom
-- **Color:** brightness, contrast, exposure, hue shift, saturation, vibrance, temperature/tint, levels, curves, color wheels, grayscale, sepia, invert
-- **Distortion:** pixelate, RGB split, twirl, wave, bulge/pinch, kaleidoscope, mirror, fluted glass
-- **Stylize:** vignette, film grain, sharpen, posterize, glow, edge detect, scanlines, color glitch
+- **Color:** brightness, contrast, exposure, hue shift, saturation, vibrance, temperature/tint, levels, curves, color wheels, gradient map, LUT (`.cube`), grayscale, sepia, invert
+- **Distortion:** pixelate, RGB split, twirl, wave, bulge/pinch, kaleidoscope, mirror, fluted glass, ripple glass, glass mosaic, droste
+- **Stylize:** vignette, film grain, sharpen, posterize, glow, edge detect, scanlines, halftone, ASCII art, color glitch, block glitch, VHS, CRT, ink, pixel sort
 - **Keying:** chroma key with tolerance, softness, and spill suppression
 - 25 blend modes, including multiply, screen, overlay, soft light, difference, hue, saturation, color, and luminosity
 - Clip masks and pen paths with keyframeable geometry transforms
+- Color picker with hex and alpha input, plus an in-app eyedropper with loupe
 
 ### Transitions
 
@@ -111,15 +113,24 @@ All visual effects and compositing paths are WebGPU-first, with fallbacks where 
 ### Keyframe Animation
 
 - Bezier graph editor, dopesheet, split view, and multi-curve overlays
-- Easing presets: linear, ease-in, ease-out, ease-in-out, cubic-bezier, spring
+- Easing presets (linear, ease-in/out, cubic-bezier, spring) with a live-preview editor and saved custom presets
+- Procedural motion modifiers (drift, sway, breath, spin, shake) evaluated at render time, with one-click bake to keyframes
+- Motion text: per-character, per-word, and per-line text animation
 - Auto-keyframe mode, tangent mirroring, property accordions, and marquee selection
 - Animated transform, crop, mask, text, effect, and color properties
 
-### Media, AI & Analysis
+### Media & Import
 
-- Import videos, audio, images, GIFs, SVGs, and generated assets without copying originals
+- Import videos, audio, images, GIFs, SVGs, Lottie animations, and generated assets without copying originals
+- Edit imported Lottie animations (`.json` and `.lottie`): remap colors and themes, edit text, and adjust value slots with live preview
+- Apple ProRes decode for import, preview, and thumbnails, including variants browsers cannot natively decode
 - Proxy generation, thumbnail extraction, waveform caching, and media relinking
-- Browser Whisper transcription with generated caption text items
+
+### Local AI & Analysis
+
+Runs on-device in the browser — nothing is uploaded.
+
+- On-device transcription with the Parakeet engine (Whisper fallback) and generated caption text items
 - AI captioning with local vision-language providers and configurable sample cadence
 - Scene detection with histogram, optical-flow, and optional model verification workflows
 - Scene Browser for searching captioned media and reusing detected moments
@@ -139,9 +150,11 @@ All visual effects and compositing paths are WebGPU-first, with fallbacks where 
 ### Export
 
 - In-browser rendering through WebCodecs and worker-backed render paths
+- Export any sequence, not just the main timeline
 - **Video containers:** MP4, WebM, MOV, MKV
-- **Video codecs:** H.264, H.265, VP8, VP9, AV1, ProRes where supported
+- **Video codecs:** H.264, H.265, VP8, VP9, AV1 (where the browser provides an encoder)
 - **Audio export formats:** MP3, AAC, WAV/PCM
+- **Subtitles:** off, burn-in, sidecar file, or embedded soft track (container-dependent)
 - Quality presets from low to ultra, with runtime capability checks and fallbacks
 
 ## Quick Start
@@ -180,48 +193,6 @@ Brave may disable the File System Access API. To enable it:
 2. Change the setting from **Disabled** to **Enabled**
 3. Click **Relaunch** to restart the browser
 
-## Keyboard Shortcuts
-
-| Action | Shortcut |
-|---|---|
-| Play / Pause | `Space` |
-| Previous / Next frame | `Left` / `Right` |
-| Previous / Next snap point | `Up` / `Down` |
-| Go to start / end | `Home` / `End` |
-| Split at playhead | `Ctrl+K` / `Alt+C` |
-| Split at cursor | `Shift+C` |
-| Join clips | `Shift+J` |
-| Delete selected | `Delete` |
-| Ripple delete | `Ctrl+Delete` |
-| Freeze frame | `Shift+F` |
-| Nudge item (1px / 10px) | `Shift+Arrow` / `Ctrl+Shift+Arrow` |
-| Undo / Redo | `Ctrl+Z` / `Ctrl+Shift+Z` |
-| Copy / Cut / Paste | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` |
-| Selection tool | `V` |
-| Razor tool | `C` |
-| Rate stretch tool | `R` |
-| Rolling edit tool | `N` |
-| Ripple edit tool | `B` |
-| Slip tool | `Y` |
-| Slide tool | `U` |
-| Toggle snap | `S` |
-| Add / Remove marker | `M` / `Shift+M` |
-| Previous / Next marker | `[` / `]` |
-| Add keyframe | `A` |
-| Clear keyframes | `Shift+A` |
-| Toggle keyframe editor | `Ctrl+Shift+A` |
-| Keyframe view: graph / dopesheet / split | `1` / `2` / `3` |
-| Group / Ungroup tracks | `Ctrl+G` / `Ctrl+Shift+G` |
-| Mark In / Out | `I` / `O` |
-| Clear In/Out | `Alt+X` |
-| Insert / Overwrite edit | `,` / `.` |
-| Open Scene Browser | `Ctrl+Shift+F` |
-| Zoom in / out | `Ctrl+=` / `Ctrl+-` |
-| Zoom to fit | `\` |
-| Zoom to 100% | `Shift+\` |
-| Save | `Ctrl+S` |
-| Export | `Ctrl+Shift+E` |
-
 ## Tech Stack
 
 - [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
@@ -244,47 +215,20 @@ Most commands are npm scripts backed by `vite-plus` (`vp`).
 
 ```bash
 npm run dev                 # Dev server on port 5173
-npm run dev:quiet           # Dev server with perf-focused env
-npm run dev:compare         # Run dev and local perf preview together
 npm run build               # Production build
-npm run build:perf          # Production build using `.env.perf`
 npm run preview             # Preview the production build
-npm run preview:perf        # Serve production build on port 4173
 npm run perf                # Build + serve a production-like perf target
 
 npm run lint                # Oxlint through Vite+
-npm run lint:fix            # Oxlint autofix
 npm run format              # Oxfmt
-npm run format:check        # Check formatting with Oxfmt
-npm run check               # Vite+ check without formatting
-npm run check:fix           # Vite+ check with fixes
+npm run test:run            # Run the test suite once (npm run test to watch)
+npm run verify              # Full local quality gate (lint, types, tests, arch checks)
 
-npm run test                # Vite+ test watch mode
-npm run test:run            # Vite+ test single run
-npm run test:coverage       # Vite+ coverage
-npm run test:preview-sync   # Focused preview sync suite
-npm run test:preview-sync:stress # Repeated preview sync stress runner
-
-npm run check:boundaries            # Feature boundary architecture check
-npm run check:deps-contracts        # Enforce deps contract adapter routing
-npm run check:legacy-lib-imports    # Tripwire: block any "@/lib/*" import (layer removed)
-npm run check:deps-wrapper-health   # Fail on unused pass-through deps wrappers
-npm run check:changed-health        # Fail on newly introduced dead code, complexity, or duplication
-npm run check:edge-budgets          # Feature coupling budget check
-npm run report:feature-edges        # Human-readable feature edge report
-npm run report:feature-edges:json   # JSON feature edge report
-npm run report:deps-wrapper-health:json # JSON deps wrapper health report
-npm run verify                      # Full local quality gate
-
-npm run routes              # Regenerate TanStack Router route tree
-npm run changelog:append    # Append generated changelog data
-npm run changelog:rollup    # Roll changelog data into release notes
+npm run routes              # Regenerate the TanStack Router route tree
 ```
 
-`npm run verify` and the pre-push hook both include `check:changed-health`. The gate runs
-`fallow audit --base HEAD` by default and fails only on issues introduced by the current
-diff. Use `npm run check:changed-health -- --base <ref>` or set `FALLOW_AUDIT_BASE=<ref>`
-to compare against another branch or commit.
+`npm run verify` runs the complete quality gate, including architecture and
+dead-code checks scoped to the current diff; the pre-push hook runs the same set.
 
 ### Performance Checks
 
@@ -301,64 +245,20 @@ VITE_SHOW_DEBUG_PANEL=true   # Show debug panel in dev
 
 ## Project Structure
 
-```text
-src/
-|- app/                     # App bootstrap, error boundary, PWA install prompt, debug utilities
-|- components/              # shadcn/ui components and brand assets
-|- config/                  # Hotkeys and editor layout configuration
-|- data/                    # Generated app data, including changelog JSON
-|- features/                # User-facing UI modules
-|  |- editor/                # Editor shell, toolbar, panels, dialogs, deps adapters
-|  |- effects/               # Effect registry and effect UI
-|  |- export/                # WebCodecs export pipeline and canvas fallback rendering
-|  |- keyframes/             # Graph editor, dopesheet, animation resolvers
-|  |- media-library/         # Import, metadata, proxies, transcription, captioning
-|  |- preview/               # Program/source monitors, overlays, gizmos, scopes
-|  |- project-bundle/        # ZIP and JSON project import/export
-|  |- projects/              # Project list, templates, migration, trash
-|  |- scene-browser/         # Caption and scene search UI
-|  |- settings/              # Settings store, hotkey editor, model cache controls
-|  |- timeline/              # Timeline UI, tools, stores, services, workers
-|  \- workspace-gate/        # Workspace picker, permission gate, workspace switcher
-|- runtime/                 # Playback and rendering engines (not user-facing UI)
-|  |- composition-runtime/   # Composition renderer, media layout, audio graph, masks
-|  \- player/                # Clock, player primitives, video source pools
-|- infrastructure/          # Platform adapters: browser, storage, GPU, analysis, audio, thumbnails
-|  |- analysis/              # Scene detection, captioning, embeddings, optical flow
-|  |- audio/                 # SoundTouch-based time-stretch
-|  |- browser/               # Blob/object URL and Mediabunny input adapters
-|  |- gpu-effects/           # WebGPU effect pipeline + shader definitions
-|  |- gpu-transitions/       # WebGPU transition pipeline + shaders
-|  |- gpu-compositor/        # WebGPU blend-mode compositor
-|  |- gpu-masks/             # Mask combine pipeline + texture manager
-|  |- gpu-media/             # Media render/blend pipelines
-|  |- gpu-scopes/            # Waveform/vectorscope/histogram renderers
-|  |- gpu-shapes/            # Shape render pipeline
-|  |- gpu-text/              # Glyph-atlas text pipeline
-|  |- gpu-shared/            # WGSL fragments shared across GPU modules
-|  |- storage/               # Workspace FS, handles DB, legacy IDB migration
-|  \- thumbnails/            # GPU-backed thumbnail generation adapters
-|- routes/                  # TanStack Router file routes
-|- shared/                  # Framework-agnostic primitives + cross-feature state
-|  |- timeline/              # Transition engine/registry/renderers, defaults
-|  |- projects/              # Schema migrations and normalization
-|  |- state/                 # Cross-feature Zustand stores
-|  |- marquee/               # Marquee-selection hook + overlay (paired)
-|  |- ui/                    # cn helper, property controls
-|  |- logging/               # Structured logger
-|  |- typography/            # Font loading, text style presets
-|  |- graphics/              # Shape generators and path helpers
-|  \- utils/                 # Workers, color/curve math, easing, time helpers
-|- test/                    # Test setup
-\- types/                   # Shared TypeScript types
-```
+The `src/` tree is organized into a few layers:
 
-Feature modules should use their local `deps/` adapters for cross-feature
-imports. Platform-coupled code (GPU, ML, audio, storage, browser) lives in
+- **`features/`** — user-facing UI modules (editor, timeline, preview, media library, effects, keyframes, export, projects, settings, scene browser, and more)
+- **`runtime/`** — playback and rendering engines (composition runtime, player, clock) that are not user-facing UI
+- **`infrastructure/`** — platform adapters for GPU (effects, transitions, compositor, masks, text, scopes), analysis, audio, browser, storage, and thumbnails
+- **`shared/`** — framework-agnostic primitives and cross-feature state (transition engine, schema migrations, Zustand stores, utils)
+- **`app/`, `components/`, `config/`, `routes/`, `types/`** — bootstrap, shadcn/ui components, configuration, file-based routes, and shared types
+
+Feature modules use their local `deps/` adapters for cross-feature imports.
+Platform-coupled code (GPU, ML, audio, storage, browser) lives in
 `@/infrastructure/*` and is imported directly; there is no separate `lib/`
 layer.
 
-Layer notes:
+For the full directory breakdown, see the layer notes:
 
 - [src/infrastructure/README.md](src/infrastructure/README.md)
 - [src/shared/README.md](src/shared/README.md)

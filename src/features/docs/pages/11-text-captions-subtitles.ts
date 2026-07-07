@@ -36,8 +36,42 @@ const page = {
             'Open the **Text** tab, then click **Add text** or a template to place text at the playhead — or drag a template onto the timeline or canvas.',
             'Choose a layout (**Single**, **2 Spans**, **3 Spans**) and a style preset such as Clean, Lower Third, Cinematic, or Neon.',
             'In the **Text** section set font, size (8–500 px), weight, color, background, alignment, spacing, line height, padding, and radius.',
-            'Add shadow or stroke under **Effects**, and Intro/Outro animation presets for motion.',
+            'Add shadow or stroke under **Effects**, and animate the text under **Text Animation**.',
           ],
+        },
+      ],
+    },
+    {
+      title: 'Motion text',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: 'In the **Text Animation** section (in the text clip properties, or the Text stage of the **Animate** workspace) each character, word, or line can animate independently. Motion is evaluated at render time, so there are no keyframes to manage.',
+        },
+        {
+          kind: 'steps',
+          items: [
+            'Select a text clip and open the **Text Animation** section.',
+            'Pick a preset in the **In**, **Out**, or **Loop** row. **In** plays at the clip start, **Out** at the clip end, and **Loop** runs continuously between them.',
+            'Click the active preset again (or its ✕) to remove it — one preset per row.',
+            'Tune the controls that appear under the active preset.',
+          ],
+        },
+        {
+          kind: 'table',
+          headers: ['Control', 'What it does'],
+          rows: [
+            ['Applies to', 'The unit each preset animates: Character, Word, Line, or Whole clip.'],
+            ['Duration', 'Length, in frames, of each unit’s animation.'],
+            ['Stagger', 'Frames of delay between each unit, for a cascading effect.'],
+            ['Order', 'Which unit animates first: Forward, Backward, Center out, or Random.'],
+            ['Intensity', 'Scales the effect strength, from 0 to 200 percent.'],
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'tip',
+          text: 'In presets include Typewriter, Fade Up, Rise, Cascade, Pop, Blur In, Slide Reveal, and Wave In; Out presets include Fade Down, Sink, Pop Out, Blur Out, and Erase; Loop presets include Pulse, Wave, Shimmer, and Swing.',
         },
       ],
     },

@@ -122,18 +122,22 @@ const page = {
       title: 'Customize shortcuts',
       blocks: [
         {
+          kind: 'paragraph',
+          text: 'Every binding above is a shipped default. Open the redesigned shortcut editor from the **Keyboard Shortcuts** button (keyboard icon) in the editor toolbar to remap any command to the keys you prefer.',
+        },
+        {
           kind: 'steps',
           items: [
-            'Open **Keyboard Shortcuts** from the toolbar to search commands and bindings.',
-            'Select a command and record a new key, resolving any conflict it reports.',
-            'Export a preset for backup or transfer, and import one on another machine.',
-            'Use **Reset** to restore the defaults.',
+            'Search commands by name, or filter to the **Custom**, **Conflicts**, or **Unassigned** groups.',
+            'Pick a command and press **Record**, then hold your modifiers and press the final key.',
+            'If the combo is already in use, the editor flags the conflict — choose **Overwrite** to reassign it, or pick different keys.',
+            'Use **Unbind** to clear a binding, or add an alternate binding alongside the primary one.',
           ],
         },
         {
           kind: 'note',
           tone: 'tip',
-          text: 'Every binding above is the shipped default and can be remapped to whatever you prefer.',
+          text: 'Use **Reset** to restore a single command, or **Reset All** to return every shortcut to its default. You can also **Export** your bindings to a preset file and **Import** it on another machine.',
         },
       ],
     },

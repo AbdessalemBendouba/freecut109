@@ -66,10 +66,17 @@ const page = {
         {
           kind: 'list',
           items: [
-            'Click a modulator tile to apply it with sensible defaults; a **Live** dot marks active ones.',
-            'Open an applied tile to adjust **Intensity** and **Duration**, or **Remove** it.',
+            'Each tile shows an animated preview of the motion, so you can read the feel before applying it.',
+            'Click a modulator tile to apply it with sensible defaults; a **Live** dot appears on active tiles.',
+            'Open an applied tile to adjust **Intensity** (0–200%) and **Duration** (25–300%), or **Remove** it. Dragging a slider previews live and folds into a single undo.',
+            'A modulator that would rescale the box (Breath pulse) is disabled for text clips, with a reason on hover.',
             'Applying to several clips staggers the phase per clip so they do not move in lockstep.',
           ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'An **Applied** summary lists what the selected clip carries: a keyframed-count chip for baked or hand-set properties versus one chip per **live** modulator — so you can tell procedural motion from keyframes at a glance. Each chip has a remove control.',
         },
       ],
     },
@@ -80,8 +87,8 @@ const page = {
           kind: 'list',
           items: [
             'Use **Bake to keyframes** to flatten procedural motion on the selected clips into editable keyframes.',
-            'Baking removes the procedural source and leaves plain keyframes you can reshape in the graph.',
-            'It is available whenever the selection has bakeable motion (a modulator or an audio pulse).',
+            'Baking samples the live modulators across the clip, removes the procedural source, and leaves plain keyframes you can reshape in the graph.',
+            'The button is enabled whenever the selection carries a live modulator; it is disabled when there is nothing procedural to bake.',
           ],
         },
         {

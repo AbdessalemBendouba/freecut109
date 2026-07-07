@@ -7,7 +7,7 @@ const page = {
   description:
     'Tracks, adding clips, selection, split and join, deleting, snapping, markers, ranges, sequences, and zoom.',
   category: 'Core Editing',
-  related: ['editing-tools', 'preview', 'keyboard-shortcuts'],
+  related: ['editing-tools', 'preview', 'media', 'export', 'keyboard-shortcuts'],
   sections: [
     {
       title: 'Tracks',
@@ -79,10 +79,12 @@ const page = {
         {
           kind: 'list',
           items: [
-            'Create a sequence with **+** on the tab bar; it opens as its own tab.',
-            'Double-click a tab to **rename** it; the **⋯** menu lets you **Close tab** (keeps it in the Media panel) or **Delete sequence** entirely.',
-            'A **compound clip** can be opened in a sequence tab — in the Media panel, right-click a compound clip and choose **Open as tab** to edit it as a standalone timeline.',
-            'Drop a sequence onto the timeline to nest it as a clip (shown with a **SEQUENCE** badge); double-click that clip to jump to its tab.',
+            'Create a sequence with the **+** button at the end of the tab bar; it opens as its own tab.',
+            'Switch sequences by clicking a tab; the **Main** tab is always first.',
+            'Double-click a tab to **rename** it, or use the tab options menu (⋮) for **Rename**, **Close tab**, and **Delete sequence**.',
+            '**Close tab** only removes the tab — the sequence stays available in the Media panel and in any clips that reference it. **Delete sequence** removes it entirely (undoable), along with any clips that reference it.',
+            'A **compound clip** can be opened as a sequence tab — in the Media panel, right-click a compound clip and choose **Open as tab** to edit it as a standalone timeline.',
+            'Drop a sequence onto the timeline to nest it as a clip (labelled **Sequence**); double-click that clip to jump to its tab.',
           ],
         },
         {
