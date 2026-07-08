@@ -5,6 +5,7 @@ const mediaLibraryServiceMocks = vi.hoisted(() => ({
   getMediaForProject: vi.fn(),
   getMediaFile: vi.fn(),
   mirrorOpfsMediaToWorkspace: vi.fn(async () => ({ mirrored: 0 })),
+  prefetchThumbnails: vi.fn(async () => {}),
 }))
 
 const proxyStatusListenerRef = vi.hoisted(() => ({

@@ -531,7 +531,7 @@ const MediaCardInternal = memo(function MediaCardInternal({
 
     const loadThumbnail = async () => {
       const { mediaLibraryService } = await importMediaLibraryService()
-      const url = await mediaLibraryService.getThumbnailBlobUrl(media.id)
+      const url = await mediaLibraryService.getThumbnailBlobUrl(media.id, media.thumbnailId)
       if (mounted) {
         setThumbnailUrl(url)
       }

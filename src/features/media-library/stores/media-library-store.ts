@@ -203,6 +203,18 @@ const newStore: MediaLibraryStoreApi =
             })
 
             event.set('mediaCount', mediaItems.length)
+
+            // Warm the thumbnail cache in one batched pass so cards render
+            // their thumbnails on mount without each firing an independent
+            // FSA read. Best-effort; never blocks the grid.
+            void mediaLibraryService
+              .prefetchThumbnails(
+                mediaItems.map((m) => ({ id: m.id, thumbnailId: m.thumbnailId })),
+              )
+              .catch((error) =>
+                logger.warn('[MediaLibraryStore] Thumbnail prefetch failed:', error),
+              )
+
             void get().scanMediaHealth()
 
             // Repair sweep: mirror any legacy OPFS-only source media into the

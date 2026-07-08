@@ -894,6 +894,32 @@ describe('MediaLibraryService', () => {
       const result = await mediaLibraryService.getThumbnailBlobUrl('thumb-nope')
       expect(result).toBeNull()
     })
+
+    it('re-reads when the change-marker differs (regenerated thumbnail)', async () => {
+      indexedDbMocks.getThumbnailByMediaId.mockResolvedValue({
+        blob: new Blob(['thumb'], { type: 'image/webp' }),
+      })
+
+      await mediaLibraryService.getThumbnailBlobUrl('thumb-m1', 'v1')
+      // Same marker → cache hit, no second disk read.
+      await mediaLibraryService.getThumbnailBlobUrl('thumb-m1', 'v1')
+      expect(indexedDbMocks.getThumbnailByMediaId).toHaveBeenCalledTimes(1)
+
+      // New marker (thumbnail regenerated) → must bypass the stale cache.
+      await mediaLibraryService.getThumbnailBlobUrl('thumb-m1', 'v2')
+      expect(indexedDbMocks.getThumbnailByMediaId).toHaveBeenCalledTimes(2)
+    })
+
+    it('serves a marker-less request from a marked cache entry', async () => {
+      indexedDbMocks.getThumbnailByMediaId.mockResolvedValue({
+        blob: new Blob(['thumb'], { type: 'image/webp' }),
+      })
+
+      await mediaLibraryService.getThumbnailBlobUrl('thumb-m1', 'v1')
+      // A caller without a marker accepts whatever is cached — no extra read.
+      await mediaLibraryService.getThumbnailBlobUrl('thumb-m1')
+      expect(indexedDbMocks.getThumbnailByMediaId).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('needsPermission', () => {

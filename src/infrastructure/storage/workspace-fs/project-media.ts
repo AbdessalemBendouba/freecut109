@@ -24,6 +24,7 @@ import { listDirectory } from './fs-primitives'
 import { getProject } from './projects'
 import { getMedia } from './media'
 import { withKeyLock } from './with-key-lock'
+import { mapWithConcurrency } from '@/shared/utils/async-utils'
 
 /**
  * Serialize mutations of `media-links.json` per project. Without this,
@@ -36,6 +37,14 @@ function linksLockKey(projectId: string): string {
 }
 
 const logger = createLogger('WorkspaceFS:ProjectMedia')
+
+/** Bound on parallel metadata.json reads — mirrors media.ts's global read. */
+const METADATA_READ_CONCURRENCY = 8
+
+type ProjectMediaReadResult =
+  | { kind: 'ok'; media: MediaMetadata }
+  | { kind: 'missing'; mediaId: string }
+  | { kind: 'error'; error: unknown }
 
 const PROJECT_MEDIA_ITEM_TYPES = new Set(['video', 'audio', 'image'])
 
@@ -228,12 +237,40 @@ export async function getMediaForProject(projectId: string): Promise<MediaMetada
     }
 
     const finalIds = [...associated]
+    // Read every associated media's metadata.json concurrently. Each getMedia()
+    // re-walks the FSA dir tree (`media/{id}/metadata.json`), so a serial loop
+    // here cost N sequential round-trips before the grid could render. Bounded
+    // concurrency keeps this off the critical path for editor open.
+    //
+    // The mapper never throws — it returns a discriminated result so a genuine
+    // read error (`error`) is distinguishable from genuinely-absent metadata
+    // (`missing`). A real read failure must fail the whole load, exactly as the
+    // prior serial loop did: silently dropping the item would leave its
+    // media-links.json association dangling while the clip vanishes from the
+    // grid, and validation would then treat the media as missing. Only a
+    // confirmed-missing metadata file is cleaned up as an orphan.
+    const loaded = await mapWithConcurrency(
+      finalIds,
+      METADATA_READ_CONCURRENCY,
+      async (mediaId): Promise<ProjectMediaReadResult> => {
+        try {
+          const media = await getMedia(mediaId)
+          return media ? { kind: 'ok', media } : { kind: 'missing', mediaId }
+        } catch (error) {
+          return { kind: 'error', error }
+        }
+      },
+    )
     const media: MediaMetadata[] = []
     const orphans: string[] = []
-    for (const mediaId of finalIds) {
-      const m = await getMedia(mediaId)
-      if (m) media.push(m)
-      else orphans.push(mediaId)
+    for (const result of loaded) {
+      // The mapper never throws, so a null slot would only come from an
+      // internal mapWithConcurrency failure — surface it rather than silently
+      // treating the id as resolved.
+      if (!result) throw new Error(`Metadata read produced no result for project ${projectId}`)
+      if (result.kind === 'error') throw result.error
+      if (result.kind === 'ok') media.push(result.media)
+      else orphans.push(result.mediaId)
     }
 
     if (orphans.length > 0) {
