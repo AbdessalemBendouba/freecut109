@@ -121,10 +121,16 @@ function getBuildAssetSignature(documentToInspect: Document): string {
 const currentBuildAssetSignature = getBuildAssetSignature(document)
 
 let appShellUpdateCheckInFlight = false
+let appShellUpdateRecheckQueued = false
 async function checkForAppShellUpdate() {
-  // Guard against overlapping checks — the interval, visibilitychange, and a burst of
-  // vite:preloadError events can otherwise fire several concurrent fetches of `/`.
+  // Coalesce overlapping checks — the interval, visibilitychange, and a burst of
+  // vite:preloadError events would otherwise fire several concurrent fetches of `/`.
+  // Rather than drop the extras (which would lose the signal if the in-flight fetch
+  // transiently fails or gets a stale `/`), queue a single trailing re-check so a real
+  // deploy is still caught after the current fetch settles instead of only at the next
+  // interval/visibility event.
   if (appShellUpdateCheckInFlight) {
+    appShellUpdateRecheckQueued = true
     return
   }
   appShellUpdateCheckInFlight = true
@@ -159,6 +165,11 @@ async function checkForAppShellUpdate() {
     log.warn('App update check failed:', error)
   } finally {
     appShellUpdateCheckInFlight = false
+  }
+
+  if (appShellUpdateRecheckQueued) {
+    appShellUpdateRecheckQueued = false
+    await checkForAppShellUpdate()
   }
 }
 
