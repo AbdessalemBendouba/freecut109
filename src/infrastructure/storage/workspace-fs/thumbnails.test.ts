@@ -6,6 +6,7 @@ import {
   deleteThumbnailsByMediaId,
   getThumbnail,
   getThumbnailByMediaId,
+  getThumbnailsByMediaIds,
   saveThumbnail,
 } from './thumbnails'
 import { setWorkspaceRoot } from './root'
@@ -72,6 +73,28 @@ describe('workspace-fs thumbnails', () => {
     await deleteThumbnailsByMediaId('m1')
     expect(await getThumbnailByMediaId('m1')).toBeUndefined()
     expect(await readFileText(root, 'media', 'm1', 'thumbnail.jpg')).toBeNull()
+  })
+
+  it('getThumbnailsByMediaIds batch-reads present thumbnails and skips missing ones', async () => {
+    const root = createRoot()
+    setWorkspaceRoot(asHandle(root))
+    await saveThumbnail(makeThumbnail('m1'))
+    await saveThumbnail(makeThumbnail('m3'))
+
+    // 'm2' has no thumbnail — it must be absent from the result, not throw.
+    const result = await getThumbnailsByMediaIds(['m1', 'm2', 'm3'])
+
+    expect([...result.keys()].sort()).toEqual(['m1', 'm3'])
+    expect(result.get('m1')!.size).toBeGreaterThan(0)
+    expect(result.get('m2')).toBeUndefined()
+  })
+
+  it('getThumbnailsByMediaIds returns an empty map for empty input or missing media dir', async () => {
+    const root = createRoot()
+    setWorkspaceRoot(asHandle(root))
+    expect((await getThumbnailsByMediaIds([])).size).toBe(0)
+    // media/ directory never created — must resolve to empty, not throw.
+    expect((await getThumbnailsByMediaIds(['nope'])).size).toBe(0)
   })
 
   it('saveThumbnail overwrites prior thumbnail for the same media', async () => {

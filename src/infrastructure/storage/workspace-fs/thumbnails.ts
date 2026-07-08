@@ -23,8 +23,9 @@ import { createLogger } from '@/shared/logging/logger'
 
 import { requireWorkspaceRoot } from './root'
 import { readBlob, removeEntry, writeBlob } from './fs-primitives'
-import { mediaThumbnailPath, projectThumbnailPath } from './paths'
+import { MEDIA_DIR, MEDIA_THUMBNAIL_FILENAME, mediaThumbnailPath, projectThumbnailPath } from './paths'
 import { blobToArrayBuffer } from './blob-utils'
+import { mapWithConcurrency } from '@/shared/utils/async-utils'
 
 const logger = createLogger('WorkspaceFS:Thumbnails')
 
@@ -67,6 +68,58 @@ export async function getThumbnailByMediaId(mediaId: string): Promise<ThumbnailD
     logger.error(`getThumbnailByMediaId(${mediaId}) failed`, error)
     return undefined
   }
+}
+
+/**
+ * Batch-read thumbnails for many media at once.
+ *
+ * Resolving the shared `media/` directory handle a single time and reusing it
+ * for every id avoids the per-id re-walk that `getThumbnailByMediaId` incurs
+ * (`readBlob` re-resolves `media/` on each call). Reads run with bounded
+ * concurrency; missing thumbnails are simply absent from the returned map.
+ * This warms callers' caches on project load so cards render without each
+ * mounting an independent async fetch.
+ */
+const THUMBNAIL_READ_CONCURRENCY = 8
+
+export async function getThumbnailsByMediaIds(
+  mediaIds: string[],
+): Promise<Map<string, Blob>> {
+  const result = new Map<string, Blob>()
+  if (mediaIds.length === 0) return result
+
+  const root = requireWorkspaceRoot()
+  let mediaDirHandle: FileSystemDirectoryHandle
+  try {
+    mediaDirHandle = await root.getDirectoryHandle(MEDIA_DIR, { create: false })
+  } catch (error) {
+    // No media/ directory yet — nothing to prefetch.
+    if (error instanceof DOMException && error.name === 'NotFoundError') return result
+    logger.warn('getThumbnailsByMediaIds: failed to open media directory', error)
+    return result
+  }
+
+  const reads = await mapWithConcurrency(
+    mediaIds,
+    THUMBNAIL_READ_CONCURRENCY,
+    async (mediaId): Promise<{ mediaId: string; blob: Blob } | null> => {
+      try {
+        const dir = await mediaDirHandle.getDirectoryHandle(mediaId, { create: false })
+        const fileHandle = await dir.getFileHandle(MEDIA_THUMBNAIL_FILENAME, { create: false })
+        return { mediaId, blob: await fileHandle.getFile() }
+      } catch (error) {
+        // A media dir without a thumbnail (or removed mid-read) is expected — skip.
+        if (error instanceof DOMException && error.name === 'NotFoundError') return null
+        logger.warn(`getThumbnailsByMediaIds(${mediaId}) failed`, error)
+        return null
+      }
+    },
+  )
+
+  for (const read of reads) {
+    if (read) result.set(read.mediaId, read.blob)
+  }
+  return result
 }
 
 export async function deleteThumbnailsByMediaId(mediaId: string): Promise<void> {

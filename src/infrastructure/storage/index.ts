@@ -32,6 +32,7 @@ export {
 export {
   saveThumbnail,
   getThumbnailByMediaId,
+  getThumbnailsByMediaIds,
   deleteThumbnailsByMediaId,
   saveProjectThumbnail,
   loadProjectThumbnail,

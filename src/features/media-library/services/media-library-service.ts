@@ -46,6 +46,7 @@ import {
   deleteMedia as deleteMediaDB,
   saveThumbnail as saveThumbnailDB,
   getThumbnailByMediaId,
+  getThumbnailsByMediaIds,
   deleteThumbnailsByMediaId,
   // v3: Content-addressable storage
   incrementContentRef,
@@ -1792,9 +1793,36 @@ class MediaLibraryService {
       return null
     }
 
+    // The prefetch batch (or another caller) may have populated the cache
+    // during the await above — reuse it rather than leaking a second URL.
+    const raced = this.thumbnailUrlCache.get(mediaId)
+    if (raced) {
+      return raced
+    }
+
     const url = URL.createObjectURL(thumbnail.blob)
     this.thumbnailUrlCache.set(mediaId, url)
     return url
+  }
+
+  /**
+   * Warm the in-memory thumbnail-URL cache for many media in one batched pass.
+   *
+   * Called on project load so each card's mount is a synchronous cache hit
+   * instead of an independent async FSA read. Only fetches ids not already
+   * cached, and reuses the shared `media/` directory handle for all reads.
+   */
+  async prefetchThumbnails(mediaIds: string[]): Promise<void> {
+    const uncached = mediaIds.filter((id) => !this.thumbnailUrlCache.has(id))
+    if (uncached.length === 0) return
+
+    const blobs = await getThumbnailsByMediaIds(uncached)
+    for (const [mediaId, blob] of blobs) {
+      // A concurrent getThumbnailBlobUrl() may have populated the cache while
+      // this batch was in flight — don't leak a second object URL for it.
+      if (this.thumbnailUrlCache.has(mediaId)) continue
+      this.thumbnailUrlCache.set(mediaId, URL.createObjectURL(blob))
+    }
   }
 
   /**

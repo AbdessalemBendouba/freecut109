@@ -19,6 +19,7 @@ export {
   getProjectMediaIds,
   getProjectsUsingMedia,
   getThumbnailByMediaId,
+  getThumbnailsByMediaIds,
   hasMediaSource,
   incrementContentRef,
   mirrorBlobToWorkspace,
