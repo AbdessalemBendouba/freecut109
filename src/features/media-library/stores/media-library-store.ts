@@ -205,6 +205,15 @@ const newStore: MediaLibraryStoreApi =
             event.set('mediaCount', mediaItems.length)
             void get().scanMediaHealth()
 
+            // Repair sweep: mirror any legacy OPFS-only source media into the
+            // workspace folder so it's durable and visible across origins.
+            // Background + best-effort; never blocks load.
+            void mediaLibraryService
+              .mirrorOpfsMediaToWorkspace(mediaItems)
+              .catch((error) =>
+                logger.warn('[MediaLibraryStore] OPFS→workspace mirror sweep failed:', error),
+              )
+
             const transcriptStatus = await loadTranscriptStatusMap(mediaItems)
             set({
               transcriptStatus,

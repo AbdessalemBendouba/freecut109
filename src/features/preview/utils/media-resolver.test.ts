@@ -5,6 +5,7 @@ import { FileAccessError } from '@/features/preview/deps/media-library'
 import type { TimelineTrack, VideoItem } from '@/types/timeline'
 
 const mockMarkMediaBroken = vi.fn()
+const mockMarkMediaHealthy = vi.fn()
 const mediaLibraryService = vi.hoisted(() => ({
   getMedia: vi.fn(),
   getMediaFile: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock('@/features/media-library/stores/media-library-store', () => ({
   useMediaLibraryStore: {
     getState: () => ({
       markMediaBroken: mockMarkMediaBroken,
+      markMediaHealthy: mockMarkMediaHealthy,
       mediaById: {},
     }),
   },
@@ -125,7 +127,7 @@ describe('resolveMediaUrl', () => {
     expect(url).toBe('')
   })
 
-  it('returns empty string when blob is null', async () => {
+  it('returns empty string and marks media broken when blob is null', async () => {
     ;(mediaLibraryService.getMedia as Mock).mockResolvedValue({
       id: 'media-1',
       fileName: 'video.mp4',
@@ -135,6 +137,14 @@ describe('resolveMediaUrl', () => {
     const url = await resolveMediaUrl('media-1')
 
     expect(url).toBe('')
+    // Unresolvable source (no valid storage path) must surface as broken so the
+    // clip shows a relink state instead of failing silently.
+    expect(mockMarkMediaBroken).toHaveBeenCalledWith('media-1', {
+      mediaId: 'media-1',
+      fileName: 'video.mp4',
+      errorType: 'file_missing',
+    })
+    expect(mockMarkMediaHealthy).not.toHaveBeenCalled()
   })
 
   it('marks media broken when handle-backed reads report a missing file', async () => {

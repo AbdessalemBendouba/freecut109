@@ -22,7 +22,10 @@ import type {
   ShapeItem,
   CompositionItem,
 } from '@/types/timeline'
-import { LottieExportProvider } from '@/infrastructure/lottie/lottie-frame-provider'
+import {
+  LottieExportProvider,
+  isRenderableLottieSrc,
+} from '@/infrastructure/lottie/lottie-frame-provider'
 import { resolveLottieRenderSpec } from '@/infrastructure/lottie/lottie-text'
 import type { ItemKeyframes } from '@/types/keyframe'
 import type { ItemEffect } from '@/types/effects'
@@ -438,7 +441,7 @@ export async function createCompositionRenderer(
     await Promise.all(
       lottieItems.map(async (baseItem) => {
         const item = liveLottieItem(baseItem)
-        if (!item.src) return
+        if (!isRenderableLottieSrc(item.src)) return
         const signature = lottieOverrideSignature(item)
         if (lottieProvider.getSignature(baseItem.id) === signature) return
         const w = item.sourceWidth && item.sourceWidth > 0 ? item.sourceWidth : 512
@@ -460,7 +463,7 @@ export async function createCompositionRenderer(
 
   for (const track of tracks) {
     for (const item of track.items ?? []) {
-      if (item.type === 'lottie' && (item as LottieItem).src) {
+      if (item.type === 'lottie' && isRenderableLottieSrc((item as LottieItem).src)) {
         lottieItems.push(item as LottieItem)
       }
       if (item.type === 'image' && (item as ImageItem).src) {
@@ -1376,6 +1379,7 @@ export async function createCompositionRenderer(
           await Promise.all(
             subLottieItems.map(async (it) => {
               try {
+                if (!isRenderableLottieSrc(it.src)) return
                 const spec = await resolveLottieRenderSpec(it.src, it)
                 if (isDisposed) return
                 await lottieProvider.preload(

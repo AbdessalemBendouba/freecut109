@@ -1,5 +1,10 @@
 {
   "preview": {
+    "mediaOffline": {
+      "title": "媒体离线",
+      "relink": "在媒体面板中重新链接",
+      "loading": "加载中…"
+    },
     "align": {
       "left": "左对齐",
       "centerH": "水平居中",

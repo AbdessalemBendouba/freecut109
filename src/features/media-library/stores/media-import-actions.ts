@@ -43,7 +43,7 @@ function buildOptimisticMediaItem(
 
   return {
     id: tempId,
-    storageType: storageMode === 'link' ? 'handle' : 'opfs',
+    storageType: storageMode === 'link' ? 'handle' : 'workspace',
     fileHandle: storageMode === 'link' ? handle : undefined,
     fileName: file.name,
     fileSize: file.size,

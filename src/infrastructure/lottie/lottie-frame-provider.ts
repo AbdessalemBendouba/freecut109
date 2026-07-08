@@ -13,6 +13,7 @@
  * Preview uses {@link LottieRenderer} directly against a visible canvas.
  */
 import { DotLottie } from '@lottiefiles/dotlottie-web'
+import { isLiveObjectUrl } from '@/infrastructure/browser/object-url-registry'
 import type { LottieSlotValue } from './lottie-slots'
 // Bundle the WASM alongside the app so it resolves without the default CDN.
 // Use the package's `exports`-mapped subpath (NOT `/dist/...`) so Node's strict
@@ -32,6 +33,20 @@ export function ensureLottieWasm(): void {
   if (wasmConfigured) return
   DotLottie.setWasmUrl(wasmUrl)
   wasmConfigured = true
+}
+
+/**
+ * Whether a Lottie `src` can actually be loaded right now. Guards against a
+ * stale `blob:` URL — one persisted into a project or left over after its media
+ * was deleted — which dotlottie would `fetch()` and fail with
+ * `net::ERR_FILE_NOT_FOUND`, spamming the console every render. A live blob URL
+ * (freshly resolved via the blob-url manager) stays registered; a dead one does
+ * not. Non-blob sources (http/data) are assumed loadable.
+ */
+export function isRenderableLottieSrc(src: string | undefined | null): src is string {
+  if (!src) return false
+  if (src.startsWith('blob:')) return isLiveObjectUrl(src)
+  return true
 }
 
 export interface LottieFrameMapInput {

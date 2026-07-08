@@ -1,5 +1,10 @@
 {
   "preview": {
+    "mediaOffline": {
+      "title": "Medya çevrimdışı",
+      "relink": "Medya panelinden yeniden bağlayın",
+      "loading": "Yükleniyor…"
+    },
     "align": {
       "left": "Sola hizala",
       "centerH": "Yatay ortala",

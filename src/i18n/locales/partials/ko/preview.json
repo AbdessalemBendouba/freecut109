@@ -1,5 +1,10 @@
 {
   "preview": {
+    "mediaOffline": {
+      "title": "미디어 오프라인",
+      "relink": "미디어 패널에서 다시 연결하세요",
+      "loading": "불러오는 중…"
+    },
     "align": {
       "left": "왼쪽 정렬",
       "centerH": "가로 가운데 정렬",

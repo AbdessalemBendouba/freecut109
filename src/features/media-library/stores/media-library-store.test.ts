@@ -4,6 +4,7 @@ import type { MediaMetadata } from '@/types/storage'
 const mediaLibraryServiceMocks = vi.hoisted(() => ({
   getMediaForProject: vi.fn(),
   getMediaFile: vi.fn(),
+  mirrorOpfsMediaToWorkspace: vi.fn(async () => ({ mirrored: 0 })),
 }))
 
 const proxyStatusListenerRef = vi.hoisted(() => ({

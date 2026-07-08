@@ -1,5 +1,6 @@
 import type { MediaAttribution, MediaMetadata, ThumbnailData } from '@/types/storage'
 import { createLogger } from '@/shared/logging/logger'
+import { mapWithConcurrency } from '@/shared/utils/async-utils'
 
 const logger = createLogger('MediaLibraryService')
 
@@ -76,7 +77,6 @@ import { proxyService } from './proxy-service'
 import { ensureFileHandlePermission, FileAccessError } from './file-access'
 import { enqueueBackgroundMediaWork } from './background-media-work'
 import {
-  buildGeneratedMediaOpfsPath,
   getGeneratedImageDimensions,
   getThumbnailDimensions,
   persistGeneratedMediaAsset,
@@ -527,11 +527,9 @@ class MediaLibraryService {
       const thumb = await this.generateLottieThumbnailBlob(file, lottie.width, lottie.height)
       const mediaId = crypto.randomUUID()
       const createdAt = Date.now()
-      const opfsPath = buildGeneratedMediaOpfsPath(mediaId)
       const mediaMetadata: MediaMetadata = {
         id: mediaId,
-        storageType: 'opfs',
-        opfsPath,
+        storageType: 'workspace',
         fileName: file.name,
         fileSize: file.size,
         mimeType: resolvedMimeType,
@@ -574,7 +572,6 @@ class MediaLibraryService {
 
     const mediaId = crypto.randomUUID()
     const createdAt = Date.now()
-    const opfsPath = buildGeneratedMediaOpfsPath(mediaId)
     const codecCheck = mediaProcessorService.hasUnsupportedAudioCodec(metadata)
     const previewAudioCodec =
       metadata.type === 'audio'
@@ -595,8 +592,7 @@ class MediaLibraryService {
 
     const mediaMetadata: MediaMetadata = {
       id: mediaId,
-      storageType: 'opfs',
-      opfsPath,
+      storageType: 'workspace',
       fileName: file.name,
       fileSize: file.size,
       mimeType: resolvedMimeType,
@@ -1132,15 +1128,13 @@ class MediaLibraryService {
 
     const mediaId = crypto.randomUUID()
     const createdAt = Date.now()
-    const opfsPath = buildGeneratedMediaOpfsPath(mediaId)
     const codec = options?.codec ?? resolvedMimeType.split('/')[1] ?? 'unknown'
     const thumbnailMaxSize = options?.thumbnailMaxSize ?? 320
     const thumbnailQuality = options?.thumbnailQuality ?? 0.6
 
     const mediaMetadata: MediaMetadata = {
       id: mediaId,
-      storageType: 'opfs',
-      opfsPath,
+      storageType: 'workspace',
       fileName: file.name,
       fileSize: file.size,
       mimeType: resolvedMimeType,
@@ -1221,15 +1215,13 @@ class MediaLibraryService {
 
     const mediaId = crypto.randomUUID()
     const createdAt = Date.now()
-    const opfsPath = buildGeneratedMediaOpfsPath(mediaId)
     const codec = options?.codec ?? metadata.codec ?? resolvedMimeType.split('/')[1] ?? 'unknown'
     // Nominal height — audio waveform thumbnails don't have intrinsic dimensions,
     // so we use a 16:9 placeholder ratio for the DB record.
     const thumbnailHeight = Math.max(1, Math.round(thumbnailMaxSize * (9 / 16)))
     const mediaMetadata: MediaMetadata = {
       id: mediaId,
-      storageType: 'opfs',
-      opfsPath,
+      storageType: 'workspace',
       fileName: file.name,
       fileSize: file.size,
       mimeType: resolvedMimeType,
@@ -1475,6 +1467,15 @@ class MediaLibraryService {
     }
     const id = media.id
 
+    // Workspace-folder storage (durable, cross-origin source of truth).
+    // Source bytes live at `media/{id}/{filename}` in the user-picked folder.
+    if (media.storageType === 'workspace') {
+      const workspaceSource = await readMediaSourceSafe(id)
+      if (workspaceSource) return workspaceSource
+      logger.error('Media has no valid storage path:', id)
+      return null
+    }
+
     // Handle file handle storage (local-first, origin-scoped).
     if (media.storageType === 'handle' && media.fileHandle) {
       try {
@@ -1546,6 +1547,44 @@ class MediaLibraryService {
 
     logger.error('Media has no valid storage path:', id)
     return null
+  }
+
+  /**
+   * Repair sweep: mirror legacy OPFS-backed source media into the workspace
+   * folder so it becomes durable and visible across origins.
+   *
+   * Source media is now written to the workspace folder directly at import
+   * (`storageType: 'workspace'`), but records imported by older builds still
+   * live only in this origin's OPFS. OPFS is origin-scoped, so opening the same
+   * project on another origin (or after clearing site data) can't see them —
+   * the symptom is "Media has no valid storage path". This runs on load and
+   * copies any OPFS source that isn't already in the workspace folder into it.
+   *
+   * Best-effort and idempotent: a media already mirrored (or whose OPFS copy is
+   * gone on this origin) is skipped. Runs in the background; never throws.
+   */
+  async mirrorOpfsMediaToWorkspace(media: MediaMetadata[]): Promise<{ mirrored: number }> {
+    const candidates = media.filter((m) => m.storageType === 'opfs' && !!m.opfsPath)
+    if (candidates.length === 0) return { mirrored: 0 }
+
+    let mirrored = 0
+    await mapWithConcurrency(candidates, 4, async (m) => {
+      try {
+        if (await hasMediaSource(m.id)) return
+        const blob = await opfsService.getFileBlob(m.opfsPath!)
+        await writeMediaSource(m.id, blob, m.fileName, { strict: true })
+        mirrored++
+      } catch (error) {
+        // OPFS copy missing on this origin, or a workspace write failure — the
+        // record simply stays OPFS-only here. Nothing actionable; keep going.
+        logger.warn(`mirrorOpfsMediaToWorkspace(${m.id}) skipped:`, error)
+      }
+    })
+
+    if (mirrored > 0) {
+      logger.info(`Mirrored ${mirrored} OPFS media source(s) into the workspace folder`)
+    }
+    return { mirrored }
   }
 
   /**

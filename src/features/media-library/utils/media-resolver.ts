@@ -51,7 +51,17 @@ export async function resolveMediaUrl(mediaId: string): Promise<string> {
       const blob = await mediaLibraryService.getMediaFile(media)
 
       if (!blob) {
+        // The media record exists but its bytes can't be resolved (no valid
+        // storage path — e.g. opened on an origin whose OPFS lacks it and the
+        // workspace folder has no copy). getMediaFile returns null WITHOUT a
+        // FileAccessError, so surface it into the broken-media system here so
+        // the clip shows a relink state and the missing-media dialog lights up.
         logger.warn(`Media blob not found: ${mediaId}`)
+        useMediaLibraryStore.getState().markMediaBroken(mediaId, {
+          mediaId,
+          fileName: media.fileName ?? 'Unknown file',
+          errorType: 'file_missing',
+        })
         return ''
       }
 
@@ -68,6 +78,11 @@ export async function resolveMediaUrl(mediaId: string): Promise<string> {
       if (media.keyframeTimestamps && media.keyframeTimestamps.length > 0) {
         registerKeyframeIndex(blobUrl, media.keyframeTimestamps)
       }
+
+      // Resolved successfully — clear any stale broken flag (e.g. the repair
+      // sweep just restored the workspace copy) so the clip stops showing the
+      // offline state without needing a reload.
+      useMediaLibraryStore.getState().markMediaHealthy(mediaId)
 
       return blobUrl
     } catch (error) {

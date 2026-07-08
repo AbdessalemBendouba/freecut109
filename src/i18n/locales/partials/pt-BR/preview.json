@@ -1,5 +1,10 @@
 {
   "preview": {
+    "mediaOffline": {
+      "title": "Mídia off-line",
+      "relink": "Revincule-a no painel de mídia",
+      "loading": "Carregando…"
+    },
     "align": {
       "left": "Alinhar à esquerda",
       "centerH": "Centralizar horizontalmente",

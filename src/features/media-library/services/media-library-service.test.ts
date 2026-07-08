@@ -276,7 +276,7 @@ describe('MediaLibraryService', () => {
       expect(filmstripCacheMocks.prewarmPriorityWindow).not.toHaveBeenCalled()
     })
 
-    it('copies handle-picked media into app and workspace storage when requested', async () => {
+    it('copies handle-picked media into the workspace folder when requested', async () => {
       const mockFile = new File(['data'], 'video.mp4', { type: 'video/mp4' })
       const mockHandle = makeFileHandle(mockFile)
 
@@ -301,16 +301,19 @@ describe('MediaLibraryService', () => {
         storageMode: 'copy',
       })
 
-      expect(result.storageType).toBe('opfs')
+      expect(result.storageType).toBe('workspace')
       expect(result.fileHandle).toBeUndefined()
+      expect(result.opfsPath).toBeUndefined()
       expect(result.fileName).toBe('video.mp4')
-      expect(opfsMocks.saveFile).toHaveBeenCalledTimes(1)
-      expect(indexedDbMocks.writeMediaSource).toHaveBeenCalledWith(result.id, mockFile, 'video.mp4')
+      // Durable source goes to the workspace folder, NOT OPFS.
+      expect(opfsMocks.saveFile).not.toHaveBeenCalled()
+      expect(indexedDbMocks.writeMediaSource).toHaveBeenCalledWith(result.id, mockFile, 'video.mp4', {
+        strict: true,
+      })
       expect(indexedDbMocks.createMedia).toHaveBeenCalledWith(
         expect.objectContaining({
           id: result.id,
-          storageType: 'opfs',
-          opfsPath: expect.any(String),
+          storageType: 'workspace',
           fileName: 'video.mp4',
         }),
       )
@@ -552,13 +555,19 @@ describe('MediaLibraryService', () => {
       )
 
       expect(fetchMock).toHaveBeenCalledWith('https://cdn.example.com/assets/clip.mp4?token=123')
-      expect(result.storageType).toBe('opfs')
+      expect(result.storageType).toBe('workspace')
       expect(result.fileName).toBe('clip.mp4')
-      expect(opfsMocks.saveFile).toHaveBeenCalledTimes(1)
+      expect(opfsMocks.saveFile).not.toHaveBeenCalled()
+      expect(indexedDbMocks.writeMediaSource).toHaveBeenCalledWith(
+        result.id,
+        expect.any(File),
+        'clip.mp4',
+        { strict: true },
+      )
       expect(indexedDbMocks.createMedia).toHaveBeenCalledWith(
         expect.objectContaining({
           id: result.id,
-          storageType: 'opfs',
+          storageType: 'workspace',
           fileName: 'clip.mp4',
           mimeType: 'video/mp4',
         }),
@@ -1004,6 +1013,91 @@ describe('MediaLibraryService', () => {
       await expect(mediaLibraryService.relinkMediaHandle('m1', newHandle)).rejects.toThrow(
         FileAccessError,
       )
+    })
+  })
+
+  describe('mirrorOpfsMediaToWorkspace', () => {
+    it('mirrors a legacy OPFS source that is missing from the workspace folder', async () => {
+      const media = makeMediaMetadata({
+        id: 'm1',
+        storageType: 'opfs',
+        opfsPath: 'content/ab/cd/m1/data',
+        fileName: 'clip.mp4',
+      })
+      indexedDbMocks.hasMediaSource.mockResolvedValue(false)
+      const blob = new Blob(['bytes'], { type: 'video/mp4' })
+      opfsMocks.getFileBlob.mockResolvedValue(blob)
+
+      const result = await mediaLibraryService.mirrorOpfsMediaToWorkspace([media])
+
+      expect(opfsMocks.getFileBlob).toHaveBeenCalledWith('content/ab/cd/m1/data')
+      expect(indexedDbMocks.writeMediaSource).toHaveBeenCalledWith('m1', blob, 'clip.mp4', {
+        strict: true,
+      })
+      expect(result).toEqual({ mirrored: 1 })
+    })
+
+    it('skips OPFS media already present in the workspace folder', async () => {
+      const media = makeMediaMetadata({
+        id: 'm1',
+        storageType: 'opfs',
+        opfsPath: 'content/ab/cd/m1/data',
+      })
+      indexedDbMocks.hasMediaSource.mockResolvedValue(true)
+
+      const result = await mediaLibraryService.mirrorOpfsMediaToWorkspace([media])
+
+      expect(opfsMocks.getFileBlob).not.toHaveBeenCalled()
+      expect(indexedDbMocks.writeMediaSource).not.toHaveBeenCalled()
+      expect(result).toEqual({ mirrored: 0 })
+    })
+
+    it('ignores handle- and workspace-backed media', async () => {
+      const handleMedia = makeMediaMetadata({ id: 'm1', storageType: 'handle' })
+      const workspaceMedia = makeMediaMetadata({ id: 'm2', storageType: 'workspace' })
+
+      const result = await mediaLibraryService.mirrorOpfsMediaToWorkspace([
+        handleMedia,
+        workspaceMedia,
+      ])
+
+      expect(indexedDbMocks.hasMediaSource).not.toHaveBeenCalled()
+      expect(indexedDbMocks.writeMediaSource).not.toHaveBeenCalled()
+      expect(result).toEqual({ mirrored: 0 })
+    })
+
+    it('continues past an item whose OPFS copy is missing on this origin', async () => {
+      const gone = makeMediaMetadata({
+        id: 'm1',
+        storageType: 'opfs',
+        opfsPath: 'content/ab/cd/m1/data',
+        fileName: 'gone.mp4',
+      })
+      const ok = makeMediaMetadata({
+        id: 'm2',
+        storageType: 'opfs',
+        opfsPath: 'content/ef/gh/m2/data',
+        fileName: 'ok.mp4',
+      })
+      indexedDbMocks.hasMediaSource.mockResolvedValue(false)
+      const blob = new Blob(['bytes'], { type: 'video/mp4' })
+      opfsMocks.getFileBlob.mockImplementation(async (path: string) => {
+        if (path === 'content/ab/cd/m1/data') throw new Error('not found on this origin')
+        return blob
+      })
+
+      const result = await mediaLibraryService.mirrorOpfsMediaToWorkspace([gone, ok])
+
+      expect(indexedDbMocks.writeMediaSource).toHaveBeenCalledWith('m2', blob, 'ok.mp4', {
+        strict: true,
+      })
+      expect(indexedDbMocks.writeMediaSource).not.toHaveBeenCalledWith(
+        'm1',
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+      )
+      expect(result).toEqual({ mirrored: 1 })
     })
   })
 })

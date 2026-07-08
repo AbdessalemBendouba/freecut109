@@ -78,11 +78,21 @@ export async function hasMediaSource(mediaId: string): Promise<boolean> {
  * filename (sanitized for cross-fs safety). Idempotent: re-calling for a
  * media that already has any source file in its dir — including a legacy
  * `source.{ext}` file from earlier versions — is a no-op.
+ *
+ * The blob is streamed straight to disk via `createWritable` (see writeBlob),
+ * so this does not buffer the whole file into JS memory — safe for large
+ * copy-mode imports.
+ *
+ * By default a failure is swallowed and logged (background-mirror semantics
+ * used by the lazy mirror-on-read). Pass `{ strict: true }` when this write is
+ * the durable primary store for the media so the caller can roll the import
+ * back on failure.
  */
 export async function writeMediaSource(
   mediaId: string,
   blob: Blob,
   fileName: string | undefined,
+  options?: { strict?: boolean },
 ): Promise<void> {
   const root = requireWorkspaceRoot()
   try {
@@ -91,17 +101,12 @@ export async function writeMediaSource(
     if (await findSourceSegments(root, mediaId)) return
 
     const path = mediaSourceByFileName(mediaId, fileName ?? 'source.bin')
-    const bytes = new Uint8Array(await blobToArrayBuffer(blob))
-    await writeBlob(root, path, bytes)
+    await writeBlob(root, path, blob)
     logger.info(
-      `Mirrored media source to workspace: ${mediaId} (${path[path.length - 1]}, ${bytes.byteLength} bytes)`,
+      `Wrote media source to workspace: ${mediaId} (${path[path.length - 1]}, ${blob.size} bytes)`,
     )
   } catch (error) {
     logger.warn(`writeMediaSource(${mediaId}) failed`, error)
+    if (options?.strict) throw error
   }
-}
-
-async function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
-  if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer()
-  return new Response(blob).arrayBuffer()
 }

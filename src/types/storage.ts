@@ -1,9 +1,19 @@
 /**
  * Storage type for media files
- * - 'handle': Uses FileSystemFileHandle (instant import, reads from user's disk)
- * - 'opfs': Uses OPFS copy (for drag-drop without handle, or imported URLs)
+ * - 'handle':    Uses FileSystemFileHandle — references the user's original
+ *                file on disk (instant import, no copy). Origin-scoped.
+ * - 'workspace': Source bytes copied into the user-picked workspace folder
+ *                (`media/{id}/{filename}`). Durable and shared across every
+ *                origin that picks the same folder — the source of truth for
+ *                media with no user file handle (remote/generated/copied).
+ * - 'opfs':      Legacy: source copied into the Origin Private File System.
+ *                Origin-scoped, so NOT visible cross-origin. No longer written
+ *                for source media (use 'workspace'); still read for records
+ *                imported by older builds, and the repair sweep mirrors them
+ *                into the workspace folder. OPFS remains the store for
+ *                regenerable caches (proxies, waveforms, decoded audio).
  */
-export type MediaStorageType = 'handle' | 'opfs'
+export type MediaStorageType = 'handle' | 'workspace' | 'opfs'
 
 /**
  * Provenance + usage terms for media imported from a third-party provider.
@@ -28,9 +38,10 @@ export interface MediaAttribution {
 export interface MediaMetadata {
   id: string
   /**
-   * How the media file is stored
-   * - 'handle': FileSystemFileHandle references user's original file (instant, no copy)
-   * - 'opfs': File copied to Origin Private File System (for drag-drop, URLs)
+   * How the media file is stored (see {@link MediaStorageType}).
+   * - 'handle':    references the user's original file on disk
+   * - 'workspace': source bytes copied into the workspace folder (durable, cross-origin)
+   * - 'opfs':      legacy Origin Private File System copy (origin-scoped)
    */
   storageType: MediaStorageType
   /**

@@ -1,5 +1,10 @@
 {
   "preview": {
+    "mediaOffline": {
+      "title": "Medium offline",
+      "relink": "Verknüpfe es erneut im Medienbereich",
+      "loading": "Wird geladen…"
+    },
     "align": {
       "left": "Links ausrichten",
       "centerH": "Horizontal zentrieren",

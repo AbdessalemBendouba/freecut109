@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { mapTimelineFrameToLottieFrame } from './lottie-frame-provider'
+import { mapTimelineFrameToLottieFrame, isRenderableLottieSrc } from './lottie-frame-provider'
+import {
+  registerObjectUrl,
+  unregisterObjectUrl,
+} from '@/infrastructure/browser/object-url-registry'
 
 // Base input: project fps === animation fps and totalFrames 100, so 1 project
 // frame maps to 1 lottie frame at speed 1 (elapsed === localFrame).
@@ -72,5 +76,31 @@ describe('mapTimelineFrameToLottieFrame', () => {
   it('returns 0 for degenerate inputs', () => {
     expect(mapTimelineFrameToLottieFrame({ ...base, totalFrames: 0, localFrame: 10 })).toBe(0)
     expect(mapTimelineFrameToLottieFrame({ ...base, frameRate: 0, localFrame: 10 })).toBe(0)
+  })
+})
+
+describe('isRenderableLottieSrc', () => {
+  it('rejects empty/nullish sources', () => {
+    expect(isRenderableLottieSrc('')).toBe(false)
+    expect(isRenderableLottieSrc(undefined)).toBe(false)
+    expect(isRenderableLottieSrc(null)).toBe(false)
+  })
+
+  it('accepts non-blob sources (http/data) without a registry check', () => {
+    expect(isRenderableLottieSrc('https://cdn.example.com/a.lottie')).toBe(true)
+    expect(isRenderableLottieSrc('data:application/json,{}')).toBe(true)
+  })
+
+  it('accepts a live blob URL but rejects a stale/unregistered one', () => {
+    const liveUrl = 'blob:http://localhost/live-123'
+    const staleUrl = 'blob:http://localhost/stale-456'
+    registerObjectUrl(liveUrl, new Blob(['{}'], { type: 'application/json' }))
+
+    expect(isRenderableLottieSrc(liveUrl)).toBe(true)
+    // Never registered (e.g. persisted into a project or revoked after delete).
+    expect(isRenderableLottieSrc(staleUrl)).toBe(false)
+
+    unregisterObjectUrl(liveUrl)
+    expect(isRenderableLottieSrc(liveUrl)).toBe(false)
   })
 })

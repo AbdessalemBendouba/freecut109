@@ -1,5 +1,10 @@
 {
   "preview": {
+    "mediaOffline": {
+      "title": "Media offline",
+      "relink": "Relink it in the Media panel",
+      "loading": "Loading…"
+    },
     "align": {
       "left": "Align Left",
       "centerH": "Align Center Horizontally",

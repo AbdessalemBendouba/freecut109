@@ -93,10 +93,6 @@ async function blobToArrayBuffer(blob: Blob): Promise<ArrayBuffer> {
   return new Response(blob).arrayBuffer()
 }
 
-export function buildGeneratedMediaOpfsPath(mediaId: string): string {
-  return `content/${mediaId.slice(0, 2)}/${mediaId.slice(2, 4)}/${mediaId}/data`
-}
-
 interface PersistGeneratedMediaOptions {
   file: File
   projectId: string
@@ -118,15 +114,25 @@ export async function persistGeneratedMediaAsset({
   const event = logger.startEvent('persistGeneratedMediaAsset', opId)
   event.merge({ projectId, mediaId: mediaMetadata.id })
 
+  let sourceWritten = false
   let metadataCreated = false
   let thumbnailSaved = false
 
   try {
-    if (!mediaMetadata.opfsPath) {
-      throw new Error('Generated media is missing an OPFS path.')
-    }
+    // Durable primary store: the user-picked workspace folder. It's the
+    // cross-origin source of truth, so a copied/generated/remote asset must
+    // land here — not OPFS, which is origin-scoped and invisible when the
+    // same project is opened on another origin. Strict: a failure here means
+    // the media isn't durably stored, so roll the whole import back.
+    await writeMediaSource(mediaMetadata.id, file, mediaMetadata.fileName, { strict: true })
+    sourceWritten = true
 
-    await opfsService.saveFile(mediaMetadata.opfsPath, await blobToArrayBuffer(file))
+    // Optional OPFS copy — only when a caller still supplies an opfsPath (e.g.
+    // a regenerable cache). Source imports omit it and live in the workspace
+    // folder alone.
+    if (mediaMetadata.opfsPath) {
+      await opfsService.saveFile(mediaMetadata.opfsPath, await blobToArrayBuffer(file))
+    }
 
     const rawWidth = Number(thumbnailWidth)
     const rawHeight = Number(thumbnailHeight)
@@ -153,23 +159,14 @@ export async function persistGeneratedMediaAsset({
 
     await createMediaDB(mediaMetadata)
     metadataCreated = true
-    // Mirror source into the workspace folder so the copied import is durable
-    // outside this browser origin. A mirror failure (e.g. expired folder
-    // permissions, quota) must not roll back the already-created asset — log it
-    // and let the import complete so the asset stays visible in the UI.
-    try {
-      await writeMediaSource(mediaMetadata.id, file, mediaMetadata.fileName)
-    } catch (mirrorError) {
-      logger.warn(
-        `Failed to mirror generated media source ${mediaMetadata.id} to the workspace folder:`,
-        mirrorError,
-      )
-    }
     await associateMediaWithProject(projectId, mediaMetadata.id)
     event.success({ projectId, mediaId: mediaMetadata.id })
     return mediaMetadata
   } catch (error) {
-    if (metadataCreated) {
+    // deleteMediaDB removes the whole `media/{id}/` dir recursively, so it
+    // cleans up the workspace source blob too — even when metadata was never
+    // written (source-only orphan).
+    if (metadataCreated || sourceWritten) {
       try {
         await deleteMediaDB(mediaMetadata.id)
       } catch (cleanupError) {
@@ -201,7 +198,7 @@ export async function persistGeneratedMediaAsset({
 
     event.failure(error, {
       rollback: {
-        metadataDeleted: metadataCreated ? 'attempted' : 'none',
+        metadataDeleted: metadataCreated || sourceWritten ? 'attempted' : 'none',
         thumbnailDeleted: thumbnailSaved ? 'attempted' : 'none',
         opfsDeleted: mediaMetadata.opfsPath ? 'attempted' : 'none',
       },

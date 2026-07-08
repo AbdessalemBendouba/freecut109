@@ -116,14 +116,39 @@ function cloneTransitionForProject(transition: Transition): Transition {
   }
 }
 
-function stripTimelineItemThumbnailUrl<T extends { thumbnailUrl?: string }>(item: T): T {
-  if (item.thumbnailUrl === undefined) {
-    return item
+/**
+ * Strip ephemeral (never-persist) fields from a timeline item:
+ *  - `thumbnailUrl` — a transient object URL for the clip thumbnail.
+ *  - `src` / `audioSrc` when they are `blob:` URLs on a media-backed item.
+ *    Blob URLs are session-scoped: persisting one bakes a dead URL into the
+ *    project file that fails to `fetch()` on the next load (the recurring
+ *    `net::ERR_FILE_NOT_FOUND` from dotlottie/video). Media-backed items
+ *    re-resolve their src from `mediaId` on load, so the stored value is
+ *    redundant anyway — drop it.
+ *
+ * Returns the SAME reference when nothing changed so callers can detect a
+ * mutation by identity.
+ */
+function stripTimelineItemEphemeralFields<
+  T extends { thumbnailUrl?: string; mediaId?: string; src?: string; audioSrc?: string },
+>(item: T): T {
+  let next = item
+
+  if (next.thumbnailUrl !== undefined) {
+    const rest = { ...next }
+    delete rest.thumbnailUrl
+    next = rest as T
   }
 
-  const rest = { ...item }
-  delete rest.thumbnailUrl
-  return rest as T
+  if (next.mediaId && typeof next.src === 'string' && next.src.startsWith('blob:')) {
+    next = { ...next, src: '' }
+  }
+
+  if (next.mediaId && typeof next.audioSrc === 'string' && next.audioSrc.startsWith('blob:')) {
+    next = { ...next, audioSrc: '' }
+  }
+
+  return next
 }
 
 function sanitizeTimelineEphemeralFields(timeline: ProjectTimeline): {
@@ -133,25 +158,23 @@ function sanitizeTimelineEphemeralFields(timeline: ProjectTimeline): {
   let cleaned = false
 
   const items = (timeline.items ?? []).map((item) => {
-    if (item.thumbnailUrl === undefined) {
-      return item
+    const stripped = stripTimelineItemEphemeralFields(item)
+    if (stripped !== item) {
+      cleaned = true
     }
-
-    cleaned = true
-    return stripTimelineItemThumbnailUrl(item)
+    return stripped
   }) as ProjectTimeline['items']
 
   const compositions = timeline.compositions?.map((composition) => {
     let compositionCleaned = false
 
     const nextItems = (composition.items ?? []).map((item) => {
-      if (item.thumbnailUrl === undefined) {
-        return item
+      const stripped = stripTimelineItemEphemeralFields(item)
+      if (stripped !== item) {
+        cleaned = true
+        compositionCleaned = true
       }
-
-      cleaned = true
-      compositionCleaned = true
-      return stripTimelineItemThumbnailUrl(item)
+      return stripped
     }) as ProjectTimeline['items']
 
     if (!compositionCleaned) {

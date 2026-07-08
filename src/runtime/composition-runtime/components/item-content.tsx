@@ -10,7 +10,9 @@ import { PitchCorrectedAudio } from './pitch-corrected-audio'
 import type { AudioPlaybackProps } from './audio-playback-props'
 import { GifPlayer } from './gif-player'
 import { LottiePlayer } from './lottie-player'
+import { MediaOfflinePlaceholder } from './media-offline-placeholder'
 import { ItemVisualWrapper } from './item-visual-wrapper'
+import { isRenderableLottieSrc } from '@/infrastructure/lottie/lottie-frame-provider'
 import { TextContent } from './text-content'
 import { SubtitleSegmentContent } from './subtitle-segment-content'
 import { ShapeContent } from './shape-content'
@@ -172,6 +174,11 @@ export const ItemContent = React.memo<ItemProps>(
     const mediaItem = useMediaLibraryStore((s) =>
       item.mediaId ? s.mediaById[item.mediaId] : undefined,
     )
+    // Boolean selector (not the array) so this only re-renders when THIS item's
+    // broken state flips — never per-frame during playback.
+    const isMediaOffline = useMediaLibraryStore((s) =>
+      item.mediaId ? s.brokenMediaIds.includes(item.mediaId) : false,
+    )
     const mediaSourceFps = mediaItem?.fps
     const itemAudioEqStages = React.useMemo(
       () => appendResolvedAudioEqStage(audioEqStages, getAudioEqSettings(item)),
@@ -201,20 +208,9 @@ export const ItemContent = React.memo<ItemProps>(
         useProxy: nestedMediaResolutionMode === 'proxy',
       })
       const mediaSource = getSourceDimensions(item)
-      // Guard against missing src (media resolution failed)
+      // Guard against missing src (media resolution failed / media deleted)
       if (!item.src) {
-        return (
-          <AbsoluteFill
-            style={{
-              backgroundColor: '#1a1a1a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <p style={{ color: '#666', fontSize: 14 }}>Media not loaded</p>
-          </AbsoluteFill>
-        )
+        return <MediaOfflinePlaceholder offline={isMediaOffline} label={item.label} />
       }
       // Use sourceStart for trimBefore (absolute position in source)
       // Fall back to trimStart or offset for backward compatibility
@@ -482,20 +478,9 @@ export const ItemContent = React.memo<ItemProps>(
 
     if (item.type === 'image') {
       const mediaSource = getSourceDimensions(item)
-      // Guard against missing src (media resolution failed)
+      // Guard against missing src (media resolution failed / media deleted)
       if (!item.src) {
-        return (
-          <AbsoluteFill
-            style={{
-              backgroundColor: '#1a1a1a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <p style={{ color: '#666', fontSize: 14 }}>Image not loaded</p>
-          </AbsoluteFill>
-        )
+        return <MediaOfflinePlaceholder offline={isMediaOffline} label={item.label} />
       }
 
       // Use GifPlayer for animated images (GIF and WebP).
@@ -567,19 +552,10 @@ export const ItemContent = React.memo<ItemProps>(
 
     if (item.type === 'lottie') {
       const mediaSource = getSourceDimensions(item)
-      if (!item.src) {
-        return (
-          <AbsoluteFill
-            style={{
-              backgroundColor: '#1a1a1a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <p style={{ color: '#666', fontSize: 14 }}>Lottie not loaded</p>
-          </AbsoluteFill>
-        )
+      // A stale `blob:` src (persisted or left over after the media was deleted)
+      // is treated as missing so dotlottie is never handed a dead URL to fetch.
+      if (!isRenderableLottieSrc(item.src)) {
+        return <MediaOfflinePlaceholder offline={isMediaOffline} label={item.label} />
       }
       return (
         <ItemVisualWrapper

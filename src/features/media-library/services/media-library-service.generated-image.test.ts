@@ -6,6 +6,7 @@ const indexedDbMocks = vi.hoisted(() => ({
   saveThumbnail: vi.fn(),
   deleteThumbnailsByMediaId: vi.fn(),
   associateMediaWithProject: vi.fn(),
+  writeMediaSource: vi.fn(async () => undefined),
 }))
 
 const opfsMocks = vi.hoisted(() => ({
@@ -64,7 +65,7 @@ vi.mock('@/infrastructure/storage', () => ({
   getMediaForProject: vi.fn(),
   deleteTranscript: vi.fn(),
   saveTranscript: vi.fn(),
-  writeMediaSource: vi.fn(async () => undefined),
+  writeMediaSource: indexedDbMocks.writeMediaSource,
 }))
 
 vi.mock('./opfs-service', () => ({
@@ -125,7 +126,7 @@ describe('MediaLibraryService.importGeneratedImage', () => {
     )
   })
 
-  it('persists a generated still as OPFS-backed media and associates it with the project', async () => {
+  it('persists a generated still to the workspace folder and associates it with the project', async () => {
     const file = new File(['frame-bytes'], 'frame.png', { type: 'image/png' })
 
     const result = await mediaLibraryService.importGeneratedImage(file, 'project-1', {
@@ -135,7 +136,10 @@ describe('MediaLibraryService.importGeneratedImage', () => {
       codec: 'png',
     })
 
-    expect(opfsMocks.saveFile).toHaveBeenCalledTimes(1)
+    expect(opfsMocks.saveFile).not.toHaveBeenCalled()
+    expect(indexedDbMocks.writeMediaSource).toHaveBeenCalledWith(result.id, file, 'frame.png', {
+      strict: true,
+    })
     expect(indexedDbMocks.saveThumbnail).toHaveBeenCalledWith(
       expect.objectContaining({
         mediaId: result.id,
@@ -146,7 +150,7 @@ describe('MediaLibraryService.importGeneratedImage', () => {
     expect(indexedDbMocks.createMedia).toHaveBeenCalledWith(
       expect.objectContaining({
         id: result.id,
-        storageType: 'opfs',
+        storageType: 'workspace',
         fileName: 'frame.png',
         mimeType: 'image/png',
         width: 1920,
@@ -175,7 +179,7 @@ describe('MediaLibraryService.importGeneratedAudio', () => {
     })
   })
 
-  it('persists generated audio as OPFS-backed media with a waveform thumbnail', async () => {
+  it('persists generated audio to the workspace folder with a waveform thumbnail', async () => {
     const file = new File(['wav-bytes'], 'ai-voice.wav', { type: 'audio/wav' })
 
     const result = await mediaLibraryService.importGeneratedAudio(file, 'project-1', {
@@ -191,7 +195,10 @@ describe('MediaLibraryService.importGeneratedAudio', () => {
         thumbnailQuality: 0.6,
       }),
     )
-    expect(opfsMocks.saveFile).toHaveBeenCalledTimes(1)
+    expect(opfsMocks.saveFile).not.toHaveBeenCalled()
+    expect(indexedDbMocks.writeMediaSource).toHaveBeenCalledWith(result.id, file, 'ai-voice.wav', {
+      strict: true,
+    })
     expect(indexedDbMocks.saveThumbnail).toHaveBeenCalledWith(
       expect.objectContaining({
         mediaId: result.id,
@@ -202,7 +209,7 @@ describe('MediaLibraryService.importGeneratedAudio', () => {
     expect(indexedDbMocks.createMedia).toHaveBeenCalledWith(
       expect.objectContaining({
         id: result.id,
-        storageType: 'opfs',
+        storageType: 'workspace',
         fileName: 'ai-voice.wav',
         mimeType: 'audio/wav',
         duration: 2.75,
