@@ -9,9 +9,13 @@ All notable changes to FreeCut. Weekly CalVer: `YYYY.MM.DD` = the Monday of the 
 ### Added
 - Lottie animations — import .json and .lottie files and play them on the timeline
 - Customize Lottie colors, themes, text, and value slots, with live preview
+- Browse and import free LottieFiles animations from inside the editor
 
 ### Fixed
 - Fixed edge seams and shimmer on GPU effects in the preview
+- Copied, generated, and imported media now save reliably to your workspace folder
+- Missing media shows a relink prompt on the clip instead of failing silently
+- Go To Start returns to the first frame after reopening a project
 
 ### Improved
 - Effects apply to the preview instantly, without a warm-up delay
