@@ -23,7 +23,9 @@ import {
   extensionForMimeType,
   enumerateAudioInputs,
   hasMicRecordingSupport,
+  startMicLevelMonitor,
   type MicRecorderResult,
+  type MicMonitorHandle,
 } from '@/infrastructure/audio/mic-recorder'
 import { blobUrlManager } from '@/infrastructure/browser/blob-url-manager'
 import { usePlaybackStore } from '@/shared/state/playback'
@@ -45,10 +47,15 @@ const logger = createLogger('MicRecording')
 const LEVEL_THROTTLE_MS = 40
 
 let recorder: MicRecorder | null = null
+let monitor: MicMonitorHandle | null = null
+let monitorToken = 0
 let transportUnsub: (() => void) | null = null
+let projectUnsub: (() => void) | null = null
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
 /** Guards the transport watcher against our own intentional play/pause calls. */
 let suppressTransport = false
+/** When true, the timeline monitor was muted for this take and must be restored. */
+let mutedByRecording = false
 let lastLevelAt = 0
 
 export function isMicRecordingSupported(): boolean {
@@ -88,6 +95,10 @@ export async function startMicRecording(): Promise<void> {
     return
   }
 
+  // Release the pre-record monitor stream (if the device picker opened one) so
+  // it doesn't contend with the recording stream.
+  stopMicMonitor()
+
   store.setError(null)
   store.setStatus('requesting')
 
@@ -97,6 +108,8 @@ export async function startMicRecording(): Promise<void> {
   try {
     await rec.start({
       deviceId: store.selectedDeviceId ?? undefined,
+      noiseSuppression: store.noiseSuppression,
+      autoGainControl: store.autoGainControl,
       onLevel: handleLevel,
     })
   } catch (error) {
@@ -110,6 +123,14 @@ export async function startMicRecording(): Promise<void> {
   // Labels become available after the permission grant — refresh so the picker
   // shows real device names next time.
   void refreshMicDevices()
+
+  // Optionally silence the timeline monitor mix so speaker audio doesn't bleed
+  // into the mic. Remembered so we can restore the user's prior mute state.
+  mutedByRecording = false
+  if (store.muteWhileRecording && !usePlaybackStore.getState().muted) {
+    usePlaybackStore.getState().setMuted(true)
+    mutedByRecording = true
+  }
 
   // Anchor the clip to the playhead. Start (or continue) playback first so the
   // clock's auto-rewind-at-end has already resolved before we read the frame.
@@ -133,6 +154,7 @@ export async function startMicRecording(): Promise<void> {
   store.setStatus('recording')
   startElapsedTimer()
   watchTransport()
+  watchProject()
 }
 
 /** Explicit lockstep pause: pauses the recorder and the transport together. */
@@ -171,11 +193,14 @@ export async function stopMicRecording(): Promise<void> {
 
   transportUnsub?.()
   transportUnsub = null
+  projectUnsub?.()
+  projectUnsub = null
   stopElapsedTimer()
 
   suppressTransport = true
   usePlaybackStore.getState().pause()
   suppressTransport = false
+  restoreMonitorMute()
 
   const rec = recorder
   recorder = null
@@ -212,15 +237,54 @@ export async function stopMicRecording(): Promise<void> {
 export function cancelMicRecording(): void {
   transportUnsub?.()
   transportUnsub = null
+  projectUnsub?.()
+  projectUnsub = null
   stopElapsedTimer()
 
   suppressTransport = true
   usePlaybackStore.getState().pause()
   suppressTransport = false
+  restoreMonitorMute()
 
   recorder?.dispose()
   recorder = null
   useMicRecordingStore.getState().reset()
+}
+
+// --- pre-record monitor ----------------------------------------------------
+
+/**
+ * Open a monitor-only mic stream so the device picker's level meter is live
+ * before recording. No-op while a real take is active (that already meters).
+ * Guarded by a token so out-of-order open/close calls can't leak a stream.
+ */
+export async function startMicMonitor(): Promise<void> {
+  if (monitor || isMicRecordingActive(useMicRecordingStore.getState().status)) return
+  const store = useMicRecordingStore.getState()
+  const token = ++monitorToken
+  try {
+    const handle = await startMicLevelMonitor({
+      deviceId: store.selectedDeviceId ?? undefined,
+      noiseSuppression: store.noiseSuppression,
+      autoGainControl: store.autoGainControl,
+      onLevel: handleLevel,
+    })
+    // A newer stop()/restart superseded us while awaiting — release immediately.
+    if (token !== monitorToken || isMicRecordingActive(useMicRecordingStore.getState().status)) {
+      handle.stop()
+      return
+    }
+    monitor = handle
+  } catch (error) {
+    logger.warn('Failed to start mic monitor', error)
+  }
+}
+
+export function stopMicMonitor(): void {
+  monitorToken += 1
+  monitor?.stop()
+  monitor = null
+  useMicRecordingStore.getState().setLevel(0)
 }
 
 // --- internals -------------------------------------------------------------
@@ -263,26 +327,27 @@ function watchTransport(): void {
   })
 }
 
-async function decodeAudioDuration(blob: Blob, fallbackMs: number): Promise<number> {
-  const Ctor =
-    typeof window !== 'undefined'
-      ? (window.AudioContext ??
-        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
-      : undefined
-  const fallbackSeconds = Math.max(0, fallbackMs / 1000)
-  if (!Ctor) return fallbackSeconds
+/**
+ * Cancel the in-flight take if the active project changes mid-recording — the
+ * take belongs to the project it started in, and its timeline/media targets are
+ * about to be swapped out.
+ */
+function watchProject(): void {
+  projectUnsub?.()
+  const startProjectId = useMediaLibraryStore.getState().currentProjectId
+  projectUnsub = useMediaLibraryStore.subscribe((state, prev) => {
+    if (state.currentProjectId === prev.currentProjectId) return
+    if (state.currentProjectId !== startProjectId) {
+      cancelMicRecording()
+    }
+  })
+}
 
-  const ctx = new Ctor()
-  try {
-    const buffer = await blob.arrayBuffer()
-    const audio = await ctx.decodeAudioData(buffer)
-    return audio.duration > 0 ? audio.duration : fallbackSeconds
-  } catch (error) {
-    logger.warn('decodeAudioData failed; using timer duration', error)
-    return fallbackSeconds
-  } finally {
-    void ctx.close().catch(() => {})
-  }
+/** Restore the timeline monitor mute state if we changed it for this take. */
+function restoreMonitorMute(): void {
+  if (!mutedByRecording) return
+  mutedByRecording = false
+  usePlaybackStore.getState().setMuted(false)
 }
 
 async function commitRecording(result: MicRecorderResult, anchor: number): Promise<void> {
@@ -294,10 +359,6 @@ async function commitRecording(result: MicRecorderResult, anchor: number): Promi
     throw new Error('No project selected')
   }
 
-  const durationSeconds = await decodeAudioDuration(result.blob, result.durationMs)
-  const fps = useTimelineSettingsStore.getState().fps
-  const durationInFrames = Math.max(1, Math.round(durationSeconds * fps))
-
   const extension = extensionForMimeType(result.mimeType)
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
   const fileName = `${i18n.t('recording.fileNamePrefix')}-${stamp}.${extension}`
@@ -306,8 +367,21 @@ async function commitRecording(result: MicRecorderResult, anchor: number): Promi
     lastModified: Date.now(),
   })
 
+  // The service resolves an authoritative, finite duration (probe → decode →
+  // timer) once — reuse it here instead of decoding the blob a second time.
   const { mediaLibraryService } = await importMediaLibraryService()
-  const media = await mediaLibraryService.importRecordedAudio(file, projectId, { durationSeconds })
+  const media = await mediaLibraryService.importRecordedAudio(file, projectId, {
+    fallbackDurationMs: result.durationMs,
+  })
+
+  const fps = useTimelineSettingsStore.getState().fps
+  const durationSeconds = media.duration
+  const durationInFrames = Math.max(1, Math.round(durationSeconds * fps))
+
+  // Apply the user's manual input-latency compensation (clamped to keep the
+  // clip on the timeline).
+  const syncOffsetMs = useMicRecordingStore.getState().syncOffsetMs
+  const from = Math.max(0, anchor + Math.round((syncOffsetMs / 1000) * fps))
 
   // We already hold the recorded blob in memory — bind it to the media id for
   // this session instead of re-reading from OPFS.
@@ -326,7 +400,7 @@ async function commitRecording(result: MicRecorderResult, anchor: number): Promi
     blobUrl,
     canvasWidth: 0,
     canvasHeight: 0,
-    placement: { trackId: newTrack.id, from: anchor, durationInFrames },
+    placement: { trackId: newTrack.id, from, durationInFrames },
     originId: crypto.randomUUID(),
   })
 

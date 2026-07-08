@@ -235,6 +235,33 @@ function sanitizeLottieFileName(rawName: string | undefined): string {
  * Provides atomic operations for media management while keeping origin-scoped
  * sources and the workspace folder in sync.
  */
+
+/**
+ * Decode an audio blob to read its exact duration in seconds. Falls back to the
+ * provided value when Web Audio is unavailable or decoding fails.
+ */
+async function decodeAudioDurationSeconds(blob: Blob, fallbackSeconds: number): Promise<number> {
+  const safeFallback = Math.max(0, fallbackSeconds)
+  const Ctor =
+    typeof window !== 'undefined'
+      ? (window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
+      : undefined
+  if (!Ctor) return safeFallback
+
+  const ctx = new Ctor()
+  try {
+    const buffer = await blob.arrayBuffer()
+    const audio = await ctx.decodeAudioData(buffer)
+    return audio.duration > 0 ? audio.duration : safeFallback
+  } catch (error) {
+    logger.warn('decodeAudioData failed; using recorder timer duration', error)
+    return safeFallback
+  } finally {
+    void ctx.close().catch(() => {})
+  }
+}
+
 class MediaLibraryService {
   /**
    * In-memory cache for thumbnail blob URLs to prevent flicker on re-renders.
@@ -645,20 +672,21 @@ class MediaLibraryService {
 
   /**
    * Import an in-memory microphone recording (webm/opus, ogg/opus, or mp4) into
-   * OPFS-backed storage for the timeline voiceover feature.
+   * OPFS-backed storage for the timeline voiceover feature. Returns metadata
+   * whose `duration` is always finite and positive.
    *
-   * Mirrors the audio branch of {@link importMediaFileToOpfs} but injects a
-   * caller-provided, sample-accurate `durationSeconds` (from `decodeAudioData`)
-   * as a fallback: `MediaRecorder` blobs are recorded live and frequently lack a
-   * container duration header (probed `duration` comes back `0`/`Infinity`),
-   * which would otherwise poison downstream waveform/trim math that multiplies
-   * by duration. Probing is best-effort — if the codec/metadata pass fails we
-   * still persist with the decoded duration so the take is never lost.
+   * Mirrors the audio branch of {@link importMediaFileToOpfs} but is resilient to
+   * headerless `MediaRecorder` output, whose container duration frequently probes
+   * as `0`/`Infinity` and would otherwise poison downstream waveform/trim math.
+   * Duration is resolved once, here, from the best available source:
+   * mediabunny probe → sample-accurate `decodeAudioData` → the recorder's wall
+   * clock (`fallbackDurationMs`). The caller then reuses the returned `duration`
+   * instead of decoding again.
    */
   async importRecordedAudio(
     file: File,
     projectId: string,
-    options: { durationSeconds: number },
+    options: { fallbackDurationMs: number },
   ): Promise<MediaMetadata> {
     if (!projectId) {
       throw new Error('No project selected')
@@ -690,13 +718,15 @@ class MediaLibraryService {
       probedBitrate = 'bitrate' in metadata ? (metadata.bitrate ?? 0) : 0
       thumbnailBlob = thumbnail
     } catch (error) {
-      logger.warn('Failed to probe recorded audio; using decoded duration', error)
+      logger.warn('Failed to probe recorded audio; deriving duration by decoding', error)
     }
 
-    const duration =
-      Number.isFinite(probedDuration) && probedDuration > 0
-        ? probedDuration
-        : Math.max(0, options.durationSeconds)
+    let duration = Number.isFinite(probedDuration) && probedDuration > 0 ? probedDuration : 0
+    if (duration <= 0) {
+      // Probe was unusable (common for headerless WebM) — decode for an exact
+      // duration, then fall back to the recorder's wall-clock timer.
+      duration = await decodeAudioDurationSeconds(file, options.fallbackDurationMs / 1000)
+    }
 
     const mediaId = crypto.randomUUID()
     const createdAt = Date.now()

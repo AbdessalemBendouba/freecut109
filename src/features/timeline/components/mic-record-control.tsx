@@ -1,7 +1,19 @@
 import { useEffect, memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Mic, Square, Pause, Play, X, Loader2, Check, ChevronDown } from 'lucide-react'
+import {
+  Mic,
+  Square,
+  Pause,
+  Play,
+  X,
+  Loader2,
+  Check,
+  ChevronDown,
+  Headphones,
+  Minus,
+  Plus,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -20,6 +32,8 @@ import {
   resumeMicRecording,
   cancelMicRecording,
   refreshMicDevices,
+  startMicMonitor,
+  stopMicMonitor,
   isMicRecordingSupported,
 } from '../services/mic-recording-controller'
 
@@ -58,14 +72,62 @@ const MicElapsed = memo(function MicElapsed() {
   )
 })
 
+/** A menu row that toggles a boolean preference without closing the menu. */
+function MicToggleRow({
+  label,
+  checked,
+  onToggle,
+}: {
+  label: string
+  checked: boolean
+  onToggle: (next: boolean) => void
+}) {
+  return (
+    <DropdownMenuItem
+      onSelect={(event) => {
+        event.preventDefault()
+        onToggle(!checked)
+      }}
+    >
+      <span className="flex-1">{label}</span>
+      {checked && <Check className="h-3.5 w-3.5" />}
+    </DropdownMenuItem>
+  )
+}
+
 const MicDevicePicker = memo(function MicDevicePicker({ disabled }: { disabled?: boolean }) {
   const { t } = useTranslation()
   const devices = useMicRecordingStore((s) => s.devices)
   const selectedDeviceId = useMicRecordingStore((s) => s.selectedDeviceId)
   const setSelectedDeviceId = useMicRecordingStore((s) => s.setSelectedDeviceId)
+  const noiseSuppression = useMicRecordingStore((s) => s.noiseSuppression)
+  const autoGainControl = useMicRecordingStore((s) => s.autoGainControl)
+  const muteWhileRecording = useMicRecordingStore((s) => s.muteWhileRecording)
+  const syncOffsetMs = useMicRecordingStore((s) => s.syncOffsetMs)
+  const setNoiseSuppression = useMicRecordingStore((s) => s.setNoiseSuppression)
+  const setAutoGainControl = useMicRecordingStore((s) => s.setAutoGainControl)
+  const setMuteWhileRecording = useMicRecordingStore((s) => s.setMuteWhileRecording)
+  const setSyncOffsetMs = useMicRecordingStore((s) => s.setSyncOffsetMs)
+
+  // Re-opening the picker re-reads the (possibly changed) device selection, so
+  // restart the monitor when a toggle that affects the stream changes.
+  const handleDeviceChange = (deviceId: string | null) => {
+    setSelectedDeviceId(deviceId)
+    stopMicMonitor()
+    void startMicMonitor()
+  }
 
   return (
-    <DropdownMenu onOpenChange={(open) => open && void refreshMicDevices()}>
+    <DropdownMenu
+      onOpenChange={(open) => {
+        if (open) {
+          void refreshMicDevices()
+          void startMicMonitor()
+        } else {
+          stopMicMonitor()
+        }
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
@@ -78,24 +140,82 @@ const MicDevicePicker = memo(function MicDevicePicker({ disabled }: { disabled?:
           <ChevronDown className="h-3 w-3 opacity-70" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-56">
+      <DropdownMenuContent align="end" className="min-w-64">
         <DropdownMenuLabel>{t('recording.microphone')}</DropdownMenuLabel>
-        <DropdownMenuItem onClick={() => setSelectedDeviceId(null)}>
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault()
+            handleDeviceChange(null)
+          }}
+        >
           <span className="flex-1">{t('recording.systemDefault')}</span>
           {selectedDeviceId === null && <Check className="h-3.5 w-3.5" />}
         </DropdownMenuItem>
         {devices.map((device) => (
           <DropdownMenuItem
             key={device.deviceId}
-            onClick={() => setSelectedDeviceId(device.deviceId)}
+            onSelect={(event) => {
+              event.preventDefault()
+              handleDeviceChange(device.deviceId)
+            }}
           >
             <span className="flex-1 truncate">{device.label}</span>
             {selectedDeviceId === device.deviceId && <Check className="h-3.5 w-3.5" />}
           </DropdownMenuItem>
         ))}
-        <DropdownMenuSeparator />
+
         <div className="px-2 py-1.5">
           <MicLevelMeter />
+        </div>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>{t('recording.settings')}</DropdownMenuLabel>
+        <MicToggleRow
+          label={t('recording.noiseSuppression')}
+          checked={noiseSuppression}
+          onToggle={setNoiseSuppression}
+        />
+        <MicToggleRow
+          label={t('recording.autoGain')}
+          checked={autoGainControl}
+          onToggle={setAutoGainControl}
+        />
+        <MicToggleRow
+          label={t('recording.muteWhileRecording')}
+          checked={muteWhileRecording}
+          onToggle={setMuteWhileRecording}
+        />
+
+        <div className="flex items-center justify-between px-2 py-1.5 text-sm">
+          <span>{t('recording.syncOffset')}</span>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setSyncOffsetMs(syncOffsetMs - 10)}
+              aria-label={t('recording.syncOffsetEarlier')}
+            >
+              <Minus className="h-3 w-3" />
+            </Button>
+            <span className="min-w-[3.5rem] text-center font-mono text-xs tabular-nums">
+              {syncOffsetMs > 0 ? `+${syncOffsetMs}` : syncOffsetMs} ms
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => setSyncOffsetMs(syncOffsetMs + 10)}
+              aria-label={t('recording.syncOffsetLater')}
+            >
+              <Plus className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-start gap-1.5 px-2 py-1.5 text-xs text-muted-foreground">
+          <Headphones className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{t('recording.headphonesHint')}</span>
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -114,8 +234,17 @@ export const MicRecordControl = memo(function MicRecordControl() {
   const setError = useMicRecordingStore((s) => s.setError)
 
   // Populate device labels once on mount (real names appear after first grant).
+  // On unmount (e.g. leaving the editor / switching projects) tear down any live
+  // take or monitor so the mic stream never stays hot in the background.
   useEffect(() => {
     void refreshMicDevices()
+    return () => {
+      if (isMicRecordingActive(useMicRecordingStore.getState().status)) {
+        cancelMicRecording()
+      } else {
+        stopMicMonitor()
+      }
+    }
   }, [])
 
   // Surface controller errors as a toast, then clear so they don't re-fire.

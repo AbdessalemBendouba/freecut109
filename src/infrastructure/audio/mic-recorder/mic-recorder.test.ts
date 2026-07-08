@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vite-plus/test'
-import { MicRecorder, pickRecorderMimeType, extensionForMimeType } from './mic-recorder'
+import {
+  MicRecorder,
+  pickRecorderMimeType,
+  extensionForMimeType,
+  buildAudioConstraints,
+} from './mic-recorder'
 
 type Listener = (event: unknown) => void
 
@@ -65,6 +70,27 @@ describe('pickRecorderMimeType', () => {
     MockMediaRecorder.isTypeSupported = vi.fn(() => false)
     globalThis.MediaRecorder = MockMediaRecorder as unknown as typeof MediaRecorder
     expect(pickRecorderMimeType()).toBe('')
+  })
+})
+
+describe('buildAudioConstraints', () => {
+  it('defaults to narration-friendly processing (NS on, AGC off) and no forced device', () => {
+    const constraints = buildAudioConstraints({})
+    expect(constraints.echoCancellation).toBe(true)
+    expect(constraints.noiseSuppression).toBe(true)
+    expect(constraints.autoGainControl).toBe(false)
+    expect(constraints.deviceId).toBeUndefined()
+  })
+
+  it('pins an exact device and honors explicit processing flags', () => {
+    const constraints = buildAudioConstraints({
+      deviceId: 'mic-1',
+      noiseSuppression: false,
+      autoGainControl: true,
+    })
+    expect(constraints.deviceId).toEqual({ exact: 'mic-1' })
+    expect(constraints.noiseSuppression).toBe(false)
+    expect(constraints.autoGainControl).toBe(true)
   })
 })
 

@@ -15,6 +15,8 @@
  * avoid feedback, and knows nothing about the timeline, playback, or React.
  */
 
+import { createMicLevelMeter } from './meter'
+
 const MIME_CANDIDATES = [
   'audio/webm;codecs=opus',
   'audio/webm',
@@ -55,8 +57,30 @@ export interface MicRecorderResult {
 
 export interface MicRecorderOptions {
   deviceId?: string
+  /** Suppress steady background noise (browser DSP). Default true. */
+  noiseSuppression?: boolean
+  /** Auto-level the input. Default false (cleaner for narration). */
+  autoGainControl?: boolean
   /** Called ~30x/s with the current input level (RMS, 0..1) while a stream is live. */
   onLevel?: (level: number) => void
+}
+
+/**
+ * Build the `audio` constraints shared by recording and the pre-record monitor.
+ * Echo cancellation stays on (harmless, helps when monitoring on speakers);
+ * noise suppression and auto gain are caller-controlled.
+ */
+export function buildAudioConstraints(options: {
+  deviceId?: string
+  noiseSuppression?: boolean
+  autoGainControl?: boolean
+}): MediaTrackConstraints {
+  return {
+    deviceId: options.deviceId ? { exact: options.deviceId } : undefined,
+    echoCancellation: true,
+    noiseSuppression: options.noiseSuppression ?? true,
+    autoGainControl: options.autoGainControl ?? false,
+  }
 }
 
 type EngineState = 'idle' | 'recording' | 'paused'
@@ -68,10 +92,7 @@ export class MicRecorder {
   private chunks: Blob[] = []
   private mimeType = ''
 
-  private audioContext: AudioContext | null = null
-  private analyser: AnalyserNode | null = null
-  private meterData: Uint8Array<ArrayBuffer> | null = null
-  private meterRafId: number | null = null
+  private meterStop: (() => void) | null = null
   private onLevel: ((level: number) => void) | undefined
 
   // Duration accounting (excludes paused spans).
@@ -94,12 +115,7 @@ export class MicRecorder {
     this.onLevel = options.onLevel
 
     const constraints: MediaStreamConstraints = {
-      audio: {
-        deviceId: options.deviceId ? { exact: options.deviceId } : undefined,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
+      audio: buildAudioConstraints(options),
       video: false,
     }
 
@@ -213,64 +229,15 @@ export class MicRecorder {
       this.stream = null
     }
 
-    if (this.audioContext) {
-      void this.audioContext.close().catch(() => {})
-      this.audioContext = null
-    }
-    this.analyser = null
-    this.meterData = null
     this.onLevel = undefined
   }
 
   private startMetering(stream: MediaStream): void {
-    const Ctor =
-      typeof window !== 'undefined'
-        ? (window.AudioContext ??
-          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
-        : undefined
-    if (!Ctor) return
-
-    try {
-      const context = new Ctor()
-      const source = context.createMediaStreamSource(stream)
-      const analyser = context.createAnalyser()
-      analyser.fftSize = 1024
-      analyser.smoothingTimeConstant = 0.5
-      source.connect(analyser)
-
-      this.audioContext = context
-      this.analyser = analyser
-      this.meterData = new Uint8Array(new ArrayBuffer(analyser.fftSize))
-      this.tickMeter()
-    } catch {
-      // Metering is best-effort — a failure here must not break recording.
-      this.audioContext = null
-      this.analyser = null
-    }
-  }
-
-  private tickMeter = (): void => {
-    const analyser = this.analyser
-    const data = this.meterData
-    if (!analyser || !data) return
-
-    analyser.getByteTimeDomainData(data)
-    let sumSquares = 0
-    for (let i = 0; i < data.length; i += 1) {
-      // Byte samples are centered at 128; normalize to [-1, 1].
-      const sample = (data[i]! - 128) / 128
-      sumSquares += sample * sample
-    }
-    const rms = Math.sqrt(sumSquares / data.length)
-    this.onLevel?.(Math.min(1, rms))
-
-    this.meterRafId = requestAnimationFrame(this.tickMeter)
+    this.meterStop = createMicLevelMeter(stream, (level) => this.onLevel?.(level))
   }
 
   private stopMetering(): void {
-    if (this.meterRafId !== null) {
-      cancelAnimationFrame(this.meterRafId)
-      this.meterRafId = null
-    }
+    this.meterStop?.()
+    this.meterStop = null
   }
 }

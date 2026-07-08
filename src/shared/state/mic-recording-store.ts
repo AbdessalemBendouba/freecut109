@@ -30,6 +30,22 @@ interface MicRecordingState {
   /** User-facing error message from the last failed attempt, if any. */
   error: string | null
 
+  // --- Persisted capture preferences ---
+  /** Suppress steady background noise (browser DSP). On by default. */
+  noiseSuppression: boolean
+  /** Auto-level the input. Off by default — cleaner for narration. */
+  autoGainControl: boolean
+  /**
+   * Mute the timeline monitor mix while recording. On by default so speaker
+   * audio doesn't bleed into the mic; headphone users can turn it off.
+   */
+  muteWhileRecording: boolean
+  /**
+   * Manual input-latency compensation in ms, applied to the committed clip's
+   * start frame. Positive = shift the take later. Default 0.
+   */
+  syncOffsetMs: number
+
   setStatus: (status: MicRecordingStatus) => void
   setElapsedMs: (elapsedMs: number) => void
   setLevel: (level: number) => void
@@ -37,6 +53,10 @@ interface MicRecordingState {
   setSelectedDeviceId: (deviceId: string | null) => void
   setRecordStartFrame: (frame: number) => void
   setError: (error: string | null) => void
+  setNoiseSuppression: (value: boolean) => void
+  setAutoGainControl: (value: boolean) => void
+  setMuteWhileRecording: (value: boolean) => void
+  setSyncOffsetMs: (value: number) => void
   /** Return to idle, clearing transient recording state (keeps device prefs). */
   reset: () => void
 }
@@ -51,6 +71,10 @@ export const useMicRecordingStore = create<MicRecordingState>()(
       selectedDeviceId: null,
       recordStartFrame: 0,
       error: null,
+      noiseSuppression: true,
+      autoGainControl: false,
+      muteWhileRecording: true,
+      syncOffsetMs: 0,
 
       setStatus: (status) => set({ status }),
       setElapsedMs: (elapsedMs) => set({ elapsedMs }),
@@ -59,12 +83,23 @@ export const useMicRecordingStore = create<MicRecordingState>()(
       setSelectedDeviceId: (selectedDeviceId) => set({ selectedDeviceId }),
       setRecordStartFrame: (recordStartFrame) => set({ recordStartFrame }),
       setError: (error) => set({ error }),
+      setNoiseSuppression: (noiseSuppression) => set({ noiseSuppression }),
+      setAutoGainControl: (autoGainControl) => set({ autoGainControl }),
+      setMuteWhileRecording: (muteWhileRecording) => set({ muteWhileRecording }),
+      setSyncOffsetMs: (syncOffsetMs) =>
+        set({ syncOffsetMs: Math.max(-1000, Math.min(1000, Math.round(syncOffsetMs))) }),
       reset: () =>
         set({ status: 'idle', elapsedMs: 0, level: 0, recordStartFrame: 0, error: null }),
     }),
     {
       name: 'freecut-mic-recording',
-      partialize: (state) => ({ selectedDeviceId: state.selectedDeviceId }),
+      partialize: (state) => ({
+        selectedDeviceId: state.selectedDeviceId,
+        noiseSuppression: state.noiseSuppression,
+        autoGainControl: state.autoGainControl,
+        muteWhileRecording: state.muteWhileRecording,
+        syncOffsetMs: state.syncOffsetMs,
+      }),
     },
   ),
 )
