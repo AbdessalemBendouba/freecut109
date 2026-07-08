@@ -208,7 +208,9 @@ const newStore: MediaLibraryStoreApi =
             // their thumbnails on mount without each firing an independent
             // FSA read. Best-effort; never blocks the grid.
             void mediaLibraryService
-              .prefetchThumbnails(mediaItems.map((m) => m.id))
+              .prefetchThumbnails(
+                mediaItems.map((m) => ({ id: m.id, thumbnailId: m.thumbnailId })),
+              )
               .catch((error) =>
                 logger.warn('[MediaLibraryStore] Thumbnail prefetch failed:', error),
               )

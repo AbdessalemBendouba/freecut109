@@ -9,6 +9,7 @@ vi.mock('./media', () => mediaMocks)
 
 import {
   associateMediaWithProject,
+  getMediaForProject,
   getProjectMediaIds,
   getProjectsUsingMedia,
   removeMediaBatchFromProject,
@@ -18,6 +19,7 @@ import { createProject } from './projects'
 import { setWorkspaceRoot } from './root'
 import { asHandle, createRoot, readFileText } from './__tests__/in-memory-handle'
 import type { Project } from '@/types/project'
+import type { MediaMetadata } from '@/types/storage'
 
 function makeProject(id: string, updatedAt = 1000): Project {
   return {
@@ -86,6 +88,45 @@ describe('workspace-fs project-media', () => {
     setWorkspaceRoot(asHandle(root))
     await createProject(makeProject('p1'))
     expect(await getProjectMediaIds('p1')).toEqual([])
+  })
+
+  it('getMediaForProject fails the load (and preserves the link) when a metadata read throws', async () => {
+    const root = createRoot()
+    setWorkspaceRoot(asHandle(root))
+    await createProject(makeProject('p1'))
+    await associateMediaWithProject('p1', 'm1')
+
+    mediaMocks.getMedia.mockReset()
+    mediaMocks.getMedia.mockRejectedValue(new Error('disk locked'))
+
+    // A genuine read error must reject rather than silently drop the item.
+    await expect(getMediaForProject('p1')).rejects.toThrow()
+    // The association must survive — the item is not a confirmed orphan.
+    expect(await getProjectMediaIds('p1')).toEqual(['m1'])
+
+    mediaMocks.getMedia.mockReset()
+    mediaMocks.getMedia.mockResolvedValue(null)
+  })
+
+  it('getMediaForProject orphans only media whose metadata is confirmed missing', async () => {
+    const root = createRoot()
+    setWorkspaceRoot(asHandle(root))
+    await createProject(makeProject('p1'))
+    await associateMediaWithProject('p1', 'good')
+    await associateMediaWithProject('p1', 'gone')
+
+    mediaMocks.getMedia.mockReset()
+    mediaMocks.getMedia.mockImplementation(async (id: string) =>
+      id === 'good' ? ({ id: 'good' } as MediaMetadata) : null,
+    )
+
+    const media = await getMediaForProject('p1')
+    expect(media.map((m) => m.id)).toEqual(['good'])
+    // 'gone' had no metadata → cleaned up as an orphan association.
+    expect(await getProjectMediaIds('p1')).toEqual(['good'])
+
+    mediaMocks.getMedia.mockReset()
+    mediaMocks.getMedia.mockResolvedValue(null)
   })
 
   it('getProjectsUsingMedia scans projects for reverse lookup', async () => {

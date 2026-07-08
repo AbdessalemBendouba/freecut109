@@ -39,7 +39,7 @@ function MediaPickerItem({ media, onSelect }: { media: MediaMetadata; onSelect: 
 
     const loadThumbnail = async () => {
       const { mediaLibraryService } = await importMediaLibraryService()
-      const url = await mediaLibraryService.getThumbnailBlobUrl(media.id)
+      const url = await mediaLibraryService.getThumbnailBlobUrl(media.id, media.thumbnailId)
       if (mounted) {
         setThumbnailUrl(url)
       }
@@ -50,7 +50,7 @@ function MediaPickerItem({ media, onSelect }: { media: MediaMetadata; onSelect: 
     return () => {
       mounted = false
     }
-  }, [media.id])
+  }, [media.id, media.thumbnailId])
 
   return (
     <button

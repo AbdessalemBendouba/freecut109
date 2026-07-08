@@ -236,8 +236,13 @@ function sanitizeLottieFileName(rawName: string | undefined): string {
  * sources and the workspace folder in sync.
  */
 class MediaLibraryService {
-  /** In-memory cache for thumbnail blob URLs to prevent flicker on re-renders */
-  private thumbnailUrlCache = new Map<string, string>()
+  /**
+   * In-memory cache for thumbnail blob URLs to prevent flicker on re-renders.
+   * `marker` is the media's `thumbnailId` change-token at the time the URL was
+   * created; a changed marker invalidates the entry so regenerated thumbnails
+   * are re-read from disk instead of served stale.
+   */
+  private thumbnailUrlCache = new Map<string, { url: string; marker: string | undefined }>()
   private preparationPromises = new Map<string, Set<Promise<void>>>()
 
   async waitForMediaPreparation(mediaIds: string[]): Promise<void> {
@@ -1780,11 +1785,13 @@ class MediaLibraryService {
   /**
    * Get thumbnail as blob URL (cached in memory to prevent flicker)
    */
-  async getThumbnailBlobUrl(mediaId: string): Promise<string | null> {
-    // Check cache first
+  async getThumbnailBlobUrl(mediaId: string, thumbnailId?: string): Promise<string | null> {
+    // Serve from cache only when the change-marker still matches. A caller
+    // without a marker (undefined) accepts whatever is cached; a caller with a
+    // marker that differs falls through to a fresh read.
     const cached = this.thumbnailUrlCache.get(mediaId)
-    if (cached) {
-      return cached
+    if (cached && (thumbnailId === undefined || cached.marker === thumbnailId)) {
+      return cached.url
     }
 
     const thumbnail = await this.getThumbnail(mediaId)
@@ -1794,14 +1801,27 @@ class MediaLibraryService {
     }
 
     // The prefetch batch (or another caller) may have populated the cache
-    // during the await above — reuse it rather than leaking a second URL.
+    // during the await above — reuse it when its marker matches rather than
+    // leaking a second URL.
     const raced = this.thumbnailUrlCache.get(mediaId)
-    if (raced) {
-      return raced
+    if (raced && (thumbnailId === undefined || raced.marker === thumbnailId)) {
+      return raced.url
     }
 
-    const url = URL.createObjectURL(thumbnail.blob)
-    this.thumbnailUrlCache.set(mediaId, url)
+    return this.cacheThumbnailUrl(mediaId, thumbnail.blob, thumbnailId)
+  }
+
+  /**
+   * Store a thumbnail blob URL for `mediaId`, revoking any prior URL (e.g. a
+   * stale entry from a superseded `thumbnailId`) so it can't leak.
+   */
+  private cacheThumbnailUrl(mediaId: string, blob: Blob, marker: string | undefined): string {
+    const existing = this.thumbnailUrlCache.get(mediaId)
+    if (existing) {
+      URL.revokeObjectURL(existing.url)
+    }
+    const url = URL.createObjectURL(blob)
+    this.thumbnailUrlCache.set(mediaId, { url, marker })
     return url
   }
 
@@ -1810,18 +1830,27 @@ class MediaLibraryService {
    *
    * Called on project load so each card's mount is a synchronous cache hit
    * instead of an independent async FSA read. Only fetches ids not already
-   * cached, and reuses the shared `media/` directory handle for all reads.
+   * cached with a matching change-marker, and reuses the shared `media/`
+   * directory handle for all reads.
    */
-  async prefetchThumbnails(mediaIds: string[]): Promise<void> {
-    const uncached = mediaIds.filter((id) => !this.thumbnailUrlCache.has(id))
+  async prefetchThumbnails(items: Array<{ id: string; thumbnailId?: string }>): Promise<void> {
+    const markerById = new Map(items.map((item) => [item.id, item.thumbnailId]))
+    const uncached = items
+      .filter((item) => {
+        const cached = this.thumbnailUrlCache.get(item.id)
+        return !cached || cached.marker !== item.thumbnailId
+      })
+      .map((item) => item.id)
     if (uncached.length === 0) return
 
     const blobs = await getThumbnailsByMediaIds(uncached)
     for (const [mediaId, blob] of blobs) {
-      // A concurrent getThumbnailBlobUrl() may have populated the cache while
-      // this batch was in flight — don't leak a second object URL for it.
-      if (this.thumbnailUrlCache.has(mediaId)) continue
-      this.thumbnailUrlCache.set(mediaId, URL.createObjectURL(blob))
+      const marker = markerById.get(mediaId)
+      // A concurrent getThumbnailBlobUrl() may have already cached this id with
+      // the same marker while the batch was in flight — don't re-create it.
+      const cached = this.thumbnailUrlCache.get(mediaId)
+      if (cached && cached.marker === marker) continue
+      this.cacheThumbnailUrl(mediaId, blob, marker)
     }
   }
 
@@ -1829,9 +1858,9 @@ class MediaLibraryService {
    * Clear thumbnail URL from cache (call when media is deleted)
    */
   clearThumbnailCache(mediaId: string): void {
-    const url = this.thumbnailUrlCache.get(mediaId)
-    if (url) {
-      URL.revokeObjectURL(url)
+    const cached = this.thumbnailUrlCache.get(mediaId)
+    if (cached) {
+      URL.revokeObjectURL(cached.url)
       this.thumbnailUrlCache.delete(mediaId)
     }
   }

@@ -41,6 +41,11 @@ const logger = createLogger('WorkspaceFS:ProjectMedia')
 /** Bound on parallel metadata.json reads — mirrors media.ts's global read. */
 const METADATA_READ_CONCURRENCY = 8
 
+type ProjectMediaReadResult =
+  | { kind: 'ok'; media: MediaMetadata }
+  | { kind: 'missing'; mediaId: string }
+  | { kind: 'error'; error: unknown }
+
 const PROJECT_MEDIA_ITEM_TYPES = new Set(['video', 'audio', 'image'])
 
 const LINKS_VERSION = '1.0'
@@ -236,18 +241,35 @@ export async function getMediaForProject(projectId: string): Promise<MediaMetada
     // re-walks the FSA dir tree (`media/{id}/metadata.json`), so a serial loop
     // here cost N sequential round-trips before the grid could render. Bounded
     // concurrency keeps this off the critical path for editor open.
+    //
+    // The mapper never throws — it returns a discriminated result so a genuine
+    // read error (`error`) is distinguishable from genuinely-absent metadata
+    // (`missing`). A real read failure must fail the whole load, exactly as the
+    // prior serial loop did: silently dropping the item would leave its
+    // media-links.json association dangling while the clip vanishes from the
+    // grid, and validation would then treat the media as missing. Only a
+    // confirmed-missing metadata file is cleaned up as an orphan.
     const loaded = await mapWithConcurrency(
       finalIds,
       METADATA_READ_CONCURRENCY,
-      async (mediaId) => ({ mediaId, media: await getMedia(mediaId) }),
+      async (mediaId): Promise<ProjectMediaReadResult> => {
+        try {
+          const media = await getMedia(mediaId)
+          return media ? { kind: 'ok', media } : { kind: 'missing', mediaId }
+        } catch (error) {
+          return { kind: 'error', error }
+        }
+      },
     )
     const media: MediaMetadata[] = []
     const orphans: string[] = []
     for (const result of loaded) {
-      // mapWithConcurrency yields null for an internal failure (already logged);
-      // treat those ids as unresolved rather than orphaning them.
-      if (!result) continue
-      if (result.media) media.push(result.media)
+      // The mapper never throws, so a null slot would only come from an
+      // internal mapWithConcurrency failure — surface it rather than silently
+      // treating the id as resolved.
+      if (!result) throw new Error(`Metadata read produced no result for project ${projectId}`)
+      if (result.kind === 'error') throw result.error
+      if (result.kind === 'ok') media.push(result.media)
       else orphans.push(result.mediaId)
     }
 
