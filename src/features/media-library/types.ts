@@ -1,4 +1,4 @@
-import type { MediaMetadata } from '@/types/storage'
+import type { MediaAttribution, MediaMetadata } from '@/types/storage'
 import type { TranscriptionProgressSnapshot } from '@/shared/utils/transcription-progress'
 
 export interface MediaLibraryNotification {
@@ -129,6 +129,16 @@ export interface MediaLibraryActions {
    * Best for CORS-enabled direct media files (mp4, mp3, png, etc.).
    */
   importMediaFromUrl: (url: string) => Promise<MediaMetadata[]>
+  /**
+   * Import a Lottie animation from a provider (e.g. the LottieFiles browser)
+   * into OPFS-backed storage, recording attribution. Returns the imported
+   * media, or null on failure / when it already exists in the project.
+   */
+  importRemoteLottie: (params: {
+    url: string
+    fileName?: string
+    attribution?: MediaAttribution
+  }) => Promise<MediaMetadata | null>
   /**
    * Import media from file handles (for drag-drop). Defaults to copy mode.
    */

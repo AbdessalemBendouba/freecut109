@@ -1,0 +1,19 @@
+{
+  "lottieBrowser": {
+    "tabLabel": "Lottie",
+    "searchPlaceholder": "アニメーションを検索",
+    "clearSearch": "検索をクリア",
+    "categories": {
+      "featured": "注目",
+      "popular": "人気",
+      "recent": "新着"
+    },
+    "addToMedia": "メディアライブラリに追加",
+    "added": "メディアライブラリに追加しました",
+    "by": "作成者: {{author}}",
+    "empty": "アニメーションが見つかりません",
+    "error": "アニメーションを読み込めませんでした",
+    "retry": "再試行",
+    "attributionNote": "LottieFiles の無料アニメーション（Lottie Simple ライセンス）。公開時は元の作成者をクレジットしてください。"
+  }
+}

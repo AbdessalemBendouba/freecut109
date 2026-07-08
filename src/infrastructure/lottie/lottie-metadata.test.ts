@@ -41,6 +41,10 @@ const FIXTURES = {
   // no manifest; only.json=256x256
   noManifest:
     'UEsDBBQAAAAIAFVH5lxgXqjRUwAAAHEAAAAUAAAAYW5pbWF0aW9ucy9vbmx5Lmpzb26rVipTslIy1TPXM1DSUUorUrIyNtBRyixQsgJS+UDKDEiXK1kZmZrpKGVA6bxcoJ4SoPqcxMrUomIlq+hqpZJKJSsTqFQOUArNiGygqura2thaAFBLAQIUABQAAAAIAFVH5lxgXqjRUwAAAHEAAAAUAAAAAAAAAAAAAAAAAAAAAABhbmltYXRpb25zL29ubHkuanNvblBLBQYAAAAAAQABAEIAAACFAAAAAAA=',
+  // dotLottie v2 layout (LottieFiles): manifest {version:'2', animations:[{id:'anim0'}]}
+  // with the animation stored at `a/anim0.json` (512x512), not `animations/`.
+  v2Single:
+    'UEsDBBQAAAAIACNb6FyPv86ETgAAAF8AAAANAAAAbWFuaWZlc3QuanNvbqtWKkstKs7Mz1OyUlAyUtJRUEpPzUstSizJLwKJOKTkl+Tkl5RkpurDWbpZxQ6GemZ6YNWJeZm5iSVA/cVA5dHVSpkpIG0gUQOl2thaAFBLAwQUAAAACAAjW+hcrWFQGVYAAACNAAAADAAAAGEvYW5pbTAuanNvbqtWKlOyUlAy1TPXM1DSUVBKKwJyjQ2ArMwCIAvEyAcxzECsciDD1NAIyMqAs/JyQfoT8zJzwfpzEitTi4qBQtHVSiWVQNoEriZHCbup2SDl1bW1sbUAUEsBAhQAFAAAAAgAI1voXI+/zoROAAAAXwAAAA0AAAAAAAAAAAAAAIABAAAAAG1hbmlmZXN0Lmpzb25QSwECFAAUAAAACAAjW+hcrWFQGVYAAACNAAAADAAAAAAAAAAAAAAAgAF5AAAAYS9hbmltMC5qc29uUEsFBgAAAAACAAIAdQAAAPkAAAAAAA==',
   // manifest with empty animations, no animation files
   empty:
     'UEsDBBQAAAAIAFVH5lx1pkWvEwAAABEAAAANAAAAbWFuaWZlc3QuanNvbqtWSszLzE0syczPK1ayio6tBQBQSwECFAAUAAAACABVR+ZcdaZFrxMAAAARAAAADQAAAAAAAAAAAAAAAAAAAAAAbWFuaWZlc3QuanNvblBLBQYAAAAAAQABADsAAAA+AAAAAAA=',
@@ -95,6 +99,18 @@ describe('parseLottieFileBytes', () => {
     })
   })
 
+  it('parses a dotLottie v2 archive (animations under `a/`)', () => {
+    // Regression: LottieFiles serves v2 archives storing animations at
+    // `a/<id>.json` rather than v1 `animations/<id>.json`.
+    expect(parseLottieFileBytes(decodeB64(FIXTURES.v2Single))).toEqual({
+      width: 512,
+      height: 512,
+      frameRate: 30,
+      totalFrames: 60,
+      durationSeconds: 2,
+    })
+  })
+
   it('probes the manifest-ordered animation in a multi-animation archive', () => {
     // manifest lists 'second' first -> expect its 999px width, not first's 100
     expect(parseLottieFileBytes(decodeB64(FIXTURES.multi))?.width).toBe(999)
@@ -141,6 +157,12 @@ describe('extractLottieAnimation', () => {
     expect(extractLottieAnimation(bytes)?.w).toBe(999) // manifest-primary
     expect(extractLottieAnimation(bytes, false, 'first')?.w).toBe(100)
     expect(extractLottieAnimation(bytes, false, 'second')?.w).toBe(999)
+  })
+
+  it('unzips a dotLottie v2 archive (animations under `a/`)', () => {
+    const anim = extractLottieAnimation(decodeB64(FIXTURES.v2Single))
+    expect(anim?.w).toBe(512)
+    expect(Array.isArray(anim?.layers)).toBe(true)
   })
 
   it('returns null for non-Lottie bytes', () => {

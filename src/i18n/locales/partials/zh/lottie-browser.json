@@ -1,0 +1,19 @@
+{
+  "lottieBrowser": {
+    "tabLabel": "Lottie",
+    "searchPlaceholder": "搜索动画",
+    "clearSearch": "清除搜索",
+    "categories": {
+      "featured": "精选",
+      "popular": "热门",
+      "recent": "最新"
+    },
+    "addToMedia": "添加到媒体库",
+    "added": "已添加到媒体库",
+    "by": "作者：{{author}}",
+    "empty": "未找到动画",
+    "error": "无法加载动画",
+    "retry": "重试",
+    "attributionNote": "来自 LottieFiles 的免费动画，遵循 Lottie Simple 许可。发布时请标注原作者。"
+  }
+}

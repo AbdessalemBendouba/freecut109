@@ -1,0 +1,19 @@
+{
+  "lottieBrowser": {
+    "tabLabel": "Lottie",
+    "searchPlaceholder": "Buscar animaciones",
+    "clearSearch": "Borrar búsqueda",
+    "categories": {
+      "featured": "Destacadas",
+      "popular": "Populares",
+      "recent": "Recientes"
+    },
+    "addToMedia": "Añadir a la biblioteca multimedia",
+    "added": "Añadido a la biblioteca multimedia",
+    "by": "de {{author}}",
+    "empty": "No se encontraron animaciones",
+    "error": "No se pudieron cargar las animaciones",
+    "retry": "Reintentar",
+    "attributionNote": "Animaciones gratuitas de LottieFiles, bajo la Licencia Lottie Simple. Acredita al creador original al publicar."
+  }
+}

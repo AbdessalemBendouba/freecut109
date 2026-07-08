@@ -1,0 +1,19 @@
+{
+  "lottieBrowser": {
+    "tabLabel": "Lottie",
+    "searchPlaceholder": "Animasyon ara",
+    "clearSearch": "Aramayı temizle",
+    "categories": {
+      "featured": "Öne çıkanlar",
+      "popular": "Popüler",
+      "recent": "Yeni"
+    },
+    "addToMedia": "Medya kitaplığına ekle",
+    "added": "Medya kitaplığına eklendi",
+    "by": "{{author}} tarafından",
+    "empty": "Animasyon bulunamadı",
+    "error": "Animasyonlar yüklenemedi",
+    "retry": "Tekrar dene",
+    "attributionNote": "LottieFiles kaynaklı ücretsiz animasyonlar, Lottie Simple Lisansı kapsamında. Yayınlarken orijinal oluşturana kredi verin."
+  }
+}

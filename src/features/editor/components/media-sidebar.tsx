@@ -19,6 +19,7 @@ import {
   Blend,
   Pen,
   Captions,
+  Sparkles,
   WandSparkles,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
@@ -36,6 +37,7 @@ import {
   setMediaDragData,
 } from '@/features/editor/deps/media-library'
 import { KeyframeGraphPanel, TranscriptEditorPanel } from '@/features/editor/deps/timeline-contract'
+import { LottieBrowserPanel } from '@/features/editor/deps/lottie-browser'
 import { TransitionsPanel } from './transitions-panel'
 import {
   createDefaultShapeItem,
@@ -558,6 +560,7 @@ export const MediaSidebar = memo(function MediaSidebar() {
     { id: 'shapes' as const, icon: Pentagon, label: t('editor.mediaSidebar.shapes') },
     { id: 'effects' as const, icon: Layers, label: t('editor.mediaSidebar.effects') },
     { id: 'transitions' as const, icon: Blend, label: t('editor.mediaSidebar.transitions') },
+    { id: 'lottie' as const, icon: Sparkles, label: t('lottieBrowser.tabLabel') },
     { id: 'transcript' as const, icon: Captions, label: t('transcript.tabLabel') },
     { id: 'ai' as const, icon: WandSparkles, label: t('editor.mediaSidebar.ai') },
   ]
@@ -1159,6 +1162,13 @@ export const MediaSidebar = memo(function MediaSidebar() {
                 className={`min-h-0 flex-1 overflow-hidden ${activeTab === 'transitions' ? 'block' : 'hidden'}`}
               >
                 <TransitionsPanel />
+              </div>
+
+              {/* Lottie Browser Tab */}
+              <div
+                className={`min-h-0 flex-1 overflow-hidden ${activeTab === 'lottie' ? 'block' : 'hidden'}`}
+              >
+                <LottieBrowserPanel />
               </div>
 
               {/* Transcript Tab */}
