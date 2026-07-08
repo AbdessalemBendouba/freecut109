@@ -13,6 +13,7 @@ import { i18n } from '@/i18n'
 import {
   Video,
   FileAudio,
+  FileJson,
   Image as ImageIcon,
   Trash2,
   Loader2,
@@ -1258,6 +1259,8 @@ const MediaCardInternal = memo(function MediaCardInternal({
         return <FileAudio className="w-5 h-5 text-green-500" />
       case 'image':
         return <ImageIcon className="w-5 h-5 text-blue-500" />
+      case 'lottie':
+        return <FileJson className="w-5 h-5 text-purple-500" />
       default:
         return <Video className="w-5 h-5 text-muted-foreground" />
     }
@@ -1378,6 +1381,7 @@ const MediaCardInternal = memo(function MediaCardInternal({
                       {mediaType === 'video' && <Video className="w-2.5 h-2.5" />}
                       {mediaType === 'audio' && <FileAudio className="w-2.5 h-2.5" />}
                       {mediaType === 'image' && <ImageIcon className="w-2.5 h-2.5" />}
+                      {mediaType === 'lottie' && <FileJson className="w-2.5 h-2.5" />}
                     </div>
                     <h3 className="text-xs font-medium text-foreground truncate">
                       {media.fileName}
@@ -1529,6 +1533,7 @@ const MediaCardInternal = memo(function MediaCardInternal({
                     {mediaType === 'video' && <Video className="w-2.5 h-2.5" />}
                     {mediaType === 'audio' && <FileAudio className="w-2.5 h-2.5" />}
                     {mediaType === 'image' && <ImageIcon className="w-2.5 h-2.5" />}
+                    {mediaType === 'lottie' && <FileJson className="w-2.5 h-2.5" />}
                   </div>
 
                   {/* Duration badge */}
