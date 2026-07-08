@@ -946,18 +946,22 @@ export async function saveTimeline(projectId: string): Promise<void> {
       }
     }
 
-    // Update project
-    // Clear deprecated thumbnail field when using thumbnailId to save space
+    // Persist as a PARTIAL update: updateProject re-reads project.json right
+    // before writing and merges only these fields, so a concurrent rename /
+    // description / metadata / root-folder edit that lands during the async
+    // thumbnail work above is preserved. Writing a full record from the
+    // pre-await `project` snapshot would clobber those newer fields.
+    // Clear the deprecated inline thumbnail field when using thumbnailId.
+    const updatedAt = Date.now()
     await updateProject(projectId, {
       timeline: sanitizedTimeline,
       ...(thumbnailId && { thumbnailId, thumbnail: undefined }),
-      updatedAt: Date.now(),
+      updatedAt,
     })
 
     // Mark as clean after successful save
     useTimelineSettingsStore.getState().markClean()
 
-    const updatedAt = Date.now()
     event.success({ updatedAt, thumbnailId })
   } catch (error) {
     event.failure(error)

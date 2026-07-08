@@ -109,6 +109,33 @@ describe('workspace-fs projects', () => {
     expect(reloaded!.name).toBe('Renamed')
   })
 
+  it('updateProject does not touch the handle registry when the patch omits rootFolderHandle', async () => {
+    const root = createRoot()
+    setWorkspaceRoot(asHandle(root))
+    await createProject(makeProject('p1', 'Original', 1000))
+    handlesMocks.saveHandle.mockClear()
+    handlesMocks.deleteHandle.mockClear()
+
+    await updateProject('p1', { name: 'Renamed' })
+
+    // A patch that doesn't change the folder handle must avoid the per-save
+    // IndexedDB write/delete on the handle registry.
+    expect(handlesMocks.saveHandle).not.toHaveBeenCalled()
+    expect(handlesMocks.deleteHandle).not.toHaveBeenCalled()
+  })
+
+  it('updateProject preserves fields absent from the patch (partial merge)', async () => {
+    const root = createRoot()
+    setWorkspaceRoot(asHandle(root))
+    await createProject({ ...makeProject('p1', 'Original', 1000), description: 'keep me' })
+
+    await updateProject('p1', { name: 'Renamed' })
+
+    const reloaded = await getProject('p1')
+    expect(reloaded!.name).toBe('Renamed')
+    expect(reloaded!.description).toBe('keep me')
+  })
+
   it('updateProject throws when missing', async () => {
     const root = createRoot()
     setWorkspaceRoot(asHandle(root))
@@ -225,7 +252,16 @@ describe('workspace-fs projects', () => {
     const ids: string[] = index.projects.map((p: { id: string }) => p.id)
     expect(ids).toContain('p1')
     expect(ids).toContain('p3')
-    expect(ids).not.toContain('p2')
+
+    // The durable guarantee: a corrupt project.json never surfaces to consumers,
+    // regardless of whether a transient index entry lingers (the incremental
+    // index upsert no longer rescans every project on each write). It self-heals
+    // on the next full rebuild.
+    const loaded = await getAllProjects()
+    const loadedIds = loaded.map((p) => p.id)
+    expect(loadedIds).toContain('p1')
+    expect(loadedIds).toContain('p3')
+    expect(loadedIds).not.toContain('p2')
   })
 
   it('corrupt index.json self-heals: getAllProjects returns healthy projects', async () => {

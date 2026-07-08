@@ -116,6 +116,37 @@ async function refreshIndex(root: FileSystemDirectoryHandle): Promise<void> {
   })
 }
 
+/**
+ * Incrementally add/update a single entry in `index.json` without re-reading
+ * every other project's `project.json`.
+ *
+ * This is the hot path for saves: a full {@link rebuildIndex} scan reads every
+ * project file on disk on every autosave, so its cost grows with the number of
+ * projects in the workspace. The index only carries `{id, name, updatedAt}`, so
+ * a targeted upsert is sufficient — the authoritative name/data are re-read from
+ * each `project.json` in `getAllProjects` anyway, and a full rebuild still runs
+ * as the self-heal path when the index is empty/corrupt (see `getAllProjects`)
+ * or on delete.
+ *
+ * When the on-disk index is empty (cold start or a corrupt read fell back to an
+ * empty index), a bare upsert would leave every other project hidden until the
+ * next rebuild — so we do one full scan in that case to re-materialize all
+ * entries. On the common warm path the index is non-empty and this stays O(1).
+ */
+async function upsertIndexEntry(
+  root: FileSystemDirectoryHandle,
+  entry: WorkspaceIndexEntry,
+): Promise<void> {
+  await withKeyLock(INDEX_LOCK_KEY, async () => {
+    const index = await readWorkspaceIndex(root)
+    const baseEntries = index.projects.length > 0 ? index.projects : await rebuildIndex(root)
+    const next = baseEntries.some((existing) => existing.id === entry.id)
+      ? baseEntries.map((existing) => (existing.id === entry.id ? entry : existing))
+      : [...baseEntries, entry]
+    await writeWorkspaceIndex(root, next)
+  })
+}
+
 /* ────────────────────────────── Public API ───────────────────────────── */
 
 export async function getAllProjects(): Promise<Project[]> {
@@ -177,7 +208,11 @@ export async function createProject(project: Project): Promise<Project> {
     }
     const serialized = await stashRootFolderHandle(project)
     await writeJsonAtomic(root, projectJsonPath(project.id), serialized)
-    await refreshIndex(root)
+    await upsertIndexEntry(root, {
+      id: project.id,
+      name: project.name,
+      updatedAt: project.updatedAt,
+    })
     return project
   } catch (error) {
     logger.error('createProject failed', error)
@@ -192,17 +227,40 @@ export async function updateProject(id: string, updates: Partial<Project>): Prom
     if (!existingSerialized) {
       throw new Error(`Project not found: ${id}`)
     }
-    const existing = await restoreRootFolderHandle(existingSerialized)
-    const updated: Project = {
-      ...existing,
-      ...updates,
+
+    // Merge at the serialized layer — `rootFolderHandle` never lives in
+    // project.json. Only touch the handle registry when the caller actually
+    // changes the handle; a normal timeline autosave leaves it untouched, so
+    // this avoids one IndexedDB write (or delete) on every save.
+    const handleChanging = 'rootFolderHandle' in updates
+    const { rootFolderHandle, ...serializableUpdates } = updates
+    const updatedAt = Date.now()
+    const nextSerialized: SerializedProject = {
+      ...existingSerialized,
+      ...serializableUpdates,
       id,
-      updatedAt: Date.now(),
+      updatedAt,
     }
-    const nextSerialized = await stashRootFolderHandle(updated)
+
+    if (handleChanging) {
+      if (rootFolderHandle) {
+        await saveHandle({
+          kind: 'project-folder',
+          id,
+          handle: rootFolderHandle,
+          name: rootFolderHandle.name,
+          pickedAt: Date.now(),
+        })
+      } else {
+        await deleteHandle('project-folder', id).catch((error) => {
+          logger.warn(`Failed to clean project-folder handle for ${id}`, error)
+        })
+      }
+    }
+
     await writeJsonAtomic(root, projectJsonPath(id), nextSerialized)
-    await refreshIndex(root)
-    return updated
+    await upsertIndexEntry(root, { id, name: nextSerialized.name, updatedAt })
+    return restoreRootFolderHandle(nextSerialized)
   } catch (error) {
     logger.error(`updateProject(${id}) failed`, error)
     throw error
