@@ -52,6 +52,12 @@ let monitorToken = 0
 let transportUnsub: (() => void) | null = null
 let projectUnsub: (() => void) | null = null
 let elapsedTimer: ReturnType<typeof setInterval> | null = null
+/**
+ * Bumped whenever a pending `requesting` take is superseded (cancelled on
+ * unmount / project switch). `startMicRecording` checks it after acquiring the
+ * mic so a cancelled request tears itself down instead of going live.
+ */
+let startGeneration = 0
 /** Guards the transport watcher against our own intentional play/pause calls. */
 let suppressTransport = false
 /** When true, the timeline monitor was muted for this take and must be restored. */
@@ -101,6 +107,7 @@ export async function startMicRecording(): Promise<void> {
 
   store.setError(null)
   store.setStatus('requesting')
+  const token = ++startGeneration
 
   const rec = new MicRecorder()
   recorder = rec
@@ -114,9 +121,20 @@ export async function startMicRecording(): Promise<void> {
     })
   } catch (error) {
     rec.dispose()
-    recorder = null
-    store.setStatus('idle')
-    store.setError(describeGetUserMediaError(error))
+    if (recorder === rec) recorder = null
+    // Don't clobber a fresh idle/error state if we were cancelled mid-request.
+    if (token === startGeneration) {
+      store.setStatus('idle')
+      store.setError(describeGetUserMediaError(error))
+    }
+    return
+  }
+
+  // Cancelled while acquiring the mic (component unmounted / project switched):
+  // release the freshly-acquired stream instead of going live in the background.
+  if (token !== startGeneration) {
+    rec.dispose()
+    if (recorder === rec) recorder = null
     return
   }
 
@@ -209,6 +227,12 @@ export async function stopMicRecording(): Promise<void> {
     return
   }
 
+  // The take belongs to the project it was recorded in. Capture it now so a
+  // project switch during finalization can't commit media/timeline state into
+  // whatever project happens to be open when the save completes.
+  const projectId = useMediaLibraryStore.getState().currentProjectId
+  const anchor = store.recordStartFrame
+
   store.setStatus('finalizing')
 
   let result: MicRecorderResult
@@ -217,19 +241,22 @@ export async function stopMicRecording(): Promise<void> {
   } catch (error) {
     logger.error('Failed to stop recording', error)
     rec.dispose()
-    store.setError(i18n.t('recording.errors.failed'))
+    // `reset()` clears `error`, so surface the message *after* resetting or the
+    // toolbar never observes the non-null value.
     store.reset()
+    store.setError(i18n.t('recording.errors.failed'))
     return
   }
 
-  const anchor = store.recordStartFrame
   try {
-    await commitRecording(result, anchor)
+    await commitRecording(result, anchor, projectId)
+    store.reset()
   } catch (error) {
     logger.error('Failed to save recording', error)
-    store.setError(i18n.t('recording.errors.saveFailed'))
-  } finally {
+    // `reset()` clears `error`, so surface the message *after* resetting or the
+    // toolbar never observes the non-null value.
     store.reset()
+    store.setError(i18n.t('recording.errors.saveFailed'))
   }
 }
 
@@ -246,6 +273,19 @@ export function cancelMicRecording(): void {
   suppressTransport = false
   restoreMonitorMute()
 
+  recorder?.dispose()
+  recorder = null
+  useMicRecordingStore.getState().reset()
+}
+
+/**
+ * Abort a take still in the `requesting` phase (mic acquisition in flight).
+ * Bumps the start generation so the pending {@link startMicRecording} tears down
+ * the stream it's about to acquire instead of going live after the UI is gone.
+ */
+export function cancelPendingMicRecording(): void {
+  if (useMicRecordingStore.getState().status !== 'requesting') return
+  startGeneration += 1
   recorder?.dispose()
   recorder = null
   useMicRecordingStore.getState().reset()
@@ -350,11 +390,14 @@ function restoreMonitorMute(): void {
   usePlaybackStore.getState().setMuted(false)
 }
 
-async function commitRecording(result: MicRecorderResult, anchor: number): Promise<void> {
+async function commitRecording(
+  result: MicRecorderResult,
+  anchor: number,
+  projectId: string | null,
+): Promise<void> {
   if (result.blob.size === 0) {
     throw new Error('Recording produced no audio')
   }
-  const projectId = useMediaLibraryStore.getState().currentProjectId
   if (!projectId) {
     throw new Error('No project selected')
   }
@@ -373,6 +416,14 @@ async function commitRecording(result: MicRecorderResult, anchor: number): Promi
   const media = await mediaLibraryService.importRecordedAudio(file, projectId, {
     fallbackDurationMs: result.durationMs,
   })
+
+  // The clip was saved into its originating project's media folder. If the user
+  // switched projects while we were saving, the live timeline/media stores now
+  // point at a different project — don't graft the take onto it.
+  if (useMediaLibraryStore.getState().currentProjectId !== projectId) {
+    logger.warn('Project changed during finalization; skipping timeline placement')
+    return
+  }
 
   const fps = useTimelineSettingsStore.getState().fps
   const durationSeconds = media.duration

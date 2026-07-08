@@ -34,6 +34,7 @@ import {
   refreshMicDevices,
   startMicMonitor,
   stopMicMonitor,
+  cancelPendingMicRecording,
   isMicRecordingSupported,
 } from '../services/mic-recording-controller'
 
@@ -239,8 +240,13 @@ export const MicRecordControl = memo(function MicRecordControl() {
   useEffect(() => {
     void refreshMicDevices()
     return () => {
-      if (isMicRecordingActive(useMicRecordingStore.getState().status)) {
+      const status = useMicRecordingStore.getState().status
+      if (isMicRecordingActive(status)) {
         cancelMicRecording()
+      } else if (status === 'requesting') {
+        // A permission prompt / getUserMedia is still pending — cancel it so the
+        // mic doesn't go live and start the transport after we've unmounted.
+        cancelPendingMicRecording()
       } else {
         stopMicMonitor()
       }
