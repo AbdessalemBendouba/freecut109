@@ -24,6 +24,7 @@ import { listDirectory } from './fs-primitives'
 import { getProject } from './projects'
 import { getMedia } from './media'
 import { withKeyLock } from './with-key-lock'
+import { mapWithConcurrency } from '@/shared/utils/async-utils'
 
 /**
  * Serialize mutations of `media-links.json` per project. Without this,
@@ -36,6 +37,9 @@ function linksLockKey(projectId: string): string {
 }
 
 const logger = createLogger('WorkspaceFS:ProjectMedia')
+
+/** Bound on parallel metadata.json reads — mirrors media.ts's global read. */
+const METADATA_READ_CONCURRENCY = 8
 
 const PROJECT_MEDIA_ITEM_TYPES = new Set(['video', 'audio', 'image'])
 
@@ -228,12 +232,23 @@ export async function getMediaForProject(projectId: string): Promise<MediaMetada
     }
 
     const finalIds = [...associated]
+    // Read every associated media's metadata.json concurrently. Each getMedia()
+    // re-walks the FSA dir tree (`media/{id}/metadata.json`), so a serial loop
+    // here cost N sequential round-trips before the grid could render. Bounded
+    // concurrency keeps this off the critical path for editor open.
+    const loaded = await mapWithConcurrency(
+      finalIds,
+      METADATA_READ_CONCURRENCY,
+      async (mediaId) => ({ mediaId, media: await getMedia(mediaId) }),
+    )
     const media: MediaMetadata[] = []
     const orphans: string[] = []
-    for (const mediaId of finalIds) {
-      const m = await getMedia(mediaId)
-      if (m) media.push(m)
-      else orphans.push(mediaId)
+    for (const result of loaded) {
+      // mapWithConcurrency yields null for an internal failure (already logged);
+      // treat those ids as unresolved rather than orphaning them.
+      if (!result) continue
+      if (result.media) media.push(result.media)
+      else orphans.push(result.mediaId)
     }
 
     if (orphans.length > 0) {
