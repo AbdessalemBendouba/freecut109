@@ -5,6 +5,26 @@
  */
 export type MediaStorageType = 'handle' | 'opfs'
 
+/**
+ * Provenance + usage terms for media imported from a third-party provider.
+ * All fields optional except `provider` so callers can record whatever the
+ * source exposes. Currently populated by the LottieFiles browser.
+ */
+export interface MediaAttribution {
+  /** Human-readable source, e.g. "LottieFiles". */
+  provider: string
+  /** Original creator's display name. */
+  author?: string
+  /** Link to the creator's profile or the source page. */
+  authorUrl?: string
+  /** Direct link back to the asset on the provider. */
+  sourceUrl?: string
+  /** Provider-native asset id, for dedupe/lookup. */
+  sourceId?: string
+  /** License the asset is distributed under, e.g. "Lottie Simple License". */
+  license?: string
+}
+
 export interface MediaMetadata {
   id: string
   /**
@@ -80,6 +100,12 @@ export interface MediaMetadata {
   gopInterval?: number
   thumbnailId?: string
   tags: string[]
+  /**
+   * Provenance for media pulled from a third-party provider (e.g. the
+   * in-app LottieFiles browser). Persisted so the editor can surface the
+   * required attribution/license for assets that carry usage terms.
+   */
+  attribution?: MediaAttribution
   /**
    * AI-generated timestamped captions from LFM vision-language model.
    * Mirrors the canonical `cache/ai/captions.json` payload for in-memory

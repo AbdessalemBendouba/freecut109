@@ -19,6 +19,7 @@ import {
   Blend,
   Pen,
   Captions,
+  Sticker,
   WandSparkles,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
@@ -36,6 +37,7 @@ import {
   setMediaDragData,
 } from '@/features/editor/deps/media-library'
 import { KeyframeGraphPanel, TranscriptEditorPanel } from '@/features/editor/deps/timeline-contract'
+import { LottieBrowserPanel } from '@/features/editor/deps/lottie-browser'
 import { TransitionsPanel } from './transitions-panel'
 import {
   createDefaultShapeItem,
@@ -293,8 +295,12 @@ export const MediaSidebar = memo(function MediaSidebar() {
   const prefersReducedMotion = useReducedMotion()
 
   const [aiTabActivated, setAiTabActivated] = useState(activeTab === 'ai')
+  // The Lottie panel hits an external API on mount, so keep it unmounted until
+  // the tab is first opened; it then stays mounted (state preserved).
+  const [lottieTabActivated, setLottieTabActivated] = useState(activeTab === 'lottie')
   useEffect(() => {
     if (activeTab === 'ai') setAiTabActivated(true)
+    if (activeTab === 'lottie') setLottieTabActivated(true)
   }, [activeTab])
 
   // The collapsed panel stays mounted (clipped to 0 width, see NOTE below), so
@@ -558,6 +564,7 @@ export const MediaSidebar = memo(function MediaSidebar() {
     { id: 'shapes' as const, icon: Pentagon, label: t('editor.mediaSidebar.shapes') },
     { id: 'effects' as const, icon: Layers, label: t('editor.mediaSidebar.effects') },
     { id: 'transitions' as const, icon: Blend, label: t('editor.mediaSidebar.transitions') },
+    { id: 'lottie' as const, icon: Sticker, label: t('lottieBrowser.tabLabel') },
     { id: 'transcript' as const, icon: Captions, label: t('transcript.tabLabel') },
     { id: 'ai' as const, icon: WandSparkles, label: t('editor.mediaSidebar.ai') },
   ]
@@ -1159,6 +1166,13 @@ export const MediaSidebar = memo(function MediaSidebar() {
                 className={`min-h-0 flex-1 overflow-hidden ${activeTab === 'transitions' ? 'block' : 'hidden'}`}
               >
                 <TransitionsPanel />
+              </div>
+
+              {/* Lottie Browser Tab */}
+              <div
+                className={`min-h-0 flex-1 overflow-hidden ${activeTab === 'lottie' ? 'block' : 'hidden'}`}
+              >
+                {lottieTabActivated && <LottieBrowserPanel />}
               </div>
 
               {/* Transcript Tab */}

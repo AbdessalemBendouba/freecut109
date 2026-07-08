@@ -1,4 +1,4 @@
-import type { MediaMetadata, ThumbnailData } from '@/types/storage'
+import type { MediaAttribution, MediaMetadata, ThumbnailData } from '@/types/storage'
 import { createLogger } from '@/shared/logging/logger'
 
 const logger = createLogger('MediaLibraryService')
@@ -208,6 +208,21 @@ function parseMediaImportUrl(input: string): URL {
   }
 
   return parsedUrl
+}
+
+/**
+ * Turn a provider-supplied animation title into a safe base file name.
+ * Strips filesystem-hostile characters, collapses whitespace, and caps the
+ * length so metadata stays tidy. Falls back to a generic name when empty.
+ */
+function sanitizeLottieFileName(rawName: string | undefined): string {
+  const cleaned = (rawName ?? '')
+    .trim()
+    .replace(/[/\\?%*:|"<>]/g, '')
+    .replace(/\s+/g, ' ')
+    .slice(0, 80)
+    .trim()
+  return cleaned.length > 0 ? cleaned : 'lottie-animation'
 }
 
 /**
@@ -482,6 +497,7 @@ class MediaLibraryService {
   private async importMediaFileToOpfs(
     file: File,
     projectId: string,
+    options?: { attribution?: MediaAttribution },
   ): Promise<MediaMetadata & { isDuplicate?: boolean; hasUnsupportedCodec?: boolean }> {
     const validationResult = await validateMediaFileContent(file)
     if (!validationResult.valid) {
@@ -526,6 +542,7 @@ class MediaLibraryService {
         codec: 'lottie',
         bitrate: 0,
         tags: [],
+        attribution: options?.attribution,
         createdAt,
         updatedAt: createdAt,
       }
@@ -1028,6 +1045,50 @@ class MediaLibraryService {
 
     const file = await this.fetchMediaFromUrl(url)
     return this.importMediaFileToOpfs(file, projectId)
+  }
+
+  /**
+   * Import a Lottie animation from a direct `.lottie`/`.json` URL into
+   * OPFS-backed storage. Unlike {@link importMediaFromUrl}, the file is named
+   * from `fileName` (so the library shows a human-readable title instead of a
+   * CDN hash) and `attribution` is persisted for licensing/credits.
+   *
+   * The provider CDN must allow cross-origin fetches (LottieFiles serves
+   * `Access-Control-Allow-Origin: *`).
+   */
+  async importLottieFromUrl(
+    url: string,
+    projectId: string,
+    options?: { fileName?: string; attribution?: MediaAttribution },
+  ): Promise<MediaMetadata & { isDuplicate?: boolean }> {
+    if (!projectId) {
+      throw new Error('No project selected')
+    }
+
+    let response: Response
+    try {
+      response = await fetch(url)
+    } catch (error) {
+      logger.warn(`Failed to fetch Lottie URL "${url}":`, error)
+      throw new Error('Could not download that animation. The source may be offline.')
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to download animation (${response.status}${response.statusText ? ` ${response.statusText}` : ''}).`,
+      )
+    }
+
+    const blob = await response.blob()
+    if (blob.size === 0) {
+      throw new Error('The downloaded animation was empty.')
+    }
+
+    const isJson = url.split(/[?#]/)[0]?.toLowerCase().endsWith('.json') ?? false
+    const fileName = `${sanitizeLottieFileName(options?.fileName)}.${isJson ? 'json' : 'lottie'}`
+    const file = new File([blob], fileName, { type: 'application/lottie+json' })
+
+    return this.importMediaFileToOpfs(file, projectId, { attribution: options?.attribution })
   }
 
   /**
