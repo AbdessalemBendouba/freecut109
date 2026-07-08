@@ -27,7 +27,12 @@ import { useTimelineCommandStore } from './timeline-command-store'
 import { useCompositionsStore } from './compositions-store'
 import { useCompositionNavigationStore } from './composition-navigation-store'
 import { useSequencesStore } from './sequences-store'
-import { getProject, updateProject, saveProjectThumbnail } from '@/infrastructure/storage'
+import {
+  getProject,
+  updateProject,
+  saveProjectRecord,
+  saveProjectThumbnail,
+} from '@/infrastructure/storage'
 import {
   importCanvasRenderOrchestrator,
   convertTimelineToComposition,
@@ -946,18 +951,21 @@ export async function saveTimeline(projectId: string): Promise<void> {
       }
     }
 
-    // Update project
-    // Clear deprecated thumbnail field when using thumbnailId to save space
-    await updateProject(projectId, {
+    // Persist directly from the `project` we already read above, folding in the
+    // new timeline/thumbnail. This avoids a second full read of project.json
+    // (updateProject takes a Partial and re-reads to merge). Clear the
+    // deprecated inline thumbnail field when using thumbnailId to save space.
+    const updatedAt = Date.now()
+    await saveProjectRecord({
+      ...project,
       timeline: sanitizedTimeline,
       ...(thumbnailId && { thumbnailId, thumbnail: undefined }),
-      updatedAt: Date.now(),
+      updatedAt,
     })
 
     // Mark as clean after successful save
     useTimelineSettingsStore.getState().markClean()
 
-    const updatedAt = Date.now()
     event.success({ updatedAt, thumbnailId })
   } catch (error) {
     event.failure(error)

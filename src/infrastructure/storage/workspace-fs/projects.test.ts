@@ -8,6 +8,7 @@ import {
   getAllProjects,
   getDBStats,
   getProject,
+  saveProjectRecord,
   updateProject,
 } from './projects'
 import { setWorkspaceRoot } from './root'
@@ -107,6 +108,52 @@ describe('workspace-fs projects', () => {
 
     const reloaded = await getProject('p1')
     expect(reloaded!.name).toBe('Renamed')
+  })
+
+  it('saveProjectRecord persists a full record and index entry without touching the handle registry', async () => {
+    const root = createRoot()
+    setWorkspaceRoot(asHandle(root))
+    await createProject(makeProject('p1', 'Original', 1000))
+    handlesMocks.saveHandle.mockClear()
+
+    await saveProjectRecord({
+      ...makeProject('p1', 'Renamed', 2000),
+      description: 'updated',
+    })
+
+    // project.json reflects the full record...
+    const reloaded = await getProject('p1')
+    expect(reloaded!.name).toBe('Renamed')
+    expect(reloaded!.description).toBe('updated')
+    expect(reloaded!.updatedAt).toBe(2000)
+
+    // ...the index carries the new name/updatedAt...
+    const index = JSON.parse((await readFileText(root, 'index.json'))!)
+    expect(index.projects.find((p: { id: string }) => p.id === 'p1')).toMatchObject({
+      name: 'Renamed',
+      updatedAt: 2000,
+    })
+
+    // ...and the folder-handle registry is left untouched (the handle is
+    // assumed unchanged, so no per-save IndexedDB write).
+    expect(handlesMocks.saveHandle).not.toHaveBeenCalled()
+  })
+
+  it('saveProjectRecord strips the non-serializable rootFolderHandle from project.json', async () => {
+    const root = createRoot()
+    setWorkspaceRoot(asHandle(root))
+    await createProject(makeProject('p1'))
+
+    const fakeHandle = { name: 'SomeFolder' } as FileSystemDirectoryHandle
+    await saveProjectRecord({
+      ...makeProject('p1', 'WithHandle', 3000),
+      rootFolderHandle: fakeHandle,
+      rootFolderName: 'SomeFolder',
+    } as Project)
+
+    const parsed = JSON.parse((await readFileText(root, 'projects', 'p1', 'project.json'))!)
+    expect(parsed.rootFolderHandle).toBeUndefined()
+    expect(parsed.rootFolderName).toBe('SomeFolder')
   })
 
   it('updateProject throws when missing', async () => {
@@ -225,7 +272,16 @@ describe('workspace-fs projects', () => {
     const ids: string[] = index.projects.map((p: { id: string }) => p.id)
     expect(ids).toContain('p1')
     expect(ids).toContain('p3')
-    expect(ids).not.toContain('p2')
+
+    // The durable guarantee: a corrupt project.json never surfaces to consumers,
+    // regardless of whether a transient index entry lingers (the incremental
+    // index upsert no longer rescans every project on each write). It self-heals
+    // on the next full rebuild.
+    const loaded = await getAllProjects()
+    const loadedIds = loaded.map((p) => p.id)
+    expect(loadedIds).toContain('p1')
+    expect(loadedIds).toContain('p3')
+    expect(loadedIds).not.toContain('p2')
   })
 
   it('corrupt index.json self-heals: getAllProjects returns healthy projects', async () => {

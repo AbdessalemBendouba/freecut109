@@ -12,6 +12,7 @@ export {
   getProject,
   createProject,
   updateProject,
+  saveProjectRecord,
   deleteProject,
   getDBStats,
 } from '@/infrastructure/storage/workspace-fs/projects'
