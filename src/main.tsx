@@ -15,7 +15,6 @@ const UPDATE_CHECK_INTERVAL_MS = 5 * 60 * 1000
 const ACCEPTED_APP_UPDATE_SIGNATURE_KEY = 'freecut-accepted-app-update-signature'
 
 let updateToastVisible = false
-let currentBuildAssetSignature: string | null = null
 
 // Debug utilities are editor-heavy; keep them out of the production startup graph.
 if (import.meta.env.DEV) {
@@ -103,23 +102,25 @@ async function showUpdateAvailableToast(
 }
 
 function getBuildAssetSignature(documentToInspect: Document): string {
-  const assetUrls = [
-    ...Array.from(
-      documentToInspect.querySelectorAll<HTMLScriptElement>('script[type="module"][src]'),
-    ).map((element) => element.src),
-    ...Array.from(
-      documentToInspect.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"][href]'),
-    ).map((element) => element.href),
-  ]
+  // Build identity is the entry module script (e.g. /assets/main-[hash].js); its content
+  // hash changes on every deploy. We deliberately IGNORE <link rel="stylesheet"> tags:
+  // route/feature CSS is code-split and injected into the live DOM at runtime, so an
+  // editor session accumulates stylesheet links that the pristine server HTML never has.
+  // Comparing those made checkForAppShellUpdate fire a false "new version" toast on every
+  // editor load. Dynamic import()s inject <link rel="modulepreload">, never <script>, so
+  // the module-script set stays stable for a given build.
+  const scriptPaths = Array.from(
+    documentToInspect.querySelectorAll<HTMLScriptElement>('script[type="module"][src]'),
+  ).map((element) => new URL(element.src, window.location.href).pathname)
 
-  return JSON.stringify(
-    assetUrls.map((assetUrl) => new URL(assetUrl, window.location.href).pathname).sort(),
-  )
+  return JSON.stringify(scriptPaths.sort())
 }
 
-async function checkForAppShellUpdate() {
-  currentBuildAssetSignature ??= getBuildAssetSignature(document)
+// Snapshot the entry-script signature at startup, before React mounts or the router
+// injects anything, so it matches the pristine HTML that checkForAppShellUpdate re-fetches.
+const currentBuildAssetSignature = getBuildAssetSignature(document)
 
+async function checkForAppShellUpdate() {
   try {
     const response = await fetch(`/?__freecut_update_check=${Date.now()}`, {
       cache: 'no-store',
