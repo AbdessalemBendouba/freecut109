@@ -1,6 +1,6 @@
 import { memo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Film, Loader2, Plus } from 'lucide-react'
+import { Check, Film, Loader2, Plus, RotateCcw } from 'lucide-react'
 import { cn } from '@/shared/ui/cn'
 import type { LottieFilesAnimation } from '../services/lottiefiles-api'
 
@@ -8,15 +8,28 @@ interface LottieCardProps {
   animation: LottieFilesAnimation
   isImporting: boolean
   isImported: boolean
+  isFailed: boolean
   onImport: (animation: LottieFilesAnimation) => void
 }
 
-function LottieCardComponent({ animation, isImporting, isImported, onImport }: LottieCardProps) {
+function LottieCardComponent({
+  animation,
+  isImporting,
+  isImported,
+  isFailed,
+  onImport,
+}: LottieCardProps) {
   const { t } = useTranslation()
   const disabled = isImporting || isImported
   // Some (often freshly uploaded) animations have no rendered GIF yet.
   const [previewFailed, setPreviewFailed] = useState(false)
   const showPreview = Boolean(animation.gifUrl) && !previewFailed
+
+  const actionLabel = isImported
+    ? t('lottieBrowser.added')
+    : isFailed
+      ? t('lottieBrowser.importFailed')
+      : t('lottieBrowser.addToMedia')
 
   return (
     <div className="group flex flex-col gap-1">
@@ -24,12 +37,14 @@ function LottieCardComponent({ animation, isImporting, isImported, onImport }: L
         type="button"
         onClick={() => onImport(animation)}
         disabled={disabled}
-        data-tooltip={isImported ? t('lottieBrowser.added') : t('lottieBrowser.addToMedia')}
+        aria-label={actionLabel}
+        data-tooltip={actionLabel}
         data-tooltip-side="top"
         className={cn(
           'relative aspect-square w-full overflow-hidden rounded-lg border border-border transition-colors',
           !disabled && 'hover:border-primary/60',
           disabled && 'cursor-default',
+          isFailed && 'border-destructive/70',
         )}
         style={{ backgroundColor: animation.bgColor ?? undefined }}
       >
@@ -51,9 +66,15 @@ function LottieCardComponent({ animation, isImporting, isImported, onImport }: L
           </div>
         )}
 
-        {!disabled && (
+        {!disabled && !isFailed && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-opacity group-hover:opacity-100">
             <Plus className="h-6 w-6 text-white" />
+          </div>
+        )}
+
+        {isFailed && !isImporting && (
+          <div className="absolute inset-0 flex items-center justify-center bg-destructive/30">
+            <RotateCcw className="h-5 w-5 text-white" />
           </div>
         )}
 

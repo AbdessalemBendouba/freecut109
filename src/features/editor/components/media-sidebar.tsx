@@ -295,8 +295,12 @@ export const MediaSidebar = memo(function MediaSidebar() {
   const prefersReducedMotion = useReducedMotion()
 
   const [aiTabActivated, setAiTabActivated] = useState(activeTab === 'ai')
+  // The Lottie panel hits an external API on mount, so keep it unmounted until
+  // the tab is first opened; it then stays mounted (state preserved).
+  const [lottieTabActivated, setLottieTabActivated] = useState(activeTab === 'lottie')
   useEffect(() => {
     if (activeTab === 'ai') setAiTabActivated(true)
+    if (activeTab === 'lottie') setLottieTabActivated(true)
   }, [activeTab])
 
   // The collapsed panel stays mounted (clipped to 0 width, see NOTE below), so
@@ -1168,7 +1172,7 @@ export const MediaSidebar = memo(function MediaSidebar() {
               <div
                 className={`min-h-0 flex-1 overflow-hidden ${activeTab === 'lottie' ? 'block' : 'hidden'}`}
               >
-                <LottieBrowserPanel />
+                {lottieTabActivated && <LottieBrowserPanel />}
               </div>
 
               {/* Transcript Tab */}

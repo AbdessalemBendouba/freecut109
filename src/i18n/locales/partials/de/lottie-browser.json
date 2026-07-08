@@ -10,6 +10,7 @@
     },
     "addToMedia": "Zur Medienbibliothek hinzufügen",
     "added": "Zur Medienbibliothek hinzugefügt",
+    "importFailed": "Import fehlgeschlagen – zum Wiederholen klicken",
     "by": "von {{author}}",
     "empty": "Keine Animationen gefunden",
     "error": "Animationen konnten nicht geladen werden",

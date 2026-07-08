@@ -10,6 +10,7 @@
     },
     "addToMedia": "添加到媒体库",
     "added": "已添加到媒体库",
+    "importFailed": "导入失败 — 点击重试",
     "by": "作者：{{author}}",
     "empty": "未找到动画",
     "error": "无法加载动画",

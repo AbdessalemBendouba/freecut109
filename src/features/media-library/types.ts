@@ -131,8 +131,9 @@ export interface MediaLibraryActions {
   importMediaFromUrl: (url: string) => Promise<MediaMetadata[]>
   /**
    * Import a Lottie animation from a provider (e.g. the LottieFiles browser)
-   * into OPFS-backed storage, recording attribution. Returns the imported
-   * media, or null on failure / when it already exists in the project.
+   * into OPFS-backed storage, recording attribution. Returns the media when it
+   * is available in the project — either freshly imported or an existing
+   * duplicate (flagged `isDuplicate`) — and null only when the import fails.
    */
   importRemoteLottie: (params: {
     url: string

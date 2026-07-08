@@ -10,6 +10,7 @@
     },
     "addToMedia": "Add to media library",
     "added": "Added to media library",
+    "importFailed": "Import failed — click to retry",
     "by": "by {{author}}",
     "empty": "No animations found",
     "error": "Could not load animations",

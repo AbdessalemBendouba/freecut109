@@ -10,6 +10,7 @@
     },
     "addToMedia": "Añadir a la biblioteca multimedia",
     "added": "Añadido a la biblioteca multimedia",
+    "importFailed": "Error al importar: haz clic para reintentar",
     "by": "de {{author}}",
     "empty": "No se encontraron animaciones",
     "error": "No se pudieron cargar las animaciones",

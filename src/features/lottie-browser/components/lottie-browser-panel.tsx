@@ -19,8 +19,10 @@ function LottieBrowserPanelComponent() {
   const error = useLottieBrowserStore((s) => s.error)
   const page = useLottieBrowserStore((s) => s.page)
   const totalCount = useLottieBrowserStore((s) => s.totalCount)
+  const hasFetched = useLottieBrowserStore((s) => s.hasFetched)
   const importingIds = useLottieBrowserStore((s) => s.importingIds)
   const importedIds = useLottieBrowserStore((s) => s.importedIds)
+  const failedIds = useLottieBrowserStore((s) => s.failedIds)
 
   const setCategory = useLottieBrowserStore((s) => s.setCategory)
   const setQuery = useLottieBrowserStore((s) => s.setQuery)
@@ -73,9 +75,14 @@ function LottieBrowserPanelComponent() {
     setPageInput(String(page + 1))
   }
   const isLoading = status === 'loading'
-  const isInitialLoading = isLoading && items.length === 0
-  const showEmpty = status === 'idle' && items.length === 0
+  // Treat the render before the first fetch resolves as loading so the empty
+  // state never flashes on mount (store starts idle with no items).
+  const isInitialLoading = (isLoading || !hasFetched) && items.length === 0
+  const showEmpty = hasFetched && status === 'idle' && totalCount === 0
   const showGrid = items.length > 0 && status !== 'error'
+  // Driven by totalPages, not the current page's item count: a page that maps
+  // to no importable items still needs the pager so the user can move on.
+  const showPager = status !== 'error' && totalPages > 1
   const canPrev = page > 0 && !isLoading
   const canNext = page < totalPages - 1 && !isLoading
 
@@ -161,6 +168,7 @@ function LottieBrowserPanelComponent() {
                 animation={animation}
                 isImporting={importingIds.has(animation.id)}
                 isImported={importedIds.has(animation.id)}
+                isFailed={failedIds.has(animation.id)}
                 onImport={importAnimation}
               />
             ))}
@@ -169,7 +177,7 @@ function LottieBrowserPanelComponent() {
       </div>
 
       {/* Pager */}
-      {showGrid && totalPages > 1 && (
+      {showPager && (
         <div className="flex items-center justify-between border-t border-border px-3 py-1.5">
           <button
             type="button"

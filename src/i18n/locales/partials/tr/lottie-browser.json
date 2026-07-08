@@ -10,6 +10,7 @@
     },
     "addToMedia": "Medya kitaplığına ekle",
     "added": "Medya kitaplığına eklendi",
+    "importFailed": "İçe aktarma başarısız — yeniden denemek için tıklayın",
     "by": "{{author}} tarafından",
     "empty": "Animasyon bulunamadı",
     "error": "Animasyonlar yüklenemedi",
