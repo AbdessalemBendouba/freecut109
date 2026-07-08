@@ -5,6 +5,7 @@ import { useCallback, useRef, useState, useEffect, useMemo, memo } from 'react'
 import { useTimelineStore } from '../stores/timeline-store'
 import { setInOutPointsWithoutHistory } from '../stores/actions/marker-actions'
 import { usePlaybackStore } from '@/shared/state/playback'
+import { useMicRecordingStore, isMicRecordingActive } from '@/shared/state/mic-recording-store'
 import { useSelectionStore } from '@/shared/state/selection'
 import { perfMarkRender } from '@/shared/logging/perf-marks'
 
@@ -854,6 +855,10 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       e.preventDefault()
       e.stopPropagation() // Prevent click from bubbling to container and clearing selection
       if (!containerRef.current) return
+
+      // Seeking is disabled during a voiceover take — moving the playhead
+      // without moving the mic audio would desync the recording irreparably.
+      if (isMicRecordingActive(useMicRecordingStore.getState().status)) return
 
       // Clear marker selection when clicking on ruler (only if a marker is selected)
       const { selectedMarkerId } = useSelectionStore.getState()

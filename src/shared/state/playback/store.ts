@@ -84,6 +84,7 @@ export const usePlaybackStore = create<PlaybackState & PlaybackActions>()(
       toggleLoop: () => set((state) => ({ loop: !state.loop })),
       setVolume: (volume) => set({ volume }),
       toggleMute: () => set((state) => ({ muted: !state.muted })),
+      setMuted: (muted) => set((state) => (state.muted === muted ? state : { muted })),
       setMasterBusDb: (masterBusDb) =>
         set({ masterBusDb: Math.max(-60, Math.min(12, masterBusDb)) }),
       setBusAudioEq: (busAudioEq) => set({ busAudioEq }),

@@ -80,6 +80,7 @@ export interface PlaybackActions {
   toggleLoop: () => void
   setVolume: (volume: number) => void
   toggleMute: () => void
+  setMuted: (muted: boolean) => void
   setMasterBusDb: (db: number) => void
   setBusAudioEq: (eq: AudioEqSettings | undefined) => void
   setZoom: (zoom: number) => void

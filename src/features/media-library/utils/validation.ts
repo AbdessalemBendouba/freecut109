@@ -22,6 +22,7 @@ const SUPPORTED_AUDIO_TYPES = [
   'audio/x-m4a', // .m4a files
   'audio/mp4', // .m4a also reported as audio/mp4
   'audio/ogg', // Opus codec in Ogg container
+  'audio/webm', // Opus codec in WebM container (MediaRecorder voiceover output)
 ]
 
 const SUPPORTED_IMAGE_TYPES = [
@@ -166,16 +167,19 @@ export async function validateMediaFileContent(file: File): Promise<ValidationRe
  * Get media type from MIME type
  */
 export function getMediaType(mimeType: string): 'video' | 'audio' | 'image' | 'lottie' | 'unknown' {
-  if (SUPPORTED_VIDEO_TYPES.includes(mimeType)) {
+  // Strip codec parameters (e.g. `audio/webm;codecs=opus` from MediaRecorder)
+  // so the base container type matches the supported-type lists.
+  const baseType = mimeType.split(';')[0]?.trim() ?? mimeType
+  if (SUPPORTED_VIDEO_TYPES.includes(baseType)) {
     return 'video'
   }
-  if (SUPPORTED_AUDIO_TYPES.includes(mimeType)) {
+  if (SUPPORTED_AUDIO_TYPES.includes(baseType)) {
     return 'audio'
   }
-  if (SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
+  if (SUPPORTED_IMAGE_TYPES.includes(baseType)) {
     return 'image'
   }
-  if (SUPPORTED_LOTTIE_TYPES.includes(mimeType)) {
+  if (SUPPORTED_LOTTIE_TYPES.includes(baseType)) {
     return 'lottie'
   }
   return 'unknown'

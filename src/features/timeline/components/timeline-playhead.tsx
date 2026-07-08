@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect, useRef, useLayoutEffect } from 'react
 
 // Stores and selectors
 import { usePlaybackStore } from '@/shared/state/playback'
+import { useMicRecordingStore, isMicRecordingActive } from '@/shared/state/mic-recording-store'
 import { useSelectionStore } from '@/shared/state/selection'
 
 // Utilities and hooks
@@ -145,6 +146,8 @@ export function TimelinePlayhead({
     (e: React.MouseEvent) => {
       e.preventDefault()
       e.stopPropagation()
+      // Seeking is disabled during a voiceover take (see timeline-markers).
+      if (isMicRecordingActive(useMicRecordingStore.getState().status)) return
       const container = inRuler
         ? playheadRef.current?.closest('.timeline-ruler')
         : playheadRef.current?.closest('.timeline-tracks')

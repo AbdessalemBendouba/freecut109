@@ -235,6 +235,33 @@ function sanitizeLottieFileName(rawName: string | undefined): string {
  * Provides atomic operations for media management while keeping origin-scoped
  * sources and the workspace folder in sync.
  */
+
+/**
+ * Decode an audio blob to read its exact duration in seconds. Falls back to the
+ * provided value when Web Audio is unavailable or decoding fails.
+ */
+async function decodeAudioDurationSeconds(blob: Blob, fallbackSeconds: number): Promise<number> {
+  const safeFallback = Math.max(0, fallbackSeconds)
+  const Ctor =
+    typeof window !== 'undefined'
+      ? (window.AudioContext ??
+        (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)
+      : undefined
+  if (!Ctor) return safeFallback
+
+  const ctx = new Ctor()
+  try {
+    const buffer = await blob.arrayBuffer()
+    const audio = await ctx.decodeAudioData(buffer)
+    return audio.duration > 0 ? audio.duration : safeFallback
+  } catch (error) {
+    logger.warn('decodeAudioData failed; using recorder timer duration', error)
+    return safeFallback
+  } finally {
+    void ctx.close().catch(() => {})
+  }
+}
+
 class MediaLibraryService {
   /**
    * In-memory cache for thumbnail blob URLs to prevent flicker on re-renders.
@@ -641,6 +668,102 @@ class MediaLibraryService {
       ...persistedMedia,
       hasUnsupportedCodec: codecCheck.unsupported,
     }
+  }
+
+  /**
+   * Import an in-memory microphone recording (webm/opus, ogg/opus, or mp4) into
+   * OPFS-backed storage for the timeline voiceover feature. Returns metadata
+   * whose `duration` is always finite and positive.
+   *
+   * Mirrors the audio branch of {@link importMediaFileToOpfs} but is resilient to
+   * headerless `MediaRecorder` output, whose container duration frequently probes
+   * as `0`/`Infinity` and would otherwise poison downstream waveform/trim math.
+   * Duration is resolved once, here, from the best available source:
+   * mediabunny probe → sample-accurate `decodeAudioData` → the recorder's wall
+   * clock (`fallbackDurationMs`). The caller then reuses the returned `duration`
+   * instead of decoding again.
+   */
+  async importRecordedAudio(
+    file: File,
+    projectId: string,
+    options: { fallbackDurationMs: number },
+  ): Promise<MediaMetadata> {
+    if (!projectId) {
+      throw new Error('No project selected')
+    }
+
+    // Strip codec parameters (MediaRecorder yields `audio/webm;codecs=opus`) and
+    // fall back to a WebM/Opus container so the media library classifies the
+    // take as audio rather than "unknown".
+    const rawMimeType = file.type || getMimeType(file)
+    const resolvedMimeType = (rawMimeType.split(';')[0]?.trim() || 'audio/webm').replace(
+      /^video\/webm$/,
+      'audio/webm',
+    )
+
+    let probedDuration = 0
+    let probedCodec = 'opus'
+    let probedBitrate = 0
+    let thumbnailBlob: Blob | undefined
+    try {
+      const { metadata, thumbnail } = await mediaProcessorService.processMedia(
+        file,
+        resolvedMimeType,
+        { fastMetadata: true },
+      )
+      probedDuration = 'duration' in metadata ? metadata.duration : 0
+      if (metadata.type === 'audio' && metadata.codec) {
+        probedCodec = metadata.codec
+      }
+      probedBitrate = 'bitrate' in metadata ? (metadata.bitrate ?? 0) : 0
+      thumbnailBlob = thumbnail
+    } catch (error) {
+      logger.warn('Failed to probe recorded audio; deriving duration by decoding', error)
+    }
+
+    let duration = Number.isFinite(probedDuration) && probedDuration > 0 ? probedDuration : 0
+    if (duration <= 0) {
+      // Probe was unusable (common for headerless WebM) — decode for an exact
+      // duration, then fall back to the recorder's wall-clock timer.
+      duration = await decodeAudioDurationSeconds(file, options.fallbackDurationMs / 1000)
+    }
+
+    const mediaId = crypto.randomUUID()
+    const createdAt = Date.now()
+
+    const mediaMetadata: MediaMetadata = {
+      id: mediaId,
+      storageType: 'workspace',
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: resolvedMimeType,
+      duration,
+      width: 0,
+      height: 0,
+      fps: 0,
+      codec: probedCodec,
+      bitrate: probedBitrate,
+      tags: ['voiceover'],
+      createdAt,
+      updatedAt: createdAt,
+    }
+
+    const persistedMedia = await persistGeneratedMediaAsset({
+      file,
+      projectId,
+      mediaMetadata,
+      thumbnailBlob,
+      thumbnailWidth: thumbnailBlob ? 320 : undefined,
+      thumbnailHeight: thumbnailBlob ? 180 : undefined,
+    })
+
+    // Schedules waveform decode so the clip renders its waveform like any audio.
+    this.schedulePostImportWork(file, persistedMedia, {
+      isVideo: false,
+      previewAudioCodec: probedCodec,
+    })
+
+    return persistedMedia
   }
 
   private async fetchMediaFromUrl(url: string): Promise<File> {
