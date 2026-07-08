@@ -1,9 +1,12 @@
 {
   "current": {
     "version": "current",
-    "date": "2026-07-08",
+    "date": "2026-07-09",
     "groups": {
       "added": [
+        {
+          "title": "Record a voiceover from your microphone, synced live to the timeline"
+        },
         {
           "title": "Lottie animations — import .json and .lottie files and play them on the timeline"
         },
@@ -15,6 +18,9 @@
         }
       ],
       "fixed": [
+        {
+          "title": "No more false \"new version available\" prompts while editing"
+        },
         {
           "title": "Fixed edge seams and shimmer on GPU effects in the preview"
         },

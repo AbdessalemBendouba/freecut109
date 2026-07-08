@@ -7,11 +7,13 @@ All notable changes to FreeCut. Weekly CalVer: `YYYY.MM.DD` = the Monday of the 
 ## [Current] — week of 2026-07-06
 
 ### Added
+- Record a voiceover from your microphone, synced live to the timeline
 - Lottie animations — import .json and .lottie files and play them on the timeline
 - Customize Lottie colors, themes, text, and value slots, with live preview
 - Browse and import free LottieFiles animations from inside the editor
 
 ### Fixed
+- No more false "new version available" prompts while editing
 - Fixed edge seams and shimmer on GPU effects in the preview
 - Copied, generated, and imported media now save reliably to your workspace folder
 - Missing media shows a relink prompt on the clip instead of failing silently
