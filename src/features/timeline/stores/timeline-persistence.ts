@@ -952,15 +952,17 @@ export async function saveTimeline(projectId: string): Promise<void> {
     // thumbnail work above is preserved. Writing a full record from the
     // pre-await `project` snapshot would clobber those newer fields.
     // Clear the deprecated inline thumbnail field when using thumbnailId.
-    const saved = await updateProject(projectId, {
+    const updatedAt = Date.now()
+    await updateProject(projectId, {
       timeline: sanitizedTimeline,
       ...(thumbnailId && { thumbnailId, thumbnail: undefined }),
+      updatedAt,
     })
 
     // Mark as clean after successful save
     useTimelineSettingsStore.getState().markClean()
 
-    event.success({ updatedAt: saved.updatedAt, thumbnailId })
+    event.success({ updatedAt, thumbnailId })
   } catch (error) {
     event.failure(error)
     throw error
