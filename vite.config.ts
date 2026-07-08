@@ -1,8 +1,48 @@
 import { defineConfig, lazyPlugins } from 'vite-plus'
+import type { Plugin } from 'vite-plus'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+// Stamps public/sw.js with the hashed entry-chunk filename at build time so the service
+// worker's CACHE_VERSION — and the sw.js bytes — change on every deploy. Without this the
+// SW file is byte-identical across deploys, so registration.update() never detects a new
+// version and old cached chunks are never purged. Uses the content hash (not a timestamp)
+// so identical builds produce an identical SW and avoid needless update churn.
+function serviceWorkerVersionPlugin(): Plugin {
+  const placeholder = '__FREECUT_BUILD_ID__'
+  let buildId = ''
+
+  return {
+    name: 'freecut-sw-version',
+    apply: 'build',
+    writeBundle(options, bundle) {
+      const mainEntry = Object.values(bundle).find(
+        (output) => output.type === 'chunk' && output.isEntry && output.name === 'main',
+      )
+      buildId =
+        mainEntry && mainEntry.type === 'chunk'
+          ? mainEntry.fileName.replace(/[^a-zA-Z0-9]/g, '-')
+          : buildId
+    },
+    // closeBundle runs after Vite has copied publicDir into the out dir, so dist/sw.js
+    // exists here with the placeholder intact.
+    closeBundle() {
+      if (!buildId) {
+        this.warn('serviceWorkerVersionPlugin: no main entry chunk found; sw.js not stamped')
+        return
+      }
+      const swPath = join(fileURLToPath(new URL('./dist', import.meta.url)), 'sw.js')
+      const source = readFileSync(swPath, 'utf8')
+      if (!source.includes(placeholder)) {
+        return
+      }
+      writeFileSync(swPath, source.replaceAll(placeholder, buildId))
+    },
+  }
+}
 
 const oxlintConfig = JSON.parse(readFileSync(new URL('./.oxlintrc.json', import.meta.url), 'utf8'))
 const oxfmtConfig = JSON.parse(readFileSync(new URL('./.oxfmtrc.json', import.meta.url), 'utf8'))
@@ -52,7 +92,7 @@ export default defineConfig({
       },
     },
   },
-  plugins: lazyPlugins(() => [react(), tailwindcss()]),
+  plugins: lazyPlugins(() => [react(), tailwindcss(), serviceWorkerVersionPlugin()]),
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
