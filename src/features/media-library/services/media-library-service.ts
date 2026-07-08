@@ -643,6 +643,99 @@ class MediaLibraryService {
     }
   }
 
+  /**
+   * Import an in-memory microphone recording (webm/opus, ogg/opus, or mp4) into
+   * OPFS-backed storage for the timeline voiceover feature.
+   *
+   * Mirrors the audio branch of {@link importMediaFileToOpfs} but injects a
+   * caller-provided, sample-accurate `durationSeconds` (from `decodeAudioData`)
+   * as a fallback: `MediaRecorder` blobs are recorded live and frequently lack a
+   * container duration header (probed `duration` comes back `0`/`Infinity`),
+   * which would otherwise poison downstream waveform/trim math that multiplies
+   * by duration. Probing is best-effort — if the codec/metadata pass fails we
+   * still persist with the decoded duration so the take is never lost.
+   */
+  async importRecordedAudio(
+    file: File,
+    projectId: string,
+    options: { durationSeconds: number },
+  ): Promise<MediaMetadata> {
+    if (!projectId) {
+      throw new Error('No project selected')
+    }
+
+    // Strip codec parameters (MediaRecorder yields `audio/webm;codecs=opus`) and
+    // fall back to a WebM/Opus container so the media library classifies the
+    // take as audio rather than "unknown".
+    const rawMimeType = file.type || getMimeType(file)
+    const resolvedMimeType = (rawMimeType.split(';')[0]?.trim() || 'audio/webm').replace(
+      /^video\/webm$/,
+      'audio/webm',
+    )
+
+    let probedDuration = 0
+    let probedCodec = 'opus'
+    let probedBitrate = 0
+    let thumbnailBlob: Blob | undefined
+    try {
+      const { metadata, thumbnail } = await mediaProcessorService.processMedia(
+        file,
+        resolvedMimeType,
+        { fastMetadata: true },
+      )
+      probedDuration = 'duration' in metadata ? metadata.duration : 0
+      if (metadata.type === 'audio' && metadata.codec) {
+        probedCodec = metadata.codec
+      }
+      probedBitrate = 'bitrate' in metadata ? (metadata.bitrate ?? 0) : 0
+      thumbnailBlob = thumbnail
+    } catch (error) {
+      logger.warn('Failed to probe recorded audio; using decoded duration', error)
+    }
+
+    const duration =
+      Number.isFinite(probedDuration) && probedDuration > 0
+        ? probedDuration
+        : Math.max(0, options.durationSeconds)
+
+    const mediaId = crypto.randomUUID()
+    const createdAt = Date.now()
+
+    const mediaMetadata: MediaMetadata = {
+      id: mediaId,
+      storageType: 'workspace',
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: resolvedMimeType,
+      duration,
+      width: 0,
+      height: 0,
+      fps: 0,
+      codec: probedCodec,
+      bitrate: probedBitrate,
+      tags: ['voiceover'],
+      createdAt,
+      updatedAt: createdAt,
+    }
+
+    const persistedMedia = await persistGeneratedMediaAsset({
+      file,
+      projectId,
+      mediaMetadata,
+      thumbnailBlob,
+      thumbnailWidth: thumbnailBlob ? 320 : undefined,
+      thumbnailHeight: thumbnailBlob ? 180 : undefined,
+    })
+
+    // Schedules waveform decode so the clip renders its waveform like any audio.
+    this.schedulePostImportWork(file, persistedMedia, {
+      isVideo: false,
+      previewAudioCodec: probedCodec,
+    })
+
+    return persistedMedia
+  }
+
   private async fetchMediaFromUrl(url: string): Promise<File> {
     const parsedUrl = parseMediaImportUrl(url.trim())
 

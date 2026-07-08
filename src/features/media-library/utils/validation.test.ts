@@ -49,6 +49,15 @@ describe('validation', () => {
     expect(getMediaType('image/svg+xml')).toBe('image')
   })
 
+  it('classifies MediaRecorder voiceover output (WebM/Opus) as audio', () => {
+    // The base container type must classify as audio...
+    expect(getMediaType('audio/webm')).toBe('audio')
+    // ...and the `;codecs=opus` suffix MediaRecorder appends must not defeat it.
+    expect(getMediaType('audio/webm;codecs=opus')).toBe('audio')
+    // A real WebM *video* file stays video.
+    expect(getMediaType('video/webm')).toBe('video')
+  })
+
   it('rejects a generic .json that maps to Lottie by extension but is not a Lottie', async () => {
     // Empty browser MIME forces the extension fallback, which types `.json` as Lottie.
     const notLottie = jsonFile(JSON.stringify({ hello: 'world' }), 'data.json')
