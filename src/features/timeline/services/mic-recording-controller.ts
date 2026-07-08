@@ -357,11 +357,20 @@ function watchTransport(): void {
   transportUnsub = usePlaybackStore.subscribe((state, prev) => {
     if (state.isPlaying === prev.isPlaying) return
     if (suppressTransport) return
-    if (state.isPlaying) return
+    const status = useMicRecordingStore.getState().status
+    if (state.isPlaying) {
+      // Transport started by something other than our lockstep resume (spacebar)
+      // while the take is paused: resume the recorder in lockstep so audio keeps
+      // matching the advancing playhead instead of silently dropping out.
+      if (status === 'paused') {
+        resumeMicRecording()
+      }
+      return
+    }
     // Transport stopped by something other than our lockstep pause (spacebar,
     // reaching the timeline end): finalize the take so audio can't desync from
     // a playhead that keeps moving independently.
-    if (useMicRecordingStore.getState().status === 'recording') {
+    if (status === 'recording') {
       void stopMicRecording()
     }
   })

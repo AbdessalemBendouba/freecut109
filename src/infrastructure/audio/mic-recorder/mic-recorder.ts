@@ -193,12 +193,18 @@ export class MicRecorder {
     }
     const durationMs = this.accumulatedMs
 
-    const blob = await new Promise<Blob>((resolve) => {
-      recorder.addEventListener(
-        'stop',
-        () => resolve(new Blob(this.chunks, { type: this.mimeType || 'audio/webm' })),
-        { once: true },
-      )
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      const onStop = () => {
+        recorder.removeEventListener('error', onError)
+        resolve(new Blob(this.chunks, { type: this.mimeType || 'audio/webm' }))
+      }
+      const onError = (event: Event) => {
+        recorder.removeEventListener('stop', onStop)
+        const error = (event as unknown as { error?: DOMException }).error
+        reject(error ?? new Error('MediaRecorder failed to stop'))
+      }
+      recorder.addEventListener('stop', onStop, { once: true })
+      recorder.addEventListener('error', onError, { once: true })
       recorder.stop()
     })
 

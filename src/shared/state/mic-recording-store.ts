@@ -33,7 +33,7 @@ interface MicRecordingState {
   // --- Persisted capture preferences ---
   /** Suppress steady background noise (browser DSP). On by default. */
   noiseSuppression: boolean
-  /** Auto-level the input. Off by default — cleaner for narration. */
+  /** Auto-level the input. On by default — keeps narration at a consistent level. */
   autoGainControl: boolean
   /**
    * Mute the timeline monitor mix while recording. On by default so speaker
@@ -72,7 +72,7 @@ export const useMicRecordingStore = create<MicRecordingState>()(
       recordStartFrame: 0,
       error: null,
       noiseSuppression: true,
-      autoGainControl: false,
+      autoGainControl: true,
       muteWhileRecording: true,
       syncOffsetMs: 0,
 
