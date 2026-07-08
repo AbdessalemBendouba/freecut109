@@ -14,6 +14,10 @@
     "empty": "Animasyon bulunamadı",
     "error": "Animasyonlar yüklenemedi",
     "retry": "Tekrar dene",
-    "attributionNote": "LottieFiles kaynaklı ücretsiz animasyonlar, Lottie Simple Lisansı kapsamında. Yayınlarken orijinal oluşturana kredi verin."
+    "previous": "Önceki sayfa",
+    "next": "Sonraki sayfa",
+    "goToPage": "Sayfaya git",
+    "ofTotal": "/ {{total}}",
+    "attributionNote": "LottieFiles kaynaklı ücretsiz animasyonlar, <license>Lottie Simple Lisansı</license> kapsamında. Yayınlarken orijinal oluşturana kredi verin."
   }
 }

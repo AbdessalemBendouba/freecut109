@@ -14,6 +14,10 @@
     "empty": "No se encontraron animaciones",
     "error": "No se pudieron cargar las animaciones",
     "retry": "Reintentar",
-    "attributionNote": "Animaciones gratuitas de LottieFiles, bajo la Licencia Lottie Simple. Acredita al creador original al publicar."
+    "previous": "Página anterior",
+    "next": "Página siguiente",
+    "goToPage": "Ir a la página",
+    "ofTotal": "de {{total}}",
+    "attributionNote": "Animaciones gratuitas de LottieFiles, bajo la <license>Licencia Lottie Simple</license>. Acredita al creador original al publicar."
   }
 }

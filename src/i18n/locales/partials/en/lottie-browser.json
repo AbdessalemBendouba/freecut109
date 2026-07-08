@@ -14,6 +14,10 @@
     "empty": "No animations found",
     "error": "Could not load animations",
     "retry": "Try again",
-    "attributionNote": "Free animations from LottieFiles, under the Lottie Simple License. Credit the original creator when you publish."
+    "previous": "Previous page",
+    "next": "Next page",
+    "goToPage": "Go to page",
+    "ofTotal": "of {{total}}",
+    "attributionNote": "Free animations from LottieFiles, under the <license>Lottie Simple License</license>. Credit the original creator when you publish."
   }
 }

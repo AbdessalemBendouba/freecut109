@@ -1,10 +1,10 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { useTranslation } from 'react-i18next'
-import { Loader2, Search, X } from 'lucide-react'
+import { Trans, useTranslation } from 'react-i18next'
+import { ChevronLeft, ChevronRight, Loader2, Search, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/shared/ui/cn'
 import type { LottieBrowseCategory } from '../services/lottiefiles-api'
-import { useLottieBrowserStore } from '../stores/lottie-browser-store'
+import { LOTTIE_PAGE_SIZE, useLottieBrowserStore } from '../stores/lottie-browser-store'
 import { LottieCard } from './lottie-card'
 
 const CATEGORIES: LottieBrowseCategory[] = ['featured', 'popular', 'recent']
@@ -17,18 +17,22 @@ function LottieBrowserPanelComponent() {
   const items = useLottieBrowserStore((s) => s.items)
   const status = useLottieBrowserStore((s) => s.status)
   const error = useLottieBrowserStore((s) => s.error)
-  const hasNextPage = useLottieBrowserStore((s) => s.hasNextPage)
+  const page = useLottieBrowserStore((s) => s.page)
+  const totalCount = useLottieBrowserStore((s) => s.totalCount)
   const importingIds = useLottieBrowserStore((s) => s.importingIds)
   const importedIds = useLottieBrowserStore((s) => s.importedIds)
 
   const setCategory = useLottieBrowserStore((s) => s.setCategory)
   const setQuery = useLottieBrowserStore((s) => s.setQuery)
   const refresh = useLottieBrowserStore((s) => s.refresh)
-  const loadMore = useLottieBrowserStore((s) => s.loadMore)
+  const goToPage = useLottieBrowserStore((s) => s.goToPage)
   const importAnimation = useLottieBrowserStore((s) => s.importAnimation)
 
   const [inputValue, setInputValue] = useState(query)
   const isSearching = inputValue.trim().length > 0
+
+  // Editable page number. Mirrors the store's page; typing + Enter/blur jumps.
+  const [pageInput, setPageInput] = useState('1')
 
   // Debounce the search box into the committed query.
   useEffect(() => {
@@ -36,31 +40,44 @@ function LottieBrowserPanelComponent() {
     return () => window.clearTimeout(id)
   }, [inputValue, setQuery])
 
-  // (Re)load whenever the feed or committed query changes — also runs on mount.
+  // (Re)load from page 1 whenever the feed or committed query changes — also
+  // runs on mount.
   useEffect(() => {
     void refresh()
   }, [category, query, refresh])
 
-  // Infinite scroll: load the next page as the sentinel nears the viewport.
+  // Jump the scroll position back to the top on every page change.
   const scrollRef = useRef<HTMLDivElement>(null)
-  const sentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const root = scrollRef.current
-    const sentinel = sentinelRef.current
-    if (!root || !sentinel) return
+    scrollRef.current?.scrollTo({ top: 0 })
+  }, [page])
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) void loadMore()
-      },
-      { root, rootMargin: '200px' },
-    )
-    observer.observe(sentinel)
-    return () => observer.disconnect()
-  }, [loadMore])
+  const totalPages = Math.max(1, Math.ceil(totalCount / LOTTIE_PAGE_SIZE))
 
-  const isInitialLoading = status === 'loading'
+  // Keep the editable field in sync when the page changes elsewhere (arrows,
+  // new search, etc).
+  useEffect(() => {
+    setPageInput(String(page + 1))
+  }, [page])
+
+  const commitPageInput = () => {
+    const parsed = Number.parseInt(pageInput, 10)
+    if (Number.isFinite(parsed)) {
+      const targetIndex = Math.min(Math.max(parsed, 1), totalPages) - 1
+      if (targetIndex !== page) {
+        void goToPage(targetIndex)
+        return
+      }
+    }
+    // Invalid or unchanged — restore the current page number.
+    setPageInput(String(page + 1))
+  }
+  const isLoading = status === 'loading'
+  const isInitialLoading = isLoading && items.length === 0
   const showEmpty = status === 'idle' && items.length === 0
+  const showGrid = items.length > 0 && status !== 'error'
+  const canPrev = page > 0 && !isLoading
+  const canNext = page < totalPages - 1 && !isLoading
 
   return (
     <div className="flex h-full flex-col">
@@ -134,8 +151,10 @@ function LottieBrowserPanelComponent() {
           </p>
         )}
 
-        {items.length > 0 && (
-          <div className="grid grid-cols-2 gap-3">
+        {showGrid && (
+          <div
+            className={cn('grid grid-cols-2 gap-3 transition-opacity', isLoading && 'opacity-60')}
+          >
             {items.map((animation) => (
               <LottieCard
                 key={animation.id}
@@ -147,21 +166,65 @@ function LottieBrowserPanelComponent() {
             ))}
           </div>
         )}
-
-        {status === 'loadingMore' && (
-          <div className="flex items-center justify-center py-4 text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-          </div>
-        )}
-
-        {/* Infinite-scroll sentinel */}
-        {hasNextPage && <div ref={sentinelRef} className="h-px w-full" />}
       </div>
+
+      {/* Pager */}
+      {showGrid && totalPages > 1 && (
+        <div className="flex items-center justify-between border-t border-border px-3 py-1.5">
+          <button
+            type="button"
+            onClick={() => void goToPage(page - 1)}
+            disabled={!canPrev}
+            aria-label={t('lottieBrowser.previous')}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="flex items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground">
+            {isLoading && <Loader2 className="h-3 w-3 animate-spin" />}
+            <input
+              type="text"
+              inputMode="numeric"
+              value={pageInput}
+              onChange={(event) => setPageInput(event.target.value.replace(/[^0-9]/g, ''))}
+              onFocus={(event) => event.target.select()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+              }}
+              onBlur={commitPageInput}
+              aria-label={t('lottieBrowser.goToPage')}
+              className="h-6 w-11 rounded border border-input bg-transparent text-center text-[11px] tabular-nums focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+            {t('lottieBrowser.ofTotal', { total: totalPages })}
+          </span>
+          <button
+            type="button"
+            onClick={() => void goToPage(page + 1)}
+            disabled={!canNext}
+            aria-label={t('lottieBrowser.next')}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Attribution / licensing note */}
       <div className="border-t border-border px-3 py-2">
         <p className="text-[10px] leading-tight text-muted-foreground">
-          {t('lottieBrowser.attributionNote')}
+          <Trans
+            i18nKey="lottieBrowser.attributionNote"
+            components={{
+              license: (
+                <a
+                  href="https://lottiefiles.com/page/license"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2 hover:text-foreground"
+                />
+              ),
+            }}
+          />
         </p>
       </div>
     </div>

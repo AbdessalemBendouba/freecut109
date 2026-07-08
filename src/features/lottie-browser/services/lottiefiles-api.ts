@@ -64,6 +64,16 @@ const NODE_FIELDS = `
   createdBy { name username }
 `
 
+/**
+ * Cursor for a 0-based item offset. LottieFiles' list connections use the
+ * graphql-relay `arrayconnection:<index>` scheme, so a cursor can be built for
+ * any offset — enabling direct page jumps, not just next/prev. `after` is
+ * exclusive, so to start a page at offset N pass `offsetToCursor(N - 1)`.
+ */
+export function offsetToCursor(offset: number): string {
+  return btoa(`arrayconnection:${offset}`)
+}
+
 function rootField(category: LottieBrowseCategory, isSearch: boolean): string {
   if (isSearch) return 'searchPublicAnimations'
   if (category === 'popular') return 'popularPublicAnimations'

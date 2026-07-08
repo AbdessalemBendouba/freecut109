@@ -19,7 +19,7 @@ import {
   Blend,
   Pen,
   Captions,
-  Sparkles,
+  Sticker,
   WandSparkles,
 } from 'lucide-react'
 import { motion, useReducedMotion } from 'motion/react'
@@ -560,7 +560,7 @@ export const MediaSidebar = memo(function MediaSidebar() {
     { id: 'shapes' as const, icon: Pentagon, label: t('editor.mediaSidebar.shapes') },
     { id: 'effects' as const, icon: Layers, label: t('editor.mediaSidebar.effects') },
     { id: 'transitions' as const, icon: Blend, label: t('editor.mediaSidebar.transitions') },
-    { id: 'lottie' as const, icon: Sparkles, label: t('lottieBrowser.tabLabel') },
+    { id: 'lottie' as const, icon: Sticker, label: t('lottieBrowser.tabLabel') },
     { id: 'transcript' as const, icon: Captions, label: t('transcript.tabLabel') },
     { id: 'ai' as const, icon: WandSparkles, label: t('editor.mediaSidebar.ai') },
   ]
