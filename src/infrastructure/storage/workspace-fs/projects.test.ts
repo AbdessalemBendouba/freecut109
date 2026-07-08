@@ -8,7 +8,6 @@ import {
   getAllProjects,
   getDBStats,
   getProject,
-  saveProjectRecord,
   updateProject,
 } from './projects'
 import { setWorkspaceRoot } from './root'
@@ -110,50 +109,31 @@ describe('workspace-fs projects', () => {
     expect(reloaded!.name).toBe('Renamed')
   })
 
-  it('saveProjectRecord persists a full record and index entry without touching the handle registry', async () => {
+  it('updateProject does not touch the handle registry when the patch omits rootFolderHandle', async () => {
     const root = createRoot()
     setWorkspaceRoot(asHandle(root))
     await createProject(makeProject('p1', 'Original', 1000))
     handlesMocks.saveHandle.mockClear()
+    handlesMocks.deleteHandle.mockClear()
 
-    await saveProjectRecord({
-      ...makeProject('p1', 'Renamed', 2000),
-      description: 'updated',
-    })
+    await updateProject('p1', { name: 'Renamed' })
 
-    // project.json reflects the full record...
-    const reloaded = await getProject('p1')
-    expect(reloaded!.name).toBe('Renamed')
-    expect(reloaded!.description).toBe('updated')
-    expect(reloaded!.updatedAt).toBe(2000)
-
-    // ...the index carries the new name/updatedAt...
-    const index = JSON.parse((await readFileText(root, 'index.json'))!)
-    expect(index.projects.find((p: { id: string }) => p.id === 'p1')).toMatchObject({
-      name: 'Renamed',
-      updatedAt: 2000,
-    })
-
-    // ...and the folder-handle registry is left untouched (the handle is
-    // assumed unchanged, so no per-save IndexedDB write).
+    // A patch that doesn't change the folder handle must avoid the per-save
+    // IndexedDB write/delete on the handle registry.
     expect(handlesMocks.saveHandle).not.toHaveBeenCalled()
+    expect(handlesMocks.deleteHandle).not.toHaveBeenCalled()
   })
 
-  it('saveProjectRecord strips the non-serializable rootFolderHandle from project.json', async () => {
+  it('updateProject preserves fields absent from the patch (partial merge)', async () => {
     const root = createRoot()
     setWorkspaceRoot(asHandle(root))
-    await createProject(makeProject('p1'))
+    await createProject({ ...makeProject('p1', 'Original', 1000), description: 'keep me' })
 
-    const fakeHandle = { name: 'SomeFolder' } as FileSystemDirectoryHandle
-    await saveProjectRecord({
-      ...makeProject('p1', 'WithHandle', 3000),
-      rootFolderHandle: fakeHandle,
-      rootFolderName: 'SomeFolder',
-    } as Project)
+    await updateProject('p1', { name: 'Renamed' })
 
-    const parsed = JSON.parse((await readFileText(root, 'projects', 'p1', 'project.json'))!)
-    expect(parsed.rootFolderHandle).toBeUndefined()
-    expect(parsed.rootFolderName).toBe('SomeFolder')
+    const reloaded = await getProject('p1')
+    expect(reloaded!.name).toBe('Renamed')
+    expect(reloaded!.description).toBe('keep me')
   })
 
   it('updateProject throws when missing', async () => {

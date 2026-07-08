@@ -267,43 +267,6 @@ export async function updateProject(id: string, updates: Partial<Project>): Prom
   }
 }
 
-/**
- * Persist a full, already-in-hand {@link Project} without re-reading
- * project.json from disk first.
- *
- * {@link updateProject} takes a `Partial` and therefore must read the current
- * record to merge onto it. Callers that already hold the complete Project (e.g.
- * `saveTimeline`, which reads the project once for thumbnail metadata and then
- * folds the new timeline into it) would otherwise pay a second full read of the
- * same file on every save. Use this to skip that round-trip.
- *
- * Contract:
- *  - The caller owns `updatedAt` (this does not stamp it) — set it before
- *    calling so the persisted value and any log/UI value agree.
- *  - The project-folder handle registry is NOT touched; the handle is assumed
- *    unchanged. Use {@link updateProject} with a `rootFolderHandle` in the patch
- *    when the folder handle actually changes.
- */
-export async function saveProjectRecord(project: Project): Promise<Project> {
-  const root = requireWorkspaceRoot()
-  try {
-    // Strip the non-serializable handle; everything else (incl. rootFolderName)
-    // is persisted as-is.
-    const serialized = { ...project } as Partial<Project>
-    delete serialized.rootFolderHandle
-    await writeJsonAtomic(root, projectJsonPath(project.id), serialized)
-    await upsertIndexEntry(root, {
-      id: project.id,
-      name: project.name,
-      updatedAt: project.updatedAt,
-    })
-    return project
-  } catch (error) {
-    logger.error(`saveProjectRecord(${project.id}) failed`, error)
-    throw error
-  }
-}
-
 export async function deleteProject(id: string): Promise<void> {
   const root = requireWorkspaceRoot()
   try {
