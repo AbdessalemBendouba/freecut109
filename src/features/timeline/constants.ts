@@ -7,6 +7,7 @@ import {
   DEFAULT_FPS as SHARED_DEFAULT_FPS,
 } from '@/shared/timeline/defaults'
 import { EDITOR_LAYOUT } from '@/config/editor-layout'
+import type { TrackSizePreset } from '@/shared/state/editor'
 
 export const DEFAULT_TRACK_HEIGHT = SHARED_DEFAULT_TRACK_HEIGHT
 export const DEFAULT_FPS = SHARED_DEFAULT_FPS
@@ -26,6 +27,14 @@ export const MAX_TRACK_HEIGHT = 140
 // content stays legible.
 export const COMPACT_TRACK_HEIGHT = 72
 export const TRACK_SECTION_DIVIDER_HEIGHT = 3
+
+// Track heights behind the Track Size presets. The chosen preset is persisted
+// as a local editor setting and seeds the height of every newly created track.
+export const TRACK_SIZE_PRESET_HEIGHTS = {
+  compact: COMPACT_TRACK_HEIGHT,
+  medium: DEFAULT_TRACK_HEIGHT,
+  large: MAX_TRACK_HEIGHT,
+} as const satisfies Record<TrackSizePreset, number>
 
 // Clip fills entire track height (selection ring is inset)
 const CLIP_HEIGHT = DEFAULT_TRACK_HEIGHT

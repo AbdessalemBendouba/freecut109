@@ -18,6 +18,7 @@ import {
 } from '../utils/source-calculations'
 import { isCompositionWrapperItem, wouldCreateCompositionCycle } from '../utils/composition-graph'
 import { normalizeClassicTrackNames } from '../utils/classic-tracks'
+import { resolveTrackHeight } from '../utils/track-heights'
 import { getActiveCompositionId } from './composition-navigation-active'
 import { useCompositionsStore } from './compositions-store'
 import { useTimelineSettingsStore } from './timeline-settings-store'
@@ -164,7 +165,14 @@ export const useItemsStore = create<ItemsState & ItemsActions>()((set, get) => (
       const sortedTracks = tracks
         .map((track) => {
           const previous = previousById.get(track.id)
-          return previous === track ? previous : normalizeTrack(track)
+          const normalized = previous === track ? previous : normalizeTrack(track)
+          // Height is a local view preference (see utils/track-heights.ts), so
+          // it is always re-derived here rather than read off the track. This is
+          // the single funnel for track writes, which keeps whatever height a
+          // caller happens to carry — a project file, a snapshot restored by
+          // undo, a freshly created track — from leaking into the timeline.
+          const height = resolveTrackHeight(normalized.id)
+          return normalized.height === height ? normalized : { ...normalized, height }
         })
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       // Re-derive classic V#/A# labels from the settled stack order so create /

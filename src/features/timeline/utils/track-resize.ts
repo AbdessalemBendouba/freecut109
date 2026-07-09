@@ -1,10 +1,5 @@
 import type { TimelineTrack } from '@/types/timeline'
-import {
-  DEFAULT_TRACK_HEIGHT,
-  MAX_TRACK_HEIGHT,
-  MIN_TRACK_HEIGHT,
-  TRACK_SECTION_DIVIDER_HEIGHT,
-} from '../constants'
+import { MAX_TRACK_HEIGHT, MIN_TRACK_HEIGHT, TRACK_SECTION_DIVIDER_HEIGHT } from '../constants'
 import { getTrackKind } from './classic-tracks'
 
 interface TrackSectionLayoutParams {
@@ -98,10 +93,6 @@ export function resizeTracksOfKindByDelta(
   })
 
   return didChange ? nextTracks : tracks
-}
-
-export function resetAllTrackHeights(tracks: TimelineTrack[]): TimelineTrack[] {
-  return resizeAllTracksInList(tracks, DEFAULT_TRACK_HEIGHT)
 }
 
 export function getMinimumTrackSectionSpacerHeight(trackTitleBarHeight: number): number {
