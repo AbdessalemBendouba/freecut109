@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { Project, ProjectTimeline } from '@/types/project'
 import { CURRENT_SCHEMA_VERSION, migrateProject } from './index'

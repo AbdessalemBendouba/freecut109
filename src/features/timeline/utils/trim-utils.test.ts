@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, it, expect, beforeEach } from 'vite-plus/test'
 import { clampToAdjacentItems, clampTrimAmount, calculateTrimSourceUpdate } from './trim-utils'
 import { useCompositionsStore } from '../stores/compositions-store'

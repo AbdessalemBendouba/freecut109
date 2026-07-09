@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { MediaHandleValidation } from '@/infrastructure/storage'
 import type { MediaMetadata } from '@/types/storage'

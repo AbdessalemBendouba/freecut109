@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 /**
  * Tests for the lazy locale loading strategy introduced in plan 005.
  *

@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import type { MediaMetadata } from '@/types/storage'
 import type { ExtractedMediaFileEntry } from '@/features/timeline/deps/media-library-resolver'

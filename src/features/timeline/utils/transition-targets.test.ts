@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { Transition } from '@/types/transition'
 import type { CompositionItem, VideoItem } from '@/types/timeline'

@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it, vi } from 'vite-plus/test'
 import type { AutoKeyframeOperation } from '@/features/editor/deps/keyframes'
 import { applyAutoKeyframedTransformChange } from './auto-keyframe-transform'

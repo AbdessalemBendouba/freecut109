@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 /**
  * End-to-end migration test: seeds a fake legacy `video-editor-db`,
  * runs `migrateFromLegacyIDB()`, and asserts the workspace folder

@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, it, expect, beforeEach } from 'vite-plus/test'
 import { withKeyLock, __resetKeyLocksForTesting } from './with-key-lock'
 

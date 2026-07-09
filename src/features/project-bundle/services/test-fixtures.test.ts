@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import { getAvailableFixtures, generateFixture } from './test-fixtures'
 import { validateSnapshotData } from './json-import-service'

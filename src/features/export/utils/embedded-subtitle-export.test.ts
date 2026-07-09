@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { CompositionInputProps } from '@/types/export'
 import type { SubtitleSegmentItem, TimelineTrack } from '@/types/timeline'

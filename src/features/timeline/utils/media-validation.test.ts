@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { validateProjectMediaReferences } from './media-validation'
 

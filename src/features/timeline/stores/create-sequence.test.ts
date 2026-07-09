@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
 import {
   resetTimelineCompositionTestState,

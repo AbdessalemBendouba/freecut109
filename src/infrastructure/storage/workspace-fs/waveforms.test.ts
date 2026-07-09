@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { afterEach, describe, expect, it } from 'vite-plus/test'
 import type { WaveformBin, WaveformMeta } from '@/types/storage'
 import '../test-utils/logger-test-mocks'

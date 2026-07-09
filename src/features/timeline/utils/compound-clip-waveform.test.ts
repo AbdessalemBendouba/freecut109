@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { CachedWaveform } from '../services/waveform-cache'
 import { mixCompoundClipWaveformPeaks } from './compound-clip-waveform'

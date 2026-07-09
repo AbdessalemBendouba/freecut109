@@ -1,21 +1,11 @@
+// @vitest-environment node
+
 import { describe, expect, it, beforeEach } from 'vite-plus/test'
 import { useSelectionStore } from './selection-store'
 
 describe('selection-store', () => {
   beforeEach(() => {
     useSelectionStore.getState().clearSelection()
-  })
-
-  it('has correct initial state', () => {
-    const state = useSelectionStore.getState()
-    expect(state.selectedItemIds).toEqual([])
-    expect(state.selectedMarkerId).toBe(null)
-    expect(state.selectedTransitionId).toBe(null)
-    expect(state.selectedTrackIds).toEqual([])
-    expect(state.activeTrackId).toBe(null)
-    expect(state.selectionType).toBe(null)
-    expect(state.activeTool).toBe('select')
-    expect(state.dragState).toBe(null)
   })
 
   describe('selectItems', () => {

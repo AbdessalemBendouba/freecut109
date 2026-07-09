@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it, beforeEach, vi, type Mock } from 'vite-plus/test'
 import { createRelinkingActions } from './media-relinking-actions'
 import { registerMediaRelinkingTimelineActions } from './media-relinking-timeline-actions'

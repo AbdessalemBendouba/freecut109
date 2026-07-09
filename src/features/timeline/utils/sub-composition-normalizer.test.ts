@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { ShapeItem, TimelineTrack } from '@/types/timeline'
 import { DEFAULT_TRACK_HEIGHT } from '../constants'

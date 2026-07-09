@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import { makeTwoVideoTwoAudioTimelineTracks } from '@/features/timeline/test-helpers'
 import { createDefaultClassicTracks } from './classic-tracks'

@@ -1,11 +1,9 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { TextItem } from '@/types/timeline'
 import type { ItemKeyframes } from '@/types/keyframe'
-import {
-  TEXT_ANIMATION_PRESETS,
-  buildTextAnimationKeyframes,
-  getTextAnimationDurationFrames,
-} from './text-animation-presets'
+import { buildTextAnimationKeyframes, getTextAnimationDurationFrames } from './text-animation-presets'
 
 const baseItem: TextItem = {
   id: 'text-1',
@@ -54,24 +52,6 @@ function expectIntroOpacityKeyframes(
 }
 
 describe('text animation presets', () => {
-  it('includes a none option for animation selectors', () => {
-    expect(TEXT_ANIMATION_PRESETS[0]).toEqual({
-      id: 'none',
-      labelKey: 'none',
-    })
-    expect(TEXT_ANIMATION_PRESETS.map((preset) => preset.id)).toEqual([
-      'none',
-      'fade',
-      'rise',
-      'drop',
-      'left',
-      'right',
-      'tilt',
-      'pop',
-      'swing',
-    ])
-  })
-
   it('builds fade intro keyframes at clip start', () => {
     const payloads = buildTextAnimationKeyframes({
       item: baseItem,

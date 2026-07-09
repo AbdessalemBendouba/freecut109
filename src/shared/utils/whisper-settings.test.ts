@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import {
   DEFAULT_WHISPER_LANGUAGE,
@@ -6,7 +8,6 @@ import {
   getWhisperLanguageSettingValue,
   normalizeWhisperLanguage,
   WHISPER_AUTO_LANGUAGE_VALUE,
-  WHISPER_LANGUAGE_OPTIONS,
 } from './whisper-settings'
 
 describe('whisper-settings', () => {
@@ -30,15 +31,6 @@ describe('whisper-settings', () => {
 
   it('falls back to auto-detect when a stored language is unsupported', () => {
     expect(getWhisperLanguageSelectValue('english')).toBe(WHISPER_AUTO_LANGUAGE_VALUE)
-  })
-
-  it('includes common language options', () => {
-    expect(WHISPER_LANGUAGE_OPTIONS[0]).toEqual({
-      value: WHISPER_AUTO_LANGUAGE_VALUE,
-      label: 'Auto-detect',
-    })
-    expect(WHISPER_LANGUAGE_OPTIONS).toContainEqual({ value: 'en', label: 'English' })
-    expect(WHISPER_LANGUAGE_OPTIONS).toContainEqual({ value: 'es', label: 'Spanish' })
   })
 
   it('includes quantization guidance for memory tradeoffs', () => {

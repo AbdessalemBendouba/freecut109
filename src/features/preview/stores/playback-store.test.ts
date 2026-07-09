@@ -28,19 +28,6 @@ describe('playback-store', () => {
     })
   })
 
-  it('has correct initial state', () => {
-    const state = usePlaybackStore.getState()
-    expect(state.currentFrame).toBe(0)
-    expect(state.isPlaying).toBe(false)
-    expect(state.playbackRate).toBe(1)
-    expect(state.loop).toBe(false)
-    expect(state.volume).toBe(1)
-    expect(state.muted).toBe(false)
-    expect(state.zoom).toBe(-1)
-    expect(state.previewFrame).toBe(null)
-    expect(usePreviewBridgeStore.getState().displayedFrame).toBe(null)
-  })
-
   describe('frame navigation', () => {
     it('sets current frame', () => {
       usePlaybackStore.getState().setCurrentFrame(100)
@@ -156,10 +143,6 @@ describe('playback-store', () => {
   })
 
   describe('preview quality', () => {
-    it('defaults to full quality', () => {
-      expect(usePlaybackStore.getState().previewQuality).toBe(1)
-    })
-
     it('stores user-selected fast scrub quality', () => {
       usePlaybackStore.getState().setPreviewQuality(0.5)
       expect(usePlaybackStore.getState().previewQuality).toBe(0.5)

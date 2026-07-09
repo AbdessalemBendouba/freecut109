@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vitest'
 import type { TimelineItem, VideoItem } from '@/types/timeline'
 import type { TranscriptToken } from './transcript-edit-model'

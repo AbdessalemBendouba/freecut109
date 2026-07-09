@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import { buildEffectAnimatableProperty, type ItemKeyframes } from '@/types/keyframe'
 import type { TimelineItem } from '@/types/timeline'

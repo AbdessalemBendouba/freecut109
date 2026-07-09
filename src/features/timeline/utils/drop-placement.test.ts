@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { TimelineItem, TimelineTrack } from '@/types/timeline'
 import { findBestCanvasDropPlacement } from './drop-placement'

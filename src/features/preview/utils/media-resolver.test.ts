@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it, beforeEach, vi, type Mock } from 'vite-plus/test'
 import { resolveMediaUrl, resolveMediaUrls, cleanupBlobUrls } from './media-resolver'
 import { blobUrlManager } from '@/infrastructure/browser/blob-url-manager'
