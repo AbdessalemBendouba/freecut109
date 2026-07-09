@@ -7,12 +7,17 @@ All notable changes to FreeCut. Weekly CalVer: `YYYY.MM.DD` = the Monday of the 
 ## [Current] — week of 2026-07-06
 
 ### Added
+- Shift-click a properties panel section header to collapse or expand every section at once
+- Text and shape presets land on a new layer at the playhead
+- Unlabelled markers get automatic names, shown on hover in the ruler
 - Record a voiceover from your microphone, synced live to the timeline
 - Lottie animations — import .json and .lottie files and play them on the timeline
 - Customize Lottie colors, themes, text, and value slots, with live preview
 - Browse and import free LottieFiles animations from inside the editor
 
 ### Fixed
+- Transcription shows real model-download progress instead of a frozen bar
+- Timeline track heights are remembered when you reopen a project
 - No more false "new version available" prompts while editing
 - Fixed edge seams and shimmer on GPU effects in the preview
 - Copied, generated, and imported media now save reliably to your workspace folder
@@ -20,6 +25,8 @@ All notable changes to FreeCut. Weekly CalVer: `YYYY.MM.DD` = the Monday of the 
 - Go To Start returns to the first frame after reopening a project
 
 ### Improved
+- Saving a project stays fast no matter how large your workspace grows
+- Projects open faster — thumbnails and media details load in parallel
 - Effects apply to the preview instantly, without a warm-up delay
 
 ## [2026.06.29] — week of 2026-06-29 to 2026-07-05
