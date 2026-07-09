@@ -18,6 +18,48 @@ def mats(flat, n):
     a = np.asarray(flat, np.float32).reshape(n, 4, 4)   # [tap][col][row] (WGSL column-major)
     return np.transpose(a, (0, 2, 1))                   # [tap][out][in]
 
+# A WebGPU compute stage may bind at most `maxStorageBuffersPerShaderStage` buffers, and the
+# default is 8. onnxruntime-web's Concat kernel binds one per input plus one for the output, so a
+# 14-way concat needs 15 and the pipeline silently fails to compile -- as an uncaptured validation
+# error, not a thrown exception, so nothing falls back to wasm. Concatenation along the channel
+# axis is associative, so build a tree instead. Arity 4 keeps every node at 5 buffers.
+MAX_CONCAT_ARITY = 4
+
+
+def concat_tree(nodes, inputs, output, tag=None):
+    """Emit Concat nodes producing `output` = concat(inputs, axis=1), none exceeding the arity cap."""
+    tag = tag or output
+    if len(inputs) <= MAX_CONCAT_ARITY:
+        nodes.append(helper.make_node('Concat', inputs, [output], axis=1))
+        return
+
+    groups = [inputs[i:i + MAX_CONCAT_ARITY] for i in range(0, len(inputs), MAX_CONCAT_ARITY)]
+    partials = []
+    for gi, group in enumerate(groups):
+        if len(group) == 1:
+            partials.append(group[0])  # already a single tensor; nothing to join
+            continue
+        name = f'{tag}_g{gi}'
+        nodes.append(helper.make_node('Concat', group, [name], axis=1))
+        partials.append(name)
+    concat_tree(nodes, partials, output, f'{tag}_p')
+
+
+def assert_webgpu_bindable(model, limit=8):
+    """Every kernel must fit inside the default WebGPU per-stage storage-buffer limit.
+
+    A node that exceeds it fails at pipeline creation as an *uncaptured* validation error, so
+    onnxruntime never throws and never falls back to wasm -- the model just produces garbage.
+    """
+    over = [
+        (n.op_type, len(n.input) + len(n.output))
+        for n in model.graph.node
+        if len(n.input) + len(n.output) > limit
+    ]
+    if over:
+        raise SystemExit(f'nodes exceed the {limit}-storage-buffer WebGPU limit: {over}')
+
+
 def conv_w(taps_pos, taps_neg=None):
     """-> [out=4, in, 3, 3]; in = 4 (no activation) or 8 (CReLU: pos|neg)."""
     ic = 4 if taps_neg is None else 8
@@ -69,7 +111,7 @@ def build(weights_path, out_path):
     for k, a in enumerate(acts):
         p, n = crelu(a, f'h{k}')
         parts += [p, n]
-    nodes.append(helper.make_node('Concat', parts, ['skip'], axis=1))
+    concat_tree(nodes, parts, 'skip')
 
     outs = []
     for hi, name in enumerate(head):
@@ -98,6 +140,7 @@ def build(weights_path, out_path):
     m.ir_version = 9
     m.producer_name = 'freecut-anime4k-convert'
     onnx.checker.check_model(m, full_check=True)
+    assert_webgpu_bindable(m)
     onnx.save(m, out_path)
     print(f'wrote {out_path}')
 

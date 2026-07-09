@@ -13,6 +13,14 @@ ship in the bundle rather than being downloaded at run time.
 shader pipeline exactly, and its output is verified float32-exact against an independent NumPy
 implementation of those shaders (`max|onnx - numpy| = 2.4e-07`).
 
+The head's 56-channel skip connection is built as a **tree of 4-way concats** rather than one 14-way
+concat. A WebGPU compute stage may bind at most `maxStorageBuffersPerShaderStage` buffers — the
+default is 8 — and onnxruntime-web's `Concat` kernel binds one per input plus one for the output.
+A 14-way concat needs 15, and the pipeline fails to compile as an _uncaptured_ validation error, so
+onnxruntime never throws and never falls back to wasm; the model just emits garbage. Concatenation
+along the channel axis is associative, so the tree is bit-identical. `convert-weights.py` asserts no
+node exceeds the limit.
+
 ## Attribution
 
 Both upstream projects are MIT licensed, as is FreeCut. Their copyright notices are retained here.
