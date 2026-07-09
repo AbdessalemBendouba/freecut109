@@ -68,7 +68,9 @@ export default defineConfig({
   },
   fmt: {
     ...oxfmtConfig,
-    ignorePatterns: toolIgnorePatterns,
+    // `tsr generate` emits routeTree.gen.ts at 80 cols; oxfmt would rewrap it
+    // at 100, so the two rewrite each other on every `npm run routes`.
+    ignorePatterns: [...toolIgnorePatterns, 'src/routeTree.gen.ts'],
   },
   staged: {
     '*.{js,ts,tsx,json}': 'vp check --fix',
