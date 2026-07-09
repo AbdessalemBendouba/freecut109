@@ -36,6 +36,16 @@ export interface TranscribeProgress {
   totalBytes?: number
   /** True when every model file came from Cache Storage — nothing touched the network. */
   fromCache?: boolean
+  /**
+   * True when the stage cannot report a fraction, so `progress` only marks the band's floor.
+   * Set while transcribing audio whose duration the decoder never reported.
+   */
+  indeterminate?: boolean
+  /**
+   * True when this event opens a transfer that was not part of the original download, so the
+   * merge is allowed to rewind the bar back out of `preparing`.
+   */
+  restarted?: boolean
 }
 
 export interface TranscribeRuntimeInfo {

@@ -5,7 +5,7 @@ import {
   getTranscriptionProgressDetail,
   getTranscriptionProgressLabel,
   getTranscriptionStageLabel,
-  isIndeterminateTranscriptionStage,
+  isIndeterminateTranscriptionProgress,
 } from '@/shared/utils/transcription-progress'
 import { useMediaLibraryStore } from '../stores/media-library-store'
 import { useMediaPreparationStore } from '../stores/media-preparation-store'
@@ -107,9 +107,9 @@ export function useMediaTaskProgress() {
       ? getTranscriptionProgressDetail(singleTranscriptionProgress)
       : null
 
-  /** The ONNX graph compile reports no progress — show a moving bar, not a stalled one. */
+  /** Some stages report no fraction at all — show a moving bar, not a stalled one. */
   const singleTranscriptionIndeterminate = singleTranscriptionProgress
-    ? isIndeterminateTranscriptionStage(singleTranscriptionProgress.stage)
+    ? isIndeterminateTranscriptionProgress(singleTranscriptionProgress)
     : false
 
   // Per-item breakdowns shown when the aggregate progress bar is expanded.

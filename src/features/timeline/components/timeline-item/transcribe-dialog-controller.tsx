@@ -7,7 +7,7 @@ import {
 import {
   getTranscriptionProgressDetail,
   getTranscriptionProgressLabel,
-  isIndeterminateTranscriptionStage,
+  isIndeterminateTranscriptionProgress,
 } from '@/shared/utils/transcription-progress'
 import {
   isTranscriptionOutOfMemoryError,
@@ -65,7 +65,7 @@ export const TranscribeDialogController = memo(function TranscribeDialogControll
       // across the first tenth of the track for a multi-minute download and read as a hang.
       progressPercent={transcriptProgress ? Math.round(transcriptProgress.progress * 100) : null}
       progressIndeterminate={
-        transcriptProgress ? isIndeterminateTranscriptionStage(transcriptProgress.stage) : false
+        transcriptProgress ? isIndeterminateTranscriptionProgress(transcriptProgress) : false
       }
       progressLabel={
         transcriptProgress ? getTranscriptionProgressLabel(transcriptProgress) : 'Transcribing...'

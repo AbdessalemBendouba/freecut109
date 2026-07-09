@@ -3,6 +3,7 @@ import {
   getChunkCompletionProgress,
   getChunkEndProgress,
   getChunkStartProgress,
+  transcribingProgressEvent,
 } from './chunk-progress'
 import type { PCMChunk } from '../types'
 
@@ -29,6 +30,7 @@ describe('chunk-progress', () => {
   it('advances across successive chunks instead of completing on the first', () => {
     const first = getChunkCompletionProgress(chunk({ timestamp: 0 }))
     const second = getChunkCompletionProgress(chunk({ timestamp: 118 }))
+    if (first === null || second === null) throw new Error('a known duration must yield a position')
 
     expect(first).toBeLessThan(1)
     expect(second).toBeGreaterThan(first)
@@ -48,8 +50,28 @@ describe('chunk-progress', () => {
   it('reports no position when the producer could not determine a duration', () => {
     expect(getChunkStartProgress(chunk({ totalDuration: 0 }))).toBeNull()
     expect(getChunkEndProgress(chunk({ totalDuration: 0 }))).toBeNull()
-    // A non-final chunk with no duration reports 0, which the monotonic merge discards —
-    // better a stalled bar than one that invents a position.
-    expect(getChunkCompletionProgress(chunk({ totalDuration: 0 }))).toBe(0)
+    expect(getChunkCompletionProgress(chunk({ totalDuration: 0 }))).toBeNull()
+  })
+
+  it('flags the transcribing event indeterminate when the duration is unknown', () => {
+    // Reporting 0 for every chunk pegged the bar at the start of the stage for the whole
+    // transcription; an indeterminate event lets the UI run a moving bar instead.
+    expect(transcribingProgressEvent(chunk({ totalDuration: 0 }))).toEqual({
+      stage: 'transcribing',
+      progress: 0,
+      indeterminate: true,
+    })
+    // The final chunk still completes the bar, and is never indeterminate.
+    expect(transcribingProgressEvent(chunk({ totalDuration: 0, final: true }))).toEqual({
+      stage: 'transcribing',
+      progress: 1,
+    })
+  })
+
+  it('reports a measured fraction when the duration is known', () => {
+    expect(transcribingProgressEvent(chunk({ timestamp: 118 }))).toEqual({
+      stage: 'transcribing',
+      progress: 238 / 600,
+    })
   })
 })

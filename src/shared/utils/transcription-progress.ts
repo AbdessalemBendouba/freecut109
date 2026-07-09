@@ -16,15 +16,28 @@ export interface TranscriptionProgressSnapshot {
   totalBytes?: number
   /** True when every model file came from Cache Storage — nothing touched the network. */
   fromCache?: boolean
+  /** True when the stage cannot report a fraction, so `progress` only marks the band's floor. */
+  indeterminate?: boolean
+  /**
+   * True when this event opens a transfer that was not part of the original download — the
+   * model track has genuinely returned to the network and may report less progress than before.
+   */
+  restarted?: boolean
 }
 
 function clampProgress(progress: number): number {
   return Math.max(0, Math.min(1, progress))
 }
 
-/** `preparing` compiles the ONNX graph; neither ORT nor transformers.js exposes progress for it. */
-export function isIndeterminateTranscriptionStage(stage: TranscriptionProgressStage): boolean {
-  return stage === 'preparing'
+/**
+ * `preparing` compiles the ONNX graph; neither ORT nor transformers.js exposes progress for it.
+ * Transcribing is also fraction-less when the decoder never reported a duration, in which case
+ * the worker flags the snapshot rather than pinning the bar to the floor of its band.
+ */
+export function isIndeterminateTranscriptionProgress(
+  snapshot: TranscriptionProgressSnapshot,
+): boolean {
+  return snapshot.stage === 'preparing' || snapshot.indeterminate === true
 }
 
 /**
@@ -96,6 +109,18 @@ export function mergeTranscriptionProgress(
   const previousIsModel = isModelStage(previous.stage)
 
   if (nextIsModel === previousIsModel) {
+    // The model track can legitimately go back to the network: when WebGPU rejects the fp16
+    // encoder, the int8 one is fetched after the compile has already begun. Only an event that
+    // declares itself a restart may rewind the bar — a plain late `downloading` is still a
+    // stale tail event and stays discarded.
+    if (
+      normalizedNext.stage === 'downloading' &&
+      normalizedNext.restarted &&
+      previous.stage === 'preparing' &&
+      !isModelComplete(previous)
+    ) {
+      return normalizedNext
+    }
     // Same track — `>=` rather than `>` so a stalled byte counter still refreshes its bytes.
     return getTranscriptionOverallProgress(normalizedNext) >=
       getTranscriptionOverallProgress(previous)

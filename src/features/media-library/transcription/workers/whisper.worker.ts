@@ -6,7 +6,7 @@ import type {
   WhisperWorkerMessage,
 } from '../types'
 import { createLogger } from '@/shared/logging/logger'
-import { getChunkCompletionProgress, getChunkStartProgress } from '../lib/chunk-progress'
+import { getChunkStartProgress, transcribingProgressEvent } from '../lib/chunk-progress'
 import {
   updateDownloadProgress,
   type DownloadProgressCache,
@@ -361,10 +361,7 @@ async function transcribeChunk(chunk: PCMChunk): Promise<void> {
     })
   }
 
-  postMain({
-    type: 'progress',
-    event: { stage: 'transcribing', progress: getChunkCompletionProgress(chunk) },
-  })
+  postMain({ type: 'progress', event: transcribingProgressEvent(chunk) })
 
   if (chunk.final) {
     postMain({ type: 'done' })

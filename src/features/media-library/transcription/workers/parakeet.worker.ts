@@ -1,6 +1,6 @@
 import type { MainThreadMessage, PCMChunk, TranscriptWord, WhisperWorkerMessage } from '../types'
 import { createLogger } from '@/shared/logging/logger'
-import { getChunkCompletionProgress, getChunkStartProgress } from '../lib/chunk-progress'
+import { getChunkStartProgress, transcribingProgressEvent } from '../lib/chunk-progress'
 import { fetchOnnxModelBytes, fetchOnnxModelText } from '@/shared/utils/onnx-model-cache'
 
 // Parakeet TDT 0.6B v3 (NVIDIA, CC-BY-4.0) on-device ASR. Clean-room ORT-web pipeline
@@ -169,7 +169,11 @@ class DownloadProgress {
   private readonly loaded = new Map<string, number>()
   private sawNetwork = false
 
-  constructor(files: string[]) {
+  /** `restarted` marks a transfer opened after `preparing` began — see the fp16 fallback. */
+  constructor(
+    files: string[],
+    private readonly restarted = false,
+  ) {
     for (const file of files) {
       this.totals.set(file, APPROX_FILE_BYTES[file] ?? 0)
       this.loaded.set(file, 0)
@@ -197,6 +201,7 @@ class DownloadProgress {
           receivedBytes,
           totalBytes,
           fromCache: !this.sawNetwork,
+          ...(this.restarted && { restarted: true }),
         },
       })
     }
@@ -265,12 +270,19 @@ async function initPipeline(): Promise<void> {
         encoder = null
       }
     }
+    let fallbackBytes = encoderBytes
+    if (!encoder && webgpuAvailable) {
+      // Rare: WebGPU rejected the fp16 graph, so the int8 encoder must still be fetched. That
+      // is a real ~749 MB transfer, so hand the bar back to `downloading` with its own byte
+      // counter — parking on the indeterminate `preparing` would hide a multi-minute download.
+      const fallbackDownload = new DownloadProgress([ENCODER_INT8], true)
+      fallbackBytes = await fetchOnnxModelBytes(
+        `${HF_BASE}/${ENCODER_INT8}`,
+        fallbackDownload.track(ENCODER_INT8),
+      )
+      postMain({ type: 'progress', event: { stage: 'preparing', progress: 0 } })
+    }
     if (!encoder) {
-      // Rare: WebGPU rejected the fp16 graph, so the int8 encoder must still be fetched. Stay
-      // on `preparing` — a `downloading` event this late would be dropped as non-monotonic.
-      const fallbackBytes = webgpuAvailable
-        ? await fetchOnnxModelBytes(`${HF_BASE}/${ENCODER_INT8}`)
-        : encoderBytes
       encoder = await ort.InferenceSession.create(fallbackBytes, sessionOptions('wasm'))
       encoderBackend = 'wasm'
     }
@@ -491,10 +503,7 @@ async function transcribeChunk(chunk: PCMChunk): Promise<void> {
     })
   }
 
-  postMain({
-    type: 'progress',
-    event: { stage: 'transcribing', progress: getChunkCompletionProgress(chunk) },
-  })
+  postMain({ type: 'progress', event: transcribingProgressEvent(chunk) })
 
   if (chunk.final) postMain({ type: 'done' })
 }

@@ -1,4 +1,4 @@
-import type { PCMChunk } from '../types'
+import type { PCMChunk, TranscribeProgress } from '../types'
 
 const SAMPLE_RATE = 16_000
 
@@ -30,8 +30,23 @@ export function getChunkEndProgress(chunk: PCMChunk): number | null {
 /**
  * Progress to report once a chunk has been transcribed. The final chunk always completes the
  * bar, even when a rounding shortfall or a missing duration would otherwise leave it short.
+ *
+ * Null when the duration is unknown and the chunk is not final: reporting 0 for every chunk
+ * would peg the bar at the start of `transcribing` until the last one jumped it to 1, which
+ * reads as a hang. Callers skip the update and leave the previous position on screen.
  */
-export function getChunkCompletionProgress(chunk: PCMChunk): number {
+export function getChunkCompletionProgress(chunk: PCMChunk): number | null {
   if (chunk.final) return 1
-  return getChunkEndProgress(chunk) ?? 0
+  return getChunkEndProgress(chunk)
+}
+
+/**
+ * The `transcribing` event to post once a chunk is done. With no duration to measure against
+ * there is no fraction to report, so the event holds the floor of the band and flags itself
+ * indeterminate — the UI then runs a moving bar instead of one pinned at the stage's start.
+ */
+export function transcribingProgressEvent(chunk: PCMChunk): TranscribeProgress {
+  const progress = getChunkCompletionProgress(chunk)
+  if (progress !== null) return { stage: 'transcribing', progress }
+  return { stage: 'transcribing', progress: 0, indeterminate: true }
 }

@@ -38,6 +38,33 @@ describe('transcription-progress', () => {
     )
   })
 
+  // WebGPU can reject the fp16 encoder only once ORT tries to compile it, by which point the
+  // bar is on `preparing`. Fetching the int8 encoder is a real ~749 MB transfer, so it has to
+  // rewind the bar rather than hide behind an indeterminate "Preparing model".
+  it('lets a restarted download rewind an in-flight prepare', () => {
+    const preparing = mergeTranscriptionProgress(undefined, { stage: 'preparing', progress: 0 })
+    const fallback = mergeTranscriptionProgress(preparing, {
+      stage: 'downloading',
+      progress: 0.1,
+      restarted: true,
+    })
+
+    expect(fallback.stage).toBe('downloading')
+    expect(fallback.progress).toBe(0.1)
+  })
+
+  it('does not let a restarted download rewind a finished prepare', () => {
+    const prepared = mergeTranscriptionProgress(undefined, { stage: 'preparing', progress: 1 })
+
+    expect(
+      mergeTranscriptionProgress(prepared, {
+        stage: 'downloading',
+        progress: 0.1,
+        restarted: true,
+      }),
+    ).toEqual(prepared)
+  })
+
   it('keeps progress monotonic within the audio track', () => {
     const transcribing = mergeTranscriptionProgress(undefined, {
       stage: 'transcribing',

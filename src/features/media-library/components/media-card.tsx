@@ -56,7 +56,7 @@ import {
   getTranscriptionOverallPercent,
   getTranscriptionProgressDetail,
   getTranscriptionProgressLabel,
-  isIndeterminateTranscriptionStage,
+  isIndeterminateTranscriptionProgress,
 } from '@/shared/utils/transcription-progress'
 import {
   isTranscriptionOutOfMemoryError,
@@ -1214,7 +1214,7 @@ const MediaCardInternal = memo(function MediaCardInternal({
     ? Math.round(transcriptProgress.progress * 100)
     : null
   const transcriptProgressIndeterminate = transcriptProgress
-    ? isIndeterminateTranscriptionStage(transcriptProgress.stage)
+    ? isIndeterminateTranscriptionProgress(transcriptProgress)
     : false
   const transcriptProgressLabel = transcriptProgress
     ? getTranscriptionProgressLabel(transcriptProgress)
