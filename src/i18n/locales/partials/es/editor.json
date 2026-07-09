@@ -2,8 +2,7 @@
   "editor": {
     "miniTimeline": {
       "inPoint": "Punto de entrada",
-      "outPoint": "Punto de salida",
-      "markerAtFrame": "Marcador en el fotograma {{frame}}"
+      "outPoint": "Punto de salida"
     },
     "animateTimeline": {
       "label": "Línea de tiempo de animación",
@@ -230,7 +229,6 @@
       "frame": "Fotograma",
       "time": "Tiempo",
       "label": "Etiqueta",
-      "labelPlaceholder": "Introduce una etiqueta...",
       "color": "Color",
       "deleteMarker": "Eliminar marcador"
     },
@@ -239,7 +237,6 @@
       "empty": "Sin marcadores",
       "emptyHint": "Pulsa M para añadir un marcador en el cabezal",
       "clearAll": "Borrar todo",
-      "untitled": "Marcador",
       "remove": "Eliminar marcador"
     },
     "canvasPanel": {

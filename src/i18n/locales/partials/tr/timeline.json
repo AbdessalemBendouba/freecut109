@@ -241,6 +241,7 @@
       "springFriction": "Sürtünme",
       "springMass": "Kütle"
     },
+    "markerName": "İşaretçi {{index}}",
     "noTracksToRemove": "Kaldırılacak parça yok",
     "region": "Bölge",
     "removeActiveTrack": "Etkin parçayı kaldır",

@@ -245,6 +245,7 @@
       "springFriction": "摩擦",
       "springMass": "質量"
     },
+    "markerName": "マーカー {{index}}",
     "noTracksToRemove": "削除するトラックがありません",
     "region": "リージョン",
     "removeActiveTrack": "アクティブトラックを削除",

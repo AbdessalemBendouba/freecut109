@@ -245,6 +245,7 @@
       "springFriction": "Friction",
       "springMass": "Masse"
     },
+    "markerName": "Marqueur {{index}}",
     "noTracksToRemove": "Aucun pistes a Supprimer",
     "region": "region",
     "removeActiveTrack": "Supprimer active Piste",

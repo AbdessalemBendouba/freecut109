@@ -407,6 +407,10 @@ export interface TimelineTrack {
 export interface ProjectMarker {
   id: string
   frame: number
+  /**
+   * Usually empty — every surface falls back to an ordinal name via
+   * `shared/timeline/marker-names`.
+   */
   label?: string
   color: string
 }

@@ -2,8 +2,7 @@
   "editor": {
     "miniTimeline": {
       "inPoint": "Point d'entrée",
-      "outPoint": "Point de sortie",
-      "markerAtFrame": "Marqueur à l'image {{frame}}"
+      "outPoint": "Point de sortie"
     },
     "animateTimeline": {
       "label": "Chronologie d'animation",
@@ -230,7 +229,6 @@
       "frame": "Image",
       "time": "Temps",
       "label": "Étiquette",
-      "labelPlaceholder": "Saisir une étiquette...",
       "color": "Couleur",
       "deleteMarker": "Supprimer le marqueur"
     },
@@ -239,7 +237,6 @@
       "empty": "Aucun marqueur",
       "emptyHint": "Appuyez sur M pour ajouter un marqueur à la tête de lecture",
       "clearAll": "Tout effacer",
-      "untitled": "Marqueur",
       "remove": "Supprimer le marqueur"
     },
     "canvasPanel": {

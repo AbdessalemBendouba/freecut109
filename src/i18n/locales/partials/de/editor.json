@@ -2,8 +2,7 @@
   "editor": {
     "miniTimeline": {
       "inPoint": "In-Punkt",
-      "outPoint": "Out-Punkt",
-      "markerAtFrame": "Marker bei Frame {{frame}}"
+      "outPoint": "Out-Punkt"
     },
     "animateTimeline": {
       "label": "Animations-Zeitleiste",
@@ -230,7 +229,6 @@
       "frame": "Frame",
       "time": "Zeit",
       "label": "Bezeichnung",
-      "labelPlaceholder": "Bezeichnung eingeben...",
       "color": "Farbe",
       "deleteMarker": "Marker löschen"
     },
@@ -239,7 +237,6 @@
       "empty": "Keine Marker",
       "emptyHint": "Drücke M, um am Abspielkopf einen Marker hinzuzufügen",
       "clearAll": "Alle löschen",
-      "untitled": "Marker",
       "remove": "Marker entfernen"
     },
     "canvasPanel": {

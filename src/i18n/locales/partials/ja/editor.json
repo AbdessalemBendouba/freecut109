@@ -2,8 +2,7 @@
   "editor": {
     "miniTimeline": {
       "inPoint": "イン点",
-      "outPoint": "アウト点",
-      "markerAtFrame": "フレーム {{frame}} のマーカー"
+      "outPoint": "アウト点"
     },
     "animateTimeline": {
       "label": "アニメーションタイムライン",
@@ -230,7 +229,6 @@
       "frame": "フレーム",
       "time": "時間",
       "label": "ラベル",
-      "labelPlaceholder": "ラベルを入力...",
       "color": "色",
       "deleteMarker": "マーカーを削除"
     },
@@ -239,7 +237,6 @@
       "empty": "マーカーがありません",
       "emptyHint": "M キーで再生ヘッドにマーカーを追加",
       "clearAll": "すべて削除",
-      "untitled": "マーカー",
       "remove": "マーカーを削除"
     },
     "canvasPanel": {
