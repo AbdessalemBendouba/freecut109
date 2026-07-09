@@ -9,8 +9,9 @@
  * `Conversion` is a straight transcode with no hook to inject invented frames. So we drive
  * `VideoSampleSink` for decode and `VideoSampleSource` for encode, with RIFE in between.
  *
- * Audio is not carried over. The interpolated video has the same duration, so the original's
- * audio still lines up if the user wants it on a separate track.
+ * Audio is copied through without re-encoding. The output has the same duration as the source,
+ * so the original packets stay valid; they are pumped in step with the video timeline rather
+ * than up front, or the muxer buffers the entire video track.
  */
 
 import { ensureProResDecoderRegistered } from '@/infrastructure/browser/register-prores-decoder'
@@ -495,8 +496,11 @@ async function interpolate(request: InterpolateRequest): Promise<void> {
         sourceFrame.setDuration(step)
         await queue.add(sourceFrame)
 
-        const between = await interpolateGap(prev.planar, current.planar, factor, (left, right) =>
-          rife.interpolate(left, right, width, height),
+        const between = await interpolateGap(
+          prev.planar,
+          current.planar,
+          factor,
+          (left, right, timestep) => rife.interpolate(left, right, width, height, timestep),
         )
         for (let k = 0; k < between.length; k++) {
           throwIfCancelled(jobId)

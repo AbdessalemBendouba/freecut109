@@ -2,10 +2,9 @@
  * Conversions between packed 8-bit RGBA (what canvases and `VideoFrame`s give us) and the
  * planar float RGB layout the RIFE ONNX graph expects.
  *
- * Planar RGB is the interpolator's internal frame currency, not just its input format:
- * RIFE's output tensor is already `[1, 3, H, W]` float, and 4x/8x factors feed synthesized
- * frames back in as operands. Keeping intermediates in float avoids requantizing to 8 bits
- * at every level of the recursion.
+ * Planar RGB is the interpolator's internal frame currency, not just its input format: RIFE's
+ * output tensor is already `[1, 3, H, W]` float, so synthesized frames never round-trip through
+ * 8 bits before they are encoded.
  *
  * Layout: `value(c, y, x) = data[c * H * W + y * W + x]`, channels R,G,B, range [0, 1].
  */
@@ -65,6 +64,22 @@ export function planarRgbToRgba(
     dst[d + 3] = 255
   }
   return dst
+}
+
+/**
+ * Whether any channel of any pixel moved by more than `threshold`.
+ *
+ * Returns on the first pixel that moved, so footage in motion pays only for the leading
+ * static region. A negative threshold reports a difference unconditionally.
+ */
+export function framesDiffer(a: Float32Array, b: Float32Array, threshold: number): boolean {
+  if (a.length !== b.length) {
+    throw new Error(`framesDiffer: length mismatch, ${a.length} vs ${b.length}`)
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (Math.abs(a[i]! - b[i]!) > threshold) return true
+  }
+  return false
 }
 
 /**

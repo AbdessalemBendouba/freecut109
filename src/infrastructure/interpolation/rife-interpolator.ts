@@ -1,7 +1,12 @@
 /**
  * RIFE v4.x frame interpolation on onnxruntime-web.
  *
- * Model: https://huggingface.co/FuryTMP/RIFE_fp32 (MIT). Single 21.6MB fp32 graph, opset 17.
+ * Model: https://huggingface.co/walterlow/RIFE_fp32_timestep (MIT). This is `FuryTMP/RIFE_fp32`
+ * with one change: that export was traced with `timestep = 0.5`, folding the value into a
+ * `Constant` and leaving a graph that could only ever emit the midpoint of its two inputs. The
+ * constant is promoted to a scalar `timestep` input, which restores arbitrary-phase
+ * interpolation. Output at `t = 0.5` is bit-identical to the original, and the folded graph has
+ * the same node count, so the extra input costs nothing. The repo carries the patch script.
  *
  * Two non-obvious things, both measured against this exact file (see
  * `docs/plans/2026-07-09-001-feat-rife-frame-interpolation-plan.md`):
@@ -15,8 +20,9 @@
  * 2. Sessions are per-resolution, because of (1). Creating one costs ~500ms, so they are
  *    cached and reused across a whole bake.
  *
- * The model has no timestep input: it only ever emits the midpoint of its two inputs. Higher
- * factors come from recursive halving — see `interpolation-plan.ts`.
+ * The endpoints are not exact: `t = 0` does not reproduce `left`, nor `t = 1` `right`. That is a
+ * property of the upstream weights and is harmless here, because the source frames are passed
+ * through verbatim and never synthesized. Only `0 < t < 1` is meaningful.
  *
  * Worker-safe: no DOM access.
  */
@@ -31,21 +37,22 @@ const ORT_WASM_PATH =
   'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0-dev.20260410-5e55544225/dist/'
 
 /**
- * Settings' model-cache inspector matches this by the `/RIFE_fp32/` path fragment; keep the
- * two in sync (`shared/utils/local-model-cache.ts`).
+ * Settings' model-cache inspector matches this by the `/RIFE_fp32_timestep/` path fragment; keep
+ * the two in sync (`shared/utils/local-model-cache.ts`).
  */
-const RIFE_MODEL_URL = 'https://huggingface.co/FuryTMP/RIFE_fp32/resolve/main/RIFE_fp32.onnx'
+const RIFE_MODEL_URL =
+  'https://huggingface.co/walterlow/RIFE_fp32_timestep/resolve/main/RIFE_fp32_timestep.onnx'
 
 /**
- * Ceiling on the resolution a smooth proxy is rendered at, and therefore on the resolution
- * RIFE runs at. 1080p is the practical limit: the folded meshgrid constants (one
+ * Ceiling on the resolution an interpolated video is rendered at, and therefore on the
+ * resolution RIFE runs at. 1080p is the practical limit: the folded meshgrid constants (one
  * full-resolution grid per warp, 14 of them) put the WebGPU backend under memory pressure,
  * and 1080p measures 5.6x the time of 720p for only 2.4x the pixels.
  *
- * Sources at or below this render natively. Larger sources render downscaled — the whole
- * proxy, every frame. It is tempting to keep real frames at native resolution and upscale
- * only the synthesized ones, but at 4x that alternates one sharp frame with three soft ones,
- * which reads as sharpness pumping. One resolution for all frames is the lesser evil.
+ * Sources at or below this render natively. Larger sources render downscaled — every frame of
+ * the output. It is tempting to keep real frames at native resolution and upscale only the
+ * synthesized ones, but at 4x that alternates one sharp frame with three soft ones, which reads
+ * as sharpness pumping. One resolution for all frames is the lesser evil.
  */
 export const RIFE_MAX_RENDER_PIXELS = 1920 * 1088
 
@@ -180,10 +187,11 @@ export class RifeInterpolator {
   }
 
   /**
-   * Synthesize the frame midway between `left` and `right`.
+   * Synthesize the frame at `timestep` of the way from `left` to `right`.
    *
    * Both operands are planar RGB float `[3, H, W]` in [0,1]; the result is a freshly
-   * allocated planar RGB frame of the same shape. Inputs are not mutated.
+   * allocated planar RGB frame of the same shape. Inputs are not mutated. `timestep` must lie
+   * strictly between 0 and 1 — see the note on endpoints in the file header.
    */
   // fallow-ignore-next-line unused-class-member
   async interpolate(
@@ -191,16 +199,22 @@ export class RifeInterpolator {
     right: Float32Array,
     width: number,
     height: number,
+    timestep: number,
   ): Promise<Float32Array> {
     const ort = this.ort
     if (!ort) throw new Error('RifeInterpolator.ready() must resolve before interpolate()')
+    if (!(timestep > 0 && timestep < 1)) {
+      throw new Error(`RIFE timestep must be in (0, 1), got ${timestep}`)
+    }
 
     const session = await this.getSession(width, height)
     const input = concatPlanarPair(left, right, width, height)
 
     const tensor = new ort.Tensor('float32', input, [1, 6, height, width])
+    // Rank-0: the graph broadcasts this scalar into the timestep plane every IFBlock reads.
+    const phase = new ort.Tensor('float32', new Float32Array([timestep]), [])
     try {
-      const results = await session.run({ input: tensor })
+      const results = await session.run({ input: tensor, timestep: phase })
       const output = results.output
       if (!output) throw new Error('RIFE session returned no `output` tensor')
 
@@ -215,6 +229,7 @@ export class RifeInterpolator {
       return frame
     } finally {
       tensor.dispose?.()
+      phase.dispose?.()
     }
   }
 }

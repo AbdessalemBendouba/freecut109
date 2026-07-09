@@ -102,7 +102,7 @@ export const LOCAL_MODEL_CACHE_DEFINITIONS: LocalModelCacheDefinition[] = [
     label: 'RIFE',
     description: 'RIFE frame interpolation model, used to render higher-frame-rate video.',
     cacheName: ONNX_MODEL_CACHE_NAME,
-    matchPathFragments: ['/RIFE_fp32/'],
+    matchPathFragments: ['/RIFE_fp32_timestep/'],
   },
 ]
 

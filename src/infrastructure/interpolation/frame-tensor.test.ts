@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from 'vitest'
-import { concatPlanarPair, planarRgbToRgba, rgbaToPlanarRgb } from './frame-tensor'
+import { concatPlanarPair, framesDiffer, planarRgbToRgba, rgbaToPlanarRgb } from './frame-tensor'
 
 function makeRgba(width: number, height: number): Uint8ClampedArray {
   const rgba = new Uint8ClampedArray(width * height * 4)
@@ -101,6 +101,49 @@ describe('concatPlanarPair', () => {
   it('rejects operands shorter than one planar frame', () => {
     expect(() => concatPlanarPair(new Float32Array(3), new Float32Array(12), 2, 2)).toThrow(
       /shorter than one planar RGB frame/,
+    )
+  })
+})
+
+describe('framesDiffer', () => {
+  it('reports no difference for identical frames', () => {
+    const a = new Float32Array([0.1, 0.2, 0.3])
+    expect(framesDiffer(a, Float32Array.from(a), 0)).toBe(false)
+  })
+
+  it('excludes the threshold itself, so a change of exactly the threshold is noise', () => {
+    const a = new Float32Array([0.5])
+    const b = new Float32Array([0.5 + 3 / 255])
+    expect(framesDiffer(a, b, 3 / 255)).toBe(false)
+  })
+
+  it('reports a difference just past the threshold', () => {
+    const a = new Float32Array([0.5])
+    const b = new Float32Array([0.5 + 3.001 / 255])
+    expect(framesDiffer(a, b, 3 / 255)).toBe(true)
+  })
+
+  it('detects a change in any channel, including the last', () => {
+    const a = new Float32Array([0, 0, 0, 0])
+    for (let i = 0; i < a.length; i++) {
+      const b = Float32Array.from(a)
+      b[i] = 1
+      expect(framesDiffer(a, b, 0.01)).toBe(true)
+    }
+  })
+
+  it('detects a decrease as well as an increase', () => {
+    expect(framesDiffer(new Float32Array([0.5]), new Float32Array([0.1]), 0.01)).toBe(true)
+  })
+
+  it('reports a difference unconditionally for a negative threshold', () => {
+    const a = new Float32Array([0.25])
+    expect(framesDiffer(a, Float32Array.from(a), -1)).toBe(true)
+  })
+
+  it('rejects frames of different lengths', () => {
+    expect(() => framesDiffer(new Float32Array(3), new Float32Array(4), 0)).toThrow(
+      /length mismatch, 3 vs 4/,
     )
   })
 })
