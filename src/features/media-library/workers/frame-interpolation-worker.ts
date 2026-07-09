@@ -37,10 +37,10 @@ import {
   createRenderCanvas,
   EncodeQueue,
   getSourceBlobFromOpfs,
+  createMp4Encoder,
   medianFps,
   OpfsScratch,
   openVideoSource,
-  pickCodec,
   setupAudioCopy,
   type InputInstance,
   type Mediabunny,
@@ -48,9 +48,6 @@ import {
 } from './render-support'
 
 const logger = createLogger('FrameInterpolationWorker')
-
-const KEYFRAME_INTERVAL_SECONDS = 2
-const STREAM_CHUNK_SIZE_BYTES = 4 * 1024 * 1024
 
 export interface InterpolateRequest {
   type: 'interpolate'
@@ -158,40 +155,15 @@ async function setupRender(
   const { width, height } = clampRenderSize(sourceWidth, sourceHeight)
   const outputFps = request.sourceFps * request.factor
   const { canvas, ctx } = createRenderCanvas(width, height)
-  const { output, videoSource, codec } = await createEncoder(
+  const { output, videoSource, codec } = await createMp4Encoder(
     mb,
-    request.jobId,
-    width,
-    height,
-    outputFps,
+    await scratch.createWritable(request.jobId),
+    { width, height, fps: outputFps },
   )
   // Every track must be declared before `start()`.
   const audio = await setupAudioCopy(mb, input, output)
   await output.start()
   return { width, height, outputFps, canvas, ctx, output, videoSource, audio, codec }
-}
-
-async function createEncoder(
-  mb: Mediabunny,
-  jobId: string,
-  width: number,
-  height: number,
-  outputFps: number,
-) {
-  const writable = await scratch.createWritable(jobId)
-  const codec = await pickCodec(mb, width, height, mb.QUALITY_HIGH)
-  const output = new mb.Output({
-    format: new mb.Mp4OutputFormat({ fastStart: false }),
-    target: new mb.StreamTarget(writable, { chunked: true, chunkSize: STREAM_CHUNK_SIZE_BYTES }),
-  })
-  const videoSource = new mb.VideoSampleSource({
-    codec,
-    bitrate: mb.QUALITY_HIGH,
-    keyFrameInterval: KEYFRAME_INTERVAL_SECONDS,
-    latencyMode: 'quality',
-  })
-  output.addVideoTrack(videoSource, { frameRate: outputFps })
-  return { output, videoSource, codec }
 }
 
 async function interpolate(request: InterpolateRequest): Promise<void> {

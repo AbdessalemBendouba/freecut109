@@ -222,32 +222,89 @@ export function createRenderCanvas(width: number, height: number) {
   return { canvas, ctx }
 }
 
-/**
- * Pick the best codec this browser will actually encode at these dimensions.
- *
- * The probe must use the *same* config the encoder will be handed. Probing with
- * `hardwareAcceleration: 'prefer-hardware'` and the default 1Mbps while the encoder runs with no
- * acceleration hint at `QUALITY_HIGH` gets a different answer out of `VideoEncoder`:
- * hardware HEVC accepts 1080x1920, the real config does not, and the render dies thousands of
- * frames in. Ask exactly what we intend to do.
- *
- * AVC is the fallback, not the default — but it is still probed, because a portrait 4K frame can
- * exceed both. Better to refuse before rendering than at the first `add()`.
- */
-export async function pickCodec(
-  mb: Mediabunny,
-  width: number,
-  height: number,
-  bitrate: number | InstanceType<Mediabunny['Quality']>,
-): Promise<'hevc' | 'avc'> {
-  const supports = (codec: 'hevc' | 'avc') =>
-    mb.canEncodeVideo(codec, { width, height, bitrate }).catch(() => false)
+const KEYFRAME_INTERVAL_SECONDS = 2
+const STREAM_CHUNK_SIZE_BYTES = 4 * 1024 * 1024
 
-  if (await supports('hevc')) return 'hevc'
-  if (await supports('avc')) return 'avc'
+/**
+ * Everything that decides whether `VideoEncoder` will accept a config.
+ *
+ * `mediabunny` folds these into the descriptor it hands `VideoEncoder.isConfigSupported`, and the
+ * answer changes with every one of them — the codec string itself is derived from width, height and
+ * the resolved bitrate. So the probe and the encoder must be built from *one* object. They were not,
+ * twice: first the probe asked for `prefer-hardware` at the default 1Mbps, then it still omitted
+ * `latencyMode`. Both times HEVC said yes to the probe, no to the encoder, and the render died on
+ * the first frame after decoding the whole file.
+ */
+interface VideoEncodeSettings {
+  width: number
+  height: number
+  bitrate: InstanceType<Mediabunny['Quality']>
+  latencyMode: 'quality' | 'realtime'
+}
+
+type EncodableCodec = 'hevc' | 'avc' | 'vp9' | 'av1'
+
+/**
+ * Preference order. HEVC and H.264 come first because they are hardware-encoded and universally
+ * playable, but neither survives every frame size: a 1080x1920 phone video upscales to 2160x3840,
+ * and hardware encoders commonly cap height near 2304. VP9 and AV1 are software-encoded — slower,
+ * but they accept sizes the hardware refuses, and MP4 carries both.
+ */
+const CODEC_PREFERENCE: readonly EncodableCodec[] = ['hevc', 'avc', 'vp9', 'av1']
+
+/**
+ * The first codec this browser will encode with *these exact settings*, restricted to what the
+ * container can carry. Probing costs a millisecond; discovering the answer at the first `add()`
+ * costs however long it took to decode and process the whole file.
+ */
+async function pickCodec(
+  mb: Mediabunny,
+  format: InstanceType<Mediabunny['Mp4OutputFormat']>,
+  settings: VideoEncodeSettings,
+): Promise<EncodableCodec> {
+  const containable = new Set<string>(format.getSupportedVideoCodecs())
+  const candidates = CODEC_PREFERENCE.filter((codec) => containable.has(codec))
+
+  for (const codec of candidates) {
+    if (await mb.canEncodeVideo(codec, settings).catch(() => false)) return codec
+  }
   throw new Error(
-    `This browser cannot encode ${width}x${height} video with either HEVC or H.264. Try a smaller source.`,
+    `This browser cannot encode ${settings.width}x${settings.height} video with any of: ${candidates.join(', ')}.`,
   )
+}
+
+/**
+ * An MP4 encoder writing to `writable`, using the first codec this browser accepts for the frame
+ * size. `pickCodec` and the `VideoSampleSource` below read the same `settings` object, which is the
+ * whole point: nothing here can disagree with what the encoder is later handed.
+ */
+export async function createMp4Encoder(
+  mb: Mediabunny,
+  writable: FileSystemWritableFileStream,
+  frame: { width: number; height: number; fps: number },
+) {
+  const settings: VideoEncodeSettings = {
+    width: frame.width,
+    height: frame.height,
+    bitrate: mb.QUALITY_HIGH,
+    latencyMode: 'quality',
+  }
+  const format = new mb.Mp4OutputFormat({ fastStart: false })
+  const codec = await pickCodec(mb, format, settings)
+  logger.info('Encoding render output', { codec, width: frame.width, height: frame.height })
+
+  const output = new mb.Output({
+    format,
+    target: new mb.StreamTarget(writable, { chunked: true, chunkSize: STREAM_CHUNK_SIZE_BYTES }),
+  })
+  const videoSource = new mb.VideoSampleSource({
+    codec,
+    bitrate: settings.bitrate,
+    latencyMode: settings.latencyMode,
+    keyFrameInterval: KEYFRAME_INTERVAL_SECONDS,
+  })
+  output.addVideoTrack(videoSource, { frameRate: frame.fps })
+  return { output, videoSource, codec }
 }
 
 /**

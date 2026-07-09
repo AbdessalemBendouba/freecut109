@@ -31,22 +31,19 @@ import {
   AudioCopier,
   Cancelled,
   CancellationRegistry,
+  createMp4Encoder,
   createRenderCanvas,
   EncodeQueue,
   getSourceBlobFromOpfs,
   medianFps,
   OpfsScratch,
   openVideoSource,
-  pickCodec,
   setupAudioCopy,
   type InputInstance,
   type Mediabunny,
 } from './render-support'
 
 const logger = createLogger('UpscaleWorker')
-
-const KEYFRAME_INTERVAL_SECONDS = 2
-const STREAM_CHUNK_SIZE_BYTES = 4 * 1024 * 1024
 
 export interface UpscaleRequest {
   type: 'upscale'
@@ -135,29 +132,6 @@ async function ensureUpscaler(variant: UpscaleVariant): Promise<Anime4kUpscaler>
   return upscaler
 }
 
-async function createEncoder(
-  mb: Mediabunny,
-  jobId: string,
-  width: number,
-  height: number,
-  fps: number,
-) {
-  const writable = await scratch.createWritable(jobId)
-  const codec = await pickCodec(mb, width, height, mb.QUALITY_HIGH)
-  const output = new mb.Output({
-    format: new mb.Mp4OutputFormat({ fastStart: false }),
-    target: new mb.StreamTarget(writable, { chunked: true, chunkSize: STREAM_CHUNK_SIZE_BYTES }),
-  })
-  const videoSource = new mb.VideoSampleSource({
-    codec,
-    bitrate: mb.QUALITY_HIGH,
-    keyFrameInterval: KEYFRAME_INTERVAL_SECONDS,
-    latencyMode: 'quality',
-  })
-  output.addVideoTrack(videoSource, { frameRate: fps })
-  return { output, videoSource, codec }
-}
-
 /** Render targets + encoder. Split out so `upscale` can dispose the decoder if it throws. */
 async function setupRender(
   mb: Mediabunny,
@@ -169,12 +143,10 @@ async function setupRender(
   const out = upscaledSize(width, height)
   const source = createRenderCanvas(width, height)
   const target = createRenderCanvas(out.width, out.height)
-  const { output, videoSource, codec } = await createEncoder(
+  const { output, videoSource, codec } = await createMp4Encoder(
     mb,
-    request.jobId,
-    out.width,
-    out.height,
-    request.sourceFps,
+    await scratch.createWritable(request.jobId),
+    { width: out.width, height: out.height, fps: request.sourceFps },
   )
   // Every track must be declared before `start()`.
   const audio = await setupAudioCopy(mb, input, output)
