@@ -110,6 +110,9 @@ src/
 - `onnxruntime-web` is intentionally pinned to a **dev build** (`1.26.0-dev.*`) — introduced with the supertonic TTS integration. Don't "upgrade" it casually; moving to a stable release requires re-validating transcription, TTS and scene detection
 - `lucide-react` is held at 0.468.x deliberately (Vite pre-bundles it; see Gotchas about `optimizeDeps`). A major-version bump is a deliberate task, not a routine dep update
 - All production deps are exact-pinned; keep new deps exact-pinned too (no `^`/`~`)
+- **TypeScript 7 needs the `overrides.typescript` entry.** `i18next` and `react-i18next` declare `peerOptional typescript@"^5"`, so any TS >= 6 fails a clean `npm install`/`npm ci` with ERESOLVE (an *incremental* install over an existing tree misleadingly succeeds). The override in package.json forces one TS copy and must be bumped in lockstep with the `typescript` devDependency. `@voidzero-dev/vite-plus-core` also peers `^5 || ^6`, but never loads the package — it shells out to the tsgolint binary — so that one is inert
+- Type checking does **not** run `tsc`. `vp check` type-checks via **tsgolint** (the TypeScript-Go engine), which is why CI already had native-speed checking before the TS 7 bump. Nothing in `package.json` scripts or CI invokes `tsc`; the `typescript` devDependency exists for editor tsserver and ad-hoc `npx tsc`. TS 7.0 ships no stable programmatic API — if a tool ever needs one, alias `@typescript/typescript6`
+- `oxlint` / `oxfmt` / `@oxc-project/types` are **not** direct deps — vite-plus exact-pins them internally, so they only move when `vp` moves. A `vp` bump can therefore reformat the tree (0.2.4 brought oxfmt 0.57 and reflowed 52 files); land that churn as its own commit
 
 ## Git
 
