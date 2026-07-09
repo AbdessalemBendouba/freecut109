@@ -9,6 +9,7 @@ export {
   createScrubThrottleState,
   shouldCommitScrubFrame,
   createDefaultShapeItem,
+  createOverlayLayerTrack,
   createTextTemplateItem,
   findCompatibleTrackForItemType,
   findNearestAvailableSpace,

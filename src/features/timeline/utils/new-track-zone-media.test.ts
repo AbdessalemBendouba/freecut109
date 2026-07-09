@@ -1,9 +1,46 @@
 import { describe, expect, it } from 'vite-plus/test'
+import type { TimelineTrack } from '@/types/timeline'
 import { createDefaultClassicTracks } from './classic-tracks'
 import {
   buildGhostPreviewsFromNewTrackZonePlan,
+  createOverlayLayerTrack,
   planNewTrackZonePlacements,
 } from './new-track-zone-media'
+
+describe('createOverlayLayerTrack', () => {
+  it('anchors to the active track and stacks the new layer above existing video', () => {
+    const tracks = createDefaultClassicTracks(80)
+    const videoTrack = tracks.find((track) => track.kind === 'video')!
+
+    const result = createOverlayLayerTrack({ tracks, activeTrackId: videoTrack.id })
+
+    const createdTrack = result!.tracks.find((track) => track.id === result!.trackId)!
+    expect(createdTrack).toMatchObject({ kind: 'video', height: 80 })
+    expect(createdTrack.order).toBeLessThan(videoTrack.order)
+  })
+
+  it('falls back to the first non-group track when the active track is a group header', () => {
+    const classicTracks = createDefaultClassicTracks(80)
+    const groupTrack: TimelineTrack = {
+      ...classicTracks[0]!,
+      id: 'group-1',
+      name: 'Group',
+      isGroup: true,
+      height: 24,
+      order: classicTracks[0]!.order - 1,
+    }
+
+    const result = createOverlayLayerTrack({
+      tracks: [groupTrack, ...classicTracks],
+      activeTrackId: groupTrack.id,
+    })
+
+    // Height comes from the anchor track, so a group anchor would leak height 24.
+    const createdTrack = result!.tracks.find((track) => track.id === result!.trackId)!
+    expect(createdTrack).toMatchObject({ kind: 'video', height: 80 })
+    expect(createdTrack.isGroup).toBeFalsy()
+  })
+})
 
 describe('planNewTrackZonePlacements', () => {
   it('creates fresh video and audio tracks for linked video media in the video zone', () => {

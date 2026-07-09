@@ -107,19 +107,28 @@ function ensureCreateNewZoneTrack(params: {
 /**
  * Creates a fresh video-zone track at the top of the stack and returns the
  * updated tracks plus the new track id. Used for overlay layers (text/shape
- * presets dropped on the canvas) that should sit on their own layer above
- * existing content rather than being sequenced into a compatible track.
+ * presets added from the sidebar or dropped on the canvas) that should sit on
+ * their own layer above existing content rather than being sequenced into a
+ * compatible track.
  */
-export function createNewVideoZoneTrack(params: {
+export function createOverlayLayerTrack(params: {
   tracks: TimelineTrack[]
-  anchorTrackId: string
-  preferredTrackHeight: number
+  activeTrackId: string | null
 }): { tracks: TimelineTrack[]; trackId: string } | null {
+  // Group tracks are headers only and never hold items, so the active track
+  // only counts when it is a non-group track; otherwise fall through to the
+  // first non-group track (never tracks[0], which may itself be a group).
+  const activeNonGroupTrackId = params.tracks.find(
+    (track) => track.id === params.activeTrackId && !track.isGroup,
+  )?.id
+  const anchorTrackId =
+    activeNonGroupTrackId ?? params.tracks.find((track) => !track.isGroup)?.id ?? ''
+
   return ensureCreateNewZoneTrack({
     currentTracks: params.tracks,
     trackZone: 'video',
-    preferredTrackHeight: params.preferredTrackHeight,
-    anchorTrackId: params.anchorTrackId,
+    preferredTrackHeight: params.tracks.find((track) => track.id === anchorTrackId)?.height ?? 64,
+    anchorTrackId,
   })
 }
 

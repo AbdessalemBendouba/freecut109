@@ -32,6 +32,7 @@ export {
   createScrubThrottleState,
   shouldCommitScrubFrame,
   createDefaultShapeItem,
+  createOverlayLayerTrack,
   createTextTemplateItem,
   executeTimelineCommand,
   findCompatibleTrackForItemType,
