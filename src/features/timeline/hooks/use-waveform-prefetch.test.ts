@@ -24,7 +24,7 @@ import { useRollingEditPreviewStore } from '../stores/rolling-edit-preview-store
 import { useSlideEditPreviewStore } from '../stores/slide-edit-preview-store'
 import { useSlipEditPreviewStore } from '../stores/slip-edit-preview-store'
 import { useTimelineSettingsStore } from '../stores/timeline-settings-store'
-import { useTimelineViewportStore } from '../stores/timeline-viewport-store'
+import { _resetViewportThrottle, useTimelineViewportStore } from '../stores/timeline-viewport-store'
 import { useTrackPushPreviewStore } from '../stores/track-push-preview-store'
 import { _resetZoomStoreForTest } from '../stores/zoom-store'
 
@@ -60,63 +60,40 @@ function WaveformPrefetchProbe({ onRender }: { onRender: () => void }) {
   return null
 }
 
-async function flushPrefetchTimers() {
-  // Three passes drain the timer chain: each store update reschedules the
-  // schedulePreviewWork debounce timer, and the fired callback queues a dynamic
-  // import of the waveform-cache module.
-  for (let i = 0; i < 3; i += 1) {
-    await act(async () => {
-      vi.advanceTimersByTime(120)
-      vi.runOnlyPendingTimers()
-      await Promise.resolve()
-      await Promise.resolve()
-    })
-  }
+/**
+ * The hook only reaches `waveformCache.prefetch` after a debounce timer, an idle callback and
+ * a dynamic import of the cache module. Counting those ticks by hand is what made this suite
+ * flaky — the import is cold on the first test that triggers it and resolves a tick later than
+ * a warm one. Poll for the effect instead of guessing when it lands.
+ */
+function stubSynchronousIdleCallback() {
+  let idleId = 0
+  vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => {
+    callback({ didTimeout: false, timeRemaining: () => 50 } as IdleDeadline)
+    idleId += 1
+    return idleId
+  })
+  vi.stubGlobal('cancelIdleCallback', (id: number) => {
+    void id
+  })
 }
 
-async function flushWaveformPrefetch() {
-  await flushPrefetchTimers()
-  await import('../services/waveform-cache')
-  await Promise.resolve()
-}
-
-/** Replicate the prefetch range calculation */
-function getPrefetchCandidates(
-  items: (VideoItem | AudioItem)[],
-  scrollLeft: number,
-  viewportWidth: number,
-  pps: number,
-  fps: number,
-  scrollingRight: boolean,
-) {
-  const aheadPx = 800
-  const behindPx = 200
-  const visibilityMarginPx = 200
-
-  const prefetchLeftPx = scrollingRight ? scrollLeft - behindPx : scrollLeft - aheadPx
-  const prefetchRightPx = scrollingRight
-    ? scrollLeft + viewportWidth + aheadPx
-    : scrollLeft + viewportWidth + behindPx
-  const visibleLeftPx = scrollLeft - visibilityMarginPx
-  const visibleRightPx = scrollLeft + viewportWidth + visibilityMarginPx
-
-  const prefetchStart = Math.max(0, Math.floor((prefetchLeftPx / pps) * fps))
-  const prefetchEnd = Math.ceil((prefetchRightPx / pps) * fps)
-  const visStart = Math.max(0, Math.floor((visibleLeftPx / pps) * fps))
-  const visEnd = Math.ceil((visibleRightPx / pps) * fps)
-
-  return items.filter((item) => {
-    if (item.type !== 'video' && item.type !== 'audio') return false
-    const itemEnd = item.from + item.durationInFrames
-    if (itemEnd <= prefetchStart || item.from >= prefetchEnd) return false
-    if (itemEnd > visStart && item.from < visEnd) return false
-    return true
+/**
+ * `setViewport` throttles scroll-only updates through module-level state, so a plain call can
+ * be swallowed and land later — leaking one test's scroll position into the next. Every test
+ * here depends on the scroll position the hook reads, so bypass the throttle entirely.
+ */
+function setViewportNow(scrollLeft: number) {
+  useTimelineViewportStore.getState().setViewportImmediate({
+    scrollLeft,
+    scrollTop: 0,
+    viewportWidth: 1000,
+    viewportHeight: 120,
   })
 }
 
 describe('waveform prefetch filtering', () => {
   const fps = 30
-  const pps = 100
 
   beforeEach(() => {
     _resetWaveformPrefetchForTest()
@@ -138,12 +115,8 @@ describe('waveform prefetch filtering', () => {
     useItemsStore.getState().setItems([])
     useItemsStore.getState().setTracks([])
     waveformCacheMocks.prefetch.mockReset()
-    useTimelineViewportStore.getState().setViewport({
-      scrollLeft: 0,
-      scrollTop: 0,
-      viewportWidth: 1000,
-      viewportHeight: 120,
-    })
+    _resetViewportThrottle()
+    setViewportNow(0)
   })
 
   afterEach(() => {
@@ -154,36 +127,6 @@ describe('waveform prefetch filtering', () => {
     vi.useRealTimers()
   })
 
-  it('prefetches clips in the ahead zone but not in the visible zone', () => {
-    const items = [
-      makeVideoItem('visible', 0, 100),
-      makeVideoItem('ahead', 400, 100),
-      makeVideoItem('far', 700, 100),
-    ]
-    const candidates = getPrefetchCandidates(items, 0, 1000, pps, fps, true)
-    expect(candidates.map((item) => item.id)).toEqual(['ahead'])
-  })
-
-  it('biases prefetch toward scroll direction when scrolling left', () => {
-    const items = [makeAudioItem('behind-close', 70, 30)]
-    const candidates = getPrefetchCandidates(items, 1000, 1000, pps, fps, false)
-    expect(candidates.map((item) => item.id)).toEqual(['behind-close'])
-  })
-
-  it('skips non-audio/video items', () => {
-    const items = [
-      {
-        id: 'text',
-        type: 'text',
-        trackId: 'track-1',
-        from: 400,
-        durationInFrames: 100,
-      } as unknown as VideoItem,
-    ]
-    const candidates = getPrefetchCandidates(items, 0, 1000, pps, fps, true)
-    expect(candidates).toEqual([])
-  })
-
   it('does not re-render its host component on viewport updates', () => {
     const onRender = vi.fn()
     render(createElement(WaveformPrefetchProbe, { onRender }))
@@ -191,104 +134,57 @@ describe('waveform prefetch filtering', () => {
     expect(onRender).toHaveBeenCalledTimes(1)
 
     act(() => {
-      useTimelineViewportStore.getState().setViewport({
-        scrollLeft: 250,
-        scrollTop: 0,
-        viewportWidth: 1000,
-        viewportHeight: 120,
-      })
+      setViewportNow(250)
     })
 
     act(() => {
-      useTimelineViewportStore.getState().setViewport({
-        scrollLeft: 500,
-        scrollTop: 0,
-        viewportWidth: 1000,
-        viewportHeight: 120,
-      })
+      setViewportNow(500)
     })
 
     expect(onRender).toHaveBeenCalledTimes(1)
   })
 
   it('waits for active drag interactions before prefetching', async () => {
-    vi.useFakeTimers()
-    let idleId = 0
-    vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => {
-      callback({
-        didTimeout: false,
-        timeRemaining: () => 50,
-      } as IdleDeadline)
-      idleId += 1
-      return idleId
-    })
-    vi.stubGlobal('cancelIdleCallback', (id: number) => {
-      void id
+    stubSynchronousIdleCallback()
+
+    const item = makeVideoItem('ahead', 400, 100)
+    useItemsStore.getState().setItems([item])
+    vi.spyOn(blobUrlManager, 'get').mockReturnValue('blob:prefetch')
+
+    useSelectionStore.getState().setDragState({
+      isDragging: true,
+      draggedItemIds: [],
+      offset: { x: 0, y: 0 },
     })
 
-    try {
-      const item = makeVideoItem('ahead', 400, 100)
-      useItemsStore.getState().setItems([item])
-      vi.spyOn(blobUrlManager, 'get').mockReturnValue('blob:prefetch')
+    render(createElement(WaveformPrefetchProbe, { onRender: () => {} }))
 
-      useSelectionStore.getState().setDragState({
-        isDragging: true,
-        draggedItemIds: [],
-        offset: { x: 0, y: 0 },
-      })
+    // Well past the 90ms prefetch debounce: an active drag must suppress the work entirely,
+    // not merely postpone it by a tick.
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    expect(waveformCacheMocks.prefetch).not.toHaveBeenCalled()
 
-      render(createElement(WaveformPrefetchProbe, { onRender: () => {} }))
+    act(() => {
+      useSelectionStore.getState().setDragState(null)
+      setViewportNow(1)
+    })
 
-      act(() => {
-        vi.runAllTimers()
-      })
-
-      expect(waveformCacheMocks.prefetch).not.toHaveBeenCalled()
-
-      act(() => {
-        useSelectionStore.getState().setDragState(null)
-        useTimelineViewportStore.getState().setViewport({
-          scrollLeft: 1,
-          scrollTop: 0,
-          viewportWidth: 1000,
-          viewportHeight: 120,
-        })
-      })
-      await flushWaveformPrefetch()
-
+    await vi.waitFor(() => {
       expect(waveformCacheMocks.prefetch).toHaveBeenCalledWith(item.mediaId, 'blob:prefetch')
-    } finally {
-      vi.useRealTimers()
-    }
+    })
   })
 
   it('prefetches storage-backed waveform cache even before a blob URL exists', async () => {
-    vi.useFakeTimers()
-    let idleId = 0
-    vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => {
-      callback({
-        didTimeout: false,
-        timeRemaining: () => 50,
-      } as IdleDeadline)
-      idleId += 1
-      return idleId
-    })
-    vi.stubGlobal('cancelIdleCallback', (id: number) => {
-      void id
-    })
+    stubSynchronousIdleCallback()
 
-    try {
-      const item = makeAudioItem('ahead', 400, 100)
-      useItemsStore.getState().setItems([item])
-      vi.spyOn(blobUrlManager, 'get').mockReturnValue(null)
+    const item = makeAudioItem('ahead', 400, 100)
+    useItemsStore.getState().setItems([item])
+    vi.spyOn(blobUrlManager, 'get').mockReturnValue(null)
 
-      render(createElement(WaveformPrefetchProbe, { onRender: () => {} }))
+    render(createElement(WaveformPrefetchProbe, { onRender: () => {} }))
 
-      await flushWaveformPrefetch()
-
+    await vi.waitFor(() => {
       expect(waveformCacheMocks.prefetch).toHaveBeenCalledWith(item.mediaId, null)
-    } finally {
-      vi.useRealTimers()
-    }
+    })
   })
 })

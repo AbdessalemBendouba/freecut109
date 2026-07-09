@@ -49,6 +49,13 @@ export class TranscribeStream implements AsyncIterable<TranscriptSegment> {
   private bridge: Bridge | null = null
   private started = false
   private runtimeRegistered = false
+  /**
+   * Latched once the model finishes loading. Audio decode runs on its own worker concurrently
+   * with the model transfer, so `decoding` events arrive interleaved with `downloading` ones.
+   * Deriving the runtime state from whichever event landed last made the status pill oscillate
+   * between "Loading" and "Active" for the whole download.
+   */
+  private modelReady = false
   private unsubscribePlayback: (() => void) | null = null
   private idleResumeTimer: ReturnType<typeof setTimeout> | null = null
   private workerPaused = false
@@ -283,8 +290,34 @@ export class TranscribeStream implements AsyncIterable<TranscriptSegment> {
       return
     }
 
+    // Ready once the model's own track completes, or once inference actually begins. A
+    // `decoding` event proves nothing about the model — it comes from the other worker.
+    if (event.stage === 'transcribing' || (event.stage === 'preparing' && event.progress >= 1)) {
+      this.modelReady = true
+    }
+
+    if (this.modelReady) {
+      localInferenceRuntimeRegistry.updateRuntime(this.runtimeId, {
+        state: 'running',
+        lastUsedAt: Date.now(),
+      })
+      return
+    }
+
     localInferenceRuntimeRegistry.updateRuntime(this.runtimeId, {
-      state: event.stage === 'loading' ? 'loading' : 'running',
+      state: 'loading',
+      // A `decoding` event says nothing about the model, so it must not clear the phase.
+      ...(event.stage === 'downloading' || event.stage === 'preparing'
+        ? { loadingPhase: event.stage }
+        : {}),
+      // Prefer the transfer's real content-length over the compiled-in estimate.
+      ...(event.stage === 'downloading' && event.totalBytes
+        ? { estimatedBytes: event.totalBytes }
+        : {}),
+      ...(event.stage === 'downloading' && event.receivedBytes != null
+        ? { loadedBytes: event.receivedBytes }
+        : {}),
+      ...(event.stage === 'downloading' ? { loadingFromCache: event.fromCache === true } : {}),
       lastUsedAt: Date.now(),
     })
   }

@@ -2,7 +2,10 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   getTranscriptionOverallProgress,
+  getTranscriptionProgressDetail,
+  getTranscriptionProgressLabel,
   getTranscriptionStageLabel,
+  isIndeterminateTranscriptionStage,
 } from '@/shared/utils/transcription-progress'
 import { useMediaLibraryStore } from '../stores/media-library-store'
 import { useMediaPreparationStore } from '../stores/media-preparation-store'
@@ -81,16 +84,33 @@ export function useMediaTaskProgress() {
     return count > 0 ? total / count : 0
   }, [transcriptStatus, transcriptProgress, transcribingCount])
 
-  const singleTranscriptionStageLabel = useMemo(() => {
+  // Only meaningful for a single job — with several in flight there is no one stage to name.
+  const singleTranscriptionProgress = useMemo(() => {
     if (transcribingCount !== 1) return null
     for (const [id, status] of transcriptStatus.entries()) {
       if (status === 'queued' || status === 'transcribing') {
-        const progress = transcriptProgress.get(id)
-        return progress ? getTranscriptionStageLabel(progress.stage) : null
+        return transcriptProgress.get(id) ?? null
       }
     }
     return null
   }, [transcriptStatus, transcriptProgress, transcribingCount])
+
+  const singleTranscriptionStageLabel = singleTranscriptionProgress
+    ? getTranscriptionProgressLabel(singleTranscriptionProgress)
+    : null
+
+  // Only the byte counter, never the compile prose: this bar lives in a ~250px panel, where
+  // "Optimizing for your hardware" truncates to noise. The pulsing indeterminate bar alongside
+  // "Preparing model" already says the compile is working. The dialog has room for the prose.
+  const singleTranscriptionDetail =
+    singleTranscriptionProgress?.stage === 'downloading'
+      ? getTranscriptionProgressDetail(singleTranscriptionProgress)
+      : null
+
+  /** The ONNX graph compile reports no progress — show a moving bar, not a stalled one. */
+  const singleTranscriptionIndeterminate = singleTranscriptionProgress
+    ? isIndeterminateTranscriptionStage(singleTranscriptionProgress.stage)
+    : false
 
   // Per-item breakdowns shown when the aggregate progress bar is expanded.
   const proxyItemRows = useMemo(() => {
@@ -191,6 +211,8 @@ export function useMediaTaskProgress() {
     transcribingCount,
     transcribingAvgProgress,
     singleTranscriptionStageLabel,
+    singleTranscriptionDetail,
+    singleTranscriptionIndeterminate,
     transcriptionItemRows,
     preparationItemRows,
     preparingCount,

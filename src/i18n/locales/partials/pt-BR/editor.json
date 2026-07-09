@@ -112,6 +112,9 @@
     },
     "localInferencePill": {
       "loading": "Carregando IA local",
+      "downloading": "Baixando IA local",
+      "loadingCache": "Carregando IA local do cache",
+      "preparing": "Preparando IA local",
       "active": "IA local ativa",
       "error": "Erro da IA local",
       "ready": "IA local pronta",

@@ -74,7 +74,7 @@ function createQueueStatusHandler(
     store.setTranscriptStatus(mediaId, 'transcribing')
     const currentProgress = store.transcriptProgress.get(mediaId)
     if (!currentProgress || currentProgress.stage === 'queued') {
-      store.setTranscriptProgress(mediaId, { stage: 'loading', progress: 0 })
+      store.setTranscriptProgress(mediaId, { stage: 'downloading', progress: 0 })
     }
   }
 }

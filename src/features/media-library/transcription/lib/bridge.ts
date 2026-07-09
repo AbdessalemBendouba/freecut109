@@ -204,7 +204,7 @@ export class Bridge {
           return
         }
         port.postMessage(chunk, [chunk.samples.buffer])
-      })
+      }, resampled.length / 16_000)
 
       const samplesPerChunk = 16_000 * 30
       for (let i = 0; i < resampled.length; i += samplesPerChunk) {

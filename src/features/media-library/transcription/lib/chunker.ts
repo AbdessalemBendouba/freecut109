@@ -14,12 +14,15 @@ const ADVANCE_SAMPLES = SAMPLES_PER_CHUNK - OVERLAP_SAMPLES
 
 export class Chunker {
   private readonly emit: (chunk: PCMChunk) => void
+  private readonly totalDuration: number
   private readonly buffered: Float32Array[] = []
   private bufferedLength = 0
   private emittedSamples = 0
 
-  constructor(emit: (chunk: PCMChunk) => void) {
+  /** `totalDuration` is the whole audio's length in seconds, or 0 when the producer can't tell. */
+  constructor(emit: (chunk: PCMChunk) => void, totalDuration: number) {
     this.emit = emit
+    this.totalDuration = totalDuration
   }
 
   push(samples: Float32Array): void {
@@ -43,6 +46,7 @@ export class Chunker {
           samples: new Float32Array(0),
           timestamp: this.emittedSamples / SAMPLE_RATE,
           final: true,
+          totalDuration: this.totalDuration,
         })
         return
       }
@@ -55,6 +59,7 @@ export class Chunker {
       samples: new Float32Array(0),
       timestamp: this.emittedSamples / SAMPLE_RATE,
       final: true,
+      totalDuration: this.totalDuration,
     })
   }
 
@@ -62,7 +67,7 @@ export class Chunker {
     const timestamp = this.emittedSamples / SAMPLE_RATE
     this.dropSamples(advanceSamples)
     this.emittedSamples += advanceSamples
-    this.emit({ samples, timestamp, final })
+    this.emit({ samples, timestamp, final, totalDuration: this.totalDuration })
   }
 
   private copySamples(targetLength: number): Float32Array {

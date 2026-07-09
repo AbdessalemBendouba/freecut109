@@ -41,6 +41,9 @@ describe('local-inference types', () => {
       totalEstimatedBytes: 256 * 1024 * 1024,
       activeJobs: 0,
       state: 'ready',
+      loadingPhase: null,
+      loadingFromCache: false,
+      loadedBytes: 0,
       backendLabel: 'WEBGPU',
       primaryLabel: 'Whisper Tiny',
       unloadableCount: 1,
@@ -76,10 +79,81 @@ describe('local-inference types', () => {
       totalEstimatedBytes: 768 * 1024 * 1024,
       activeJobs: 3,
       state: 'running',
+      // A runtime is still loading, but the summary state is 'running', so there is no
+      // loading phase to report.
+      loadingPhase: null,
+      loadingFromCache: false,
+      loadedBytes: 0,
       backendLabel: 'Mixed',
       primaryLabel: '3 Local Models',
       unloadableCount: 2,
     })
+  })
+
+  // "Loading" covers both a multi-minute weight download and a ~20 s graph compile. The pill
+  // names whichever is running, and a download outranks a compile because it is the long pole.
+  it('reports the loading phase, preferring an in-flight download', () => {
+    const downloading = getLocalInferenceSummary({
+      'runtime-1': createRuntime({ state: 'loading', loadingPhase: 'preparing' }),
+      'runtime-2': createRuntime({
+        id: 'runtime-2',
+        state: 'loading',
+        loadingPhase: 'downloading',
+        loadedBytes: 100,
+      }),
+    })
+    expect(downloading?.loadingPhase).toBe('downloading')
+    expect(downloading?.loadedBytes).toBe(100)
+
+    const preparing = getLocalInferenceSummary({
+      'runtime-1': createRuntime({ state: 'loading', loadingPhase: 'preparing' }),
+    })
+    expect(preparing?.loadingPhase).toBe('preparing')
+  })
+
+  // A cache read streams bytes and takes seconds, so it looks like a download from the inside.
+  // Calling it one would tell the user they are waiting on the network when they are not.
+  it('only calls a fetch a cache read when nothing touches the network', () => {
+    const cached = getLocalInferenceSummary({
+      'runtime-1': createRuntime({
+        state: 'loading',
+        loadingPhase: 'downloading',
+        loadingFromCache: true,
+      }),
+    })
+    expect(cached?.loadingFromCache).toBe(true)
+
+    const mixed = getLocalInferenceSummary({
+      'runtime-1': createRuntime({
+        state: 'loading',
+        loadingPhase: 'downloading',
+        loadingFromCache: true,
+      }),
+      'runtime-2': createRuntime({
+        id: 'runtime-2',
+        state: 'loading',
+        loadingPhase: 'downloading',
+        loadingFromCache: false,
+      }),
+    })
+    expect(mixed?.loadingFromCache).toBe(false)
+  })
+
+  it('never claims a cache read while compiling rather than fetching', () => {
+    const summary = getLocalInferenceSummary({
+      'runtime-1': createRuntime({ state: 'loading', loadingPhase: 'preparing' }),
+    })
+
+    expect(summary?.loadingPhase).toBe('preparing')
+    expect(summary?.loadingFromCache).toBe(false)
+  })
+
+  it('reports no loading phase once a runtime is past loading', () => {
+    const summary = getLocalInferenceSummary({
+      'runtime-1': createRuntime({ state: 'running', loadingPhase: 'downloading' }),
+    })
+
+    expect(summary?.loadingPhase).toBeNull()
   })
 
   it('detects unload cancellations', () => {

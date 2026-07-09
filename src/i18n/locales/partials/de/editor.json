@@ -112,6 +112,9 @@
     },
     "localInferencePill": {
       "loading": "Lokale KI wird geladen",
+      "downloading": "Lokale KI wird heruntergeladen",
+      "loadingCache": "Lokale KI wird aus dem Cache geladen",
+      "preparing": "Lokale KI wird vorbereitet",
       "active": "Lokale KI aktiv",
       "error": "Fehler der lokalen KI",
       "ready": "Lokale KI bereit",

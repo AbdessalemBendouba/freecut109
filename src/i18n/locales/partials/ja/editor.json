@@ -112,6 +112,9 @@
     },
     "localInferencePill": {
       "loading": "ローカルAIを読み込み中",
+      "downloading": "ローカルAIをダウンロード中",
+      "loadingCache": "ローカルAIをキャッシュから読み込み中",
+      "preparing": "ローカルAIを準備中",
       "active": "ローカルAI稼働中",
       "error": "ローカルAIエラー",
       "ready": "ローカルAI準備完了",

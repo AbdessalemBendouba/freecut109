@@ -112,6 +112,9 @@
     },
     "localInferencePill": {
       "loading": "Yerel YZ Yükleniyor",
+      "downloading": "Yerel YZ İndiriliyor",
+      "loadingCache": "Yerel YZ Önbellekten Yükleniyor",
+      "preparing": "Yerel YZ Hazırlanıyor",
       "active": "Yerel YZ Etkin",
       "error": "Yerel YZ Hatası",
       "ready": "Yerel YZ Hazır",

@@ -112,6 +112,9 @@
     },
     "localInferencePill": {
       "loading": "本地 AI 加载中",
+      "downloading": "本地 AI 下载中",
+      "loadingCache": "本地 AI 从缓存加载中",
+      "preparing": "本地 AI 准备中",
       "active": "本地 AI 运行中",
       "error": "本地 AI 错误",
       "ready": "本地 AI 就绪",
