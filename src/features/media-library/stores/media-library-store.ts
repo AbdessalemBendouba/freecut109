@@ -13,6 +13,7 @@ import { getMediaType } from '../utils/validation'
 import { createLogger, createOperationId } from '@/shared/logging/logger'
 import { proxyService } from '../services/proxy-service'
 import { frameInterpolationService } from '../services/frame-interpolation-service'
+import { upscaleService } from '../services/upscale-service'
 import { getSharedProxyKey } from '../utils/proxy-key'
 import { createImportActions } from './media-import-actions'
 import { createDeleteActions } from './media-delete-actions'
@@ -145,6 +146,12 @@ const newStore: MediaLibraryStoreApi =
         interpolationStage: new Map(),
         interpolationEtaSeconds: new Map(),
 
+        // Anime4K upscaling
+        upscaleStatus: new Map(),
+        upscaleProgress: new Map(),
+        upscaleStage: new Map(),
+        upscaleEtaSeconds: new Map(),
+
         // Transcript generation
         transcriptStatus: new Map(),
         transcriptProgress: new Map(),
@@ -174,6 +181,10 @@ const newStore: MediaLibraryStoreApi =
             interpolationProgress: new Map(),
             interpolationStage: new Map(),
             interpolationEtaSeconds: new Map(),
+            upscaleStatus: new Map(),
+            upscaleProgress: new Map(),
+            upscaleStage: new Map(),
+            upscaleEtaSeconds: new Map(),
             transcriptStatus: new Map(),
             transcriptProgress: new Map(),
             taggingMediaIds: new Set(),
@@ -477,6 +488,46 @@ const newStore: MediaLibraryStoreApi =
           })
         },
 
+        // Anime4K upscaling
+        setUpscaleStatus: (mediaId: string, status: 'generating' | 'ready' | 'error') => {
+          set((state) => {
+            const upscaleStatus = new Map(state.upscaleStatus)
+            upscaleStatus.set(mediaId, status)
+            return { upscaleStatus }
+          })
+        },
+
+        clearUpscaleStatus: (mediaId: string) => {
+          set((state) => {
+            const upscaleStatus = new Map(state.upscaleStatus)
+            upscaleStatus.delete(mediaId)
+            const upscaleProgress = new Map(state.upscaleProgress)
+            upscaleProgress.delete(mediaId)
+            const upscaleStage = new Map(state.upscaleStage)
+            upscaleStage.delete(mediaId)
+            const upscaleEtaSeconds = new Map(state.upscaleEtaSeconds)
+            upscaleEtaSeconds.delete(mediaId)
+            return { upscaleStatus, upscaleProgress, upscaleStage, upscaleEtaSeconds }
+          })
+        },
+
+        setUpscaleProgress: (mediaId: string, progress: number, stage, etaSeconds) => {
+          set((state) => {
+            const upscaleProgress = new Map(state.upscaleProgress)
+            upscaleProgress.set(mediaId, progress)
+            const upscaleStage = new Map(state.upscaleStage)
+            upscaleStage.set(mediaId, stage)
+
+            const upscaleEtaSeconds = new Map(state.upscaleEtaSeconds)
+            // A null ETA means "still warming up"; keep the last good value rather than
+            // flickering the label away.
+            if (typeof etaSeconds === 'number') {
+              upscaleEtaSeconds.set(mediaId, etaSeconds)
+            }
+            return { upscaleProgress, upscaleStage, upscaleEtaSeconds }
+          })
+        },
+
         setTranscriptStatus: (mediaId, status) => {
           set((state) => {
             const transcriptStatus = new Map(state.transcriptStatus)
@@ -636,6 +687,22 @@ if (!hotStore) {
   })
 
   frameInterpolationService.onMediaCreated((media) => {
+    useMediaLibraryStore.getState().prependMediaItem(media)
+  })
+
+  upscaleService.onStatusChange((mediaId, status, progress, stage, etaSeconds) => {
+    const store = useMediaLibraryStore.getState()
+    if (status === 'idle' || status === 'ready') {
+      store.clearUpscaleStatus(mediaId)
+      return
+    }
+    store.setUpscaleStatus(mediaId, status)
+    if (progress !== undefined && stage) {
+      store.setUpscaleProgress(mediaId, progress, stage, etaSeconds)
+    }
+  })
+
+  upscaleService.onMediaCreated((media) => {
     useMediaLibraryStore.getState().prependMediaItem(media)
   })
 

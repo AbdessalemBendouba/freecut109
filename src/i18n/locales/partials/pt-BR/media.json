@@ -41,7 +41,15 @@
       "transcriptReadyFor": "Transcricao pronta para \"{{name}}\"",
       "transcriptionFailedFor": "Falha na transcricao de \"{{name}}\"",
       "transcriptsDeleted": "Transcricoes excluidas",
-      "transcriptsReady": "Transcricoes prontas"
+      "transcriptsReady": "Transcricoes prontas",
+      "menuUpscale": "Ampliar",
+      "upscaleVideo": "Ampliar 2x",
+      "cancelUpscale": "Cancelar ampliação",
+      "upscaleVariant": {
+        "liveAction": "Ação ao vivo",
+        "animation": "Animação",
+        "threeD": "Renderização 3D"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "Clipes compostos",
@@ -213,7 +221,9 @@
         "waveform": "Forma de onda"
       },
       "importFailed_one": "Falha ao importar {{count}} arquivo. Verifique o arquivo e tente novamente.",
-      "importFailed_other": "Falha ao importar {{count}} arquivos. Verifique os arquivos e tente novamente."
+      "importFailed_other": "Falha ao importar {{count}} arquivos. Verifique os arquivos e tente novamente.",
+      "upscalingVideo": "Ampliando vídeo",
+      "upscaleProgress": "Progresso da ampliação"
     },
     "missingMedia": {
       "title": "Mídia ausente",

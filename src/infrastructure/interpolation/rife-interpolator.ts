@@ -29,12 +29,11 @@
 
 import { createLogger } from '@/shared/logging/logger'
 import { fetchOnnxModelBytes } from '@/shared/utils/onnx-model-cache'
-import { concatPlanarPair, planarRgbLength } from './frame-tensor'
+import { getOrt, type OrtModule, type OrtSession } from '@/shared/utils/ort-runtime'
+import { planarRgbLength } from '@/shared/utils/planar-rgb'
+import { concatPlanarPair } from './frame-tensor'
 
 const logger = createLogger('RifeInterpolator')
-
-const ORT_WASM_PATH =
-  'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0-dev.20260410-5e55544225/dist/'
 
 /**
  * Settings' model-cache inspector matches this by the `/RIFE_fp32_timestep/` path fragment; keep
@@ -55,22 +54,6 @@ const RIFE_MODEL_URL =
  * as sharpness pumping. One resolution for all frames is the lesser evil.
  */
 export const RIFE_MAX_RENDER_PIXELS = 1920 * 1088
-
-type OrtModule = typeof import('onnxruntime-web')
-type OrtSession = Awaited<ReturnType<OrtModule['InferenceSession']['create']>>
-
-let ortPromise: Promise<OrtModule> | null = null
-
-function getOrt(): Promise<OrtModule> {
-  if (!ortPromise) {
-    ortPromise = import('onnxruntime-web').then((module) => {
-      module.env.wasm.wasmPaths = ORT_WASM_PATH
-      module.env.wasm.numThreads = 1
-      return module
-    })
-  }
-  return ortPromise
-}
 
 export type RifeBackend = 'webgpu' | 'wasm'
 

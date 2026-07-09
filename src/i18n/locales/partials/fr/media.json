@@ -41,7 +41,15 @@
       "transcriptReadyFor": "Transcription prête pour « {{name}} »",
       "transcriptionFailedFor": "Échec de la transcription de « {{name}} »",
       "transcriptsDeleted": "Transcriptions supprimées",
-      "transcriptsReady": "Transcriptions prêtes"
+      "transcriptsReady": "Transcriptions prêtes",
+      "menuUpscale": "Agrandir",
+      "upscaleVideo": "Agrandir 2x",
+      "cancelUpscale": "Annuler l'agrandissement",
+      "upscaleVariant": {
+        "liveAction": "Prises de vues réelles",
+        "animation": "Animation",
+        "threeD": "Rendu 3D"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "Clips composés",
@@ -213,7 +221,9 @@
         "waveform": "Forme d’onde"
       },
       "importFailed_one": "{{count}} fichier n’a pas pu être importé. Vérifiez le fichier et réessayez.",
-      "importFailed_other": "{{count}} fichiers n’ont pas pu être importés. Vérifiez les fichiers et réessayez."
+      "importFailed_other": "{{count}} fichiers n’ont pas pu être importés. Vérifiez les fichiers et réessayez.",
+      "upscalingVideo": "Agrandissement de la vidéo",
+      "upscaleProgress": "Progression de l'agrandissement"
     },
     "missingMedia": {
       "title": "Médias manquants",

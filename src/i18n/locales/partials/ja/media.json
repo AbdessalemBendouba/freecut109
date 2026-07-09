@@ -41,7 +41,15 @@
       "transcriptReadyFor": "「{{name}}」の文字起こしが完了しました",
       "transcriptionFailedFor": "「{{name}}」の文字起こしに失敗しました",
       "transcriptsDeleted": "文字起こしを削除しました",
-      "transcriptsReady": "文字起こしが完了しました"
+      "transcriptsReady": "文字起こしが完了しました",
+      "menuUpscale": "アップスケール",
+      "upscaleVideo": "2x アップスケール",
+      "cancelUpscale": "アップスケールをキャンセル",
+      "upscaleVariant": {
+        "liveAction": "実写",
+        "animation": "アニメ",
+        "threeD": "3D レンダリング"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "複合クリップ",
@@ -213,7 +221,9 @@
         "waveform": "波形"
       },
       "importFailed_one": "{{count}} 個のファイルをインポートできませんでした。ファイルを確認してもう一度お試しください。",
-      "importFailed_other": "{{count}} 個のファイルをインポートできませんでした。ファイルを確認してもう一度お試しください。"
+      "importFailed_other": "{{count}} 個のファイルをインポートできませんでした。ファイルを確認してもう一度お試しください。",
+      "upscalingVideo": "動画をアップスケール中",
+      "upscaleProgress": "アップスケールの進行状況"
     },
     "missingMedia": {
       "title": "メディアが見つかりません",

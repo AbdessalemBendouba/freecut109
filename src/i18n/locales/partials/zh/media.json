@@ -41,7 +41,15 @@
       "transcriptReadyFor": "\"{{name}}\" 的字幕已准备好",
       "transcriptionFailedFor": "\"{{name}}\" 的字幕生成失败",
       "transcriptsDeleted": "转录已删除",
-      "transcriptsReady": "转录已准备就绪"
+      "transcriptsReady": "转录已准备就绪",
+      "menuUpscale": "超分辨率",
+      "upscaleVideo": "2x 超分辨率",
+      "cancelUpscale": "取消超分辨率",
+      "upscaleVariant": {
+        "liveAction": "实拍",
+        "animation": "动画",
+        "threeD": "3D 渲染"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "复合剪辑",
@@ -213,7 +221,9 @@
         "waveform": "波形"
       },
       "importFailed_one": "{{count}} 个文件导入失败。请检查文件后重试。",
-      "importFailed_other": "{{count}} 个文件导入失败。请检查文件后重试。"
+      "importFailed_other": "{{count}} 个文件导入失败。请检查文件后重试。",
+      "upscalingVideo": "正在超分辨率处理视频",
+      "upscaleProgress": "超分辨率进度"
     },
     "missingMedia": {
       "title": "缺失媒体",

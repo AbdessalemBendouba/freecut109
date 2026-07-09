@@ -1,6 +1,7 @@
 import type { MediaAttribution, MediaMetadata } from '@/types/storage'
 import type { TranscriptionProgressSnapshot } from '@/shared/utils/transcription-progress'
 import type { InterpolationStage } from './frame-interpolation-constants'
+import type { UpscaleStage } from './upscale-constants'
 
 export interface MediaLibraryNotification {
   type: 'info' | 'success' | 'warning' | 'error'
@@ -98,6 +99,13 @@ export interface MediaLibraryState {
   interpolationStage: Map<string, InterpolationStage>
   /** Seconds left in the render. Absent until the rate estimate warms up. */
   interpolationEtaSeconds: Map<string, number>
+
+  // Anime4K upscaling, keyed by the SOURCE media id
+  upscaleStatus: Map<string, 'generating' | 'ready' | 'error'>
+  upscaleProgress: Map<string, number>
+  upscaleStage: Map<string, UpscaleStage>
+  /** Seconds left in the render. Absent until the rate estimate warms up. */
+  upscaleEtaSeconds: Map<string, number>
 
   // Transcript generation
   transcriptStatus: Map<string, MediaTranscriptStatus>
@@ -236,6 +244,16 @@ export interface MediaLibraryActions {
     mediaId: string,
     progress: number,
     stage: InterpolationStage,
+    etaSeconds?: number | null,
+  ) => void
+
+  // Anime4K upscaling
+  setUpscaleStatus: (mediaId: string, status: 'generating' | 'ready' | 'error') => void
+  clearUpscaleStatus: (mediaId: string) => void
+  setUpscaleProgress: (
+    mediaId: string,
+    progress: number,
+    stage: UpscaleStage,
     etaSeconds?: number | null,
   ) => void
 

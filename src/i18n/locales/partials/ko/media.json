@@ -41,7 +41,15 @@
       "transcriptReadyFor": "\"{{name}}\"의 전사가 준비되었습니다",
       "transcriptionFailedFor": "\"{{name}}\"의 전사에 실패했습니다",
       "transcriptsDeleted": "전사가 삭제되었습니다",
-      "transcriptsReady": "전사가 준비되었습니다"
+      "transcriptsReady": "전사가 준비되었습니다",
+      "menuUpscale": "업스케일",
+      "upscaleVideo": "2x 업스케일",
+      "cancelUpscale": "업스케일 취소",
+      "upscaleVariant": {
+        "liveAction": "실사",
+        "animation": "애니메이션",
+        "threeD": "3D 렌더링"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "복합 클립",
@@ -213,7 +221,9 @@
         "waveform": "파형"
       },
       "importFailed_one": "{{count}}개 파일을 가져오지 못했습니다. 파일을 확인하고 다시 시도하세요.",
-      "importFailed_other": "{{count}}개 파일을 가져오지 못했습니다. 파일을 확인하고 다시 시도하세요."
+      "importFailed_other": "{{count}}개 파일을 가져오지 못했습니다. 파일을 확인하고 다시 시도하세요.",
+      "upscalingVideo": "동영상 업스케일 중",
+      "upscaleProgress": "업스케일 진행률"
     },
     "missingMedia": {
       "title": "누락된 미디어",

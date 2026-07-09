@@ -41,7 +41,15 @@
       "transcriptReadyFor": "Transkript für „{{name}}\" ist bereit",
       "transcriptionFailedFor": "Transkription für „{{name}}\" fehlgeschlagen",
       "transcriptsDeleted": "Transkripte gelöscht",
-      "transcriptsReady": "Transkripte bereit"
+      "transcriptsReady": "Transkripte bereit",
+      "menuUpscale": "Hochskalieren",
+      "upscaleVideo": "2x hochskalieren",
+      "cancelUpscale": "Hochskalieren abbrechen",
+      "upscaleVariant": {
+        "liveAction": "Realfilm",
+        "animation": "Animation",
+        "threeD": "3D-Rendering"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "Zusammengesetzte Clips",
@@ -213,7 +221,9 @@
         "waveform": "Wellenform"
       },
       "importFailed_one": "{{count}} Datei konnte nicht importiert werden. Prüfe die Datei und versuche es erneut.",
-      "importFailed_other": "{{count}} Dateien konnten nicht importiert werden. Prüfe die Dateien und versuche es erneut."
+      "importFailed_other": "{{count}} Dateien konnten nicht importiert werden. Prüfe die Dateien und versuche es erneut.",
+      "upscalingVideo": "Video wird hochskaliert",
+      "upscaleProgress": "Fortschritt beim Hochskalieren"
     },
     "missingMedia": {
       "title": "Fehlende Medien",

@@ -26,6 +26,9 @@ export function useMediaTaskProgress() {
   const interpolationProgress = useMediaLibraryStore((s) => s.interpolationProgress)
   const interpolationStage = useMediaLibraryStore((s) => s.interpolationStage)
   const interpolationEtaSeconds = useMediaLibraryStore((s) => s.interpolationEtaSeconds)
+  const upscaleStatus = useMediaLibraryStore((s) => s.upscaleStatus)
+  const upscaleProgress = useMediaLibraryStore((s) => s.upscaleProgress)
+  const upscaleEtaSeconds = useMediaLibraryStore((s) => s.upscaleEtaSeconds)
   const transcriptStatus = useMediaLibraryStore((s) => s.transcriptStatus)
   const transcriptProgress = useMediaLibraryStore((s) => s.transcriptProgress)
   const analysisProgress = useMediaLibraryStore((s) => s.analysisProgress)
@@ -100,6 +103,56 @@ export function useMediaTaskProgress() {
     }
     return rows
   }, [interpolationStatus, interpolationProgress, mediaById])
+
+  const upscalingCount = useMemo(() => {
+    let count = 0
+    for (const status of upscaleStatus.values()) {
+      if (status === 'generating') count++
+    }
+    return count
+  }, [upscaleStatus])
+
+  const upscalingAvgProgress = useMemo(() => {
+    if (upscalingCount === 0) return 0
+    let total = 0
+    let count = 0
+    for (const [id, status] of upscaleStatus.entries()) {
+      if (status === 'generating') {
+        total += upscaleProgress.get(id) ?? 0
+        count++
+      }
+    }
+    return count > 0 ? total / count : 0
+  }, [upscaleStatus, upscaleProgress, upscalingCount])
+
+  /**
+   * Only one upscale renders at a time, so the longest remaining estimate is the active job's.
+   * Queued jobs have no estimate at all, which is why this is a max and not a sum.
+   */
+  const upscaleEtaLabel = useMemo(() => {
+    let longest: number | null = null
+    for (const [id, status] of upscaleStatus.entries()) {
+      if (status !== 'generating') continue
+      const eta = upscaleEtaSeconds.get(id)
+      if (eta !== undefined && (longest === null || eta > longest)) longest = eta
+    }
+    if (longest === null || longest < 1) return null
+    return t('media.library.timeRemaining', { time: formatDuration(longest) })
+  }, [upscaleStatus, upscaleEtaSeconds, t])
+
+  const upscaleItemRows = useMemo(() => {
+    const rows: Array<{ id: string; name: string; percent: number }> = []
+    for (const [id, status] of upscaleStatus.entries()) {
+      if (status === 'generating') {
+        rows.push({
+          id,
+          name: mediaById[id]?.fileName ?? id,
+          percent: Math.round((upscaleProgress.get(id) ?? 0) * 100),
+        })
+      }
+    }
+    return rows
+  }, [upscaleStatus, upscaleProgress, mediaById])
 
   const analysisPercent =
     analysisProgress && analysisProgress.total > 0
@@ -279,6 +332,10 @@ export function useMediaTaskProgress() {
     interpolationItemRows,
     interpolationEtaLabel,
     isDownloadingInterpolationModel,
+    upscalingCount,
+    upscalingAvgProgress,
+    upscaleItemRows,
+    upscaleEtaLabel,
     transcribingCount,
     transcribingAvgProgress,
     singleTranscriptionStageLabel,

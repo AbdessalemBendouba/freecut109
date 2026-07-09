@@ -41,7 +41,15 @@
       "transcriptReadyFor": "Transcript ready for \"{{name}}\"",
       "transcriptionFailedFor": "Transcription failed for \"{{name}}\"",
       "transcriptsDeleted": "Transcripts Deleted",
-      "transcriptsReady": "Transcripts Ready"
+      "transcriptsReady": "Transcripts Ready",
+      "menuUpscale": "Upscale",
+      "upscaleVideo": "Upscale 2x",
+      "cancelUpscale": "Cancel Upscale",
+      "upscaleVariant": {
+        "liveAction": "Live Action",
+        "animation": "Animation",
+        "threeD": "3D Rendered"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "Compound Clips",
@@ -226,7 +234,9 @@
         "waveform": "Waveform"
       },
       "importFailed_one": "{{count}} file failed to import. Check the file and try again.",
-      "importFailed_other": "{{count}} files failed to import. Check the files and try again."
+      "importFailed_other": "{{count}} files failed to import. Check the files and try again.",
+      "upscalingVideo": "Upscaling Video",
+      "upscaleProgress": "Upscale Progress"
     },
     "missingMedia": {
       "title": "Missing Media",

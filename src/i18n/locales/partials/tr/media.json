@@ -41,7 +41,15 @@
       "transcriptReadyFor": "\"{{name}}\" için transkript hazır",
       "transcriptionFailedFor": "\"{{name}}\" için transkripsiyon başarısız",
       "transcriptsDeleted": "Transkriptler silindi",
-      "transcriptsReady": "Transkriptler hazır"
+      "transcriptsReady": "Transkriptler hazır",
+      "menuUpscale": "Ölçekle",
+      "upscaleVideo": "2x ölçekle",
+      "cancelUpscale": "Ölçeklemeyi iptal et",
+      "upscaleVariant": {
+        "liveAction": "Gerçek çekim",
+        "animation": "Animasyon",
+        "threeD": "3B render"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "Bileşik Klipler",
@@ -213,7 +221,9 @@
         "waveform": "Dalga biçimi"
       },
       "importFailed_one": "{{count}} dosya içe aktarılamadı. Dosyayı kontrol edip tekrar deneyin.",
-      "importFailed_other": "{{count}} dosya içe aktarılamadı. Dosyaları kontrol edip tekrar deneyin."
+      "importFailed_other": "{{count}} dosya içe aktarılamadı. Dosyaları kontrol edip tekrar deneyin.",
+      "upscalingVideo": "Video ölçekleniyor",
+      "upscaleProgress": "Ölçekleme ilerlemesi"
     },
     "missingMedia": {
       "title": "Eksik medya",

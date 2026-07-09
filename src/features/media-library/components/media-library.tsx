@@ -93,6 +93,7 @@ import {
 import { useProjectStore } from '@/features/media-library/deps/projects'
 import { proxyService } from '../services/proxy-service'
 import { frameInterpolationService } from '../services/frame-interpolation-service'
+import { upscaleService } from '../services/upscale-service'
 import { importMediaLibraryService } from '../services/media-library-service-loader'
 import { cancelMediaTranscriptionJob } from '../services/media-transcription-runner'
 import { importMediaAnalysisService } from '../services/media-analysis-service-loader'
@@ -211,6 +212,25 @@ interface MediaLibraryProps {
 const MEDIA_HEADER_MAX_COMPACT_LEVEL = 4
 const MEDIA_HEADER_OVERFLOW_TOLERANCE_PX = 1
 const MEDIA_HEADER_RELAX_WIDTH_DELTA_PX = 8
+
+/**
+ * Per-item rows shown when a background-task progress bar is expanded. A single row carries no
+ * more information than the aggregate bar above it, so one row renders nothing.
+ */
+function renderTaskDetailRows(
+  rows: ReadonlyArray<{ id: string; name: string; percent: number }>,
+): React.ReactNode {
+  if (rows.length <= 1) return undefined
+  return rows.map((row) => (
+    <div
+      key={row.id}
+      className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
+    >
+      <span className="truncate">{row.name}</span>
+      <span className="tabular-nums flex-shrink-0">{row.percent}%</span>
+    </div>
+  ))
+}
 
 export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaLibraryProps) {
   const { t } = useTranslation()
@@ -446,6 +466,10 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
     interpolationItemRows,
     interpolationEtaLabel,
     isDownloadingInterpolationModel,
+    upscalingCount,
+    upscalingAvgProgress,
+    upscaleItemRows,
+    upscaleEtaLabel,
     transcribingCount,
     transcribingAvgProgress,
     singleTranscriptionStageLabel,
@@ -502,6 +526,14 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
     for (const [mediaId, status] of useMediaLibraryStore.getState().interpolationStatus.entries()) {
       if (status === 'generating') {
         frameInterpolationService.cancel(mediaId)
+      }
+    }
+  }
+
+  const handleCancelAllUpscales = () => {
+    for (const [mediaId, status] of useMediaLibraryStore.getState().upscaleStatus.entries()) {
+      if (status === 'generating') {
+        upscaleService.cancel(mediaId)
       }
     }
   }
@@ -1370,19 +1402,7 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
           progressAriaLabel={t('media.library.proxyGenerationProgress')}
           progressPercent={generatingAvgProgress * 100}
           detailsToggleAriaLabel={t('media.library.perItemProgress')}
-          details={
-            proxyItemRows.length > 1
-              ? proxyItemRows.map((row) => (
-                  <div
-                    key={row.id}
-                    className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
-                  >
-                    <span className="truncate">{row.name}</span>
-                    <span className="tabular-nums flex-shrink-0">{row.percent}%</span>
-                  </div>
-                ))
-              : undefined
-          }
+          details={renderTaskDetailRows(proxyItemRows)}
           meta={
             <>
               <span className="tabular-nums">{Math.round(generatingAvgProgress * 100)}%</span>
@@ -1410,19 +1430,7 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
           progressAriaLabel={t('media.library.interpolationProgress')}
           progressPercent={interpolatingAvgProgress * 100}
           detailsToggleAriaLabel={t('media.library.perItemProgress')}
-          details={
-            interpolationItemRows.length > 1
-              ? interpolationItemRows.map((row) => (
-                  <div
-                    key={row.id}
-                    className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
-                  >
-                    <span className="truncate">{row.name}</span>
-                    <span className="tabular-nums flex-shrink-0">{row.percent}%</span>
-                  </div>
-                ))
-              : undefined
-          }
+          details={renderTaskDetailRows(interpolationItemRows)}
           meta={
             <>
               <span className="tabular-nums">{Math.round(interpolatingAvgProgress * 100)}%</span>
@@ -1439,6 +1447,33 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
             </>
           }
           fillClassName="bg-sky-500"
+        />
+      )}
+
+      {upscalingCount > 0 && (
+        <BackgroundTaskProgress
+          icon={<Loader2 className="w-3.5 h-3.5 text-violet-500 animate-spin flex-shrink-0" />}
+          label={t('media.library.upscalingVideo', { count: upscalingCount })}
+          progressAriaLabel={t('media.library.upscaleProgress')}
+          progressPercent={upscalingAvgProgress * 100}
+          detailsToggleAriaLabel={t('media.library.perItemProgress')}
+          details={renderTaskDetailRows(upscaleItemRows)}
+          meta={
+            <>
+              <span className="tabular-nums">{Math.round(upscalingAvgProgress * 100)}%</span>
+              {upscaleEtaLabel && (
+                <span className="text-muted-foreground tabular-nums">{upscaleEtaLabel}</span>
+              )}
+              <button
+                type="button"
+                onClick={handleCancelAllUpscales}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {t('media.library.cancelAll')}
+              </button>
+            </>
+          }
+          fillClassName="bg-violet-500"
         />
       )}
 

@@ -23,6 +23,7 @@ import {
   FileText,
   Sparkles,
   Wind,
+  Maximize2,
   X,
 } from 'lucide-react'
 import {
@@ -53,6 +54,8 @@ import {
   SUPPORTED_INTERPOLATION_FACTORS,
   type InterpolationFactor,
 } from '@/infrastructure/interpolation'
+import { upscaleService } from '../services/upscale-service'
+import { UPSCALE_VARIANTS, type UpscaleVariant } from '@/infrastructure/upscale'
 import { mediaTranscriptionService } from '../services/media-transcription-service'
 import {
   cancelMediaTranscriptionJob,
@@ -100,6 +103,10 @@ interface MediaCardActionMenuProps {
   isInterpolating: boolean
   onInterpolate: (factor: InterpolationFactor) => void
   onCancelInterpolation: () => void
+  canUpscale: boolean
+  isUpscaling: boolean
+  onUpscale: (variant: UpscaleVariant) => void
+  onCancelUpscale: () => void
   isTranscribable: boolean
   isTranscribing: boolean
   hasTranscript: boolean
@@ -135,6 +142,12 @@ type InterpolationActionsProps = MediaCardMenuGroupProps & {
   isInterpolating: boolean
   onInterpolate: (factor: InterpolationFactor) => void
   onCancelInterpolation: () => void
+}
+
+type UpscaleActionsProps = MediaCardMenuGroupProps & {
+  isUpscaling: boolean
+  onUpscale: (variant: UpscaleVariant) => void
+  onCancelUpscale: () => void
 }
 
 type TranscriptActionsProps = MediaCardMenuGroupProps & {
@@ -295,6 +308,7 @@ function resolveMenuVisibility(props: MediaCardActionMenuProps) {
     ...resolveTranscriptGroupVisibility(props),
     showBrokenGroup: props.isBroken && Boolean(props.onRelink),
     showInterpolationGroup: props.canInterpolate && !props.isBroken,
+    showUpscaleGroup: props.canUpscale && !props.isBroken,
     showEmbeddedSubtitleGroup: props.canExtractEmbeddedSubtitles && !props.isBroken,
     showAiGroup: props.isTaggable && !props.isBroken && !props.isTagging,
   }
@@ -307,6 +321,9 @@ function MediaCardActionMenuItems(props: MediaCardActionMenuProps) {
     isInterpolating,
     onInterpolate,
     onCancelInterpolation,
+    isUpscaling,
+    onUpscale,
+    onCancelUpscale,
     hasTranscript,
     isExtractingEmbeddedSubtitles,
     onGenerateProxy,
@@ -326,6 +343,7 @@ function MediaCardActionMenuItems(props: MediaCardActionMenuProps) {
     showTranscriptGroup,
     showBrokenGroup,
     showInterpolationGroup,
+    showUpscaleGroup,
     showEmbeddedSubtitleGroup,
     showAiGroup,
   } = resolveMenuVisibility(props)
@@ -357,6 +375,18 @@ function MediaCardActionMenuItems(props: MediaCardActionMenuProps) {
         isInterpolating={isInterpolating}
         onInterpolate={onInterpolate}
         onCancelInterpolation={onCancelInterpolation}
+      />,
+    )
+  }
+
+  if (showUpscaleGroup) {
+    groups.push(
+      <UpscaleActions
+        key="upscale"
+        t={t}
+        isUpscaling={isUpscaling}
+        onUpscale={onUpscale}
+        onCancelUpscale={onCancelUpscale}
       />,
     )
   }
@@ -463,6 +493,51 @@ function InterpolationActions({
                 }}
               >
                 {t('media.card.interpolateFactor', { factor })}
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      )}
+    </>
+  )
+}
+
+/**
+ * Upscaling renders a NEW library item at twice the width and height — it is not a proxy and it
+ * does not modify this clip. The variants share an architecture and a cost; they differ only in
+ * the footage they were trained on.
+ */
+function UpscaleActions({ t, isUpscaling, onUpscale, onCancelUpscale }: UpscaleActionsProps) {
+  return (
+    <>
+      <ContextMenuLabel>{t('media.card.menuUpscale')}</ContextMenuLabel>
+      {isUpscaling ? (
+        <ContextMenuItem
+          onClick={(event) => {
+            event.stopPropagation()
+            onCancelUpscale()
+          }}
+          className="text-destructive focus:text-destructive"
+        >
+          <X className="w-3 h-3 mr-2" />
+          {t('media.card.cancelUpscale')}
+        </ContextMenuItem>
+      ) : (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <Maximize2 className="w-3 h-3 mr-2" />
+            {t('media.card.upscaleVideo')}
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            {UPSCALE_VARIANTS.map((variant) => (
+              <ContextMenuItem
+                key={variant}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onUpscale(variant)
+                }}
+              >
+                {t(`media.card.upscaleVariant.${variant}`)}
               </ContextMenuItem>
             ))}
           </ContextMenuSubContent>
@@ -619,6 +694,7 @@ const MediaCardInternal = memo(function MediaCardInternal({
   const isInterpolating = useMediaLibraryStore(
     (s) => s.interpolationStatus.get(media.id) === 'generating',
   )
+  const isUpscaling = useMediaLibraryStore((s) => s.upscaleStatus.get(media.id) === 'generating')
   const transcriptStatus = useMediaLibraryStore((s) => s.transcriptStatus.get(media.id) ?? 'idle')
   const transcriptProgress = useMediaLibraryStore((s) => s.transcriptProgress.get(media.id))
 
@@ -635,6 +711,13 @@ const MediaCardInternal = memo(function MediaCardInternal({
     !isBroken &&
     !isPreparingMedia &&
     frameInterpolationService.canInterpolate(media.mimeType)
+  // Hidden rather than disabled when the 2x output would be too large for any encoder to take:
+  // there is nothing the user could do about it from this menu.
+  const canUpscaleMedia =
+    mediaType === 'video' &&
+    !isBroken &&
+    !isPreparingMedia &&
+    upscaleService.canUpscaleMedia(media.mimeType, media.width, media.height)
   const hasTranscript = transcriptStatus === 'ready'
   const isTranscribing = transcriptStatus === 'transcribing' || transcriptStatus === 'queued'
   const isTagging = useMediaLibraryStore((s) => s.taggingMediaIds.has(media.id))
@@ -768,6 +851,46 @@ const MediaCardInternal = memo(function MediaCardInternal({
   const handleCancelInterpolation = useCallback(() => {
     for (const item of getTargetMediaItems()) {
       frameInterpolationService.cancel(item.id)
+    }
+  }, [getTargetMediaItems])
+
+  const handleUpscale = useCallback(
+    (variant: UpscaleVariant) => {
+      const store = useMediaLibraryStore.getState()
+      const projectId = store.currentProjectId
+      if (!projectId) return
+
+      const targets = getTargetMediaItems().filter(
+        (m) =>
+          upscaleService.canUpscaleMedia(m.mimeType, m.width, m.height) &&
+          !upscaleService.isGenerating(m.id),
+      )
+      for (const item of targets) {
+        upscaleService.generate({
+          mediaId: item.id,
+          projectId,
+          fileName: item.fileName,
+          variant,
+          source:
+            item.storageType === 'opfs' && item.opfsPath
+              ? { kind: 'opfs', path: item.opfsPath, mimeType: item.mimeType }
+              : async () => {
+                  const { mediaLibraryService } = await importMediaLibraryService()
+                  return mediaLibraryService.getMediaFile(item.id)
+                },
+          sourceWidth: item.width,
+          sourceHeight: item.height,
+          // Only a hint for the progress bar; the worker measures the true rate itself.
+          sourceFps: item.fps,
+        })
+      }
+    },
+    [getTargetMediaItems],
+  )
+
+  const handleCancelUpscale = useCallback(() => {
+    for (const item of getTargetMediaItems()) {
+      upscaleService.cancel(item.id)
     }
   }, [getTargetMediaItems])
 
@@ -1420,6 +1543,10 @@ const MediaCardInternal = memo(function MediaCardInternal({
       isInterpolating={isInterpolating}
       onInterpolate={handleInterpolate}
       onCancelInterpolation={handleCancelInterpolation}
+      canUpscale={canUpscaleMedia}
+      isUpscaling={isUpscaling}
+      onUpscale={handleUpscale}
+      onCancelUpscale={handleCancelUpscale}
       isTranscribable={isTranscribable}
       isTranscribing={isTranscribing}
       hasTranscript={hasTranscript}
