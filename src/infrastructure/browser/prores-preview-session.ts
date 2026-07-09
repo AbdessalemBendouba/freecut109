@@ -127,7 +127,11 @@ export function createProResPreviewSession(
     const sample = currentSample
     if (!sample) return false
     if (sample.timestamp > time + TIMESTAMP_EPSILON) return false
-    if (typeof sample.duration !== 'number' || !Number.isFinite(sample.duration) || sample.duration <= 0) {
+    if (
+      typeof sample.duration !== 'number' ||
+      !Number.isFinite(sample.duration) ||
+      sample.duration <= 0
+    ) {
       return true
     }
     return sample.timestamp + sample.duration >= time - TIMESTAMP_EPSILON
@@ -168,7 +172,10 @@ export function createProResPreviewSession(
     ) {
       // Backward seek past the current frame — restart the forward stream at the new time.
       resetIterator(target)
-    } else if (lastRequestedTime !== null && target - lastRequestedTime > FORWARD_JUMP_RESTART_SECONDS) {
+    } else if (
+      lastRequestedTime !== null &&
+      target - lastRequestedTime > FORWARD_JUMP_RESTART_SECONDS
+    ) {
       resetIterator(target)
     }
 

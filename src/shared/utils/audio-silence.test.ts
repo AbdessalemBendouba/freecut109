@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { detectSilentRanges } from './audio-silence'
 
 function makeBuffer(samples: number[], sampleRate = 1000) {

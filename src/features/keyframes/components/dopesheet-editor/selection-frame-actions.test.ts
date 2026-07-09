@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it, vi } from 'vite-plus/test'
 import type { Transition } from '@/types/transition'
 import {

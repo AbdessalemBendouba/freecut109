@@ -86,9 +86,7 @@ function KeyframeConnectors({ segments }: { segments: ConnectorSegment[] }) {
       key={segment.key}
       className={cn(
         'pointer-events-none absolute z-0 -translate-y-1/2',
-        segment.held
-          ? 'border-t border-dashed border-neutral-500/50'
-          : 'h-px bg-neutral-400/50',
+        segment.held ? 'border-t border-dashed border-neutral-500/50' : 'h-px bg-neutral-400/50',
       )}
       style={{ left: segment.left, width: segment.width, top: '50%' }}
     />
@@ -223,14 +221,10 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
 
       {onSegmentEasingChange &&
         segmentSpans.map((span) => {
-          const editable = span.from.keyframes.filter(
-            ({ property }) => !isPropertyLocked(property),
-          )
+          const editable = span.from.keyframes.filter(({ property }) => !isPropertyLocked(property))
           if (editable.length === 0) return null
           const first = editable[0]!
-          const mixed = editable.some(
-            ({ keyframe }) => keyframe.easing !== first.keyframe.easing,
-          )
+          const mixed = editable.some(({ keyframe }) => keyframe.easing !== first.keyframe.easing)
           const refs: KeyframeRef[] = editable.map(({ property, keyframe }) => ({
             itemId,
             property,
@@ -399,7 +393,9 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
     keyframes.flatMap((keyframe) => {
       const x = xForKeyframe(keyframe)
       if (x === null) return []
-      return [{ id: keyframe.id, frame: displayedFrame(keyframe), x, held: keyframe.easing === 'hold' }]
+      return [
+        { id: keyframe.id, frame: displayedFrame(keyframe), x, held: keyframe.easing === 'hold' },
+      ]
     }),
   )
 

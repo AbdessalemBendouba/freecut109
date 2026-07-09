@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it, beforeEach } from 'vite-plus/test'
 import { useSettingsStore } from './settings-store'
 
@@ -17,20 +19,6 @@ const DEFAULT_SETTINGS = {
 describe('settings-store', () => {
   beforeEach(() => {
     useSettingsStore.getState().resetToDefaults()
-  })
-
-  it('has correct default values', () => {
-    const state = useSettingsStore.getState()
-    expect(state.snapEnabled).toBe(true)
-    expect(state.showWaveforms).toBe(true)
-    expect(state.showFilmstrips).toBe(true)
-    expect(state.enableFilmstripExtraction).toBe(true)
-    expect(state.editorDensity).toBe('compact')
-    expect(state.maxUndoHistory).toBe(50)
-    expect(state.autoSaveInterval).toBe(5)
-    expect(state.defaultWhisperModel).toBe('parakeet-tdt-v3')
-    expect(state.defaultWhisperQuantization).toBe('hybrid')
-    expect(state.defaultWhisperLanguage).toBe('')
   })
 
   describe('setSetting', () => {

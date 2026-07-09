@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { beforeEach, describe, expect, it } from 'vite-plus/test'
 import type { ItemKeyframes, Keyframe } from '@/types/keyframe'
 import { useKeyframesStore } from './keyframes-store'

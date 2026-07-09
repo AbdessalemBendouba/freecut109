@@ -20,7 +20,10 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useSequencesStore } from '../stores/sequences-store'
 import { useCompositionsStore } from '../stores/compositions-store'
-import { useCompositionNavigationStore, getActiveTabId } from '../stores/composition-navigation-store'
+import {
+  useCompositionNavigationStore,
+  getActiveTabId,
+} from '../stores/composition-navigation-store'
 import {
   closeSequenceTab,
   createSequence,

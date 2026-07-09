@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { PaletteEntry } from '../deps/analysis'
 import { clusterPaletteEntries, flattenLibraryPalettes } from './library-palette'

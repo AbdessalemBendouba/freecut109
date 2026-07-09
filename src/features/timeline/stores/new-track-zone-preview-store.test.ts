@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { beforeEach, describe, expect, it } from 'vite-plus/test'
 
 import { useNewTrackZonePreviewStore } from './new-track-zone-preview-store'

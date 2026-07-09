@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { createGpuRenderPipelineMocks } from '@/infrastructure/gpu-test-helpers'
 import { MediaBlendPipeline } from './media-blend-pipeline'

@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import type { TimelineItem } from '@/types/timeline'
 import { useItemsStore } from '@/features/timeline/stores/items-store'
 import { useTimelineSettingsStore } from '@/features/timeline/stores/timeline-settings-store'

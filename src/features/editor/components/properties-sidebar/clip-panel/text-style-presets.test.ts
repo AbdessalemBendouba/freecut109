@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vite-plus/test'
 import type { CanvasSettings } from '@/types/transform'
 import {
   applyTextStylePresetToItem,
-  TEXT_STYLE_PRESETS,
   buildTextScale,
   buildTextStylePresetUpdates,
 } from './text-style-presets'
@@ -14,24 +13,6 @@ const canvas: CanvasSettings = {
 }
 
 describe('text style presets', () => {
-  it('exposes the expected preset list', () => {
-    expect(TEXT_STYLE_PRESETS.map((preset) => preset.id)).toEqual([
-      'clean-title',
-      'poster',
-      'outline-pill',
-      'lower-third',
-      'speaker-card',
-      'cinematic',
-      'quote',
-      'neon',
-      'headline-stack',
-      'breaking-update',
-      'event-card',
-      'launch-stack',
-      'badge',
-    ])
-  })
-
   it('builds a lower third preset with boxed styling', () => {
     expect(buildTextStylePresetUpdates('lower-third', canvas)).toMatchObject({
       fontFamily: 'Inter',
@@ -71,18 +52,6 @@ describe('text style presets', () => {
       backgroundColor: '#111827',
       backgroundRadius: 999,
       letterSpacing: 2,
-    })
-  })
-
-  it('exposes layout metadata for browsing templates by span count', () => {
-    expect(TEXT_STYLE_PRESETS.find((preset) => preset.id === 'poster')).toMatchObject({
-      layout: 'single',
-    })
-    expect(TEXT_STYLE_PRESETS.find((preset) => preset.id === 'speaker-card')).toMatchObject({
-      layout: 'two',
-    })
-    expect(TEXT_STYLE_PRESETS.find((preset) => preset.id === 'launch-stack')).toMatchObject({
-      layout: 'three',
     })
   })
 

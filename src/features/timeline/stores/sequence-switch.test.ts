@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
 import {
   makeTimelineTrack as makeTrack,
@@ -8,10 +10,7 @@ import {
 import { useItemsStore } from './items-store'
 import { useCompositionsStore } from './compositions-store'
 import { useSequencesStore } from './sequences-store'
-import {
-  useCompositionNavigationStore,
-  getActiveTabId,
-} from './composition-navigation-store'
+import { useCompositionNavigationStore, getActiveTabId } from './composition-navigation-store'
 import { getActiveCompositionId } from './composition-navigation-active'
 
 function seedSequence(id: string, itemId: string): void {

@@ -248,7 +248,9 @@ export function SegmentEasingPopover({
     const name = rawName.trim()
     if (!name) {
       toast.error(
-        t('timeline.keyframeEditor.presetNameRequired', { defaultValue: 'Preset name is required' }),
+        t('timeline.keyframeEditor.presetNameRequired', {
+          defaultValue: 'Preset name is required',
+        }),
       )
       return
     }
@@ -345,216 +347,220 @@ export function SegmentEasingPopover({
           <div style={{ width: PANEL_WIDTH }}>
             {/* Header: current selection + Edit / back toggle. */}
             <div className="flex h-9 items-center justify-between border-b border-border/60 px-3">
-          {editing ? (
-            <div className="flex min-w-0 items-center gap-1.5 text-xs">
-              <button
-                type="button"
-                className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-foreground"
-                onClick={() => setEditing(false)}
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-                {t('timeline.keyframeEditor.presets', { defaultValue: 'Presets' })}
-              </button>
-              {!mixed && <span className="truncate text-muted-foreground/70">— {editingName}</span>}
+              {editing ? (
+                <div className="flex min-w-0 items-center gap-1.5 text-xs">
+                  <button
+                    type="button"
+                    className="flex shrink-0 items-center gap-1 text-muted-foreground hover:text-foreground"
+                    onClick={() => setEditing(false)}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                    {t('timeline.keyframeEditor.presets', { defaultValue: 'Presets' })}
+                  </button>
+                  {!mixed && (
+                    <span className="truncate text-muted-foreground/70">— {editingName}</span>
+                  )}
+                </div>
+              ) : (
+                <span className="truncate text-xs font-medium text-foreground">
+                  {mixed
+                    ? t('timeline.keyframeEditor.mixedCurves')
+                    : (activePresetName ??
+                      (isHold
+                        ? t('timeline.keyframeEditor.easing.hold')
+                        : t('timeline.keyframeEditor.custom')))}
+                </span>
+              )}
+              {!editing && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 gap-1 px-1.5 text-[11px]"
+                  onClick={() => setEditing(true)}
+                >
+                  <SlidersHorizontal className="h-3 w-3" />
+                  {t('timeline.keyframeEditor.edit', { defaultValue: 'Edit' })}
+                </Button>
+              )}
             </div>
-          ) : (
-            <span className="truncate text-xs font-medium text-foreground">
-              {mixed
-                ? t('timeline.keyframeEditor.mixedCurves')
-                : (activePresetName ??
-                  (isHold
-                    ? t('timeline.keyframeEditor.easing.hold')
-                    : t('timeline.keyframeEditor.custom')))}
-            </span>
-          )}
-          {!editing && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-6 gap-1 px-1.5 text-[11px]"
-              onClick={() => setEditing(true)}
-            >
-              <SlidersHorizontal className="h-3 w-3" />
-              {t('timeline.keyframeEditor.edit', { defaultValue: 'Edit' })}
-            </Button>
-          )}
-        </div>
 
-        {editing ? (
-          <div className="p-3">
-            <EasingCurveEditor
-              easing={easing}
-              config={easingConfig}
-              onChangeBezier={applyBezier}
-              onChangeSpring={applySpring}
-              onDragStart={onDragStart}
-              onDragEnd={onDragEnd}
-            />
-            <div className="mt-3 flex items-center justify-between gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={!canReset}
-                onClick={handleReset}
-                className="h-6 gap-1 px-1.5 text-[11px]"
-              >
-                <RotateCcw className="h-3 w-3" />
-                {t('timeline.keyframeEditor.reset', { defaultValue: 'Reset' })}
-              </Button>
-              {savingName === null ? (
-                <div className="flex items-center gap-1">
+            {editing ? (
+              <div className="p-3">
+                <EasingCurveEditor
+                  easing={easing}
+                  config={easingConfig}
+                  onChangeBezier={applyBezier}
+                  onChangeSpring={applySpring}
+                  onDragStart={onDragStart}
+                  onDragEnd={onDragEnd}
+                />
+                <div className="mt-3 flex items-center justify-between gap-2">
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    disabled={!canSave}
-                    onClick={() => setSavingName(newSuggestedName())}
+                    disabled={!canReset}
+                    onClick={handleReset}
                     className="h-6 gap-1 px-1.5 text-[11px]"
                   >
-                    <Plus className="h-3 w-3" />
-                    {t('timeline.keyframeEditor.saveAsPreset', { defaultValue: 'Save As' })}
+                    <RotateCcw className="h-3 w-3" />
+                    {t('timeline.keyframeEditor.reset', { defaultValue: 'Reset' })}
                   </Button>
-                  {activeCustomName && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={!canSave}
-                      onClick={() => persistPreset(activeCustomName)}
-                      className="h-6 gap-1 px-1.5 text-[11px]"
-                    >
-                      <Save className="h-3 w-3" />
-                      {t('timeline.keyframeEditor.updatePreset', { defaultValue: 'Update' })}
-                    </Button>
+                  {savingName === null ? (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={!canSave}
+                        onClick={() => setSavingName(newSuggestedName())}
+                        className="h-6 gap-1 px-1.5 text-[11px]"
+                      >
+                        <Plus className="h-3 w-3" />
+                        {t('timeline.keyframeEditor.saveAsPreset', { defaultValue: 'Save As' })}
+                      </Button>
+                      {activeCustomName && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          disabled={!canSave}
+                          onClick={() => persistPreset(activeCustomName)}
+                          className="h-6 gap-1 px-1.5 text-[11px]"
+                        >
+                          <Save className="h-3 w-3" />
+                          {t('timeline.keyframeEditor.updatePreset', { defaultValue: 'Update' })}
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <Input
+                        autoFocus
+                        value={savingName}
+                        onChange={(event) => setSavingName(event.target.value)}
+                        onKeyDown={(event) => {
+                          // Keep Enter/Escape inside the field so they don't reach
+                          // Radix (close popover) or the timeline key handlers.
+                          event.stopPropagation()
+                          if (event.key === 'Enter') {
+                            event.preventDefault()
+                            persistPreset(savingName)
+                          } else if (event.key === 'Escape') {
+                            setSavingName(null)
+                          }
+                        }}
+                        placeholder={t('timeline.keyframeEditor.presetName', {
+                          defaultValue: 'Preset name',
+                        })}
+                        className="h-6 w-28 px-1.5 text-[11px]"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => persistPreset(savingName)}
+                        className="h-6 px-2 text-[11px]"
+                      >
+                        {t('timeline.keyframeEditor.savePreset', { defaultValue: 'Save' })}
+                      </Button>
+                    </div>
                   )}
                 </div>
-              ) : (
-                <div className="flex items-center gap-1">
-                  <Input
-                    autoFocus
-                    value={savingName}
-                    onChange={(event) => setSavingName(event.target.value)}
-                    onKeyDown={(event) => {
-                      // Keep Enter/Escape inside the field so they don't reach
-                      // Radix (close popover) or the timeline key handlers.
-                      event.stopPropagation()
-                      if (event.key === 'Enter') {
-                        event.preventDefault()
-                        persistPreset(savingName)
-                      } else if (event.key === 'Escape') {
-                        setSavingName(null)
-                      }
-                    }}
-                    placeholder={t('timeline.keyframeEditor.presetName', {
-                      defaultValue: 'Preset name',
-                    })}
-                    className="h-6 w-28 px-1.5 text-[11px]"
-                  />
-                  <Button
-                    type="button"
-                    size="sm"
-                    onClick={() => persistPreset(savingName)}
-                    className="h-6 px-2 text-[11px]"
-                  >
-                    {t('timeline.keyframeEditor.savePreset', { defaultValue: 'Save' })}
-                  </Button>
-                </div>
-              )}
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Filter bar: type (Cubic Easing / Spring) + direction. */}
-            <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-1.5">
-              <div className="flex items-center gap-3 text-xs">
-                {(['Easing', 'Spring'] as const).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => setPresetType(type)}
-                    className={cn(
-                      'transition-colors',
-                      presetType === type
-                        ? 'font-medium text-foreground'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {type === 'Easing'
-                      ? t('timeline.keyframeEditor.cubicEasing', { defaultValue: 'Cubic Easing' })
-                      : t('timeline.keyframeEditor.spring')}
-                  </button>
-                ))}
               </div>
-              {presetType === 'Easing' && (
-                <div className="flex items-center gap-2 text-[11px]">
-                  {DIRECTION_FILTERS.map((filter) => (
-                    <button
-                      key={filter.value}
-                      type="button"
-                      onClick={() => setDirection(filter.value)}
-                      className={cn(
-                        'transition-colors',
-                        direction === filter.value
-                          ? 'text-foreground'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {t(filter.labelKey, { defaultValue: filter.defaultValue })}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="max-h-[300px] overflow-y-auto p-2">
-              {myPresets.length > 0 && (
-                <div className="mb-2">
-                  <div className="px-1 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-                    {t('timeline.keyframeEditor.customPresets', { defaultValue: 'Custom' })}
+            ) : (
+              <>
+                {/* Filter bar: type (Cubic Easing / Spring) + direction. */}
+                <div className="flex items-center justify-between gap-2 border-b border-border/60 px-3 py-1.5">
+                  <div className="flex items-center gap-3 text-xs">
+                    {(['Easing', 'Spring'] as const).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setPresetType(type)}
+                        className={cn(
+                          'transition-colors',
+                          presetType === type
+                            ? 'font-medium text-foreground'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {type === 'Easing'
+                          ? t('timeline.keyframeEditor.cubicEasing', {
+                              defaultValue: 'Cubic Easing',
+                            })
+                          : t('timeline.keyframeEditor.spring')}
+                      </button>
+                    ))}
                   </div>
-                  <div className="grid grid-cols-4 gap-1">
-                    {myPresets.map((preset) => (
+                  {presetType === 'Easing' && (
+                    <div className="flex items-center gap-2 text-[11px]">
+                      {DIRECTION_FILTERS.map((filter) => (
+                        <button
+                          key={filter.value}
+                          type="button"
+                          onClick={() => setDirection(filter.value)}
+                          className={cn(
+                            'transition-colors',
+                            direction === filter.value
+                              ? 'text-foreground'
+                              : 'text-muted-foreground hover:text-foreground',
+                          )}
+                        >
+                          {t(filter.labelKey, { defaultValue: filter.defaultValue })}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="max-h-[300px] overflow-y-auto p-2">
+                  {myPresets.length > 0 && (
+                    <div className="mb-2">
+                      <div className="px-1 pb-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {t('timeline.keyframeEditor.customPresets', { defaultValue: 'Custom' })}
+                      </div>
+                      <div className="grid grid-cols-4 gap-1">
+                        {myPresets.map((preset) => (
+                          <PresetChip
+                            key={preset.name}
+                            label={preset.name}
+                            active={preset.name === activePresetName}
+                            onClick={() => applyPreset(preset)}
+                            thumb={<PresetThumb preset={preset} />}
+                            onDelete={() => deleteCustomPreset(preset.name)}
+                            deleteLabel={t('timeline.keyframeEditor.deletePreset', {
+                              defaultValue: 'Delete preset',
+                            })}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {presetType === 'Easing' && (
+                    <div className="grid grid-cols-4 gap-1">
+                      <PresetChip
+                        label={t('timeline.keyframeEditor.easing.hold')}
+                        active={isHold}
+                        onClick={setHold}
+                        thumb={<HoldThumb />}
+                      />
+                    </div>
+                  )}
+                  <div className="mt-1 grid grid-cols-4 gap-1">
+                    {filteredPresets.map((preset) => (
                       <PresetChip
                         key={preset.name}
                         label={preset.name}
                         active={preset.name === activePresetName}
                         onClick={() => applyPreset(preset)}
                         thumb={<PresetThumb preset={preset} />}
-                        onDelete={() => deleteCustomPreset(preset.name)}
-                        deleteLabel={t('timeline.keyframeEditor.deletePreset', {
-                          defaultValue: 'Delete preset',
-                        })}
                       />
                     ))}
                   </div>
                 </div>
-              )}
-              {presetType === 'Easing' && (
-                <div className="grid grid-cols-4 gap-1">
-                  <PresetChip
-                    label={t('timeline.keyframeEditor.easing.hold')}
-                    active={isHold}
-                    onClick={setHold}
-                    thumb={<HoldThumb />}
-                  />
-                </div>
-              )}
-              <div className="mt-1 grid grid-cols-4 gap-1">
-                {filteredPresets.map((preset) => (
-                  <PresetChip
-                    key={preset.name}
-                    label={preset.name}
-                    active={preset.name === activePresetName}
-                    onClick={() => applyPreset(preset)}
-                    thumb={<PresetThumb preset={preset} />}
-                  />
-                ))}
-              </div>
-            </div>
-          </>
-        )}
+              </>
+            )}
           </div>
         </ResizePanel>
       </PopoverContent>

@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { SizedAccessedMemoryCache } from './sized-accessed-memory-cache'
 
 interface Entry {

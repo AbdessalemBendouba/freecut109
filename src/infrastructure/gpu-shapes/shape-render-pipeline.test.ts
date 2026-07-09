@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { createGpuRenderPipelineMocks } from '@/infrastructure/gpu-test-helpers'
 import { MAX_GPU_SHAPE_PATH_VERTICES, ShapeRenderPipeline } from './shape-render-pipeline'

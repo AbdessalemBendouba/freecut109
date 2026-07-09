@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { TimelineTrack } from '@/types/timeline'
 import { getVisibleTrackIds, resolveEffectiveTrackStates } from './group-utils'

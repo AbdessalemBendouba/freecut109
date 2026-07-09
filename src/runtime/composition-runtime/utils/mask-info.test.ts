@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { MaskInfo } from '../components/item'
 import { EMPTY_MASK_INFOS, materializeMaskInfos, reuseStableMaskInfos } from './mask-info'

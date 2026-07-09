@@ -319,8 +319,7 @@ function paintTextBlockWithMotion(
       // can't rotate in the GPU path, so drop rotation here too for parity.
       const representative = lineUnits?.find((unit) => unit !== null) ?? null
       const state = evaluate(representative, line.fontSize)
-      const underlineMotion =
-        state && state.rotation !== 0 ? { ...state, rotation: 0 } : state
+      const underlineMotion = state && state.rotation !== 0 ? { ...state, rotation: 0 } : state
       if (!underlineMotion || underlineMotion.alpha > 0) {
         ctx.save()
         if (underlineMotion) {
@@ -403,7 +402,16 @@ export function renderTextItem(
       ctx.rect(itemLeft, itemTop, transform.width, transform.height)
       ctx.clip()
     }
-    paintTextBlockWithMotion(ctx, item, transform.width, transform.height, itemLeft, itemTop, rctx, motion)
+    paintTextBlockWithMotion(
+      ctx,
+      item,
+      transform.width,
+      transform.height,
+      itemLeft,
+      itemTop,
+      rctx,
+      motion,
+    )
     ctx.restore()
     return
   }

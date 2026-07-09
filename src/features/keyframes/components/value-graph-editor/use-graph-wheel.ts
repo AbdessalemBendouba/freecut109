@@ -93,8 +93,7 @@ export function useGraphWheel({
       }
 
       // Shift / trackpad horizontal swipe → pan the time axis.
-      const horizontalDelta =
-        event.deltaX !== 0 ? event.deltaX : event.shiftKey ? event.deltaY : 0
+      const horizontalDelta = event.deltaX !== 0 ? event.deltaX : event.shiftKey ? event.deltaY : 0
       if (horizontalDelta !== 0) {
         const deltaFrames = Math.round((horizontalDelta / Math.max(1, graphWidth)) * frameRange)
         onViewportChangeRef.current?.(

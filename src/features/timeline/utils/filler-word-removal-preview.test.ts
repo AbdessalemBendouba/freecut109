@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import type { MediaTranscript } from '@/types/storage'
 import {
   detectFillerRangesFromTranscript,

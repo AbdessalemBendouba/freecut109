@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { beforeEach, describe, expect, it } from 'vite-plus/test'
 import { buildEffectAnimatableProperty } from '@/types/keyframe'
 import type { Keyframe } from '@/types/keyframe'

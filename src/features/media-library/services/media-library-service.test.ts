@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 const indexedDbMocks = vi.hoisted(() => ({
@@ -307,9 +309,14 @@ describe('MediaLibraryService', () => {
       expect(result.fileName).toBe('video.mp4')
       // Durable source goes to the workspace folder, NOT OPFS.
       expect(opfsMocks.saveFile).not.toHaveBeenCalled()
-      expect(indexedDbMocks.writeMediaSource).toHaveBeenCalledWith(result.id, mockFile, 'video.mp4', {
-        strict: true,
-      })
+      expect(indexedDbMocks.writeMediaSource).toHaveBeenCalledWith(
+        result.id,
+        mockFile,
+        'video.mp4',
+        {
+          strict: true,
+        },
+      )
       expect(indexedDbMocks.createMedia).toHaveBeenCalledWith(
         expect.objectContaining({
           id: result.id,

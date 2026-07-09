@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
 import type { CompositionItem } from '@/types/timeline'
 import {
@@ -149,7 +151,10 @@ describe('sequence as a true navigation root', () => {
     useSequencesStore.getState().addTopLevelSequence('seq-a')
     useItemsStore
       .getState()
-      .setItems([makeVideoItem({ id: 'main-clip', trackId: 'track-v1' }), compItem('main-cc', 'cc', 60)])
+      .setItems([
+        makeVideoItem({ id: 'main-clip', trackId: 'track-v1' }),
+        compItem('main-cc', 'cc', 60),
+      ])
 
     const nav = useCompositionNavigationStore.getState()
     nav.switchToSequence('seq-a')

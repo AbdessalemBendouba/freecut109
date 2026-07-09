@@ -81,7 +81,9 @@ export const MiniTimelineIoLane = memo(function MiniTimelineIoLane({
         (clientX) => {
           const rect = lane.getBoundingClientRect()
           if (rect.width <= 0) return
-          const frameDelta = Math.round(((clientX - startClientX) / rect.width) * maxFrameRef.current)
+          const frameDelta = Math.round(
+            ((clientX - startClientX) / rect.width) * maxFrameRef.current,
+          )
           const maxIn = Math.max(0, maxFrameRef.current - span)
           const nextIn = Math.max(0, Math.min(startIn + frameDelta, maxIn))
           const label = `${formatTimecodeCompact(nextIn, fpsRef.current)} → ${formatTimecodeCompact(nextIn + span, fpsRef.current)}`

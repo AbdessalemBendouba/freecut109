@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { ProjectTimeline } from '@/types/project'
 import type { BundleProject } from '../types/bundle'

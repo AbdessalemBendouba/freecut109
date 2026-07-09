@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, it, expect } from 'vite-plus/test'
 import type { TimelineItem } from '@/types/timeline'
 import type { SmartTrimIntent, SmartBodyIntent } from '../../utils/smart-trim-zones'

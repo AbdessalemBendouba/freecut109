@@ -1,8 +1,5 @@
 import { getGpuEffect } from '@/infrastructure/gpu-effects'
-import {
-  MAX_PACKED_RGB,
-  MIN_PACKED_RGB,
-} from '@/features/keyframes/utils/color-keyframes'
+import { MAX_PACKED_RGB, MIN_PACKED_RGB } from '@/features/keyframes/utils/color-keyframes'
 import {
   isBuiltInAnimatableProperty,
   parseEffectAnimatableProperty,

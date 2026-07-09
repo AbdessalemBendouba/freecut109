@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { SubtitleSegmentItem, TimelineTrack, VideoItem } from '@/types/timeline'
 import { convertTimelineToComposition } from './timeline-to-composition'

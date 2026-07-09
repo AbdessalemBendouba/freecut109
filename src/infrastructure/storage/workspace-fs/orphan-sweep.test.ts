@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
 import { MemDir } from './__tests__/in-memory-handle'
 import { setWorkspaceRoot } from './root'

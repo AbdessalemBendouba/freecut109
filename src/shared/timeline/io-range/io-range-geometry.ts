@@ -33,7 +33,9 @@ export function computeIoGripWidth(spanPx: number | null, nominal = IO_HANDLE_WI
  * first-frame zero-width flash a post-paint effect would show. Pass an optional
  * `ref` to also receive the node for imperative reads (e.g. `getBoundingClientRect`).
  */
-export function useMeasuredWidth<T extends HTMLElement>(ref?: RefObject<T | null>): {
+export function useMeasuredWidth<T extends HTMLElement>(
+  ref?: RefObject<T | null>,
+): {
   width: number
   measureRef: (node: T | null) => void
 } {

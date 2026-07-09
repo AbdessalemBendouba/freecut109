@@ -57,7 +57,13 @@ export function useGraphViewState({
   const [autoZoomGraphHeight, setAutoZoomGraphHeight] = useState(true)
   const [graphVerticalZoomValue, setGraphVerticalZoomValue] = useState(0)
   const [graphVisibleProperties, setGraphVisibleProperties] = useState<Set<AnimatableProperty>>(
-    () => loadGraphVisibleProperties(itemId, availableProperties, selectedProperty, graphableProperties),
+    () =>
+      loadGraphVisibleProperties(
+        itemId,
+        availableProperties,
+        selectedProperty,
+        graphableProperties,
+      ),
   )
 
   // Keep the visible-curve set in sync as the clip or its keyframed properties
@@ -86,7 +92,9 @@ export function useGraphViewState({
     // property, so availability never changes when a preset animates one.
     const prevGraphable = prevGraphableRef.current
     prevGraphableRef.current = graphableProperties
-    const newlyGraphable = graphableProperties.filter((property) => !prevGraphable.includes(property))
+    const newlyGraphable = graphableProperties.filter(
+      (property) => !prevGraphable.includes(property),
+    )
 
     setGraphVisibleProperties((prev) => {
       const available = new Set(availableProperties)

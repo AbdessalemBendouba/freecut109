@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, it, expect, vi } from 'vite-plus/test'
 
 describe('pipelined frame loop', () => {

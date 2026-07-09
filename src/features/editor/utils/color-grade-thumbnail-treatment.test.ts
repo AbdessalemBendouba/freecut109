@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vitest'
 import type { ItemEffect } from '@/types/effects'
 import { resolveColorGradeThumbnailTreatment } from './color-grade-thumbnail-treatment'

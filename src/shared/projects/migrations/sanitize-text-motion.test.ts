@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { Project, ProjectTimeline } from '@/types/project'
 import type { TextMotionSpec } from '@/types/text-motion'
@@ -189,10 +191,7 @@ function createProjectAtVersion(schemaVersion: number, timeline: ProjectTimeline
   }
 }
 
-function textItemWith(
-  id: string,
-  textMotion: unknown,
-): ProjectTimeline['items'][number] {
+function textItemWith(id: string, textMotion: unknown): ProjectTimeline['items'][number] {
   return {
     id,
     trackId: 'track-1',

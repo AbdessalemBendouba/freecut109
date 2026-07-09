@@ -517,7 +517,11 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       ) ?? []
     if (modifiers.length === 0) return undefined
     return {
-      base: resolveTransform(selectedItemForEditor, canvas, getSourceDimensions(selectedItemForEditor)),
+      base: resolveTransform(
+        selectedItemForEditor,
+        canvas,
+        getSourceDimensions(selectedItemForEditor),
+      ),
       modifiers,
       frameWidth: canvas.width,
       frameHeight: canvas.height,

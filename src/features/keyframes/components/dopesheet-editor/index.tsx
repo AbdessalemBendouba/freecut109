@@ -2211,7 +2211,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               className={cn(
                 'h-[18px] border-border/70 bg-background/85 px-1 py-0 text-right text-[9px] leading-none tabular-nums md:text-[9px]',
                 '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none',
-                isColorAnimatableProperty(row.property) ? 'w-[68px]' : spacious ? 'w-[64px]' : 'w-[44px]',
+                isColorAnimatableProperty(row.property)
+                  ? 'w-[68px]'
+                  : spacious
+                    ? 'w-[64px]'
+                    : 'w-[44px]',
               )}
               disabled={
                 disabled ||

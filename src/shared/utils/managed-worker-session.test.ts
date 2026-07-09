@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { createManagedWorkerSession } from './managed-worker-session'
 

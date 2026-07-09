@@ -526,8 +526,13 @@ export function ExportDialog({ open, onClose, onOpenRenderQueue }: ExportDialogP
   }
 
   // The active render range for a sequence (whole timeline unless in/out set).
-  const queueRange = (seq: ExportableSequence): { inPoint: number | null; outPoint: number | null } =>
-    renderWholeProject || seq.inPoint === null || seq.outPoint === null || seq.outPoint <= seq.inPoint
+  const queueRange = (
+    seq: ExportableSequence,
+  ): { inPoint: number | null; outPoint: number | null } =>
+    renderWholeProject ||
+    seq.inPoint === null ||
+    seq.outPoint === null ||
+    seq.outPoint <= seq.inPoint
       ? { inPoint: null, outPoint: null }
       : { inPoint: seq.inPoint, outPoint: seq.outPoint }
 

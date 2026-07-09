@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import { deltaE2000, deltaE76, rgbToLab } from './lab-color'
 

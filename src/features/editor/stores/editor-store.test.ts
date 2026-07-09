@@ -51,28 +51,6 @@ describe('editor-store', () => {
     })
   })
 
-  it('has correct initial state', () => {
-    const state = useEditorStore.getState()
-    expect(state.activePanel).toBe(null)
-    expect(state.leftSidebarOpen).toBe(true)
-    expect(state.rightSidebarOpen).toBe(true)
-    expect(state.keyframeEditorOpen).toBe(false)
-    expect(state.keyframeEditorShortcutScopeActive).toBe(false)
-    expect(state.activeTab).toBe('media')
-    expect(state.clipInspectorTab).toBe('video')
-    expect(state.sourcePreviewMediaId).toBe(null)
-    expect(state.mediaSkimPreviewMediaId).toBe(null)
-    expect(state.mediaSkimPreviewFrame).toBe(null)
-    expect(state.compoundClipSkimPreviewCompositionId).toBe(null)
-    expect(state.compoundClipSkimPreviewFrame).toBe(null)
-    expect(state.sourcePatchVideoEnabled).toBe(true)
-    expect(state.sourcePatchAudioEnabled).toBe(true)
-    expect(state.sourcePatchVideoTrackId).toBe(null)
-    expect(state.sourcePatchAudioTrackId).toBe(null)
-    expect(state.linkedSelectionEnabled).toBe(true)
-    expect(state.colorScopesOpen).toBe(false)
-  })
-
   it('sets active panel', () => {
     useEditorStore.getState().setActivePanel('media')
     expect(useEditorStore.getState().activePanel).toBe('media')

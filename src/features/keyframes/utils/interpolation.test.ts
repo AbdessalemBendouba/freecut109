@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { Keyframe } from '@/types/keyframe'
 import { applyEasingConfig } from './easing'

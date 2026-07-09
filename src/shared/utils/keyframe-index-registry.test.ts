@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { afterEach, describe, expect, it } from 'vite-plus/test'
 import {
   clearKeyframeIndex,

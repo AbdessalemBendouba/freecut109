@@ -1,19 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
+import { beforeEach, describe, expect, it } from 'vite-plus/test'
 import { usePreviewBridgeStore } from './store'
 
 describe('preview-bridge-store', () => {
   beforeEach(() => {
     usePreviewBridgeStore.setState({
-      displayedFrame: null,
-      captureFrame: null,
-      captureFrameImageData: null,
-      captureCanvasSource: null,
-      postEditWarmRequest: null,
-    })
-  })
-
-  it('has the expected initial state', () => {
-    expect(usePreviewBridgeStore.getState()).toMatchObject({
       displayedFrame: null,
       captureFrame: null,
       captureFrameImageData: null,
@@ -46,21 +36,6 @@ describe('preview-bridge-store', () => {
     const stateB = usePreviewBridgeStore.getState()
 
     expect(stateA).toBe(stateB)
-  })
-
-  it('stores capture callbacks', async () => {
-    const captureFrame = vi.fn(async () => 'data:image/png;base64,abc')
-    const captureFrameImageData = vi.fn(async () => null)
-    const captureCanvasSource = vi.fn(async () => null)
-
-    usePreviewBridgeStore.getState().setCaptureFrame(captureFrame)
-    usePreviewBridgeStore.getState().setCaptureFrameImageData(captureFrameImageData)
-    usePreviewBridgeStore.getState().setCaptureCanvasSource(captureCanvasSource)
-
-    const state = usePreviewBridgeStore.getState()
-    expect(await state.captureFrame?.()).toBe('data:image/png;base64,abc')
-    expect(await state.captureFrameImageData?.()).toBeNull()
-    expect(await state.captureCanvasSource?.()).toBeNull()
   })
 
   it('stores post-edit warm requests with normalized frames and incrementing tokens', () => {

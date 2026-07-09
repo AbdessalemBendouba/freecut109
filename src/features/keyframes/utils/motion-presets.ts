@@ -230,7 +230,6 @@ function buildEmphasis(
   return frames(0, mid, len)
 }
 
-
 export const MOTION_PRESETS: MotionPreset[] = [
   // --- Entrance ---
   {

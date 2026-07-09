@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import {
   LOCAL_MODEL_CACHE_DEFINITIONS,

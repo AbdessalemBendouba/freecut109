@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vitest'
 import type { ResolvedTransform } from '@/types/transform'
 import { applyMotionGeneratorSettings } from './motion-generator'
@@ -29,12 +31,11 @@ function ctx(overrides: Partial<MotionPresetBuildContext> = {}): MotionPresetBui
 describe('motion generator settings', () => {
   it('scales generated values around the resting transform', () => {
     const preset = MOTION_PRESETS_BY_ID['slide-in-left']
-    const payloads = applyMotionGeneratorSettings(
-      preset,
-      preset.build(ctx()),
-      ctx(),
-      { durationScale: 1, intensityScale: 0.5, staggerFrames: 0 },
-    )
+    const payloads = applyMotionGeneratorSettings(preset, preset.build(ctx()), ctx(), {
+      durationScale: 1,
+      intensityScale: 0.5,
+      staggerFrames: 0,
+    })
 
     const xStart = payloads.find((payload) => payload.property === 'x' && payload.frame === 0)
     expect(xStart?.value).toBeGreaterThan(100 - 600)
@@ -43,24 +44,22 @@ describe('motion generator settings', () => {
 
   it('retimes entrance motion from the start of the clip', () => {
     const preset = MOTION_PRESETS_BY_ID['fade-in']
-    const payloads = applyMotionGeneratorSettings(
-      preset,
-      preset.build(ctx()),
-      ctx(),
-      { durationScale: 2, intensityScale: 1, staggerFrames: 0 },
-    )
+    const payloads = applyMotionGeneratorSettings(preset, preset.build(ctx()), ctx(), {
+      durationScale: 2,
+      intensityScale: 1,
+      staggerFrames: 0,
+    })
 
     expect(payloads.at(-1)?.frame).toBe(30)
   })
 
   it('retimes exit motion toward the end of the clip', () => {
     const preset = MOTION_PRESETS_BY_ID['fade-out']
-    const payloads = applyMotionGeneratorSettings(
-      preset,
-      preset.build(ctx()),
-      ctx(),
-      { durationScale: 2, intensityScale: 1, staggerFrames: 0 },
-    )
+    const payloads = applyMotionGeneratorSettings(preset, preset.build(ctx()), ctx(), {
+      durationScale: 2,
+      intensityScale: 1,
+      staggerFrames: 0,
+    })
 
     expect(payloads[0]?.frame).toBe(59)
     expect(payloads.at(-1)?.frame).toBe(89)

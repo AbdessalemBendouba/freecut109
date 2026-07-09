@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { beforeEach, describe, expect, it } from 'vite-plus/test'
 import type { AudioItem, CompositionItem, VideoItem } from '@/types/timeline'
 import {

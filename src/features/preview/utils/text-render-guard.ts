@@ -34,7 +34,8 @@ function hasVisibleMotionText(track: TimelineTrack): boolean {
     // Motion-text clips animate per-glyph and can only render correctly via
     // the canvas/GPU preview path — the Player can't reproduce it, so never
     // prefer the Player while one is visible.
-    const hasMotion = !!item.textMotion && !!(item.textMotion.in || item.textMotion.out || item.textMotion.loop)
+    const hasMotion =
+      !!item.textMotion && !!(item.textMotion.in || item.textMotion.out || item.textMotion.loop)
     if (hasMotion) return true
   }
 

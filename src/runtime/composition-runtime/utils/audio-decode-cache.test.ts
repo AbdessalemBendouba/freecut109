@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 const decodedPreviewAudioMocks = vi.hoisted(() => ({

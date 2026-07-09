@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, it, expect } from 'vite-plus/test'
 import { computeHistogram, chiSquaredDistance } from './histogram-scene-detection'
 

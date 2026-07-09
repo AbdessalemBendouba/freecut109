@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import { MAX_SPEED, timelineToSourceFrames } from '../utils/source-calculations'
 import {

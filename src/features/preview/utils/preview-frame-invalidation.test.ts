@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import { collectVisualInvalidationRanges } from './preview-frame-invalidation'
 import type { CompositionInputProps } from '@/types/export'

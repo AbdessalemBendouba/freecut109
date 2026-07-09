@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vite-plus/test'
 import type { ItemKeyframes } from '@/types/keyframe'
 import type { AdjustmentItem, AudioItem, VideoItem } from '@/types/timeline'

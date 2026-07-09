@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
 import {
   makeTimelineVideoItem as makeVideoItem,
@@ -12,7 +14,10 @@ function recordChange(itemId: string): void {
   useTimelineCommandStore.getState().execute({ type: 'TEST_ADD' }, () => {
     useItemsStore
       .getState()
-      .setItems([...useItemsStore.getState().items, makeVideoItem({ id: itemId, trackId: 'track-v1' })])
+      .setItems([
+        ...useItemsStore.getState().items,
+        makeVideoItem({ id: itemId, trackId: 'track-v1' }),
+      ])
   })
 }
 

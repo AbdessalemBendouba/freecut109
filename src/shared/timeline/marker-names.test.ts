@@ -1,3 +1,5 @@
+// @vitest-environment node
+
 import { describe, it, expect } from 'vitest'
 import type { ProjectMarker } from '@/types/timeline'
 import { getMarkerOrdinals, resolveMarkerNames } from './marker-names'

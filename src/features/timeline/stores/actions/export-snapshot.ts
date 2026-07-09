@@ -85,11 +85,16 @@ export function getExportableSequence(sequenceId: string | null): ExportableSequ
   // Markers + in/out are per-sequence timeline data now, swapped like clips: the
   // live markers store holds the active tab's; the rest live in mainHolder (Main
   // held aside) or the composition registry.
-  const range = (held: {
-    markers?: ProjectMarker[]
-    inPoint?: number | null
-    outPoint?: number | null
-  } | null | undefined) =>
+  const range = (
+    held:
+      | {
+          markers?: ProjectMarker[]
+          inPoint?: number | null
+          outPoint?: number | null
+        }
+      | null
+      | undefined,
+  ) =>
     isActiveTab
       ? {
           markers: markersState.markers,
