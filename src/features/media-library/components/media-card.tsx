@@ -22,6 +22,8 @@ import {
   Zap,
   FileText,
   Sparkles,
+  Wind,
+  X,
 } from 'lucide-react'
 import {
   ContextMenu,
@@ -29,6 +31,9 @@ import {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import type { MediaMetadata } from '@/types/storage'
@@ -43,6 +48,11 @@ import { useMediaPreparationStore } from '../stores/media-preparation-store'
 import { CARD_GRID_BASE, CARD_LIST_BASE, CARD_PERF_STYLE } from './card-styles'
 import { setMediaDragData, clearMediaDragData } from '../utils/drag-data-cache'
 import { proxyService } from '../services/proxy-service'
+import { frameInterpolationService } from '../services/frame-interpolation-service'
+import {
+  SUPPORTED_INTERPOLATION_FACTORS,
+  type InterpolationFactor,
+} from '@/infrastructure/interpolation'
 import { mediaTranscriptionService } from '../services/media-transcription-service'
 import {
   cancelMediaTranscriptionJob,
@@ -86,6 +96,10 @@ interface MediaCardActionMenuProps {
   canGenerateProxy: boolean
   hasProxy: boolean
   proxyStatus?: 'generating' | 'ready' | 'error'
+  canInterpolate: boolean
+  isInterpolating: boolean
+  onInterpolate: (factor: InterpolationFactor) => void
+  onCancelInterpolation: () => void
   isTranscribable: boolean
   isTranscribing: boolean
   hasTranscript: boolean
@@ -115,6 +129,12 @@ type ProxyActionsProps = MediaCardMenuGroupProps & {
   hasProxy: boolean
   onGenerateProxy: (event: React.MouseEvent) => void | Promise<void>
   onDeleteProxy: (event: React.MouseEvent) => Promise<void>
+}
+
+type InterpolationActionsProps = MediaCardMenuGroupProps & {
+  isInterpolating: boolean
+  onInterpolate: (factor: InterpolationFactor) => void
+  onCancelInterpolation: () => void
 }
 
 type TranscriptActionsProps = MediaCardMenuGroupProps & {
@@ -244,39 +264,75 @@ function getSubtitleExtractionErrorMessage(error: unknown, media: MediaMetadata)
   return error instanceof Error ? error.message : i18n.t('media.card.subtitlesExtractFailed')
 }
 
-function MediaCardActionMenuItems({
-  isBroken,
-  onRelink,
-  canGenerateProxy,
-  hasProxy,
-  proxyStatus,
-  isTranscribable,
-  isTranscribing,
-  hasTranscript,
-  canExtractEmbeddedSubtitles,
-  isExtractingEmbeddedSubtitles,
-  isTaggable,
-  isTagging,
-  onGenerateProxy,
-  onDeleteProxy,
-  onGenerateTranscript,
-  onDeleteTranscript,
-  onExtractEmbeddedSubtitles,
-  onAnalyzeWithAI,
-  onDelete,
-}: MediaCardActionMenuProps) {
+function resolveProxyGroupVisibility(props: MediaCardActionMenuProps) {
+  const canShowGenerateProxy =
+    props.canGenerateProxy && !props.hasProxy && props.proxyStatus !== 'generating'
+  return {
+    canShowGenerateProxy,
+    showProxyGroup: !props.isBroken && (canShowGenerateProxy || props.hasProxy),
+  }
+}
+
+function resolveTranscriptGroupVisibility(props: MediaCardActionMenuProps) {
+  const canShowGenerateTranscript =
+    props.isTranscribable && !props.isBroken && !props.isTranscribing
+  const canShowDeleteTranscript =
+    props.isTranscribable && !props.isBroken && props.hasTranscript && !props.isTranscribing
+  return {
+    canShowGenerateTranscript,
+    canShowDeleteTranscript,
+    showTranscriptGroup: canShowGenerateTranscript || canShowDeleteTranscript,
+  }
+}
+
+/**
+ * Which context-menu groups this media item gets. Kept out of the component so the render
+ * body stays a flat list of `if (show) push(...)` rather than a thicket of boolean chains.
+ */
+function resolveMenuVisibility(props: MediaCardActionMenuProps) {
+  return {
+    ...resolveProxyGroupVisibility(props),
+    ...resolveTranscriptGroupVisibility(props),
+    showBrokenGroup: props.isBroken && Boolean(props.onRelink),
+    showInterpolationGroup: props.canInterpolate && !props.isBroken,
+    showEmbeddedSubtitleGroup: props.canExtractEmbeddedSubtitles && !props.isBroken,
+    showAiGroup: props.isTaggable && !props.isBroken && !props.isTagging,
+  }
+}
+
+function MediaCardActionMenuItems(props: MediaCardActionMenuProps) {
+  const {
+    onRelink,
+    hasProxy,
+    isInterpolating,
+    onInterpolate,
+    onCancelInterpolation,
+    hasTranscript,
+    isExtractingEmbeddedSubtitles,
+    onGenerateProxy,
+    onDeleteProxy,
+    onGenerateTranscript,
+    onDeleteTranscript,
+    onExtractEmbeddedSubtitles,
+    onAnalyzeWithAI,
+    onDelete,
+  } = props
   const { t } = useTranslation()
-  const canShowGenerateProxy = canGenerateProxy && !hasProxy && proxyStatus !== 'generating'
-  const showProxyGroup = !isBroken && (canShowGenerateProxy || hasProxy)
-  const canShowGenerateTranscript = isTranscribable && !isBroken && !isTranscribing
-  const canShowDeleteTranscript = isTranscribable && !isBroken && hasTranscript && !isTranscribing
-  const showTranscriptGroup = canShowGenerateTranscript || canShowDeleteTranscript
-  const showEmbeddedSubtitleGroup = canExtractEmbeddedSubtitles && !isBroken
-  const showAiGroup = isTaggable && !isBroken && !isTagging
+  const {
+    canShowGenerateProxy,
+    showProxyGroup,
+    canShowGenerateTranscript,
+    canShowDeleteTranscript,
+    showTranscriptGroup,
+    showBrokenGroup,
+    showInterpolationGroup,
+    showEmbeddedSubtitleGroup,
+    showAiGroup,
+  } = resolveMenuVisibility(props)
 
   const groups: ReactNode[] = []
 
-  if (isBroken && onRelink) {
+  if (showBrokenGroup && onRelink) {
     groups.push(<BrokenMediaActions key="broken" t={t} onRelink={onRelink} />)
   }
 
@@ -289,6 +345,18 @@ function MediaCardActionMenuItems({
         hasProxy={hasProxy}
         onGenerateProxy={onGenerateProxy}
         onDeleteProxy={onDeleteProxy}
+      />,
+    )
+  }
+
+  if (showInterpolationGroup) {
+    groups.push(
+      <InterpolationActions
+        key="interpolation"
+        t={t}
+        isInterpolating={isInterpolating}
+        onInterpolate={onInterpolate}
+        onCancelInterpolation={onCancelInterpolation}
       />,
     )
   }
@@ -350,6 +418,56 @@ function BrokenMediaActions({ t, onRelink }: BrokenMediaActionsProps) {
         <RefreshCw className="w-3 h-3 mr-2" />
         {t('media.card.relinkFile')}
       </ContextMenuItem>
+    </>
+  )
+}
+
+/**
+ * Frame interpolation renders a NEW library item at `factor`x the frame rate — it is not a
+ * proxy and it does not modify this clip. Slowing the result gives true slow motion; playing
+ * it at 1x gives high-frame-rate motion.
+ */
+function InterpolationActions({
+  t,
+  isInterpolating,
+  onInterpolate,
+  onCancelInterpolation,
+}: InterpolationActionsProps) {
+  return (
+    <>
+      <ContextMenuLabel>{t('media.card.menuInterpolation')}</ContextMenuLabel>
+      {isInterpolating ? (
+        <ContextMenuItem
+          onClick={(event) => {
+            event.stopPropagation()
+            onCancelInterpolation()
+          }}
+          className="text-destructive focus:text-destructive"
+        >
+          <X className="w-3 h-3 mr-2" />
+          {t('media.card.cancelInterpolation')}
+        </ContextMenuItem>
+      ) : (
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <Wind className="w-3 h-3 mr-2" />
+            {t('media.card.interpolateFrames')}
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent>
+            {SUPPORTED_INTERPOLATION_FACTORS.map((factor) => (
+              <ContextMenuItem
+                key={factor}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onInterpolate(factor)
+                }}
+              >
+                {t('media.card.interpolateFactor', { factor })}
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+      )}
     </>
   )
 }
@@ -498,6 +616,9 @@ const MediaCardInternal = memo(function MediaCardInternal({
   const preparingLabel = t('media.card.preparing')
 
   const proxyStatus = useMediaLibraryStore((s) => s.proxyStatus.get(media.id))
+  const isInterpolating = useMediaLibraryStore(
+    (s) => s.interpolationStatus.get(media.id) === 'generating',
+  )
   const transcriptStatus = useMediaLibraryStore((s) => s.transcriptStatus.get(media.id) ?? 'idle')
   const transcriptProgress = useMediaLibraryStore((s) => s.transcriptProgress.get(media.id))
 
@@ -509,6 +630,11 @@ const MediaCardInternal = memo(function MediaCardInternal({
     !isPreparingMedia &&
     proxyService.canGenerateProxy(media.mimeType)
   const hasProxy = proxyStatus === 'ready'
+  const canInterpolate =
+    mediaType === 'video' &&
+    !isBroken &&
+    !isPreparingMedia &&
+    frameInterpolationService.canInterpolate(media.mimeType)
   const hasTranscript = transcriptStatus === 'ready'
   const isTranscribing = transcriptStatus === 'transcribing' || transcriptStatus === 'queued'
   const isTagging = useMediaLibraryStore((s) => s.taggingMediaIds.has(media.id))
@@ -604,6 +730,46 @@ const MediaCardInternal = memo(function MediaCardInternal({
       }
     }
   }
+
+  const handleInterpolate = useCallback(
+    (factor: InterpolationFactor) => {
+      const store = useMediaLibraryStore.getState()
+      const projectId = store.currentProjectId
+      if (!projectId) return
+
+      const targets = getTargetMediaItems().filter(
+        (m) =>
+          frameInterpolationService.canInterpolate(m.mimeType) &&
+          !frameInterpolationService.isGenerating(m.id),
+      )
+      for (const item of targets) {
+        frameInterpolationService.generate({
+          mediaId: item.id,
+          projectId,
+          fileName: item.fileName,
+          factor,
+          source:
+            item.storageType === 'opfs' && item.opfsPath
+              ? { kind: 'opfs', path: item.opfsPath, mimeType: item.mimeType }
+              : async () => {
+                  const { mediaLibraryService } = await importMediaLibraryService()
+                  return mediaLibraryService.getMediaFile(item.id)
+                },
+          sourceWidth: item.width,
+          sourceHeight: item.height,
+          // Only a hint for the progress bar; the worker measures the true rate itself.
+          sourceFps: item.fps || 30,
+        })
+      }
+    },
+    [getTargetMediaItems],
+  )
+
+  const handleCancelInterpolation = useCallback(() => {
+    for (const item of getTargetMediaItems()) {
+      frameInterpolationService.cancel(item.id)
+    }
+  }, [getTargetMediaItems])
 
   const handleDeleteProxy = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -1250,6 +1416,10 @@ const MediaCardInternal = memo(function MediaCardInternal({
       canGenerateProxy={canGenerateProxy}
       hasProxy={hasProxy}
       proxyStatus={proxyStatus}
+      canInterpolate={canInterpolate}
+      isInterpolating={isInterpolating}
+      onInterpolate={handleInterpolate}
+      onCancelInterpolation={handleCancelInterpolation}
       isTranscribable={isTranscribable}
       isTranscribing={isTranscribing}
       hasTranscript={hasTranscript}

@@ -92,6 +92,7 @@ import {
 } from '@/features/media-library/deps/timeline-stores'
 import { useProjectStore } from '@/features/media-library/deps/projects'
 import { proxyService } from '../services/proxy-service'
+import { frameInterpolationService } from '../services/frame-interpolation-service'
 import { importMediaLibraryService } from '../services/media-library-service-loader'
 import { cancelMediaTranscriptionJob } from '../services/media-transcription-runner'
 import { importMediaAnalysisService } from '../services/media-analysis-service-loader'
@@ -440,6 +441,11 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
     generatingCount,
     generatingAvgProgress,
     proxyItemRows,
+    interpolatingCount,
+    interpolatingAvgProgress,
+    interpolationItemRows,
+    interpolationEtaLabel,
+    isDownloadingInterpolationModel,
     transcribingCount,
     transcribingAvgProgress,
     singleTranscriptionStageLabel,
@@ -489,6 +495,14 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
 
       const media = mediaById[mediaId]
       proxyService.cancelProxy(mediaId, media ? getSharedProxyKey(media) : undefined)
+    }
+  }
+
+  const handleCancelAllInterpolation = () => {
+    for (const [mediaId, status] of useMediaLibraryStore.getState().interpolationStatus.entries()) {
+      if (status === 'generating') {
+        frameInterpolationService.cancel(mediaId)
+      }
     }
   }
 
@@ -1382,6 +1396,49 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
             </>
           }
           fillClassName="bg-green-500"
+        />
+      )}
+
+      {interpolatingCount > 0 && (
+        <BackgroundTaskProgress
+          icon={<Loader2 className="w-3.5 h-3.5 text-sky-500 animate-spin flex-shrink-0" />}
+          label={
+            isDownloadingInterpolationModel
+              ? t('media.library.downloadingInterpolationModel')
+              : t('media.library.interpolatingFrames', { count: interpolatingCount })
+          }
+          progressAriaLabel={t('media.library.interpolationProgress')}
+          progressPercent={interpolatingAvgProgress * 100}
+          detailsToggleAriaLabel={t('media.library.perItemProgress')}
+          details={
+            interpolationItemRows.length > 1
+              ? interpolationItemRows.map((row) => (
+                  <div
+                    key={row.id}
+                    className="flex items-center justify-between gap-2 text-xs text-muted-foreground"
+                  >
+                    <span className="truncate">{row.name}</span>
+                    <span className="tabular-nums flex-shrink-0">{row.percent}%</span>
+                  </div>
+                ))
+              : undefined
+          }
+          meta={
+            <>
+              <span className="tabular-nums">{Math.round(interpolatingAvgProgress * 100)}%</span>
+              {interpolationEtaLabel && !isDownloadingInterpolationModel && (
+                <span className="text-muted-foreground tabular-nums">{interpolationEtaLabel}</span>
+              )}
+              <button
+                type="button"
+                onClick={handleCancelAllInterpolation}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {t('media.library.cancelAll')}
+              </button>
+            </>
+          }
+          fillClassName="bg-sky-500"
         />
       )}
 

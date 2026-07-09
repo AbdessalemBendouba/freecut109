@@ -12,6 +12,7 @@ import { loadMediaLibraryService } from './media-library-service-access'
 import { getMediaType } from '../utils/validation'
 import { createLogger, createOperationId } from '@/shared/logging/logger'
 import { proxyService } from '../services/proxy-service'
+import { frameInterpolationService } from '../services/frame-interpolation-service'
 import { getSharedProxyKey } from '../utils/proxy-key'
 import { createImportActions } from './media-import-actions'
 import { createDeleteActions } from './media-delete-actions'
@@ -138,6 +139,12 @@ const newStore: MediaLibraryStoreApi =
         proxyStatus: new Map(),
         proxyProgress: new Map(),
 
+        // RIFE frame interpolation
+        interpolationStatus: new Map(),
+        interpolationProgress: new Map(),
+        interpolationStage: new Map(),
+        interpolationEtaSeconds: new Map(),
+
         // Transcript generation
         transcriptStatus: new Map(),
         transcriptProgress: new Map(),
@@ -163,6 +170,10 @@ const newStore: MediaLibraryStoreApi =
             isLoading: !!projectId, // Set loading if switching to a project
             proxyStatus: new Map(),
             proxyProgress: new Map(),
+            interpolationStatus: new Map(),
+            interpolationProgress: new Map(),
+            interpolationStage: new Map(),
+            interpolationEtaSeconds: new Map(),
             transcriptStatus: new Map(),
             transcriptProgress: new Map(),
             taggingMediaIds: new Set(),
@@ -421,6 +432,51 @@ const newStore: MediaLibraryStoreApi =
           })
         },
 
+        // RIFE frame interpolation
+        setInterpolationStatus: (mediaId: string, status: 'generating' | 'ready' | 'error') => {
+          set((state) => {
+            const interpolationStatus = new Map(state.interpolationStatus)
+            interpolationStatus.set(mediaId, status)
+            return { interpolationStatus }
+          })
+        },
+
+        clearInterpolationStatus: (mediaId: string) => {
+          set((state) => {
+            const interpolationStatus = new Map(state.interpolationStatus)
+            interpolationStatus.delete(mediaId)
+            const interpolationProgress = new Map(state.interpolationProgress)
+            interpolationProgress.delete(mediaId)
+            const interpolationStage = new Map(state.interpolationStage)
+            interpolationStage.delete(mediaId)
+            const interpolationEtaSeconds = new Map(state.interpolationEtaSeconds)
+            interpolationEtaSeconds.delete(mediaId)
+            return {
+              interpolationStatus,
+              interpolationProgress,
+              interpolationStage,
+              interpolationEtaSeconds,
+            }
+          })
+        },
+
+        setInterpolationProgress: (mediaId: string, progress: number, stage, etaSeconds) => {
+          set((state) => {
+            const interpolationProgress = new Map(state.interpolationProgress)
+            interpolationProgress.set(mediaId, progress)
+            const interpolationStage = new Map(state.interpolationStage)
+            interpolationStage.set(mediaId, stage)
+
+            const interpolationEtaSeconds = new Map(state.interpolationEtaSeconds)
+            // A null ETA means "still warming up"; keep the last good value rather than
+            // flickering the label away.
+            if (typeof etaSeconds === 'number') {
+              interpolationEtaSeconds.set(mediaId, etaSeconds)
+            }
+            return { interpolationProgress, interpolationStage, interpolationEtaSeconds }
+          })
+        },
+
         setTranscriptStatus: (mediaId, status) => {
           set((state) => {
             const transcriptStatus = new Map(state.transcriptStatus)
@@ -563,6 +619,24 @@ if (!hotStore) {
     if (progress !== undefined) {
       store.setProxyProgress(mediaId, progress)
     }
+  })
+
+  // Frame interpolation reports against the SOURCE media id; the rendered result arrives as a
+  // brand-new library item via onMediaCreated.
+  frameInterpolationService.onStatusChange((mediaId, status, progress, stage, etaSeconds) => {
+    const store = useMediaLibraryStore.getState()
+    if (status === 'idle' || status === 'ready') {
+      store.clearInterpolationStatus(mediaId)
+      return
+    }
+    store.setInterpolationStatus(mediaId, status)
+    if (progress !== undefined && stage) {
+      store.setInterpolationProgress(mediaId, progress, stage, etaSeconds)
+    }
+  })
+
+  frameInterpolationService.onMediaCreated((media) => {
+    useMediaLibraryStore.getState().prependMediaItem(media)
   })
 
   proxyService.setMediaResolver((mediaId) => useMediaLibraryStore.getState().mediaById[mediaId])
