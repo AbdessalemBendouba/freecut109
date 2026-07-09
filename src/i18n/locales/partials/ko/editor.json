@@ -2,8 +2,7 @@
   "editor": {
     "miniTimeline": {
       "inPoint": "인 포인트",
-      "outPoint": "아웃 포인트",
-      "markerAtFrame": "프레임 {{frame}}의 마커"
+      "outPoint": "아웃 포인트"
     },
     "animateTimeline": {
       "label": "애니메이트 타임라인",
@@ -112,6 +111,9 @@
     },
     "localInferencePill": {
       "loading": "로컬 AI 로딩 중",
+      "downloading": "로컬 AI 다운로드 중",
+      "loadingCache": "로컬 AI 캐시에서 로딩 중",
+      "preparing": "로컬 AI 준비 중",
       "active": "로컬 AI 활성",
       "error": "로컬 AI 오류",
       "ready": "로컬 AI 준비됨",
@@ -227,7 +229,6 @@
       "frame": "프레임",
       "time": "시간",
       "label": "레이블",
-      "labelPlaceholder": "레이블 입력...",
       "color": "색상",
       "deleteMarker": "마커 삭제"
     },
@@ -236,7 +237,6 @@
       "empty": "마커 없음",
       "emptyHint": "M 키를 눌러 재생 헤드에 마커 추가",
       "clearAll": "모두 지우기",
-      "untitled": "마커",
       "remove": "마커 제거"
     },
     "canvasPanel": {

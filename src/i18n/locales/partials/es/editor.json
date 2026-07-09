@@ -2,8 +2,7 @@
   "editor": {
     "miniTimeline": {
       "inPoint": "Punto de entrada",
-      "outPoint": "Punto de salida",
-      "markerAtFrame": "Marcador en el fotograma {{frame}}"
+      "outPoint": "Punto de salida"
     },
     "animateTimeline": {
       "label": "Línea de tiempo de animación",
@@ -112,6 +111,9 @@
     },
     "localInferencePill": {
       "loading": "IA local cargando",
+      "downloading": "IA local descargando",
+      "loadingCache": "IA local cargando desde caché",
+      "preparing": "IA local preparando",
       "active": "IA local activa",
       "error": "Error de IA local",
       "ready": "IA local lista",
@@ -227,7 +229,6 @@
       "frame": "Fotograma",
       "time": "Tiempo",
       "label": "Etiqueta",
-      "labelPlaceholder": "Introduce una etiqueta...",
       "color": "Color",
       "deleteMarker": "Eliminar marcador"
     },
@@ -236,7 +237,6 @@
       "empty": "Sin marcadores",
       "emptyHint": "Pulsa M para añadir un marcador en el cabezal",
       "clearAll": "Borrar todo",
-      "untitled": "Marcador",
       "remove": "Eliminar marcador"
     },
     "canvasPanel": {

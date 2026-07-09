@@ -6,6 +6,7 @@ import type {
   WhisperWorkerMessage,
 } from '../types'
 import { createLogger } from '@/shared/logging/logger'
+import { getChunkStartProgress, transcribingProgressEvent } from '../lib/chunk-progress'
 import {
   updateDownloadProgress,
   type DownloadProgressCache,
@@ -138,7 +139,7 @@ function enqueue(chunk: PCMChunk): void {
 }
 
 async function initPipeline(modelId: string, quantization: QuantizationType): Promise<void> {
-  postMain({ type: 'progress', event: { stage: 'loading', progress: 0 } })
+  postMain({ type: 'progress', event: { stage: 'downloading', progress: 0 } })
   reportedEstimatedBytes = 0
 
   try {
@@ -180,8 +181,10 @@ async function initPipeline(modelId: string, quantization: QuantizationType): Pr
         postMain({
           type: 'progress',
           event: {
-            stage: 'loading',
+            stage: 'downloading',
             progress: downloadProgress.fraction,
+            receivedBytes: downloadProgress.loaded,
+            totalBytes: downloadProgress.total,
           },
         })
       }
@@ -208,7 +211,9 @@ async function initPipeline(modelId: string, quantization: QuantizationType): Pr
         postMain({ type: 'runtime', info: { backend: 'wasm' } })
       }
 
-      postMain({ type: 'progress', event: { stage: 'loading', progress: 0.99 } })
+      // Weights are down; what remains is graph compile + the pre-warm inference below,
+      // neither of which reports progress.
+      postMain({ type: 'progress', event: { stage: 'preparing', progress: 0 } })
       try {
         await asrPipeline(new Float32Array(1_600), {
           sampling_rate: 16_000,
@@ -221,7 +226,7 @@ async function initPipeline(modelId: string, quantization: QuantizationType): Pr
     }
 
     pipelineReady = true
-    postMain({ type: 'progress', event: { stage: 'loading', progress: 1 } })
+    postMain({ type: 'progress', event: { stage: 'preparing', progress: 1 } })
     postMain({ type: 'ready' })
 
     if (queue.length > 0 && !processing) {
@@ -279,12 +284,16 @@ async function transcribeChunk(chunk: PCMChunk): Promise<void> {
 
   if (chunk.samples.length === 0) {
     if (chunk.final) {
+      postMain({ type: 'progress', event: { stage: 'transcribing', progress: 1 } })
       postMain({ type: 'done' })
     }
     return
   }
 
-  postMain({ type: 'progress', event: { stage: 'transcribing', progress: 0 } })
+  const startProgress = getChunkStartProgress(chunk)
+  if (startProgress !== null) {
+    postMain({ type: 'progress', event: { stage: 'transcribing', progress: startProgress } })
+  }
 
   const result = await asrPipeline(chunk.samples, {
     sampling_rate: 16_000,
@@ -352,7 +361,7 @@ async function transcribeChunk(chunk: PCMChunk): Promise<void> {
     })
   }
 
-  postMain({ type: 'progress', event: { stage: 'transcribing', progress: 1 } })
+  postMain({ type: 'progress', event: transcribingProgressEvent(chunk) })
 
   if (chunk.final) {
     postMain({ type: 'done' })

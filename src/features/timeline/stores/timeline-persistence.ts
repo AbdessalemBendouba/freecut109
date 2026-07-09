@@ -16,6 +16,7 @@ import {
   getAdjacentTrackOrder,
   getTrackKind,
 } from '../utils/classic-tracks'
+import { loadTrackHeightOverrides } from '../utils/track-heights'
 import { timelineToSourceFrames } from '../utils/source-calculations'
 import { useZoomStore } from './zoom-store'
 import { useItemsStore } from './items-store'
@@ -991,6 +992,11 @@ export async function saveTimeline(projectId: string): Promise<void> {
  * migrating from storage; it then runs media validation on top.
  */
 export async function hydrateTimelineStoresFromProject(project: Project): Promise<void> {
+  // Swap in this project's saved track heights before any setTracks call, since
+  // that is what resolves each track's height. Heights are a local view
+  // preference and never come out of the project file.
+  loadTrackHeightOverrides(project.id)
+
   if (project.timeline && project.timeline.tracks?.length > 0) {
     const t = project.timeline
 
@@ -1089,7 +1095,7 @@ export async function hydrateTimelineStoresFromProject(project: Project): Promis
     logger.debug('hydrateTimelineStoresFromProject: initializing new project with default track')
 
     // Initialize with default tracks for new projects
-    useItemsStore.getState().setTracks(createDefaultClassicTracks(DEFAULT_TRACK_HEIGHT))
+    useItemsStore.getState().setTracks(createDefaultClassicTracks())
     useItemsStore.getState().setItems([])
     useTransitionsStore.getState().setTransitions([])
     useKeyframesStore.getState().setKeyframes([])

@@ -1,5 +1,6 @@
 import type { MainThreadMessage, PCMChunk, TranscriptWord, WhisperWorkerMessage } from '../types'
 import { createLogger } from '@/shared/logging/logger'
+import { getChunkStartProgress, transcribingProgressEvent } from '../lib/chunk-progress'
 import { fetchOnnxModelBytes, fetchOnnxModelText } from '@/shared/utils/onnx-model-cache'
 
 // Parakeet TDT 0.6B v3 (NVIDIA, CC-BY-4.0) on-device ASR. Clean-room ORT-web pipeline
@@ -33,6 +34,17 @@ const DUPLICATE_WORD_START_TOLERANCE_SECONDS = 0.5
 const ESTIMATED_BYTES: Record<'webgpu' | 'wasm', number> = {
   webgpu: Math.round(1_270 * 1024 * 1024),
   wasm: Math.round(820 * 1024 * 1024),
+}
+
+// Approximate on-disk sizes, summing to ESTIMATED_BYTES. These only weight the aggregate
+// download bar so it advances evenly across files rather than restarting at each one; the
+// real content-length replaces the estimate the moment a transfer starts, so drift here
+// costs nothing beyond a slightly uneven first chunk.
+const APPROX_FILE_BYTES: Record<string, number> = {
+  [PREPROCESSOR]: Math.round(1 * 1024 * 1024),
+  [ENCODER_FP16]: Math.round(1_199 * 1024 * 1024),
+  [ENCODER_INT8]: Math.round(749 * 1024 * 1024),
+  [DECODER_INT8]: Math.round(70 * 1024 * 1024),
 }
 
 type OrtModule = typeof import('onnxruntime-web')
@@ -142,17 +154,58 @@ async function loadVocab(): Promise<NonNullable<typeof vocab>> {
   return { idToToken, vocabSize: idToToken.size, blankIdx }
 }
 
-async function createSession(
-  ort: OrtModule,
-  url: string,
-  backend: 'webgpu' | 'wasm',
-  onBytes?: (received: number, total: number) => void,
-): Promise<OrtSession> {
-  const bytes = await fetchOnnxModelBytes(url, onBytes)
-  return ort.InferenceSession.create(bytes, {
-    executionProviders: [backend],
-    graphOptimizationLevel: 'all',
-  })
+function sessionOptions(backend: 'webgpu' | 'wasm') {
+  return { executionProviders: [backend], graphOptimizationLevel: 'all' } as const
+}
+
+/**
+ * Aggregates byte progress across every model file so the bar tracks the whole transfer.
+ * Totals are seeded up front from `APPROX_FILE_BYTES`: were the denominator to grow as each
+ * transfer began, the fraction would lurch backward, and `mergeTranscriptionProgress` would
+ * discard those events as non-monotonic — freezing the bar for the rest of the download.
+ */
+class DownloadProgress {
+  private readonly totals = new Map<string, number>()
+  private readonly loaded = new Map<string, number>()
+  private sawNetwork = false
+
+  /** `restarted` marks a transfer opened after `preparing` began — see the fp16 fallback. */
+  constructor(
+    files: string[],
+    private readonly restarted = false,
+  ) {
+    for (const file of files) {
+      this.totals.set(file, APPROX_FILE_BYTES[file] ?? 0)
+      this.loaded.set(file, 0)
+    }
+  }
+
+  track(file: string): (received: number, total: number, fromCache: boolean) => void {
+    return (received, total, fromCache) => {
+      if (!fromCache) this.sawNetwork = true
+      if (total > 0) this.totals.set(file, total)
+      this.loaded.set(file, received)
+
+      let receivedBytes = 0
+      let totalBytes = 0
+      for (const [name, fileTotal] of this.totals) {
+        totalBytes += fileTotal
+        receivedBytes += this.loaded.get(name) ?? 0
+      }
+
+      postMain({
+        type: 'progress',
+        event: {
+          stage: 'downloading',
+          progress: totalBytes > 0 ? Math.min(receivedBytes / totalBytes, 1) : 0,
+          receivedBytes,
+          totalBytes,
+          fromCache: !this.sawNetwork,
+          ...(this.restarted && { restarted: true }),
+        },
+      })
+    }
+  }
 }
 
 async function initPipeline(): Promise<void> {
@@ -162,7 +215,7 @@ async function initPipeline(): Promise<void> {
       type: 'runtime',
       info: { backend: activeBackend, estimatedBytes: ESTIMATED_BYTES[activeBackend] },
     })
-    postMain({ type: 'progress', event: { stage: 'loading', progress: 1 } })
+    postMain({ type: 'progress', event: { stage: 'preparing', progress: 1 } })
     postMain({ type: 'ready' })
     if (queue.length > 0 && !processing && !paused) {
       void processNext()
@@ -170,33 +223,45 @@ async function initPipeline(): Promise<void> {
     return
   }
 
-  postMain({ type: 'progress', event: { stage: 'loading', progress: 0 } })
+  postMain({ type: 'progress', event: { stage: 'downloading', progress: 0 } })
 
   try {
     const ort = await getOrt()
     vocab = await loadVocab()
 
-    // Preprocessor + autoregressive joint always run on WASM (tiny graphs, no per-step
-    // GPU sync). The heavy encoder prefers WebGPU and falls back to the int8 WASM encoder.
-    preproc = await createSession(ort, `${HF_BASE}/${PREPROCESSOR}`, 'wasm')
-
-    let encoderBackend: 'webgpu' | 'wasm' = 'wasm'
+    // The heavy encoder prefers WebGPU (fp16) and falls back to the int8 WASM encoder.
     const webgpuAvailable =
       typeof navigator !== 'undefined' && 'gpu' in navigator && navigator.gpu != null
+    const encoderFile = webgpuAvailable ? ENCODER_FP16 : ENCODER_INT8
+
+    // Pass 1 — fetch every weight file under a single aggregate byte counter. Compiling each
+    // session as its bytes land would interleave `preparing` between downloads, and the
+    // monotonic merge would then drop every `downloading` event that followed.
+    const download = new DownloadProgress([PREPROCESSOR, encoderFile, DECODER_INT8])
+    const preprocBytes = await fetchOnnxModelBytes(
+      `${HF_BASE}/${PREPROCESSOR}`,
+      download.track(PREPROCESSOR),
+    )
+    const encoderBytes = await fetchOnnxModelBytes(
+      `${HF_BASE}/${encoderFile}`,
+      download.track(encoderFile),
+    )
+    const decoderBytes = await fetchOnnxModelBytes(
+      `${HF_BASE}/${DECODER_INT8}`,
+      download.track(DECODER_INT8),
+    )
+
+    // Pass 2 — compile. ORT reports no progress here and the fp16 encoder costs ~20 s on
+    // WebGPU, so the UI renders `preparing` as an indeterminate bar rather than a stalled one.
+    postMain({ type: 'progress', event: { stage: 'preparing', progress: 0 } })
+
+    // Preprocessor + autoregressive joint always run on WASM (tiny graphs, no per-step GPU sync).
+    preproc = await ort.InferenceSession.create(preprocBytes, sessionOptions('wasm'))
+
+    let encoderBackend: 'webgpu' | 'wasm' = 'wasm'
     if (webgpuAvailable) {
       try {
-        encoder = await createSession(
-          ort,
-          `${HF_BASE}/${ENCODER_FP16}`,
-          'webgpu',
-          (received, total) => {
-            // Encoder download dominates total bytes — drive the loading bar from it.
-            postMain({
-              type: 'progress',
-              event: { stage: 'loading', progress: total ? Math.min(received / total, 0.98) : 0 },
-            })
-          },
-        )
+        encoder = await ort.InferenceSession.create(encoderBytes, sessionOptions('webgpu'))
         encoderBackend = 'webgpu'
       } catch (error) {
         logger.warn(
@@ -205,22 +270,24 @@ async function initPipeline(): Promise<void> {
         encoder = null
       }
     }
-    if (!encoder) {
-      encoder = await createSession(
-        ort,
+    let fallbackBytes = encoderBytes
+    if (!encoder && webgpuAvailable) {
+      // Rare: WebGPU rejected the fp16 graph, so the int8 encoder must still be fetched. That
+      // is a real ~749 MB transfer, so hand the bar back to `downloading` with its own byte
+      // counter — parking on the indeterminate `preparing` would hide a multi-minute download.
+      const fallbackDownload = new DownloadProgress([ENCODER_INT8], true)
+      fallbackBytes = await fetchOnnxModelBytes(
         `${HF_BASE}/${ENCODER_INT8}`,
-        'wasm',
-        (received, total) => {
-          postMain({
-            type: 'progress',
-            event: { stage: 'loading', progress: total ? Math.min(received / total, 0.98) : 0 },
-          })
-        },
+        fallbackDownload.track(ENCODER_INT8),
       )
+      postMain({ type: 'progress', event: { stage: 'preparing', progress: 0 } })
+    }
+    if (!encoder) {
+      encoder = await ort.InferenceSession.create(fallbackBytes, sessionOptions('wasm'))
       encoderBackend = 'wasm'
     }
 
-    decoder = await createSession(ort, `${HF_BASE}/${DECODER_INT8}`, 'wasm')
+    decoder = await ort.InferenceSession.create(decoderBytes, sessionOptions('wasm'))
 
     activeBackend = encoderBackend
     postMain({
@@ -229,7 +296,7 @@ async function initPipeline(): Promise<void> {
     })
 
     pipelineReady = true
-    postMain({ type: 'progress', event: { stage: 'loading', progress: 1 } })
+    postMain({ type: 'progress', event: { stage: 'preparing', progress: 1 } })
     postMain({ type: 'ready' })
 
     if (queue.length > 0 && !processing && !paused) {
@@ -319,11 +386,17 @@ async function transcribeChunk(chunk: PCMChunk): Promise<void> {
   if (!preproc || !encoder || !decoder || !vocab) return
 
   if (chunk.samples.length === 0) {
-    if (chunk.final) postMain({ type: 'done' })
+    if (chunk.final) {
+      postMain({ type: 'progress', event: { stage: 'transcribing', progress: 1 } })
+      postMain({ type: 'done' })
+    }
     return
   }
 
-  postMain({ type: 'progress', event: { stage: 'transcribing', progress: 0 } })
+  const startProgress = getChunkStartProgress(chunk)
+  if (startProgress !== null) {
+    postMain({ type: 'progress', event: { stage: 'transcribing', progress: startProgress } })
+  }
 
   const ort = await getOrt()
 
@@ -430,7 +503,7 @@ async function transcribeChunk(chunk: PCMChunk): Promise<void> {
     })
   }
 
-  postMain({ type: 'progress', event: { stage: 'transcribing', progress: 1 } })
+  postMain({ type: 'progress', event: transcribingProgressEvent(chunk) })
 
   if (chunk.final) postMain({ type: 'done' })
 }

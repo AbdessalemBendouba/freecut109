@@ -5,8 +5,9 @@ import {
   type TranscribeDialogValues,
 } from '@/features/timeline/deps/transcribe-dialog'
 import {
-  getTranscriptionOverallPercent,
-  getTranscriptionStageLabel,
+  getTranscriptionProgressDetail,
+  getTranscriptionProgressLabel,
+  isIndeterminateTranscriptionProgress,
 } from '@/shared/utils/transcription-progress'
 import {
   isTranscriptionOutOfMemoryError,
@@ -59,15 +60,18 @@ export const TranscribeDialogController = memo(function TranscribeDialogControll
       fileName={mediaFileName}
       hasTranscript={mediaHasTranscript}
       isRunning={transcriptStatus === 'queued' || transcriptStatus === 'transcribing'}
-      progressPercent={
-        transcriptProgress ? Math.round(getTranscriptionOverallPercent(transcriptProgress)) : null
+      // The bar tracks the *current stage*, not the whole job. Overall percent (which the
+      // collapsed media-library bar still uses, having room for only one number) would crawl
+      // across the first tenth of the track for a multi-minute download and read as a hang.
+      progressPercent={transcriptProgress ? Math.round(transcriptProgress.progress * 100) : null}
+      progressIndeterminate={
+        transcriptProgress ? isIndeterminateTranscriptionProgress(transcriptProgress) : false
       }
       progressLabel={
-        transcriptProgress
-          ? `${getTranscriptionStageLabel(transcriptProgress.stage)} (${Math.round(
-              getTranscriptionOverallPercent(transcriptProgress),
-            )}%)`
-          : 'Transcribing...'
+        transcriptProgress ? getTranscriptionProgressLabel(transcriptProgress) : 'Transcribing...'
+      }
+      progressDetail={
+        transcriptProgress ? getTranscriptionProgressDetail(transcriptProgress) : null
       }
       errorMessage={dialogError}
       onStart={(values: TranscribeDialogValues) => {

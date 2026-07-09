@@ -443,6 +443,8 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
     transcribingCount,
     transcribingAvgProgress,
     singleTranscriptionStageLabel,
+    singleTranscriptionDetail,
+    singleTranscriptionIndeterminate,
     transcriptionItemRows,
     preparationItemRows,
     preparingCount,
@@ -1297,9 +1299,15 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
       {transcribingCount > 0 && (
         <BackgroundTaskProgress
           icon={<FileText className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />}
-          label={t('media.library.generatingTranscripts', { count: transcribingCount })}
+          // With one job the stage ("Downloading model") is far more useful than the generic
+          // title, and the panel is too narrow to show both without truncating each to noise.
+          label={
+            singleTranscriptionStageLabel ??
+            t('media.library.generatingTranscripts', { count: transcribingCount })
+          }
           progressAriaLabel={t('media.library.transcriptGenerationProgress')}
           progressPercent={transcribingAvgProgress * 100}
+          indeterminate={singleTranscriptionIndeterminate}
           detailsToggleAriaLabel={t('media.library.perItemProgress')}
           details={
             transcriptionItemRows.length > 1
@@ -1319,10 +1327,14 @@ export const MediaLibrary = memo(function MediaLibrary({ onMediaSelect }: MediaL
           }
           meta={
             <>
-              {singleTranscriptionStageLabel && (
-                <span className="hidden sm:inline truncate">{singleTranscriptionStageLabel}</span>
+              {singleTranscriptionDetail && (
+                <span className="truncate tabular-nums">{singleTranscriptionDetail}</span>
               )}
-              <span className="tabular-nums">{Math.round(transcribingAvgProgress * 100)}%</span>
+              {/* The byte counter already says how far along the transfer is, and the fill bar
+                  shows it too; a percent as well only crowds out the counter in a narrow panel. */}
+              {!singleTranscriptionIndeterminate && !singleTranscriptionDetail && (
+                <span className="tabular-nums">{Math.round(transcribingAvgProgress * 100)}%</span>
+              )}
               <button
                 type="button"
                 onClick={handleCancelAllTranscriptions}

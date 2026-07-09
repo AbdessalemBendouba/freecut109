@@ -1,17 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useItemsStore } from '../stores/items-store'
-import { captureSnapshot } from '../stores/commands/snapshot'
-import { useTimelineCommandStore } from '../stores/timeline-command-store'
-import { useTimelineSettingsStore } from '../stores/timeline-settings-store'
-import type { TimelineSnapshot } from '../stores/commands/types'
-import {
-  resetAllTrackHeights,
-  resizeAllTracksInList,
-  resizeTrackInList,
-} from '../utils/track-resize'
+import { commitTrackHeights, resetTrackHeights } from '../stores/actions/track-height-actions'
+import { resizeAllTracksInList, resizeTrackInList } from '../utils/track-resize'
 import { getTrackKind } from '../utils/classic-tracks'
-import { DEFAULT_TRACK_HEIGHT } from '../constants'
+import { flushTrackHeightOverrides } from '../utils/track-heights'
 
 interface TrackResizeState {
   trackId: string | null
@@ -21,7 +14,6 @@ interface TrackResizeState {
   deltaDirection: -1 | 1
   applyToAll: boolean
   didChange: boolean
-  beforeSnapshot: TimelineSnapshot | null
 }
 
 const IDLE_RESIZE_STATE: TrackResizeState = {
@@ -32,7 +24,6 @@ const IDLE_RESIZE_STATE: TrackResizeState = {
   deltaDirection: 1,
   applyToAll: false,
   didChange: false,
-  beforeSnapshot: null,
 }
 
 export function useTrackHeightResize() {
@@ -44,17 +35,9 @@ export function useTrackHeightResize() {
     const state = resizeStateRef.current
     if (!state.trackId) return
 
-    if (state.didChange && state.beforeSnapshot) {
-      useTimelineCommandStore.getState().addUndoEntry(
-        {
-          type: state.applyToAll ? 'RESIZE_ALL_TRACKS' : 'RESIZE_TRACK',
-          payload: state.applyToAll
-            ? { count: useItemsStore.getState().tracks.length }
-            : { id: state.trackId },
-        },
-        state.beforeSnapshot,
-      )
-      useTimelineSettingsStore.getState().markDirty()
+    // Overrides accumulate in memory during the drag; land them on mouseup.
+    if (state.didChange) {
+      flushTrackHeightOverrides()
     }
 
     setResizeState(IDLE_RESIZE_STATE)
@@ -82,7 +65,7 @@ export function useTrackHeightResize() {
     const resizedTrack = nextTracks.find((track) => track.id === state.trackId)
     if (!resizedTrack) return
 
-    useItemsStore.getState().setTracks(nextTracks)
+    commitTrackHeights(nextTracks)
 
     setResizeState((prev) => ({
       ...prev,
@@ -119,7 +102,6 @@ export function useTrackHeightResize() {
         deltaDirection: getTrackKind(track) === 'audio' ? 1 : -1,
         applyToAll: event.altKey,
         didChange: false,
-        beforeSnapshot: captureSnapshot(),
       })
 
       document.body.style.cursor = 'row-resize'
@@ -135,29 +117,14 @@ export function useTrackHeightResize() {
         return
       }
 
-      const beforeSnapshot = captureSnapshot()
-      const nextTracks = event.altKey
-        ? resetAllTrackHeights(useItemsStore.getState().tracks)
-        : resizeTrackInList(useItemsStore.getState().tracks, trackId, DEFAULT_TRACK_HEIGHT)
-
       event.preventDefault()
       event.stopPropagation()
 
-      if (nextTracks === useItemsStore.getState().tracks) {
-        return
-      }
-
-      usePlaybackStore.getState().setPreviewFrame(null)
-      useItemsStore.getState().setTracks(nextTracks)
-
-      useTimelineCommandStore.getState().addUndoEntry(
-        {
-          type: event.altKey ? 'RESET_ALL_TRACK_HEIGHTS' : 'RESET_TRACK_HEIGHT',
-          payload: event.altKey ? { count: nextTracks.length } : { id: trackId },
-        },
-        beforeSnapshot,
-      )
-      useTimelineSettingsStore.getState().markDirty()
+      // Reset drops the override so the track follows the saved Track Size
+      // preset again — not the built-in default, which would silently discard
+      // the user's choice.
+      resetTrackHeights(trackId, event.altKey)
+      flushTrackHeightOverrides()
     },
     [],
   )

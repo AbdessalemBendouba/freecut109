@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Combobox } from '@/components/ui/combobox'
+import { cn } from '@/shared/ui/cn'
 import { useEditorStore } from '@/shared/state/editor'
 import { usePlaybackStore } from '@/shared/state/playback'
 import {
@@ -45,8 +46,13 @@ interface TranscribeDialogProps {
   fileName: string
   hasTranscript: boolean
   isRunning: boolean
+  /** Progress within the current stage, not across the whole job. */
   progressPercent: number | null
+  /** Set while a stage reports no progress (ONNX graph compile) — render a moving bar, not a stalled one. */
+  progressIndeterminate?: boolean
   progressLabel: string
+  /** Secondary line: a byte counter while downloading, prose while compiling. */
+  progressDetail?: string | null
   errorMessage?: string | null
   onStart: (values: TranscribeDialogValues) => void
   onCancel: () => void
@@ -59,7 +65,9 @@ export function TranscribeDialog({
   hasTranscript,
   isRunning,
   progressPercent,
+  progressIndeterminate = false,
   progressLabel,
+  progressDetail = null,
   errorMessage,
   onStart,
   onCancel,
@@ -217,21 +225,36 @@ export function TranscribeDialog({
               <div className="flex items-center gap-2 text-sm">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 <span className="truncate">{progressLabel}</span>
+                {!progressIndeterminate && progressPercent !== null && (
+                  <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                    {progressPercent}%
+                  </span>
+                )}
               </div>
-              {progressPercent !== null && (
+              {(progressIndeterminate || progressPercent !== null) && (
                 <div
                   role="progressbar"
                   aria-label={t('media.transcribe.progressAria')}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={progressPercent}
+                  aria-valuemin={progressIndeterminate ? undefined : 0}
+                  aria-valuemax={progressIndeterminate ? undefined : 100}
+                  aria-valuenow={progressIndeterminate ? undefined : (progressPercent ?? undefined)}
                   className="h-1 overflow-hidden rounded-full bg-secondary"
                 >
                   <div
-                    className="h-full rounded-full bg-blue-500 transition-all duration-300"
-                    style={{ width: `${progressPercent}%` }}
+                    className={cn(
+                      'h-full rounded-full bg-blue-500 transition-all duration-300',
+                      progressIndeterminate && 'w-1/3 animate-pulse',
+                    )}
+                    style={
+                      progressIndeterminate || progressPercent === null
+                        ? undefined
+                        : { width: `${progressPercent}%` }
+                    }
                   />
                 </div>
+              )}
+              {progressDetail && (
+                <div className="text-xs text-muted-foreground tabular-nums">{progressDetail}</div>
               )}
             </div>
           )}

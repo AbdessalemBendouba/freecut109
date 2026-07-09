@@ -41,9 +41,8 @@ import { LottieBrowserPanel } from '@/features/editor/deps/lottie-browser'
 import { TransitionsPanel } from './transitions-panel'
 import {
   createDefaultShapeItem,
+  createOverlayLayerTrack,
   createTextTemplateItem,
-  findCompatibleTrackForItemType,
-  findNearestAvailableSpace,
   getDefaultGeneratedLayerDurationInFrames,
 } from '@/features/editor/deps/timeline-utils'
 import { addAdjustmentLayer } from '../utils/add-adjustment-layer'
@@ -393,33 +392,23 @@ export const MediaSidebar = memo(function MediaSidebar() {
   // These change frequently and would cause re-renders cascading to MediaLibrary/MediaCards
   // Read from store directly in callbacks using getState()
 
-  // Add text item to timeline at the best available position
+  // Add text item on its own new layer at the playhead, matching what dragging
+  // the same preset onto the canvas does (minus the cursor-driven position).
   const handleAddText = useCallback(
     (presetId?: (typeof TEXT_STYLE_PRESETS)[number]['id']) => {
       // Read all needed state from stores directly to avoid subscriptions
-      const { tracks, items, fps, addItem } = useTimelineStore.getState()
-      const { activeTrackId, selectItems } = useSelectionStore.getState()
+      const { tracks, fps, addItemOnNewTrack } = useTimelineStore.getState()
+      const { activeTrackId, selectItems, setActiveTrack } = useSelectionStore.getState()
       const currentProject = useProjectStore.getState().currentProject
 
-      const targetTrack = findCompatibleTrackForItemType({
-        tracks,
-        items,
-        itemType: 'text',
-        preferredTrackId: activeTrackId,
-      })
+      const newTrack = createOverlayLayerTrack({ tracks, activeTrackId })
 
-      if (!targetTrack) {
+      if (!newTrack) {
         logger.warn('No available track for text item')
         return
       }
 
       const durationInFrames = getDefaultGeneratedLayerDurationInFrames(fps)
-
-      // Find the best position: start at playhead, find nearest available space
-      const proposedPosition = usePlaybackStore.getState().currentFrame
-      const finalPosition =
-        findNearestAvailableSpace(proposedPosition, durationInFrames, targetTrack.id, items) ??
-        proposedPosition // Fallback to proposed if no space found
 
       // Get canvas dimensions for initial transform
       const canvasWidth = currentProject?.metadata.width ?? DEFAULT_PROJECT_WIDTH
@@ -430,8 +419,8 @@ export const MediaSidebar = memo(function MediaSidebar() {
         : undefined
       const textItem: TextItem = createTextTemplateItem({
         placement: {
-          trackId: targetTrack.id,
-          from: finalPosition,
+          trackId: newTrack.trackId,
+          from: Math.max(0, usePlaybackStore.getState().currentFrame),
           durationInFrames,
           canvasWidth,
           canvasHeight,
@@ -442,54 +431,41 @@ export const MediaSidebar = memo(function MediaSidebar() {
         textStylePresetId: presetId,
       })
 
-      addItem(textItem)
-      // Select the new item
+      addItemOnNewTrack(textItem, newTrack.tracks)
+      setActiveTrack(newTrack.trackId)
       selectItems([textItem.id])
     },
     [t],
   )
 
-  // Add shape item to timeline at the best available position
+  // Add shape item on its own new layer at the playhead, matching the canvas drop.
   const handleAddShape = useCallback((shapeType: ShapeType) => {
     // Read all needed state from stores directly to avoid subscriptions
-    const { tracks, items, fps, addItem } = useTimelineStore.getState()
-    const { activeTrackId, selectItems } = useSelectionStore.getState()
+    const { tracks, fps, addItemOnNewTrack } = useTimelineStore.getState()
+    const { activeTrackId, selectItems, setActiveTrack } = useSelectionStore.getState()
     const currentProject = useProjectStore.getState().currentProject
 
-    const targetTrack = findCompatibleTrackForItemType({
-      tracks,
-      items,
-      itemType: 'shape',
-      preferredTrackId: activeTrackId,
-    })
+    const newTrack = createOverlayLayerTrack({ tracks, activeTrackId })
 
-    if (!targetTrack) {
+    if (!newTrack) {
       logger.warn('No available track for shape item')
       return
     }
-
-    const durationInFrames = getDefaultGeneratedLayerDurationInFrames(fps)
-
-    // Find the best position: start at playhead, find nearest available space
-    const proposedPosition = usePlaybackStore.getState().currentFrame
-    const finalPosition =
-      findNearestAvailableSpace(proposedPosition, durationInFrames, targetTrack.id, items) ??
-      proposedPosition
 
     const canvasWidth = currentProject?.metadata.width ?? DEFAULT_PROJECT_WIDTH
     const canvasHeight = currentProject?.metadata.height ?? DEFAULT_PROJECT_HEIGHT
 
     const shapeItem: ShapeItem = createDefaultShapeItem({
-      trackId: targetTrack.id,
-      from: finalPosition,
-      durationInFrames,
+      trackId: newTrack.trackId,
+      from: Math.max(0, usePlaybackStore.getState().currentFrame),
+      durationInFrames: getDefaultGeneratedLayerDurationInFrames(fps),
       canvasWidth,
       canvasHeight,
       shapeType,
     })
 
-    addItem(shapeItem)
-    // Select the new item
+    addItemOnNewTrack(shapeItem, newTrack.tracks)
+    setActiveTrack(newTrack.trackId)
     selectItems([shapeItem.id])
   }, [])
 

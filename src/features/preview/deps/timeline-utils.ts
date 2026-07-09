@@ -8,7 +8,7 @@ export {
   findBestCanvasDropPlacement,
   buildDroppedMediaTimelineItem,
   createClassicTrack,
-  createNewVideoZoneTrack,
+  createOverlayLayerTrack,
   createTimelineTemplateItem,
   getDefaultGeneratedLayerDurationInFrames,
   getDroppedMediaDurationInFrames,

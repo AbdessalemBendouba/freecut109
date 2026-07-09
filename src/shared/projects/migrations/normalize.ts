@@ -33,7 +33,9 @@ function normalizeTrack(
   const normalizedKind = track.kind === 'video' || track.kind === 'audio' ? track.kind : undefined
   return {
     ...track,
-    // Always use current default — no user-facing track resize exists yet
+    // Track height is a local view preference, persisted to localStorage and
+    // re-derived by items-store.setTracks() on load. The field is kept at the
+    // default so project files stay stable; its stored value is never read.
     height: DEFAULT_TRACK_HEIGHT,
     // Ensure boolean fields have defaults
     locked: track.locked ?? false,

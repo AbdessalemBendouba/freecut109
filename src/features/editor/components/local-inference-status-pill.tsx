@@ -6,7 +6,9 @@ import {
   formatEstimatedBytes,
   getLocalInferenceSummary,
   useLocalInferenceStore,
+  type LocalInferenceSummary,
 } from '@/shared/state/local-inference'
+import { formatBytes } from '@/shared/utils/format-utils'
 
 export function LocalInferenceStatusPill() {
   const { t } = useTranslation()
@@ -15,9 +17,20 @@ export function LocalInferenceStatusPill() {
   const prefersReducedMotion = useReducedMotion()
   const enterY = prefersReducedMotion ? 0 : -4
 
-  function getStateLabel(state: 'loading' | 'running' | 'ready' | 'error'): string {
-    switch (state) {
+  function getStateLabel(summary: LocalInferenceSummary): string {
+    switch (summary.state) {
       case 'loading':
+        // "Loading" hides a multi-minute weight download behind the same word as a 20 s
+        // graph compile. Name whichever one is actually happening — and never call a
+        // seconds-long read from local cache a download.
+        if (summary.loadingPhase === 'downloading') {
+          return summary.loadingFromCache
+            ? t('editor.localInferencePill.loadingCache')
+            : t('editor.localInferencePill.downloading')
+        }
+        if (summary.loadingPhase === 'preparing') {
+          return t('editor.localInferencePill.preparing')
+        }
         return t('editor.localInferencePill.loading')
       case 'running':
         return t('editor.localInferencePill.active')
@@ -28,6 +41,15 @@ export function LocalInferenceStatusPill() {
     }
   }
 
+  // While weights stream in, the size slot shows how far along the transfer is rather than a
+  // static "~1.2 GB est" that never changes.
+  const sizeLabel =
+    summary && summary.loadingPhase === 'downloading' && summary.totalEstimatedBytes > 0
+      ? `${formatBytes(summary.loadedBytes)} of ${formatBytes(summary.totalEstimatedBytes)}`
+      : summary
+        ? formatEstimatedBytes(summary.totalEstimatedBytes)
+        : null
+
   const detailParts = summary
     ? [
         summary.primaryLabel,
@@ -35,7 +57,7 @@ export function LocalInferenceStatusPill() {
         summary.activeJobs > 0
           ? t('editor.localInferencePill.jobs', { count: summary.activeJobs })
           : null,
-        formatEstimatedBytes(summary.totalEstimatedBytes),
+        sizeLabel,
       ].filter(Boolean)
     : []
 
@@ -58,9 +80,7 @@ export function LocalInferenceStatusPill() {
             <Cpu className="h-3.5 w-3.5 text-orange-500" />
           )}
           <div className="min-w-0">
-            <div className="text-[10px] font-medium leading-none">
-              {getStateLabel(summary.state)}
-            </div>
+            <div className="text-[10px] font-medium leading-none">{getStateLabel(summary)}</div>
             <div className="mt-0.5 truncate text-[9px] text-muted-foreground">
               {detailParts.join(' | ')}
             </div>

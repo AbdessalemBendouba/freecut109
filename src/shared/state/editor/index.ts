@@ -1,2 +1,2 @@
 export { useEditorStore } from './store'
-export type { ClipInspectorTab } from './types'
+export type { ClipInspectorTab, TrackSizePreset } from './types'

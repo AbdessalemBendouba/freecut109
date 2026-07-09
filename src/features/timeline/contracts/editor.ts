@@ -32,6 +32,7 @@ export {
   getDefaultGeneratedLayerDurationInFrames,
 } from '../utils/generated-layer-items'
 export { findCompatibleTrackForItemType } from '../utils/track-item-compatibility'
+export { createOverlayLayerTrack } from '../utils/new-track-zone-media'
 export { createClassicTrack, getTrackKind } from '../utils/classic-tracks'
 export { getDefaultActiveTrackId } from '../utils/default-active-track'
 export { resolveEffectiveTrackStates } from '../utils/group-utils'

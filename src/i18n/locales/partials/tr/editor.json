@@ -2,8 +2,7 @@
   "editor": {
     "miniTimeline": {
       "inPoint": "Giriş noktası",
-      "outPoint": "Çıkış noktası",
-      "markerAtFrame": "{{frame}} karesindeki işaretçi"
+      "outPoint": "Çıkış noktası"
     },
     "animateTimeline": {
       "label": "Animasyon zaman çizelgesi",
@@ -112,6 +111,9 @@
     },
     "localInferencePill": {
       "loading": "Yerel YZ Yükleniyor",
+      "downloading": "Yerel YZ İndiriliyor",
+      "loadingCache": "Yerel YZ Önbellekten Yükleniyor",
+      "preparing": "Yerel YZ Hazırlanıyor",
       "active": "Yerel YZ Etkin",
       "error": "Yerel YZ Hatası",
       "ready": "Yerel YZ Hazır",
@@ -227,7 +229,6 @@
       "frame": "Kare",
       "time": "Zaman",
       "label": "Etiket",
-      "labelPlaceholder": "Etiket girin...",
       "color": "Renk",
       "deleteMarker": "İşaretçiyi Sil"
     },
@@ -236,7 +237,6 @@
       "empty": "İşaretçi yok",
       "emptyHint": "Oynatma başlığına işaretçi eklemek için M tuşuna basın",
       "clearAll": "Tümünü temizle",
-      "untitled": "İşaretçi",
       "remove": "İşaretçiyi kaldır"
     },
     "canvasPanel": {

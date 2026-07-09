@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   setActiveTrack: vi.fn(),
   selectItems: vi.fn(),
   findBestCanvasDropPlacement: vi.fn(() => ({ trackId: 'track-1', from: 24 })),
-  createNewVideoZoneTrack: vi.fn(() => ({
+  createOverlayLayerTrack: vi.fn(() => ({
     trackId: 'new-track-1',
     tracks: [{ id: 'new-track-1' }],
   })),
@@ -117,7 +117,7 @@ vi.mock('@/features/preview/deps/timeline-utils', () => ({
   findBestCanvasDropPlacement: mocks.findBestCanvasDropPlacement,
   getDroppedMediaDurationInFrames: mocks.getDroppedMediaDurationInFrames,
   buildDroppedMediaTimelineItem: mocks.buildDroppedMediaTimelineItem,
-  createNewVideoZoneTrack: mocks.createNewVideoZoneTrack,
+  createOverlayLayerTrack: mocks.createOverlayLayerTrack,
   createTimelineTemplateItem: mocks.createTimelineTemplateItem,
   getDefaultGeneratedLayerDurationInFrames: mocks.getDefaultGeneratedLayerDurationInFrames,
   isTimelineTemplateDragData: mocks.isTimelineTemplateDragData,
@@ -289,7 +289,7 @@ describe('useCanvasMediaDrop', () => {
 
     // A fresh overlay track is created and the layer is placed at the playhead
     // (currentFrame 48) on it — not sequenced into an existing track.
-    expect(mocks.createNewVideoZoneTrack).toHaveBeenCalledTimes(1)
+    expect(mocks.createOverlayLayerTrack).toHaveBeenCalledTimes(1)
     expect(mocks.createTimelineTemplateItem).toHaveBeenCalledWith(
       expect.objectContaining({
         template: expect.objectContaining({ itemType: 'text', label: 'Neon' }),

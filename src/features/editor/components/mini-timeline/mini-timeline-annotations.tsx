@@ -1,5 +1,6 @@
-import { memo } from 'react'
+import { memo, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { resolveMarkerNames } from '@/shared/timeline/marker-names'
 import type {
   TimelineAnnotationMarker,
   TimelineAnnotationModel,
@@ -25,6 +26,10 @@ export const MiniTimelineAnnotations = memo(function MiniTimelineAnnotations({
   testIdPrefix: string
 }) {
   const { t } = useTranslation()
+  const markerNames = useMemo(
+    () => resolveMarkerNames(model.markers, (index) => t('timeline.markerName', { index })),
+    [model.markers, t],
+  )
   return (
     <div
       className="pointer-events-none absolute bottom-0 right-0 top-0"
@@ -33,6 +38,7 @@ export const MiniTimelineAnnotations = memo(function MiniTimelineAnnotations({
     >
       {model.markers.map((marker) => {
         const selected = selectedMarkerId === marker.id
+        const name = markerNames.get(marker.id)
         return (
           <button
             key={marker.id}
@@ -41,10 +47,8 @@ export const MiniTimelineAnnotations = memo(function MiniTimelineAnnotations({
             data-testid={`${testIdPrefix}-marker`}
             data-marker-id={marker.id}
             style={{ left: `${marker.positionRatio * 100}%` }}
-            title={marker.label || t('editor.miniTimeline.markerAtFrame', { frame: marker.frame })}
-            aria-label={
-              marker.label || t('editor.miniTimeline.markerAtFrame', { frame: marker.frame })
-            }
+            title={name}
+            aria-label={name}
             onPointerDown={(event) => {
               event.stopPropagation()
               if (event.button !== 0) return

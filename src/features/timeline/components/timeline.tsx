@@ -35,15 +35,9 @@ import { createLogger } from '@/shared/logging/logger'
 import { EDITOR_LAYOUT_CSS_VALUES, getEditorLayout } from '@/config/editor-layout'
 import { useTrackHeightResize } from '../hooks/use-track-height-resize'
 import { resizeTracksOfKindByDelta } from '../utils/track-resize'
-import { useTimelineSettingsStore } from '../stores/timeline-settings-store'
-import { resizeAllTracks } from '../stores/actions/track-actions'
+import { applyTrackSizePreset, commitTrackHeights } from '../stores/actions/track-height-actions'
 import { useZoomStore } from '../stores/zoom-store'
-import {
-  computeWheelZoomStep,
-  COMPACT_TRACK_HEIGHT,
-  MAX_TRACK_HEIGHT,
-  DEFAULT_TRACK_HEIGHT,
-} from '../constants'
+import { computeWheelZoomStep } from '../constants'
 import { clampSectionDividerPosition, getTrackSectionLayout } from '../utils/track-resize'
 import { clearMediaDragData } from '@/features/timeline/deps/media-library-resolver'
 import { useNewTrackZonePreviewStore } from '../stores/new-track-zone-preview-store'
@@ -58,23 +52,14 @@ import { getDefaultActiveTrackId } from '../utils/default-active-track'
 const logger = createLogger('Timeline')
 
 /**
- * Track height presets exposed through the track-size flyout. `medium` maps to
- * the default track height so it doubles as a reset.
+ * Track height presets exposed through the track-size flyout. Their heights
+ * live in `TRACK_SIZE_PRESET_HEIGHTS`; picking one is a local view preference,
+ * not a project edit.
  */
 const TRACK_SIZE_OPTIONS = [
-  {
-    id: 'compact',
-    height: COMPACT_TRACK_HEIGHT,
-    icon: Rows4,
-    labelKey: 'timeline.trackSize.compact',
-  },
-  {
-    id: 'medium',
-    height: DEFAULT_TRACK_HEIGHT,
-    icon: Rows3,
-    labelKey: 'timeline.trackSize.medium',
-  },
-  { id: 'large', height: MAX_TRACK_HEIGHT, icon: Rows2, labelKey: 'timeline.trackSize.large' },
+  { id: 'compact', icon: Rows4, labelKey: 'timeline.trackSize.compact' },
+  { id: 'medium', icon: Rows3, labelKey: 'timeline.trackSize.medium' },
+  { id: 'large', icon: Rows2, labelKey: 'timeline.trackSize.large' },
 ] as const
 
 interface TimelineProps {
@@ -175,7 +160,6 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
   )
 
   const trackSizePreset = useEditorStore((s) => s.trackSizePreset)
-  const setTrackSizePreset = useEditorStore((s) => s.setTrackSizePreset)
   const setTimelineTracks = useTimelineStore((s) => s.setTracks)
 
   useEffect(() => {
@@ -324,8 +308,7 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
         const currentTracks = useItemsStore.getState().tracks
         const nextTracks = resizeTracksOfKindByDelta(currentTracks, zone, delta)
         if (nextTracks !== currentTracks) {
-          useItemsStore.getState().setTracks(nextTracks)
-          useTimelineSettingsStore.getState().markDirty()
+          commitTrackHeights(nextTracks)
         }
         return
       }
@@ -526,9 +509,9 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
     // Content clip rows live under the track-sections surface, scoped here so we don't
     // also match the header rows (both use data-track-id).
     const getContentRows = (): NodeListOf<HTMLElement> | HTMLElement[] =>
-      document.getElementById('timeline-track-sections')?.querySelectorAll<HTMLElement>(
-        '[data-track-id]',
-      ) ?? []
+      document
+        .getElementById('timeline-track-sections')
+        ?.querySelectorAll<HTMLElement>('[data-track-id]') ?? []
 
     let rafId: number
     const updateDragVisuals = () => {
@@ -638,19 +621,14 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
   )
 
   const addVideoTrackToTop = useCallback(() => {
-    const newTrack = createClassicTrack({
-      tracks,
-      kind: 'video',
-      order: 0,
-      height: editorLayout.timelineTrackHeight,
-    })
+    const newTrack = createClassicTrack({ tracks, kind: 'video', order: 0 })
 
     addTrack(newTrack)
 
     setTimeout(() => {
       setActiveTrack(newTrack.id)
     }, 0)
-  }, [addTrack, editorLayout.timelineTrackHeight, setActiveTrack, tracks])
+  }, [addTrack, setActiveTrack, tracks])
 
   const appendAudioTrackToSection = useCallback(() => {
     const audioAnchorTrack =
@@ -663,7 +641,6 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
       tracks,
       kind: 'audio',
       order: audioAnchorTrack ? getAdjacentTrackOrder(tracks, audioAnchorTrack, 'below') : 0,
-      height: editorLayout.timelineTrackHeight,
     })
 
     setTimelineTracks([...tracks, newTrack])
@@ -671,30 +648,20 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
     setTimeout(() => {
       setActiveTrack(newTrack.id)
     }, 0)
-  }, [
-    audioTracks,
-    editorLayout.timelineTrackHeight,
-    setActiveTrack,
-    setTimelineTracks,
-    tracks,
-    videoTracks,
-  ])
+  }, [audioTracks, setActiveTrack, setTimelineTracks, tracks, videoTracks])
 
   // Trigger reflects the persisted preset (saved as a local editor setting).
   const ActiveTrackSizeIcon =
     TRACK_SIZE_OPTIONS.find((option) => option.id === trackSizePreset)?.icon ?? Rows3
 
   /**
-   * Apply a track-size preset: persist the choice as a local setting and resize
-   * every track to the preset height in one undoable step.
+   * Apply a track-size preset: save the choice locally and re-derive every
+   * track's height from it, dropping any per-track overrides. Not a project
+   * edit — no undo entry, no dirty flag.
    */
-  const handleSelectTrackSize = useCallback(
-    (preset: (typeof TRACK_SIZE_OPTIONS)[number]) => {
-      setTrackSizePreset(preset.id)
-      resizeAllTracks(preset.height)
-    },
-    [setTrackSizePreset],
-  )
+  const handleSelectTrackSize = useCallback((preset: (typeof TRACK_SIZE_OPTIONS)[number]) => {
+    applyTrackSizePreset(preset.id)
+  }, [])
 
   const handleDeleteTrack = useCallback(
     (trackId: string) => {

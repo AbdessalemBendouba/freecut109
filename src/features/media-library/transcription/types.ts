@@ -21,9 +21,31 @@ export interface TranscriptWord {
   confidence?: number
 }
 
+/**
+ * `downloading` and `preparing` are separate because they fail differently for the user: a
+ * download reports bytes and can take minutes on a cold cache, while the ONNX graph compile
+ * that follows reports nothing at all and can sit for ~20 s. Collapsing them into one
+ * "loading" stage left the bar frozen mid-compile, which reads as a hang.
+ */
 export interface TranscribeProgress {
-  stage: 'loading' | 'decoding' | 'transcribing'
+  stage: 'downloading' | 'preparing' | 'decoding' | 'transcribing'
   progress: number
+  /** Bytes streamed so far across every model file. Only set while `downloading`. */
+  receivedBytes?: number
+  /** Total bytes expected across every model file. Only set while `downloading`. */
+  totalBytes?: number
+  /** True when every model file came from Cache Storage — nothing touched the network. */
+  fromCache?: boolean
+  /**
+   * True when the stage cannot report a fraction, so `progress` only marks the band's floor.
+   * Set while transcribing audio whose duration the decoder never reported.
+   */
+  indeterminate?: boolean
+  /**
+   * True when this event opens a transfer that was not part of the original download, so the
+   * merge is allowed to rewind the bar back out of `preparing`.
+   */
+  restarted?: boolean
 }
 
 export interface TranscribeRuntimeInfo {
@@ -44,6 +66,12 @@ export interface PCMChunk {
   samples: Float32Array
   timestamp: number
   final: boolean
+  /**
+   * Duration of the whole audio in seconds, so the ASR worker can report an absolute position
+   * rather than per-chunk progress. `0` when the producer could not determine it (mediabunny
+   * reports no duration for some containers).
+   */
+  totalDuration: number
 }
 
 export type MainThreadMessage =

@@ -6,6 +6,7 @@ import { useSelectionStore } from '@/shared/state/selection'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { cn } from '@/shared/ui/cn'
 import { formatTimecodeDotFrames } from '@/shared/utils/time-utils'
+import { resolveMarkerNames } from '@/shared/timeline/marker-names'
 import { PropertySection } from '../components'
 
 /**
@@ -29,6 +30,11 @@ export function MarkerList() {
 
   // Don't mutate the store array; sort a copy for stable display order.
   const sortedMarkers = useMemo(() => [...markers].sort((a, b) => a.frame - b.frame), [markers])
+
+  const markerNames = useMemo(
+    () => resolveMarkerNames(markers, (index) => t('timeline.markerName', { index })),
+    [markers, t],
+  )
 
   const handleSelect = useCallback(
     (id: string, frame: number) => {
@@ -86,7 +92,7 @@ export function MarkerList() {
                     style={{ backgroundColor: marker.color }}
                   />
                   <span className="flex-1 min-w-0 truncate text-xs">
-                    {marker.label?.trim() || t('editor.markerList.untitled')}
+                    {markerNames.get(marker.id)}
                   </span>
                   <span className="text-[10px] font-mono tabular-nums text-muted-foreground shrink-0">
                     {formatTimecodeDotFrames(marker.frame, fps)}

@@ -245,6 +245,7 @@
       "springFriction": "마찰",
       "springMass": "질량"
     },
+    "markerName": "마커 {{index}}",
     "noTracksToRemove": "제거할 트랙 없음",
     "region": "영역",
     "removeActiveTrack": "활성 트랙 제거",

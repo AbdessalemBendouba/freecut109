@@ -2,8 +2,7 @@
   "editor": {
     "miniTimeline": {
       "inPoint": "Ponto de entrada",
-      "outPoint": "Ponto de saída",
-      "markerAtFrame": "Marcador no quadro {{frame}}"
+      "outPoint": "Ponto de saída"
     },
     "animateTimeline": {
       "label": "Linha do tempo de animação",
@@ -112,6 +111,9 @@
     },
     "localInferencePill": {
       "loading": "Carregando IA local",
+      "downloading": "Baixando IA local",
+      "loadingCache": "Carregando IA local do cache",
+      "preparing": "Preparando IA local",
       "active": "IA local ativa",
       "error": "Erro da IA local",
       "ready": "IA local pronta",
@@ -227,7 +229,6 @@
       "frame": "Quadro",
       "time": "Tempo",
       "label": "Rótulo",
-      "labelPlaceholder": "Digite um rótulo...",
       "color": "Cor",
       "deleteMarker": "Excluir marcador"
     },
@@ -236,7 +237,6 @@
       "empty": "Nenhum marcador",
       "emptyHint": "Pressione M para adicionar um marcador no cursor de reprodução",
       "clearAll": "Limpar tudo",
-      "untitled": "Marcador",
       "remove": "Remover marcador"
     },
     "canvasPanel": {

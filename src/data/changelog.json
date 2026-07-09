@@ -5,6 +5,15 @@
     "groups": {
       "added": [
         {
+          "title": "Shift-click a properties panel section header to collapse or expand every section at once"
+        },
+        {
+          "title": "Text and shape presets land on a new layer at the playhead"
+        },
+        {
+          "title": "Unlabelled markers get automatic names, shown on hover in the ruler"
+        },
+        {
           "title": "Record a voiceover from your microphone, synced live to the timeline"
         },
         {
@@ -18,6 +27,12 @@
         }
       ],
       "fixed": [
+        {
+          "title": "Transcription shows real model-download progress instead of a frozen bar"
+        },
+        {
+          "title": "Timeline track heights are remembered when you reopen a project"
+        },
         {
           "title": "No more false \"new version available\" prompts while editing"
         },
@@ -35,6 +50,12 @@
         }
       ],
       "improved": [
+        {
+          "title": "Saving a project stays fast no matter how large your workspace grows"
+        },
+        {
+          "title": "Projects open faster — thumbnails and media details load in parallel"
+        },
         {
           "title": "Effects apply to the preview instantly, without a warm-up delay"
         }

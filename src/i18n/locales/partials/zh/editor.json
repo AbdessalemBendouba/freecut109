@@ -2,8 +2,7 @@
   "editor": {
     "miniTimeline": {
       "inPoint": "入点",
-      "outPoint": "出点",
-      "markerAtFrame": "第 {{frame}} 帧的标记"
+      "outPoint": "出点"
     },
     "animateTimeline": {
       "label": "动画时间线",
@@ -112,6 +111,9 @@
     },
     "localInferencePill": {
       "loading": "本地 AI 加载中",
+      "downloading": "本地 AI 下载中",
+      "loadingCache": "本地 AI 从缓存加载中",
+      "preparing": "本地 AI 准备中",
       "active": "本地 AI 运行中",
       "error": "本地 AI 错误",
       "ready": "本地 AI 就绪",
@@ -227,7 +229,6 @@
       "frame": "帧",
       "time": "时间",
       "label": "标签",
-      "labelPlaceholder": "输入标签...",
       "color": "颜色",
       "deleteMarker": "删除标记"
     },
@@ -236,7 +237,6 @@
       "empty": "暂无标记",
       "emptyHint": "按 M 在播放头处添加标记",
       "clearAll": "全部清除",
-      "untitled": "标记",
       "remove": "移除标记"
     },
     "canvasPanel": {

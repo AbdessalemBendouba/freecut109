@@ -6,7 +6,7 @@ import { usePlaybackStore } from '@/shared/state/playback'
 import { useTimelineStore } from '@/features/preview/deps/timeline-store'
 import {
   buildDroppedMediaTimelineItem,
-  createNewVideoZoneTrack,
+  createOverlayLayerTrack,
   createTimelineTemplateItem,
   findBestCanvasDropPlacement,
   getDefaultGeneratedLayerDurationInFrames,
@@ -27,7 +27,7 @@ import {
 } from '@/features/preview/deps/media-library'
 import { screenToCanvas } from '../utils/coordinate-transform'
 import type { CoordinateParams } from '../types/gizmo'
-import type { TimelineItem, TimelineTrack } from '@/types/timeline'
+import type { TimelineItem } from '@/types/timeline'
 import type { MediaMetadata } from '@/types/storage'
 import {
   useProjectMediaMatchDialogStore,
@@ -119,23 +119,6 @@ function clampDropPosition(
       y: centerY - projectSize.height / 2,
     },
   }
-}
-
-// Picks the track a new overlay layer anchors to (active track, else the
-// topmost non-group track) and the height the new track should adopt.
-function resolveOverlayLayerAnchor(
-  tracks: TimelineTrack[],
-  activeTrackId: string | null,
-): { anchorTrackId: string; preferredTrackHeight: number } {
-  // Group tracks are headers only and never hold items, so the active track
-  // only counts when it is a non-group track; otherwise fall through to the
-  // first non-group track (never tracks[0], which may itself be a group).
-  const activeNonGroupTrackId = tracks.find(
-    (track) => track.id === activeTrackId && !track.isGroup,
-  )?.id
-  const anchorTrackId = activeNonGroupTrackId ?? tracks.find((track) => !track.isGroup)?.id ?? ''
-  const preferredTrackHeight = tracks.find((track) => track.id === anchorTrackId)?.height ?? 64
-  return { anchorTrackId, preferredTrackHeight }
 }
 
 function evaluateCanvasDrop(dataTransfer: DataTransfer): CanvasDropState | null {
@@ -360,12 +343,10 @@ export function useCanvasMediaDrop({ coordParams, projectSize }: UseCanvasMediaD
       // layer above existing content (matching the timeline drop behavior) so it
       // sits at the playhead over whatever is below instead of being shoved to
       // free space on a shared track.
-      const tracks = timelineState.tracks
-      const { anchorTrackId, preferredTrackHeight } = resolveOverlayLayerAnchor(
-        tracks,
-        selectionState.activeTrackId,
-      )
-      const newTrack = createNewVideoZoneTrack({ tracks, anchorTrackId, preferredTrackHeight })
+      const newTrack = createOverlayLayerTrack({
+        tracks: timelineState.tracks,
+        activeTrackId: selectionState.activeTrackId,
+      })
 
       if (!newTrack) {
         toast.warning(i18n.t('preview.canvasDrop.noCompatibleTrack'))

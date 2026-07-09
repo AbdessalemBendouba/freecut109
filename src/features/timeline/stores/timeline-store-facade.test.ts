@@ -97,6 +97,7 @@ vi.mock('@/shared/projects/migrations', () => ({
 
 // Import stores and facade after mocks
 import { useItemsStore } from './items-store'
+import { DEFAULT_TRACK_HEIGHT } from '../constants'
 import { useTransitionsStore } from './transitions-store'
 import { useKeyframesStore } from './keyframes-store'
 import { useMarkersStore } from './markers-store'
@@ -241,24 +242,23 @@ describe('TimelineStoreFacade', () => {
       expect(useItemsStore.getState().items).toEqual(items)
     })
 
-    it('maps tracks to items store', () => {
-      const tracks = [
-        {
-          id: 'track-1',
-          name: 'Track 1',
-          height: 80,
-          locked: false,
-          visible: true,
-          muted: false,
-          solo: false,
-          order: 0,
-          items: [],
-        },
-      ]
+    it('maps tracks to items store, resolving height from the track-size preset', () => {
+      const track = {
+        id: 'track-1',
+        name: 'Track 1',
+        height: 80,
+        locked: false,
+        visible: true,
+        muted: false,
+        solo: false,
+        order: 0,
+        items: [],
+      }
 
-      useTimelineStore.setState({ tracks })
+      useTimelineStore.setState({ tracks: [track] })
 
-      expect(useItemsStore.getState().tracks).toEqual(tracks)
+      // Height is a local view preference, so the stored 80 is discarded.
+      expect(useItemsStore.getState().tracks).toEqual([{ ...track, height: DEFAULT_TRACK_HEIGHT }])
     })
 
     it('maps fps to settings store', () => {

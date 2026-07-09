@@ -245,6 +245,7 @@
       "springFriction": "摩擦",
       "springMass": "质量"
     },
+    "markerName": "标记 {{index}}",
     "noTracksToRemove": "没有可移除的轨道",
     "region": "区域",
     "removeActiveTrack": "移除活动轨道",

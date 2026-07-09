@@ -54,7 +54,9 @@ import { usePlaybackStore } from '@/shared/state/playback'
 import { useSourcePlayerStore } from '@/shared/state/source-player'
 import {
   getTranscriptionOverallPercent,
-  getTranscriptionStageLabel,
+  getTranscriptionProgressDetail,
+  getTranscriptionProgressLabel,
+  isIndeterminateTranscriptionProgress,
 } from '@/shared/utils/transcription-progress'
 import {
   isTranscriptionOutOfMemoryError,
@@ -1202,12 +1204,24 @@ const MediaCardInternal = memo(function MediaCardInternal({
     [media.duration, media.fps, media.id],
   )
 
+  // The card's inline bars have room for exactly one number, so they show job-wide progress.
   const transcriptProgressPercent = transcriptProgress
     ? Math.round(getTranscriptionOverallPercent(transcriptProgress))
     : null
+  // The dialog has room to name the stage, so its bar tracks the stage instead — a job-wide
+  // percent would inch across the first tenth of the track for a multi-minute model download.
+  const transcriptStagePercent = transcriptProgress
+    ? Math.round(transcriptProgress.progress * 100)
+    : null
+  const transcriptProgressIndeterminate = transcriptProgress
+    ? isIndeterminateTranscriptionProgress(transcriptProgress)
+    : false
   const transcriptProgressLabel = transcriptProgress
-    ? `${getTranscriptionStageLabel(transcriptProgress.stage)} (${transcriptProgressPercent}%)`
+    ? getTranscriptionProgressLabel(transcriptProgress)
     : t('media.card.transcribing')
+  const transcriptProgressDetail = transcriptProgress
+    ? getTranscriptionProgressDetail(transcriptProgress)
+    : null
 
   const transcribeDialog = (
     <TranscribeDialog
@@ -1219,8 +1233,10 @@ const MediaCardInternal = memo(function MediaCardInternal({
       fileName={media.fileName}
       hasTranscript={hasTranscript}
       isRunning={isTranscribing}
-      progressPercent={transcriptProgressPercent}
+      progressPercent={transcriptStagePercent}
+      progressIndeterminate={transcriptProgressIndeterminate}
       progressLabel={transcriptProgressLabel}
+      progressDetail={transcriptProgressDetail}
       errorMessage={transcribeErrorMessage}
       onStart={handleStartTranscription}
       onCancel={handleCancelTranscript}

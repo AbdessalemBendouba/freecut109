@@ -2,8 +2,7 @@
   "editor": {
     "miniTimeline": {
       "inPoint": "In-Punkt",
-      "outPoint": "Out-Punkt",
-      "markerAtFrame": "Marker bei Frame {{frame}}"
+      "outPoint": "Out-Punkt"
     },
     "animateTimeline": {
       "label": "Animations-Zeitleiste",
@@ -112,6 +111,9 @@
     },
     "localInferencePill": {
       "loading": "Lokale KI wird geladen",
+      "downloading": "Lokale KI wird heruntergeladen",
+      "loadingCache": "Lokale KI wird aus dem Cache geladen",
+      "preparing": "Lokale KI wird vorbereitet",
       "active": "Lokale KI aktiv",
       "error": "Fehler der lokalen KI",
       "ready": "Lokale KI bereit",
@@ -227,7 +229,6 @@
       "frame": "Frame",
       "time": "Zeit",
       "label": "Bezeichnung",
-      "labelPlaceholder": "Bezeichnung eingeben...",
       "color": "Farbe",
       "deleteMarker": "Marker löschen"
     },
@@ -236,7 +237,6 @@
       "empty": "Keine Marker",
       "emptyHint": "Drücke M, um am Abspielkopf einen Marker hinzuzufügen",
       "clearAll": "Alle löschen",
-      "untitled": "Marker",
       "remove": "Marker entfernen"
     },
     "canvasPanel": {

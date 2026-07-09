@@ -39,7 +39,8 @@ async function openCache(): Promise<Cache | null> {
 
 async function readWithProgress(
   response: Response,
-  onBytes?: (received: number, total: number) => void,
+  onBytes: ProgressFn | undefined,
+  fromCache: boolean,
 ): Promise<ArrayBuffer> {
   if (!response.body || !onBytes) {
     return response.arrayBuffer()
@@ -70,7 +71,7 @@ async function readWithProgress(
         tail.push(value)
       }
       received += value.byteLength
-      onBytes(received, total)
+      onBytes(received, total, fromCache)
     }
 
     if (tail.length === 0) {
@@ -95,7 +96,7 @@ async function readWithProgress(
     if (done) break
     chunks.push(value)
     received += value.byteLength
-    onBytes(received, total)
+    onBytes(received, total, fromCache)
   }
 
   const merged = new Uint8Array(received)
@@ -107,7 +108,12 @@ async function readWithProgress(
   return merged.buffer
 }
 
-type ProgressFn = (received: number, total: number) => void
+/**
+ * `fromCache` lets callers distinguish a warm read (bytes replayed off disk in a blink) from
+ * a cold multi-hundred-MB network transfer. Both report byte progress, so without this flag
+ * a UI cannot tell the user which one it is waiting on.
+ */
+type ProgressFn = (received: number, total: number, fromCache: boolean) => void
 
 /**
  * In-flight `fetchOnnxModelBytes` requests, keyed by URL. Without this, two callers
@@ -125,7 +131,7 @@ async function downloadOnnxModelBytes(url: string, onBytes: ProgressFn): Promise
   const cached = cache ? await cache.match(url).catch(() => undefined) : undefined
 
   if (cached) {
-    return readWithProgress(cached, onBytes)
+    return readWithProgress(cached, onBytes, true)
   }
 
   const response = await fetch(url)
@@ -134,7 +140,7 @@ async function downloadOnnxModelBytes(url: string, onBytes: ProgressFn): Promise
   }
 
   const contentType = response.headers.get('content-type') ?? 'application/octet-stream'
-  const bytes = await readWithProgress(response, onBytes)
+  const bytes = await readWithProgress(response, onBytes, false)
 
   if (cache) {
     // Rebuild a Response from the downloaded bytes; the original stream is already consumed.
@@ -169,8 +175,8 @@ export function fetchOnnxModelBytes(url: string, onBytes?: ProgressFn): Promise<
 
   const listeners = new Set<ProgressFn>()
   if (onBytes) listeners.add(onBytes)
-  const broadcast: ProgressFn = (received, total) => {
-    for (const fn of listeners) fn(received, total)
+  const broadcast: ProgressFn = (received, total, fromCache) => {
+    for (const fn of listeners) fn(received, total, fromCache)
   }
 
   const promise = downloadOnnxModelBytes(url, broadcast).finally(() => {

@@ -7,6 +7,7 @@ import { MapPin, Trash2 } from 'lucide-react'
 import { useTimelineStore } from '@/features/editor/deps/timeline-store'
 import { useSelectionStore } from '@/shared/state/selection'
 import { formatTimecodeDotFrames } from '@/shared/utils/time-utils'
+import { getMarkerOrdinals } from '@/shared/timeline/marker-names'
 import { PropertySection, PropertyRow, NumberInput, ColorPicker } from '../components'
 import { MarkerList } from './marker-list'
 
@@ -41,6 +42,14 @@ export function MarkerPanel() {
     () => markers.find((m) => m.id === selectedMarkerId),
     [markers, selectedMarkerId],
   )
+
+  // The name this marker shows while its label is empty, used as the input's
+  // placeholder so the field previews what the ruler and list already display.
+  const defaultName = useMemo(() => {
+    if (!selectedMarkerId) return ''
+    const ordinal = getMarkerOrdinals(markers).get(selectedMarkerId)
+    return ordinal === undefined ? '' : t('timeline.markerName', { index: ordinal })
+  }, [markers, selectedMarkerId, t])
 
   // Handle frame change
   const handleFrameChange = useCallback(
@@ -128,7 +137,7 @@ export function MarkerPanel() {
           <Input
             value={selectedMarker.label || ''}
             onChange={handleLabelChange}
-            placeholder={t('editor.markerPanel.labelPlaceholder')}
+            placeholder={defaultName}
             className="h-7 text-xs flex-1 min-w-0"
           />
         </PropertyRow>

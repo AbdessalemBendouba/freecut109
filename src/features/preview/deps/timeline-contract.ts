@@ -5,7 +5,7 @@
 export type { DroppableMediaType, SubComposition } from '@/features/timeline/contracts/preview'
 export {
   buildDroppedMediaTimelineItem,
-  createNewVideoZoneTrack,
+  createOverlayLayerTrack,
   createTimelineTemplateItem,
   getDefaultGeneratedLayerDurationInFrames,
   isTimelineTemplateDragData,

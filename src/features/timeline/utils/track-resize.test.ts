@@ -1,16 +1,10 @@
 import { describe, expect, it } from 'vite-plus/test'
-import {
-  DEFAULT_TRACK_HEIGHT,
-  TRACK_SECTION_DIVIDER_HEIGHT,
-  MAX_TRACK_HEIGHT,
-  MIN_TRACK_HEIGHT,
-} from '../constants'
+import { TRACK_SECTION_DIVIDER_HEIGHT, MAX_TRACK_HEIGHT, MIN_TRACK_HEIGHT } from '../constants'
 import {
   clampSectionDividerPosition,
   clampTrackHeight,
   getMinimumTrackSectionSpacerHeight,
   getTrackSectionLayout,
-  resetAllTrackHeights,
   resizeAllTracksInList,
   resizeTrackInList,
 } from './track-resize'
@@ -61,18 +55,6 @@ describe('track-resize', () => {
     expect(resizedTracks).not.toBe(tracks)
     expect(resizedTracks.map((track) => track.height)).toEqual([88, 88, 88])
     expect(resizeAllTracksInList(resizedTracks, 88)).toBe(resizedTracks)
-  })
-
-  it('can reset every track back to the default height', () => {
-    const tracks = [createTrack('v1', 'video', 72), createTrack('a1', 'audio', 120)]
-
-    const resizedTracks = resetAllTrackHeights(tracks)
-
-    expect(resizedTracks.map((track) => track.height)).toEqual([
-      DEFAULT_TRACK_HEIGHT,
-      DEFAULT_TRACK_HEIGHT,
-    ])
-    expect(resetAllTrackHeights(resizedTracks)).toBe(resizedTracks)
   })
 
   it('keeps the A/V spacer slightly taller than the title bar', () => {
