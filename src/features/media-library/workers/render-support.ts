@@ -222,18 +222,60 @@ export function createRenderCanvas(width: number, height: number) {
   return { canvas, ctx }
 }
 
+/**
+ * Pick the best codec this browser will actually encode at these dimensions.
+ *
+ * The probe must use the *same* config the encoder will be handed. Probing with
+ * `hardwareAcceleration: 'prefer-hardware'` and the default 1Mbps while the encoder runs with no
+ * acceleration hint at `QUALITY_HIGH` gets a different answer out of `VideoEncoder`:
+ * hardware HEVC accepts 1080x1920, the real config does not, and the render dies thousands of
+ * frames in. Ask exactly what we intend to do.
+ *
+ * AVC is the fallback, not the default — but it is still probed, because a portrait 4K frame can
+ * exceed both. Better to refuse before rendering than at the first `add()`.
+ */
 export async function pickCodec(
   mb: Mediabunny,
   width: number,
   height: number,
+  bitrate: number | InstanceType<Mediabunny['Quality']>,
 ): Promise<'hevc' | 'avc'> {
-  const canHevc = await mb
-    .canEncodeVideo('hevc', { width, height, hardwareAcceleration: 'prefer-hardware' })
-    .catch(() => false)
-  return canHevc ? 'hevc' : 'avc'
+  const supports = (codec: 'hevc' | 'avc') =>
+    mb.canEncodeVideo(codec, { width, height, bitrate }).catch(() => false)
+
+  if (await supports('hevc')) return 'hevc'
+  if (await supports('avc')) return 'avc'
+  throw new Error(
+    `This browser cannot encode ${width}x${height} video with either HEVC or H.264. Try a smaller source.`,
+  )
 }
 
-/** Open the source and hand back a video sink. Disposes the decoder if anything throws. */
+/**
+ * The frame size `VideoSample.draw()` will actually produce, which is not always what the
+ * container claims.
+ *
+ * `InputVideoTrack.displayWidth` prefers the container's own display metadata, and plenty of
+ * encoders write a rotated track's `tkhd` dimensions as the *coded* (landscape) size while also
+ * setting a 90-degree rotation matrix. Sizing a canvas from that and then calling `draw()` — which
+ * honours rotation — squashes a portrait video into a landscape frame. `VideoSample` derives its
+ * own display size from square-pixel dimensions and rotation, ignoring that metadata; so do we.
+ */
+export function displaySize(
+  squarePixelWidth: number,
+  squarePixelHeight: number,
+  rotation: number,
+): { width: number; height: number } {
+  const upright = rotation % 180 === 0
+  return {
+    width: upright ? squarePixelWidth : squarePixelHeight,
+    height: upright ? squarePixelHeight : squarePixelWidth,
+  }
+}
+
+/**
+ * Open the source and hand back a video sink plus the true display size of its frames. Disposes
+ * the decoder if anything throws.
+ */
 export async function openVideoSource(
   mb: Mediabunny,
   sourceBlob: Blob,
@@ -241,6 +283,8 @@ export async function openVideoSource(
   input: InputInstance
   sink: InstanceType<Mediabunny['VideoSampleSink']>
   totalSeconds: number
+  width: number
+  height: number
 }> {
   const input = new mb.Input({
     source: new mb.BlobSource(sourceBlob),
@@ -251,11 +295,19 @@ export async function openVideoSource(
   try {
     const videoTrack = await input.getPrimaryVideoTrack()
     if (!videoTrack) throw new Error('Source has no video track')
-    return {
-      input,
-      sink: new mb.VideoSampleSink(videoTrack),
-      totalSeconds: await input.computeDuration(),
+
+    const [squarePixelWidth, squarePixelHeight, rotation, totalSeconds] = await Promise.all([
+      videoTrack.getSquarePixelWidth(),
+      videoTrack.getSquarePixelHeight(),
+      videoTrack.getRotation(),
+      input.computeDuration(),
+    ])
+    const { width, height } = displaySize(squarePixelWidth, squarePixelHeight, rotation)
+    if (!(width > 0) || !(height > 0)) {
+      throw new Error(`Source reported an unusable frame size of ${width}x${height}`)
     }
+
+    return { input, sink: new mb.VideoSampleSink(videoTrack), totalSeconds, width, height }
   } catch (error) {
     input.dispose()
     throw error

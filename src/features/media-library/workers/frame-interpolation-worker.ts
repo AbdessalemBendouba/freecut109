@@ -58,8 +58,7 @@ export interface InterpolateRequest {
   source?: Blob
   sourceOpfsPath?: string
   sourceMimeType?: string
-  sourceWidth: number
-  sourceHeight: number
+  /** Only a hint, for the ETA before the first frame decodes. The true rate is measured. */
   sourceFps: number
   factor: InterpolationFactor
 }
@@ -149,8 +148,14 @@ async function ensureInterpolator(jobId: string): Promise<RifeInterpolator> {
 }
 
 /** Render target + encoder. Split out so `interpolate` can dispose the decoder if it throws. */
-async function setupRender(mb: Mediabunny, request: InterpolateRequest, input: InputInstance) {
-  const { width, height } = clampRenderSize(request.sourceWidth, request.sourceHeight)
+async function setupRender(
+  mb: Mediabunny,
+  request: InterpolateRequest,
+  input: InputInstance,
+  sourceWidth: number,
+  sourceHeight: number,
+) {
+  const { width, height } = clampRenderSize(sourceWidth, sourceHeight)
   const outputFps = request.sourceFps * request.factor
   const { canvas, ctx } = createRenderCanvas(width, height)
   const { output, videoSource, codec } = await createEncoder(
@@ -174,7 +179,7 @@ async function createEncoder(
   outputFps: number,
 ) {
   const writable = await scratch.createWritable(jobId)
-  const codec = await pickCodec(mb, width, height)
+  const codec = await pickCodec(mb, width, height, mb.QUALITY_HIGH)
   const output = new mb.Output({
     format: new mb.Mp4OutputFormat({ fastStart: false }),
     target: new mb.StreamTarget(writable, { chunked: true, chunkSize: STREAM_CHUNK_SIZE_BYTES }),
@@ -190,7 +195,7 @@ async function createEncoder(
 }
 
 async function interpolate(request: InterpolateRequest): Promise<void> {
-  const { jobId, factor, sourceWidth, sourceHeight, sourceFps } = request
+  const { jobId, factor, sourceFps } = request
 
   assertUsableSourceFps(sourceFps)
   await ensureProResDecoderRegistered()
@@ -203,11 +208,22 @@ async function interpolate(request: InterpolateRequest): Promise<void> {
   const sourceBlob = request.source
     ? request.source
     : await getSourceBlobFromOpfs(request.sourceOpfsPath!, request.sourceMimeType)
-  const { input, sink, totalSeconds } = await openVideoSource(mb, sourceBlob)
+  // Frame size comes from the decoder, not from the media library. A rotated phone video reports
+  // landscape dimensions in its container metadata while decoding to portrait frames; trusting the
+  // library would squash it into the wrong aspect.
+  const {
+    input,
+    sink,
+    totalSeconds,
+    width: sourceWidth,
+    height: sourceHeight,
+  } = await openVideoSource(mb, sourceBlob)
   const { width, height, canvas, ctx, output, videoSource, audio, codec } = await setupRender(
     mb,
     request,
     input,
+    sourceWidth,
+    sourceHeight,
   ).catch((error: unknown) => {
     input.dispose()
     throw error

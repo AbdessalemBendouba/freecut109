@@ -52,8 +52,6 @@ interface UpscaleRequestInput {
   fileName: string
   variant: UpscaleVariant
   source: UpscaleSourceInput
-  sourceWidth: number
-  sourceHeight: number
   sourceFps: number
 }
 
@@ -218,8 +216,6 @@ class UpscaleService {
       source,
       sourceOpfsPath,
       sourceMimeType,
-      sourceWidth: job.sourceWidth,
-      sourceHeight: job.sourceHeight,
       sourceFps: job.sourceFps,
       variant: job.variant,
     })

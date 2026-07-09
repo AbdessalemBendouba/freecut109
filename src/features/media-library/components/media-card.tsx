@@ -838,9 +838,8 @@ const MediaCardInternal = memo(function MediaCardInternal({
                   const { mediaLibraryService } = await importMediaLibraryService()
                   return mediaLibraryService.getMediaFile(item.id)
                 },
-          sourceWidth: item.width,
-          sourceHeight: item.height,
-          // Only a hint for the progress bar; the worker measures the true rate itself.
+          // Only a hint for the progress bar; the worker measures the true rate itself, and takes
+          // the frame size from the decoder rather than from this item's metadata.
           sourceFps: item.fps || 30,
         })
       }
@@ -878,9 +877,8 @@ const MediaCardInternal = memo(function MediaCardInternal({
                   const { mediaLibraryService } = await importMediaLibraryService()
                   return mediaLibraryService.getMediaFile(item.id)
                 },
-          sourceWidth: item.width,
-          sourceHeight: item.height,
-          // Only a hint for the progress bar; the worker measures the true rate itself.
+          // Only a hint for the progress bar; the worker measures the true rate itself, and takes
+          // the frame size from the decoder rather than from this item's metadata.
           sourceFps: item.fps,
         })
       }

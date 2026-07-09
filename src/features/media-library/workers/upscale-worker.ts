@@ -54,8 +54,7 @@ export interface UpscaleRequest {
   source?: Blob
   sourceOpfsPath?: string
   sourceMimeType?: string
-  sourceWidth: number
-  sourceHeight: number
+  /** Only a hint, for the ETA before the first frame decodes. The true rate is measured. */
   sourceFps: number
   variant: UpscaleVariant
 }
@@ -144,7 +143,7 @@ async function createEncoder(
   fps: number,
 ) {
   const writable = await scratch.createWritable(jobId)
-  const codec = await pickCodec(mb, width, height)
+  const codec = await pickCodec(mb, width, height, mb.QUALITY_HIGH)
   const output = new mb.Output({
     format: new mb.Mp4OutputFormat({ fastStart: false }),
     target: new mb.StreamTarget(writable, { chunked: true, chunkSize: STREAM_CHUNK_SIZE_BYTES }),
@@ -160,8 +159,13 @@ async function createEncoder(
 }
 
 /** Render targets + encoder. Split out so `upscale` can dispose the decoder if it throws. */
-async function setupRender(mb: Mediabunny, request: UpscaleRequest, input: InputInstance) {
-  const { sourceWidth: width, sourceHeight: height } = request
+async function setupRender(
+  mb: Mediabunny,
+  request: UpscaleRequest,
+  input: InputInstance,
+  width: number,
+  height: number,
+) {
   const out = upscaledSize(width, height)
   const source = createRenderCanvas(width, height)
   const target = createRenderCanvas(out.width, out.height)
@@ -179,9 +183,8 @@ async function setupRender(mb: Mediabunny, request: UpscaleRequest, input: Input
 }
 
 async function upscale(request: UpscaleRequest): Promise<void> {
-  const { jobId, variant, sourceWidth, sourceHeight, sourceFps } = request
+  const { jobId, variant, sourceFps } = request
 
-  assertEncodableOutput(sourceWidth, sourceHeight)
   await ensureProResDecoderRegistered()
   const mb = await loadMediabunny()
 
@@ -192,11 +195,30 @@ async function upscale(request: UpscaleRequest): Promise<void> {
   const sourceBlob = request.source
     ? request.source
     : await getSourceBlobFromOpfs(request.sourceOpfsPath!, request.sourceMimeType)
-  const { input, sink, totalSeconds } = await openVideoSource(mb, sourceBlob)
+  // Frame size comes from the decoder, not from the media library. A rotated phone video reports
+  // landscape dimensions in its container metadata while decoding to portrait frames; trusting
+  // the library would squash it into the wrong aspect.
+  const {
+    input,
+    sink,
+    totalSeconds,
+    width: sourceWidth,
+    height: sourceHeight,
+  } = await openVideoSource(mb, sourceBlob)
+
+  try {
+    assertEncodableOutput(sourceWidth, sourceHeight)
+  } catch (error) {
+    input.dispose()
+    throw error
+  }
+
   const { out, source, target, output, videoSource, audio, codec } = await setupRender(
     mb,
     request,
     input,
+    sourceWidth,
+    sourceHeight,
   ).catch((error: unknown) => {
     input.dispose()
     throw error

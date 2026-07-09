@@ -55,8 +55,6 @@ interface InterpolationRequest {
   fileName: string
   factor: InterpolationFactor
   source: InterpolationSourceInput
-  sourceWidth: number
-  sourceHeight: number
   sourceFps: number
 }
 
@@ -220,8 +218,6 @@ class FrameInterpolationService {
       source,
       sourceOpfsPath,
       sourceMimeType,
-      sourceWidth: job.sourceWidth,
-      sourceHeight: job.sourceHeight,
       sourceFps: job.sourceFps,
       factor: job.factor,
     })
