@@ -1039,7 +1039,9 @@ export const VideoContent: React.FC<{
   // ProRes (and other browser-undecodable codecs) can't play through a <video>
   // element, so on failure we fall back to live turbores decode painted to a canvas.
   // Initialize from the session set so a known-undecodable clip never mounts a <video>.
-  const [useLiveDecode, setUseLiveDecode] = useState(() => shouldUseLiveDecodeForMedia(item.mediaId))
+  const [useLiveDecode, setUseLiveDecode] = useState(() =>
+    shouldUseLiveDecodeForMedia(item.mediaId),
+  )
   const liveDecodeTriedRef = useRef(false)
   // One-shot per-item retry: on first failure, invalidate the blob URL so
   // the upstream resolver (driven by `useBlobUrlVersion`) produces a fresh

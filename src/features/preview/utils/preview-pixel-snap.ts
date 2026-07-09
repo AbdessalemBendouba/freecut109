@@ -81,9 +81,7 @@ function getAspectStableFitSize({
   const unitHeight = sourceHeight / divisor
   const maxDeviceWidth = Math.max(0, Math.floor(containerSize.width * dpr + MIN_PIXEL_SNAP_DELTA))
   const maxDeviceHeight = Math.max(0, Math.floor(containerSize.height * dpr + MIN_PIXEL_SNAP_DELTA))
-  const unitCount = Math.floor(
-    Math.min(maxDeviceWidth / unitWidth, maxDeviceHeight / unitHeight),
-  )
+  const unitCount = Math.floor(Math.min(maxDeviceWidth / unitWidth, maxDeviceHeight / unitHeight))
 
   if (unitCount > 0) {
     return {

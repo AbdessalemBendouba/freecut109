@@ -10,10 +10,7 @@ import {
 import { useItemsStore } from './items-store'
 import { useCompositionsStore } from './compositions-store'
 import { useSequencesStore } from './sequences-store'
-import {
-  useCompositionNavigationStore,
-  getActiveTabId,
-} from './composition-navigation-store'
+import { useCompositionNavigationStore, getActiveTabId } from './composition-navigation-store'
 import { getActiveCompositionId } from './composition-navigation-active'
 
 function seedSequence(id: string, itemId: string): void {

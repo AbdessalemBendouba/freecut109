@@ -13,10 +13,7 @@ import {
   interpolateColorKeyframesToHex,
   keyframeValueToHexColor,
 } from './color-keyframes'
-import {
-  evaluateAudioPulseParams,
-  type AudioPulseFrameValues,
-} from './trigger-wave-motion-layer'
+import { evaluateAudioPulseParams, type AudioPulseFrameValues } from './trigger-wave-motion-layer'
 
 /**
  * Evaluate a trigger-wave effect's audio-pulse frame values once (or null when

@@ -634,455 +634,476 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                     transition={{ duration: reduceMotion ? 0 : 0.12 }}
                   >
                     {activeSection === 'general' && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm">{t('settings.general.autoSave')}</Label>
-                    <Switch
-                      checked={autoSaveInterval > 0}
-                      onCheckedChange={(v) => setSetting('autoSaveInterval', v ? 5 : 0)}
-                    />
-                  </div>
-                  {autoSaveInterval > 0 && (
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm text-muted-foreground">
-                        {t('settings.general.interval')}
-                      </Label>
-                      <div className="w-32 flex items-center gap-2">
-                        <Slider
-                          value={[autoSaveInterval]}
-                          onValueChange={([v]) => setSetting('autoSaveInterval', v || 5)}
-                          min={5}
-                          max={30}
-                          step={5}
-                        />
-                        <span className="text-xs text-muted-foreground w-6">
-                          {t('settings.general.intervalMinutes', { count: autoSaveInterval })}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm">{t('settings.general.undoHistoryDepth')}</Label>
-                    <div className="w-32 flex items-center gap-2">
-                      <Slider
-                        value={[maxUndoHistory]}
-                        onValueChange={([v]) => setSetting('maxUndoHistory', v || 10)}
-                        min={10}
-                        max={200}
-                        step={10}
-                      />
-                      <span className="text-xs text-muted-foreground w-6">{maxUndoHistory}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm">{t('settings.general.uiSounds')}</Label>
-                    <Switch
-                      checked={uiSoundsEnabled}
-                      onCheckedChange={(v) => {
-                        setUiSoundEnabled(v)
-                        // Give immediate audible confirmation when turning sounds on.
-                        if (v) emitUiSound('confirm')
-                      }}
-                    />
-                  </div>
-                  {uiSoundsEnabled && (
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm text-muted-foreground">
-                        {t('settings.general.uiSoundVolume')}
-                      </Label>
-                      <div className="w-32 flex items-center gap-2">
-                        <Slider
-                          value={[uiSoundVolume]}
-                          onValueChange={([v]) => {
-                            setUiSoundVolume(v ?? 0.6)
-                            // Preview the new level as the user drags.
-                            emitUiSound('select')
-                          }}
-                          min={0}
-                          max={1}
-                          step={0.05}
-                        />
-                        <span className="text-xs text-muted-foreground w-8">
-                          {Math.round(uiSoundVolume * 100)}%
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                  {uiSoundsEnabled && (
-                    <div className="flex items-center justify-between">
-                      <Label className="text-sm text-muted-foreground">
-                        {t('settings.general.uiSoundVoice')}
-                      </Label>
-                      <div className="flex items-center gap-1.5">
-                        <Select
-                          value={uiSoundVoice}
-                          onValueChange={(value) => {
-                            setUiSoundVoice(value as VoiceName)
-                            // Preview the newly selected voice.
-                            emitUiSound('confirm')
-                          }}
-                        >
-                          <SelectTrigger className="w-32">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {VOICE_OPTIONS.map((option) => (
-                              <SelectPrimitive.Item
-                                key={option.value}
-                                value={option.value}
-                                className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm">{t('settings.general.autoSave')}</Label>
+                          <Switch
+                            checked={autoSaveInterval > 0}
+                            onCheckedChange={(v) => setSetting('autoSaveInterval', v ? 5 : 0)}
+                          />
+                        </div>
+                        {autoSaveInterval > 0 && (
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm text-muted-foreground">
+                              {t('settings.general.interval')}
+                            </Label>
+                            <div className="w-32 flex items-center gap-2">
+                              <Slider
+                                value={[autoSaveInterval]}
+                                onValueChange={([v]) => setSetting('autoSaveInterval', v || 5)}
+                                min={5}
+                                max={30}
+                                step={5}
+                              />
+                              <span className="text-xs text-muted-foreground w-6">
+                                {t('settings.general.intervalMinutes', { count: autoSaveInterval })}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm">
+                            {t('settings.general.undoHistoryDepth')}
+                          </Label>
+                          <div className="w-32 flex items-center gap-2">
+                            <Slider
+                              value={[maxUndoHistory]}
+                              onValueChange={([v]) => setSetting('maxUndoHistory', v || 10)}
+                              min={10}
+                              max={200}
+                              step={10}
+                            />
+                            <span className="text-xs text-muted-foreground w-6">
+                              {maxUndoHistory}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm">{t('settings.general.uiSounds')}</Label>
+                          <Switch
+                            checked={uiSoundsEnabled}
+                            onCheckedChange={(v) => {
+                              setUiSoundEnabled(v)
+                              // Give immediate audible confirmation when turning sounds on.
+                              if (v) emitUiSound('confirm')
+                            }}
+                          />
+                        </div>
+                        {uiSoundsEnabled && (
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm text-muted-foreground">
+                              {t('settings.general.uiSoundVolume')}
+                            </Label>
+                            <div className="w-32 flex items-center gap-2">
+                              <Slider
+                                value={[uiSoundVolume]}
+                                onValueChange={([v]) => {
+                                  setUiSoundVolume(v ?? 0.6)
+                                  // Preview the new level as the user drags.
+                                  emitUiSound('select')
+                                }}
+                                min={0}
+                                max={1}
+                                step={0.05}
+                              />
+                              <span className="text-xs text-muted-foreground w-8">
+                                {Math.round(uiSoundVolume * 100)}%
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                        {uiSoundsEnabled && (
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm text-muted-foreground">
+                              {t('settings.general.uiSoundVoice')}
+                            </Label>
+                            <div className="flex items-center gap-1.5">
+                              <Select
+                                value={uiSoundVoice}
+                                onValueChange={(value) => {
+                                  setUiSoundVoice(value as VoiceName)
+                                  // Preview the newly selected voice.
+                                  emitUiSound('confirm')
+                                }}
                               >
-                                <SelectPrimitive.ItemText>
-                                  <span
-                                    className={
-                                      option.value === uiSoundVoice
-                                        ? 'font-medium text-primary'
-                                        : undefined
-                                    }
-                                  >
-                                    {option.label}
-                                  </span>
-                                </SelectPrimitive.ItemText>
-                              </SelectPrimitive.Item>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {/* Audition the selected voice — a real, keyboard-reachable
+                                <SelectTrigger className="w-32">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {VOICE_OPTIONS.map((option) => (
+                                    <SelectPrimitive.Item
+                                      key={option.value}
+                                      value={option.value}
+                                      className="relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-2 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+                                    >
+                                      <SelectPrimitive.ItemText>
+                                        <span
+                                          className={
+                                            option.value === uiSoundVoice
+                                              ? 'font-medium text-primary'
+                                              : undefined
+                                          }
+                                        >
+                                          {option.label}
+                                        </span>
+                                      </SelectPrimitive.ItemText>
+                                    </SelectPrimitive.Item>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              {/* Audition the selected voice — a real, keyboard-reachable
                             button beside the Select rather than a control nested
                             inside each (non-focusable) option row. */}
-                        <button
-                          type="button"
-                          aria-label={t('settings.general.uiSoundPreview')}
-                          onClick={() => previewUiSound(uiSoundVoice)}
-                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
-                        >
-                          <Play className="h-3.5 w-3.5" />
-                        </button>
+                              <button
+                                type="button"
+                                aria-label={t('settings.general.uiSoundPreview')}
+                                onClick={() => previewUiSound(uiSoundVoice)}
+                                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 text-muted-foreground transition-colors hover:bg-white/10 hover:text-foreground"
+                              >
+                                <Play className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
-                </div>
-              )}
+                    )}
 
-              {activeSection === 'ai' && (
-                <div className="space-y-3">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <Label className="text-sm">{t('settings.ai.captionSampleInterval')}</Label>
-                        <p className="text-xs text-muted-foreground">
-                          {t('settings.ai.captionSampleIntervalDescription')}
-                        </p>
+                    {activeSection === 'ai' && (
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                              <Label className="text-sm">
+                                {t('settings.ai.captionSampleInterval')}
+                              </Label>
+                              <p className="text-xs text-muted-foreground">
+                                {t('settings.ai.captionSampleIntervalDescription')}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center rounded-md border border-border bg-secondary p-0.5">
+                              {(['seconds', 'frames'] as const).map((unit) => (
+                                <button
+                                  key={unit}
+                                  type="button"
+                                  onClick={() => setSetting('captioningIntervalUnit', unit)}
+                                  className={cn(
+                                    'rounded px-2.5 py-1 text-xs transition-colors',
+                                    captioningIntervalUnit === unit
+                                      ? 'bg-primary/15 text-primary'
+                                      : 'text-muted-foreground hover:text-foreground',
+                                  )}
+                                >
+                                  {unit === 'seconds'
+                                    ? t('settings.ai.seconds')
+                                    : t('settings.ai.frames')}
+                                </button>
+                              ))}
+                            </div>
+                            <Input
+                              type="number"
+                              inputMode="decimal"
+                              className="h-8 w-24"
+                              min={intervalBounds.min}
+                              max={intervalBounds.max}
+                              step={intervalInputStep}
+                              value={captioningIntervalValue}
+                              onChange={(event) => {
+                                const parsed = Number(event.target.value)
+                                if (Number.isFinite(parsed)) {
+                                  setSetting('captioningIntervalValue', parsed)
+                                }
+                              }}
+                            />
+                            <span className="text-xs text-muted-foreground">
+                              {intervalUnitLabel}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-xs text-muted-foreground"
+                              onClick={() => {
+                                setSetting('captioningIntervalUnit', 'seconds')
+                                setSetting(
+                                  'captioningIntervalValue',
+                                  DEFAULT_CAPTIONING_INTERVAL_SECONDS,
+                                )
+                              }}
+                              disabled={
+                                captioningIntervalUnit === 'seconds' &&
+                                captioningIntervalValue === DEFAULT_CAPTIONING_INTERVAL_SECONDS
+                              }
+                            >
+                              {t('common.reset')}
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {t('settings.ai.captionIntervalHint', {
+                              estimate: formatCaptionEstimate(
+                                t,
+                                captioningIntervalUnit,
+                                captioningIntervalValue,
+                              ),
+                            })}
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="space-y-0.5">
+                            <Label className="text-sm">
+                              {t('settings.ai.defaultCaptionStyle')}
+                            </Label>
+                            <p className="text-xs text-muted-foreground">
+                              {t('settings.ai.defaultCaptionStyleDescription')}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {CAPTION_STYLE_PRESETS.map((preset) => (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                title={t(preset.hintKey)}
+                                onClick={() => setSetting('defaultCaptionStylePresetId', preset.id)}
+                                className={cn(
+                                  'rounded-md border px-2.5 py-1 text-xs transition-colors',
+                                  defaultCaptionStylePresetId === preset.id
+                                    ? 'border-primary bg-primary/15 text-primary'
+                                    : 'border-border text-muted-foreground hover:text-foreground',
+                                )}
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center rounded-md border border-border bg-secondary p-0.5">
-                        {(['seconds', 'frames'] as const).map((unit) => (
-                          <button
-                            key={unit}
-                            type="button"
-                            onClick={() => setSetting('captioningIntervalUnit', unit)}
-                            className={cn(
-                              'rounded px-2.5 py-1 text-xs transition-colors',
-                              captioningIntervalUnit === unit
-                                ? 'bg-primary/15 text-primary'
-                                : 'text-muted-foreground hover:text-foreground',
-                            )}
+                    )}
+
+                    {activeSection === 'timeline' && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm">
+                              {t('settings.timeline.snapByDefault')}
+                            </Label>
+                            <p className="text-xs text-muted-foreground">
+                              {t('settings.timeline.snapByDefaultDescription')}
+                            </p>
+                          </div>
+                          <Switch
+                            checked={snapEnabled}
+                            onCheckedChange={(v) => setSetting('snapEnabled', v)}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm">{t('settings.timeline.showWaveforms')}</Label>
+                          <Switch
+                            checked={showWaveforms}
+                            onCheckedChange={(v) => setSetting('showWaveforms', v)}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <Label className="text-sm">{t('settings.timeline.showFilmstrips')}</Label>
+                          <Switch
+                            checked={showFilmstrips}
+                            onCheckedChange={(v) => setSetting('showFilmstrips', v)}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm">
+                              {t('settings.timeline.enableFilmstripExtraction')}
+                            </Label>
+                            <p className="text-xs text-muted-foreground">
+                              {t('settings.timeline.enableFilmstripExtractionDescription')}
+                            </p>
+                          </div>
+                          <Switch
+                            checked={enableFilmstripExtraction}
+                            onCheckedChange={(v) => setSetting('enableFilmstripExtraction', v)}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {activeSection === 'storage' && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm">
+                              {t('settings.storage.generateMissingProxies')}
+                            </Label>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {t('settings.storage.generateMissingProxiesDescription')}
+                            </p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-28 gap-1.5"
+                            onClick={handleGenerateMissingProxies}
+                            disabled={
+                              proxyGenerateState !== 'idle' || missingProjectProxyCount === 0
+                            }
                           >
-                            {unit === 'seconds'
-                              ? t('settings.ai.seconds')
-                              : t('settings.ai.frames')}
-                          </button>
-                        ))}
+                            {proxyGenerateState === 'queueing' && (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            )}
+                            {proxyGenerateState === 'done' && <Check className="w-3.5 h-3.5" />}
+                            {proxyGenerateState === 'idle' && <Film className="w-3.5 h-3.5" />}
+                            {proxyGenerateState === 'queueing'
+                              ? t('common.queueing')
+                              : proxyGenerateState === 'done'
+                                ? t('settings.storage.queued')
+                                : missingProjectProxyCount > 0
+                                  ? t('settings.storage.generateWithCount', {
+                                      count: missingProjectProxyCount,
+                                    })
+                                  : t('settings.storage.upToDate')}
+                          </Button>
+                        </div>
+                        <Separator className="bg-white/8" />
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm">
+                              {t('settings.storage.clearProjectCache')}
+                            </Label>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {t('settings.storage.clearProjectCacheDescription')}
+                            </p>
+                            {clearFeedback && (
+                              <p
+                                className={cn(
+                                  'mt-1 text-xs',
+                                  clearFeedback.tone === 'error'
+                                    ? 'text-amber-400'
+                                    : 'text-muted-foreground',
+                                )}
+                              >
+                                {clearFeedback.message}
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-28 gap-1.5"
+                            onClick={() => setShowClearConfirm(true)}
+                            disabled={clearState !== 'idle'}
+                          >
+                            {clearState === 'clearing' && (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            )}
+                            {clearState === 'done' && <Check className="w-3.5 h-3.5" />}
+                            {clearState === 'partial' && <TriangleAlert className="w-3.5 h-3.5" />}
+                            {clearState === 'idle' && <Trash2 className="w-3.5 h-3.5" />}
+                            {clearState === 'clearing'
+                              ? t('common.clearing')
+                              : clearState === 'done'
+                                ? t('settings.storage.cleared')
+                                : clearState === 'partial'
+                                  ? t('common.partial')
+                                  : t('settings.storage.clear')}
+                          </Button>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm">
+                              {t('settings.storage.regenerateThumbnails')}
+                            </Label>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {t('settings.storage.regenerateThumbnailsDescription')}
+                            </p>
+                            {regenFeedback && (
+                              <p
+                                className={cn(
+                                  'mt-1 text-xs',
+                                  regenFeedback.tone === 'error'
+                                    ? 'text-amber-400'
+                                    : 'text-muted-foreground',
+                                )}
+                              >
+                                {regenFeedback.message}
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-28 gap-1.5"
+                            onClick={handleRegenThumbnails}
+                            disabled={regenState !== 'idle'}
+                          >
+                            {regenState === 'working' && (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            )}
+                            {regenState === 'done' && <Check className="w-3.5 h-3.5" />}
+                            {regenState === 'partial' && <TriangleAlert className="w-3.5 h-3.5" />}
+                            {regenState === 'idle' && <ImagePlus className="w-3.5 h-3.5" />}
+                            {regenState === 'working'
+                              ? regenProgress
+                              : regenState === 'done'
+                                ? t('common.done')
+                                : regenState === 'partial'
+                                  ? t('common.partial')
+                                  : t('settings.storage.regenerate')}
+                          </Button>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <Label className="text-sm">{t('settings.storage.deleteProxies')}</Label>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {t('settings.storage.deleteProxiesDescription')}
+                            </p>
+                            {proxyFeedback && (
+                              <p
+                                className={cn(
+                                  'mt-1 text-xs',
+                                  proxyFeedback.tone === 'error'
+                                    ? 'text-amber-400'
+                                    : 'text-muted-foreground',
+                                )}
+                              >
+                                {proxyFeedback.message}
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 w-28 gap-1.5"
+                            onClick={handleClearProxies}
+                            disabled={proxyState !== 'idle'}
+                          >
+                            {proxyState === 'clearing' && (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            )}
+                            {proxyState === 'done' && <Check className="w-3.5 h-3.5" />}
+                            {proxyState === 'partial' && <TriangleAlert className="w-3.5 h-3.5" />}
+                            {proxyState === 'idle' && <Film className="w-3.5 h-3.5" />}
+                            {proxyState === 'clearing'
+                              ? t('common.deleting')
+                              : proxyState === 'done'
+                                ? t('settings.storage.deleted')
+                                : proxyState === 'partial'
+                                  ? t('common.partial')
+                                  : t('common.delete')}
+                          </Button>
+                        </div>
+                        <Separator className="bg-white/8" />
+                        <div className="space-y-3">
+                          <div className="space-y-1">
+                            <Label className="text-sm">{t('settings.storage.localAi')}</Label>
+                            <p className="text-xs text-muted-foreground">
+                              {t('settings.storage.localAiDescription')}
+                            </p>
+                          </div>
+                          <LocalInferenceUnloadControl />
+                          <LocalModelCacheControl />
+                        </div>
                       </div>
-                      <Input
-                        type="number"
-                        inputMode="decimal"
-                        className="h-8 w-24"
-                        min={intervalBounds.min}
-                        max={intervalBounds.max}
-                        step={intervalInputStep}
-                        value={captioningIntervalValue}
-                        onChange={(event) => {
-                          const parsed = Number(event.target.value)
-                          if (Number.isFinite(parsed)) {
-                            setSetting('captioningIntervalValue', parsed)
-                          }
-                        }}
-                      />
-                      <span className="text-xs text-muted-foreground">{intervalUnitLabel}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-muted-foreground"
-                        onClick={() => {
-                          setSetting('captioningIntervalUnit', 'seconds')
-                          setSetting('captioningIntervalValue', DEFAULT_CAPTIONING_INTERVAL_SECONDS)
-                        }}
-                        disabled={
-                          captioningIntervalUnit === 'seconds' &&
-                          captioningIntervalValue === DEFAULT_CAPTIONING_INTERVAL_SECONDS
-                        }
-                      >
-                        {t('common.reset')}
-                      </Button>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {t('settings.ai.captionIntervalHint', {
-                        estimate: formatCaptionEstimate(
-                          t,
-                          captioningIntervalUnit,
-                          captioningIntervalValue,
-                        ),
-                      })}
-                    </p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="space-y-0.5">
-                      <Label className="text-sm">{t('settings.ai.defaultCaptionStyle')}</Label>
-                      <p className="text-xs text-muted-foreground">
-                        {t('settings.ai.defaultCaptionStyleDescription')}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {CAPTION_STYLE_PRESETS.map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          title={t(preset.hintKey)}
-                          onClick={() => setSetting('defaultCaptionStylePresetId', preset.id)}
-                          className={cn(
-                            'rounded-md border px-2.5 py-1 text-xs transition-colors',
-                            defaultCaptionStylePresetId === preset.id
-                              ? 'border-primary bg-primary/15 text-primary'
-                              : 'border-border text-muted-foreground hover:text-foreground',
-                          )}
-                        >
-                          {preset.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {activeSection === 'timeline' && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label className="text-sm">{t('settings.timeline.snapByDefault')}</Label>
-                      <p className="text-xs text-muted-foreground">
-                        {t('settings.timeline.snapByDefaultDescription')}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={snapEnabled}
-                      onCheckedChange={(v) => setSetting('snapEnabled', v)}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm">{t('settings.timeline.showWaveforms')}</Label>
-                    <Switch
-                      checked={showWaveforms}
-                      onCheckedChange={(v) => setSetting('showWaveforms', v)}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm">{t('settings.timeline.showFilmstrips')}</Label>
-                    <Switch
-                      checked={showFilmstrips}
-                      onCheckedChange={(v) => setSetting('showFilmstrips', v)}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label className="text-sm">
-                        {t('settings.timeline.enableFilmstripExtraction')}
-                      </Label>
-                      <p className="text-xs text-muted-foreground">
-                        {t('settings.timeline.enableFilmstripExtractionDescription')}
-                      </p>
-                    </div>
-                    <Switch
-                      checked={enableFilmstripExtraction}
-                      onCheckedChange={(v) => setSetting('enableFilmstripExtraction', v)}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {activeSection === 'storage' && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label className="text-sm">
-                        {t('settings.storage.generateMissingProxies')}
-                      </Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {t('settings.storage.generateMissingProxiesDescription')}
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-28 gap-1.5"
-                      onClick={handleGenerateMissingProxies}
-                      disabled={proxyGenerateState !== 'idle' || missingProjectProxyCount === 0}
-                    >
-                      {proxyGenerateState === 'queueing' && (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      )}
-                      {proxyGenerateState === 'done' && <Check className="w-3.5 h-3.5" />}
-                      {proxyGenerateState === 'idle' && <Film className="w-3.5 h-3.5" />}
-                      {proxyGenerateState === 'queueing'
-                        ? t('common.queueing')
-                        : proxyGenerateState === 'done'
-                          ? t('settings.storage.queued')
-                          : missingProjectProxyCount > 0
-                            ? t('settings.storage.generateWithCount', {
-                                count: missingProjectProxyCount,
-                              })
-                            : t('settings.storage.upToDate')}
-                    </Button>
-                  </div>
-                  <Separator className="bg-white/8" />
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label className="text-sm">{t('settings.storage.clearProjectCache')}</Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {t('settings.storage.clearProjectCacheDescription')}
-                      </p>
-                      {clearFeedback && (
-                        <p
-                          className={cn(
-                            'mt-1 text-xs',
-                            clearFeedback.tone === 'error'
-                              ? 'text-amber-400'
-                              : 'text-muted-foreground',
-                          )}
-                        >
-                          {clearFeedback.message}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-28 gap-1.5"
-                      onClick={() => setShowClearConfirm(true)}
-                      disabled={clearState !== 'idle'}
-                    >
-                      {clearState === 'clearing' && (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      )}
-                      {clearState === 'done' && <Check className="w-3.5 h-3.5" />}
-                      {clearState === 'partial' && <TriangleAlert className="w-3.5 h-3.5" />}
-                      {clearState === 'idle' && <Trash2 className="w-3.5 h-3.5" />}
-                      {clearState === 'clearing'
-                        ? t('common.clearing')
-                        : clearState === 'done'
-                          ? t('settings.storage.cleared')
-                          : clearState === 'partial'
-                            ? t('common.partial')
-                            : t('settings.storage.clear')}
-                    </Button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label className="text-sm">
-                        {t('settings.storage.regenerateThumbnails')}
-                      </Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {t('settings.storage.regenerateThumbnailsDescription')}
-                      </p>
-                      {regenFeedback && (
-                        <p
-                          className={cn(
-                            'mt-1 text-xs',
-                            regenFeedback.tone === 'error'
-                              ? 'text-amber-400'
-                              : 'text-muted-foreground',
-                          )}
-                        >
-                          {regenFeedback.message}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-28 gap-1.5"
-                      onClick={handleRegenThumbnails}
-                      disabled={regenState !== 'idle'}
-                    >
-                      {regenState === 'working' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                      {regenState === 'done' && <Check className="w-3.5 h-3.5" />}
-                      {regenState === 'partial' && <TriangleAlert className="w-3.5 h-3.5" />}
-                      {regenState === 'idle' && <ImagePlus className="w-3.5 h-3.5" />}
-                      {regenState === 'working'
-                        ? regenProgress
-                        : regenState === 'done'
-                          ? t('common.done')
-                          : regenState === 'partial'
-                            ? t('common.partial')
-                            : t('settings.storage.regenerate')}
-                    </Button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label className="text-sm">{t('settings.storage.deleteProxies')}</Label>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {t('settings.storage.deleteProxiesDescription')}
-                      </p>
-                      {proxyFeedback && (
-                        <p
-                          className={cn(
-                            'mt-1 text-xs',
-                            proxyFeedback.tone === 'error'
-                              ? 'text-amber-400'
-                              : 'text-muted-foreground',
-                          )}
-                        >
-                          {proxyFeedback.message}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-8 w-28 gap-1.5"
-                      onClick={handleClearProxies}
-                      disabled={proxyState !== 'idle'}
-                    >
-                      {proxyState === 'clearing' && (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      )}
-                      {proxyState === 'done' && <Check className="w-3.5 h-3.5" />}
-                      {proxyState === 'partial' && <TriangleAlert className="w-3.5 h-3.5" />}
-                      {proxyState === 'idle' && <Film className="w-3.5 h-3.5" />}
-                      {proxyState === 'clearing'
-                        ? t('common.deleting')
-                        : proxyState === 'done'
-                          ? t('settings.storage.deleted')
-                          : proxyState === 'partial'
-                            ? t('common.partial')
-                            : t('common.delete')}
-                    </Button>
-                  </div>
-                  <Separator className="bg-white/8" />
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <Label className="text-sm">{t('settings.storage.localAi')}</Label>
-                      <p className="text-xs text-muted-foreground">
-                        {t('settings.storage.localAiDescription')}
-                      </p>
-                    </div>
-                    <LocalInferenceUnloadControl />
-                    <LocalModelCacheControl />
-                  </div>
-                </div>
-              )}
+                    )}
                   </motion.div>
                 </AnimatePresence>
               </div>

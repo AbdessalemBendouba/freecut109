@@ -22,7 +22,8 @@ function isValidPreset(value: unknown): value is EasingPreset {
   const preset = value as Record<string, unknown>
   if (typeof preset.name !== 'string') return false
   if (preset.type === 'Easing') return hasNumericFields(preset.bezier, ['x1', 'y1', 'x2', 'y2'])
-  if (preset.type === 'Spring') return hasNumericFields(preset.spring, ['tension', 'friction', 'mass'])
+  if (preset.type === 'Spring')
+    return hasNumericFields(preset.spring, ['tension', 'friction', 'mass'])
   return false
 }
 

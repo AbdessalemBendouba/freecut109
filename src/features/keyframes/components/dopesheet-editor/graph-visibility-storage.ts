@@ -40,7 +40,11 @@ export function loadGraphVisibleProperties(
   selectedProperty: AnimatableProperty | null | undefined,
   graphableProperties: AnimatableProperty[] = properties,
 ): Set<AnimatableProperty> {
-  const fallback = getDefaultGraphVisibleProperties(properties, selectedProperty, graphableProperties)
+  const fallback = getDefaultGraphVisibleProperties(
+    properties,
+    selectedProperty,
+    graphableProperties,
+  )
 
   try {
     const raw = localStorage.getItem(`${GRAPH_VISIBLE_PROPERTIES_STORAGE_KEY}:${itemId}`)

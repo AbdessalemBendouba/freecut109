@@ -1448,7 +1448,11 @@ function gradientMapStops(preset: string, customStops: string): [number, number,
           .filter((s) => s.length > 0)
       : (GRADIENT_MAP_PRESETS[preset] ?? GRADIENT_MAP_PRESETS.inferno!)
   const stops = hexes.map((h) => parseHexColorRgb(h, [0, 0, 0]))
-  if (stops.length === 0) return [[0, 0, 0], [1, 1, 1]]
+  if (stops.length === 0)
+    return [
+      [0, 0, 0],
+      [1, 1, 1],
+    ]
   if (stops.length === 1) return [stops[0]!, stops[0]!]
   return stops
 }

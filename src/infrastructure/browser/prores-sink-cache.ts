@@ -22,10 +22,7 @@
 
 import { createLogger } from '@/shared/logging/logger'
 import { createMediabunnyInputSource } from './mediabunny-input-source'
-import {
-  createProResPreviewSession,
-  type ProResPreviewSession,
-} from './prores-preview-session'
+import { createProResPreviewSession, type ProResPreviewSession } from './prores-preview-session'
 import { ensureProResDecoderRegistered } from './register-prores-decoder'
 
 const log = createLogger('ProResSinkCache')

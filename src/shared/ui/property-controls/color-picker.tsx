@@ -60,7 +60,14 @@ interface HexInputProps {
  * from the live `color` prop lets the value update the color live (per keystroke)
  * without the parent's live updates resetting what the user is typing.
  */
-function HexInput({ color, onLiveChange, onCommit, allowAlpha, disabled, className }: HexInputProps) {
+function HexInput({
+  color,
+  onLiveChange,
+  onCommit,
+  allowAlpha,
+  disabled,
+  className,
+}: HexInputProps) {
   const maxDigits = allowAlpha ? 8 : 6
   const [draft, setDraft] = useState(() => normalizeHexDraft(color, maxDigits))
   const isFocusedRef = useRef(false)

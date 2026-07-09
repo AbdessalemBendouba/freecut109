@@ -10,16 +10,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import * as DialogPrimitive from '@radix-ui/react-dialog'
-import {
-  AlertTriangle,
-  Download,
-  Keyboard,
-  Plus,
-  RotateCcw,
-  Search,
-  Upload,
-  X,
-} from 'lucide-react'
+import { AlertTriangle, Download, Keyboard, Plus, RotateCcw, Search, Upload, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   AlertDialog,
@@ -338,27 +329,28 @@ function KeyCap({
   // Interactive caps (an actionable command token) are real buttons so the whole
   // on-screen keyboard is reachable and operable via Tab/Enter. Modifier caps
   // (mod/alt/shift) aren't actionable — they render as static, non-focusable caps.
-  const keyCap = keySpec.token && onClick ? (
-    <button
-      type="button"
-      aria-label={ariaLabel}
-      aria-pressed={isActive}
-      className={cn(
-        capClassName,
-        'cursor-pointer hover:border-white/12 hover:text-foreground/92 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
-      )}
-      style={{ flex: keySpec.width ?? 1 }}
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      {label}
-    </button>
-  ) : (
-    <div className={capClassName} style={{ flex: keySpec.width ?? 1 }} aria-hidden="true">
-      {label}
-    </div>
-  )
+  const keyCap =
+    keySpec.token && onClick ? (
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        aria-pressed={isActive}
+        className={cn(
+          capClassName,
+          'cursor-pointer hover:border-white/12 hover:text-foreground/92 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+        )}
+        style={{ flex: keySpec.width ?? 1 }}
+        onClick={onClick}
+        onMouseEnter={onMouseEnter}
+        onMouseLeave={onMouseLeave}
+      >
+        {label}
+      </button>
+    ) : (
+      <div className={capClassName} style={{ flex: keySpec.width ?? 1 }} aria-hidden="true">
+        {label}
+      </div>
+    )
 
   if (!tooltip) {
     return keyCap
@@ -413,8 +405,7 @@ function KeyboardPreview({
       // they stay non-interactive — no click/hover/aria, no tab stop.
       const interactive = Boolean(token && !MODIFIER_TOKENS.has(token))
       const keyLabel = token ? (labelForToken(token) ?? undefined) : undefined
-      const printedLabel =
-        keyLabel ?? keySpec.label ?? (token ? formatHotkeyBinding(token) : '')
+      const printedLabel = keyLabel ?? keySpec.label ?? (token ? formatHotkeyBinding(token) : '')
       const command = token ? tokenLabels.get(token) : undefined
       const ariaLabelForKey = interactive
         ? command
@@ -429,7 +420,11 @@ function KeyboardPreview({
           displayLabel={keyLabel}
           ariaLabel={ariaLabelForKey}
           isActive={
-            token ? (hoverTokens.size > 0 ? hoverTokens.has(token) : activeTokens.has(token)) : false
+            token
+              ? hoverTokens.size > 0
+                ? hoverTokens.has(token)
+                : activeTokens.has(token)
+              : false
           }
           isLayerKey={token ? layerTokens.has(token) : false}
           tooltip={interactive ? command : undefined}
@@ -514,12 +509,14 @@ function buildImportChanges(
   const nextBindings = resolveHotkeys(nextOverrides)
   const changes: ImportChange[] = []
 
-  for (const [key, item] of Object.entries(HOTKEY_ITEM_BY_KEY) as [
-    HotkeyKey,
-    HotkeyEditorItem,
-  ][]) {
+  for (const [key, item] of Object.entries(HOTKEY_ITEM_BY_KEY) as [HotkeyKey, HotkeyEditorItem][]) {
     if (currentBindings[key] !== nextBindings[key]) {
-      changes.push({ key, labelKey: item.labelKey, from: currentBindings[key], to: nextBindings[key] })
+      changes.push({
+        key,
+        labelKey: item.labelKey,
+        from: currentBindings[key],
+        to: nextBindings[key],
+      })
     }
   }
 
@@ -1384,69 +1381,69 @@ export function HotkeyEditor() {
                     <div className="text-[10px] uppercase tracking-[0.18em] text-primary">
                       {t('projects.settings.hotkeys.listening')}
                     </div>
-                <p className="mt-1 text-xs leading-4 text-foreground/88">
-                  {t('projects.settings.hotkeys.listeningHint')}
-                </p>
-                <AnimatePresence initial={false}>
-                  {captureConflicts.length > 0 ? (
-                    <CollapseBlock reduce={reduceMotion}>
-                      <div className="mt-3 space-y-2 rounded-md border border-destructive/25 bg-destructive/8 p-2">
-                        <div className="flex items-center gap-1.5 text-xs font-medium text-destructive">
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                          {t('projects.settings.hotkeys.conflictDetected')}
-                        </div>
-                    {captureConflicts.map((key) => {
-                      const hotkeyItem = HOTKEY_ITEM_BY_KEY[key]
+                    <p className="mt-1 text-xs leading-4 text-foreground/88">
+                      {t('projects.settings.hotkeys.listeningHint')}
+                    </p>
+                    <AnimatePresence initial={false}>
+                      {captureConflicts.length > 0 ? (
+                        <CollapseBlock reduce={reduceMotion}>
+                          <div className="mt-3 space-y-2 rounded-md border border-destructive/25 bg-destructive/8 p-2">
+                            <div className="flex items-center gap-1.5 text-xs font-medium text-destructive">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              {t('projects.settings.hotkeys.conflictDetected')}
+                            </div>
+                            {captureConflicts.map((key) => {
+                              const hotkeyItem = HOTKEY_ITEM_BY_KEY[key]
 
-                      return (
-                        <div
-                          key={key}
-                          className="flex items-center justify-between gap-2 text-xs text-foreground/88"
-                        >
-                          <span className="min-w-0 flex-1">
-                            {t('projects.settings.hotkeys.conflictsWith', {
-                              action: t(hotkeyItem.labelKey),
+                              return (
+                                <div
+                                  key={key}
+                                  className="flex items-center justify-between gap-2 text-xs text-foreground/88"
+                                >
+                                  <span className="min-w-0 flex-1">
+                                    {t('projects.settings.hotkeys.conflictsWith', {
+                                      action: t(hotkeyItem.labelKey),
+                                    })}
+                                  </span>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    className="h-6 shrink-0 px-2 text-[10px]"
+                                    onClick={() => overwriteConflictingHotkey(key)}
+                                  >
+                                    {t('projects.settings.hotkeys.overwrite')}
+                                  </Button>
+                                </div>
+                              )
                             })}
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="h-6 shrink-0 px-2 text-[10px]"
-                            onClick={() => overwriteConflictingHotkey(key)}
-                          >
-                            {t('projects.settings.hotkeys.overwrite')}
-                          </Button>
-                        </div>
-                      )
-                    })}
-                        {captureConflicts.length > 1 ? (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            className="h-7 w-full px-2 text-[11px]"
-                            onClick={overwriteAllConflictingHotkeys}
-                          >
-                            {t('projects.settings.hotkeys.overwriteAll')}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </CollapseBlock>
-                  ) : null}
-                </AnimatePresence>
-                <AnimatePresence initial={false}>
-                  {pendingBrowserHotkey ? (
-                    <CollapseBlock reduce={reduceMotion}>
-                      <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-300">
-                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        <span>
-                          {t('projects.settings.hotkeys.thisOverrides', {
-                            action: pendingBrowserHotkey.browserAction.toLowerCase(),
-                          })}
-                        </span>
-                      </div>
-                    </CollapseBlock>
-                  ) : null}
-                </AnimatePresence>
+                            {captureConflicts.length > 1 ? (
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="h-7 w-full px-2 text-[11px]"
+                                onClick={overwriteAllConflictingHotkeys}
+                              >
+                                {t('projects.settings.hotkeys.overwriteAll')}
+                              </Button>
+                            ) : null}
+                          </div>
+                        </CollapseBlock>
+                      ) : null}
+                    </AnimatePresence>
+                    <AnimatePresence initial={false}>
+                      {pendingBrowserHotkey ? (
+                        <CollapseBlock reduce={reduceMotion}>
+                          <div className="mt-2 flex items-start gap-1.5 text-xs text-amber-300">
+                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            <span>
+                              {t('projects.settings.hotkeys.thisOverrides', {
+                                action: pendingBrowserHotkey.browserAction.toLowerCase(),
+                              })}
+                            </span>
+                          </div>
+                        </CollapseBlock>
+                      ) : null}
+                    </AnimatePresence>
                   </div>
                 </CollapseBlock>
               ) : null}
@@ -1508,64 +1505,64 @@ export function HotkeyEditor() {
         <div className="h-full overflow-y-auto">
           <div ref={commandListRef} className="columns-[240px] gap-x-2 gap-y-0 px-4 py-2 md:px-5">
             {(activeLayer ? [activeLayer] : HOTKEY_EDITOR_SECTIONS).map((section) => (
-            <div key={section.titleKey} className="break-inside-avoid">
-              {!activeLayer ? (
-                <div className="mb-0.5 mt-1.5 first:mt-0 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                  {t(section.titleKey)}
-                </div>
-              ) : null}
-              {section.items.map((item) => (
-                <div
-                  key={`${section.titleKey}-${item.labelKey}`}
-                  className={cn(
-                    'mb-1 break-inside-avoid rounded border px-2 py-1 text-left transition-colors duration-150 ease-out motion-reduce:transition-none',
-                    hoveredToken || hoveredKey
-                      ? (hoveredKey && item.keys.includes(hoveredKey)) ||
-                        (hoveredToken &&
-                          item.keys.some((k) =>
-                            splitHotkeyBinding(hotkeys[k]).includes(hoveredToken),
-                          ))
-                        ? 'border-primary/35 bg-primary/10'
-                        : 'border-white/7 bg-white/4'
-                      : item.keys.includes(selectedKey)
-                        ? 'border-primary/35 bg-primary/10'
-                        : 'border-white/7 bg-white/4 hover:border-white/12 hover:bg-white/6',
-                  )}
-                  onMouseEnter={() => setHoveredKey(item.keys[0]!)}
-                  onMouseLeave={() => setHoveredKey(null)}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        stopCapture()
-                        setSelectedKey(item.keys[0]!)
-                      }}
-                      className="min-w-0 flex-1 rounded text-left text-[12px] leading-5 text-foreground/92 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
-                    >
-                      {t(item.labelKey)}
-                    </button>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      {item.keys.map((key) => (
-                        <HotkeyBindingPill
-                          key={key}
-                          binding={
-                            captureKey === key
-                              ? draftBinding || previewBinding || hotkeys[key]
-                              : hotkeys[key]
-                          }
-                          isActive={selectedKey === key}
-                          isListening={captureKey === key}
-                          isCustom={key in hotkeyOverrides}
-                          onClick={() => startCapture(key)}
-                        />
-                      ))}
+              <div key={section.titleKey} className="break-inside-avoid">
+                {!activeLayer ? (
+                  <div className="mb-0.5 mt-1.5 first:mt-0 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                    {t(section.titleKey)}
+                  </div>
+                ) : null}
+                {section.items.map((item) => (
+                  <div
+                    key={`${section.titleKey}-${item.labelKey}`}
+                    className={cn(
+                      'mb-1 break-inside-avoid rounded border px-2 py-1 text-left transition-colors duration-150 ease-out motion-reduce:transition-none',
+                      hoveredToken || hoveredKey
+                        ? (hoveredKey && item.keys.includes(hoveredKey)) ||
+                          (hoveredToken &&
+                            item.keys.some((k) =>
+                              splitHotkeyBinding(hotkeys[k]).includes(hoveredToken),
+                            ))
+                          ? 'border-primary/35 bg-primary/10'
+                          : 'border-white/7 bg-white/4'
+                        : item.keys.includes(selectedKey)
+                          ? 'border-primary/35 bg-primary/10'
+                          : 'border-white/7 bg-white/4 hover:border-white/12 hover:bg-white/6',
+                    )}
+                    onMouseEnter={() => setHoveredKey(item.keys[0]!)}
+                    onMouseLeave={() => setHoveredKey(null)}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          stopCapture()
+                          setSelectedKey(item.keys[0]!)
+                        }}
+                        className="min-w-0 flex-1 rounded text-left text-[12px] leading-5 text-foreground/92 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/60"
+                      >
+                        {t(item.labelKey)}
+                      </button>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        {item.keys.map((key) => (
+                          <HotkeyBindingPill
+                            key={key}
+                            binding={
+                              captureKey === key
+                                ? draftBinding || previewBinding || hotkeys[key]
+                                : hotkeys[key]
+                            }
+                            isActive={selectedKey === key}
+                            isListening={captureKey === key}
+                            isCustom={key in hotkeyOverrides}
+                            onClick={() => startCapture(key)}
+                          />
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ))}
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       </motion.div>
@@ -1579,9 +1576,7 @@ export function HotkeyEditor() {
       >
         <AlertDialogContent className="max-w-md">
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t('projects.settings.hotkeys.importReviewTitle')}
-            </AlertDialogTitle>
+            <AlertDialogTitle>{t('projects.settings.hotkeys.importReviewTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
               {t('projects.settings.hotkeys.importReviewDescription')}
             </AlertDialogDescription>
@@ -1603,10 +1598,7 @@ export function HotkeyEditor() {
               </div>
               <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-white/8 bg-white/3 p-2">
                 {pendingImport.changes.map((change) => (
-                  <div
-                    key={change.key}
-                    className="flex items-center justify-between gap-2 text-xs"
-                  >
+                  <div key={change.key} className="flex items-center justify-between gap-2 text-xs">
                     <span className="min-w-0 flex-1 truncate text-foreground/90">
                       {t(change.labelKey)}
                     </span>

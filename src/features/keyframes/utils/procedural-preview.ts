@@ -112,9 +112,7 @@ export function sampleProceduralCurve(params: {
   if (!modifiers || modifiers.length === 0 || toFrame <= fromFrame) return []
   const drivesProperty = modifiers.some(
     (modifier) =>
-      modifier.enabled &&
-      modifier.amplitude > 0 &&
-      modifierProperties(modifier).includes(property),
+      modifier.enabled && modifier.amplitude > 0 && modifierProperties(modifier).includes(property),
   )
   if (!drivesProperty) return []
 

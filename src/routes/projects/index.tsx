@@ -303,7 +303,12 @@ function ProjectsIndex() {
               <Separator orientation="vertical" className="h-6" />
 
               <WorkspaceIndicator />
-              <Button variant="outline" size="lg" className="gap-2 px-4" onClick={handleImportClick}>
+              <Button
+                variant="outline"
+                size="lg"
+                className="gap-2 px-4"
+                onClick={handleImportClick}
+              >
                 <Upload className="w-4 h-4" />
                 {t('projects.importProject')}
               </Button>

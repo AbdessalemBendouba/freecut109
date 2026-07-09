@@ -79,9 +79,7 @@ function sanitizeEasing(value: unknown): TextMotionEasing {
 /** Optional unit override: keep only valid values; anything else → undefined
  * (so the preset's default unit applies). */
 function sanitizeUnit(value: unknown): TextMotionUnit | undefined {
-  return TEXT_MOTION_UNITS.includes(value as TextMotionUnit)
-    ? (value as TextMotionUnit)
-    : undefined
+  return TEXT_MOTION_UNITS.includes(value as TextMotionUnit) ? (value as TextMotionUnit) : undefined
 }
 
 function sanitizeSlot<Id extends string>(

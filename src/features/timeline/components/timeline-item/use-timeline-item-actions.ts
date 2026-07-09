@@ -28,7 +28,11 @@ import {
   splitItemAtFrames,
   unlinkItems,
 } from '../../stores/actions/item-actions'
-import { createPreComp, dissolvePreComp, openComposition } from '../../stores/actions/composition-actions'
+import {
+  createPreComp,
+  dissolvePreComp,
+  openComposition,
+} from '../../stores/actions/composition-actions'
 import {
   type TimelineItemOverlay,
   useTimelineItemOverlayStore,

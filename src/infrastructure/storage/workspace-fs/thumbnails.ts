@@ -23,7 +23,12 @@ import { createLogger } from '@/shared/logging/logger'
 
 import { requireWorkspaceRoot } from './root'
 import { readBlob, removeEntry, writeBlob } from './fs-primitives'
-import { MEDIA_DIR, MEDIA_THUMBNAIL_FILENAME, mediaThumbnailPath, projectThumbnailPath } from './paths'
+import {
+  MEDIA_DIR,
+  MEDIA_THUMBNAIL_FILENAME,
+  mediaThumbnailPath,
+  projectThumbnailPath,
+} from './paths'
 import { blobToArrayBuffer } from './blob-utils'
 import { mapWithConcurrency } from '@/shared/utils/async-utils'
 
@@ -82,9 +87,7 @@ export async function getThumbnailByMediaId(mediaId: string): Promise<ThumbnailD
  */
 const THUMBNAIL_READ_CONCURRENCY = 8
 
-export async function getThumbnailsByMediaIds(
-  mediaIds: string[],
-): Promise<Map<string, Blob>> {
+export async function getThumbnailsByMediaIds(mediaIds: string[]): Promise<Map<string, Blob>> {
   const result = new Map<string, Blob>()
   if (mediaIds.length === 0) return result
 

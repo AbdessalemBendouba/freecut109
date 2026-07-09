@@ -495,8 +495,9 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
       }
       const replace = applyMode === 'replace'
       const clearSet = new Set<AnimatableProperty>(MOTION_PRESET_PROPERTIES)
-      const payloads: Array<{ itemId: string } & ReturnType<typeof applyMotionGeneratorSettings>[number]> =
-        []
+      const payloads: Array<
+        { itemId: string } & ReturnType<typeof applyMotionGeneratorSettings>[number]
+      > = []
       const clears: MotionPresetClear[] = []
 
       selectedItems.forEach((item, index) => {
@@ -754,8 +755,8 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
   // --- "Applied to this clip" summary (state the panel otherwise hides) ---
   const keyframedPropertyCount = useMemo(
     () =>
-      selectedItemKeyframes?.properties.filter((property) => property.keyframes.length > 0).length ??
-      0,
+      selectedItemKeyframes?.properties.filter((property) => property.keyframes.length > 0)
+        .length ?? 0,
     [selectedItemKeyframes],
   )
   const activeModulators = useMemo(
@@ -766,8 +767,7 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
     () => !!selectedItem?.effects?.some((effect) => effect.audioPulse?.enabled),
     [selectedItem],
   )
-  const hasAnyAnimation =
-    keyframedPropertyCount > 0 || activeModulators.length > 0 || hasAudioPulse
+  const hasAnyAnimation = keyframedPropertyCount > 0 || activeModulators.length > 0 || hasAudioPulse
 
   const handleClearKeyframes = useCallback(() => {
     if (selectedItemIds.length === 0) return

@@ -38,7 +38,9 @@ describe('export-snapshot sourcing', () => {
     setDefaultRootTimelineTracks()
     useItemsStore
       .getState()
-      .setItems([makeVideoItem({ id: 'main-clip', trackId: 'track-v1', from: 0, durationInFrames: 90 })])
+      .setItems([
+        makeVideoItem({ id: 'main-clip', trackId: 'track-v1', from: 0, durationInFrames: 90 }),
+      ])
     useSequencesStore.getState().reset()
   })
 

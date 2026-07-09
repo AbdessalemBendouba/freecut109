@@ -229,7 +229,9 @@ export function CompositionsSection() {
   if (compositions.length === 0) return null
 
   const groupContainerClassName =
-    viewMode === 'grid' ? `grid ${GRID_GAP_BY_SIZE[mediaItemSize] ?? GRID_GAP_BY_SIZE[3]}` : 'space-y-1'
+    viewMode === 'grid'
+      ? `grid ${GRID_GAP_BY_SIZE[mediaItemSize] ?? GRID_GAP_BY_SIZE[3]}`
+      : 'space-y-1'
   const groupContainerStyle: CSSProperties | undefined =
     viewMode === 'grid'
       ? {
@@ -742,9 +744,7 @@ const CompositionCardInternal = memo(function CompositionCardInternal({
 
       <ContextMenuContent>
         <ContextMenuItem onClick={onEnter}>{t('media.compositions.enter')}</ContextMenuItem>
-        <ContextMenuItem onClick={onOpenAsTab}>
-          {t('media.compositions.openAsTab')}
-        </ContextMenuItem>
+        <ContextMenuItem onClick={onOpenAsTab}>{t('media.compositions.openAsTab')}</ContextMenuItem>
         <ContextMenuItem onClick={onStartRename}>{t('media.compositions.rename')}</ContextMenuItem>
         <ContextMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
           {t('common.delete')}

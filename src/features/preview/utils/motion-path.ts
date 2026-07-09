@@ -109,10 +109,9 @@ function applyPreviewKeyframe(
       const easing =
         group.keyframes.filter((keyframe) => keyframe.frame < preview.frame).at(-1)?.easing ??
         'linear'
-      keyframes = [
-        ...group.keyframes,
-        { id: previewId, frame: preview.frame, value, easing },
-      ].sort((left, right) => left.frame - right.frame)
+      keyframes = [...group.keyframes, { id: previewId, frame: preview.frame, value, easing }].sort(
+        (left, right) => left.frame - right.frame,
+      )
     }
     const next = [...properties]
     next[index] = { ...group, keyframes }

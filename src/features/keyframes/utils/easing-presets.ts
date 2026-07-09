@@ -132,10 +132,7 @@ export function clampBezierValue(key: keyof BezierControlPoints, value: number):
   return Math.max(-2, Math.min(3, value))
 }
 
-export function clampSpringValue(
-  key: 'tension' | 'friction' | 'mass',
-  value: number,
-): number {
+export function clampSpringValue(key: 'tension' | 'friction' | 'mass', value: number): number {
   switch (key) {
     case 'tension':
       return Math.max(1, Math.min(500, value))

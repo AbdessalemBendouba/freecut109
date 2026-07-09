@@ -191,10 +191,7 @@ function createProjectAtVersion(schemaVersion: number, timeline: ProjectTimeline
   }
 }
 
-function textItemWith(
-  id: string,
-  textMotion: unknown,
-): ProjectTimeline['items'][number] {
+function textItemWith(id: string, textMotion: unknown): ProjectTimeline['items'][number] {
   return {
     id,
     trackId: 'track-1',
