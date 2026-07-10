@@ -16,6 +16,7 @@
 
 import { createLogger } from '@/shared/logging/logger'
 import { notifyPermissionLost } from './root'
+import { describeStorageEnvironment } from './storage-environment'
 import { withKeyLock } from './with-key-lock'
 
 const logger = createLogger('WorkspaceFS')
@@ -165,13 +166,18 @@ type MovableHandle = FileSystemFileHandle & {
 /**
  * Whether `FileSystemFileHandle.move()` actually works in this session.
  *
- * `move` is present on the prototype in Chromium but throws NotSupportedError
- * for handles outside the origin-private file system on some builds — and our
- * root always comes from showDirectoryPicker(). So presence is NOT support;
- * the only way to find out is to call it. `undefined` = not yet probed.
- * Cached so at most one doomed move() happens per session rather than one per
- * write. Never flipped back to true: a handle that rejects move() once will
- * reject it for the rest of the session.
+ * `move` is always present on the prototype in Chromium, yet calling it can
+ * still reject with NotSupportedError. This is not a blanket "not implemented":
+ * Chromium has shipped move() for local files since M111. The spec permits
+ * rejection when the file "does not correspond to a file on the underlying file
+ * system", which covers cloud-synced and network folders, and pre-M111 engines
+ * reject every non-OPFS move. Our root always comes from showDirectoryPicker(),
+ * so we are never on the guaranteed-OPFS path.
+ *
+ * Presence is therefore NOT support; the only way to find out is to call it.
+ * `undefined` = not yet probed. Cached so at most one doomed move() happens per
+ * session rather than one per write. Never flipped back to true: a handle that
+ * rejects move() once will reject it for the rest of the session.
  */
 let moveSupported: boolean | undefined
 
@@ -195,7 +201,14 @@ async function commitTmpFile(
     } catch (error) {
       if (!isNotSupported(error)) throw error
       moveSupported = false
-      logger.warn('writeJsonAtomic: move() unsupported, falling back to copy+delete')
+      // Logged once per session (the flag short-circuits later writes). Carries
+      // the environment because the error alone cannot say *why* it rejected.
+      logger.warn(
+        'writeJsonAtomic: FileSystemFileHandle.move() rejected as unsupported — ' +
+          'falling back to a non-atomic copy+delete for the rest of this session',
+        { environment: describeStorageEnvironment() },
+        error,
+      )
     }
   }
 

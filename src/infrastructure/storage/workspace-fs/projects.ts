@@ -24,6 +24,7 @@ import {
   WorkspaceFileCorruptError,
 } from './fs-primitives'
 import { PROJECTS_DIR, projectDir, projectJsonPath, projectTrashedMarkerPath } from './paths'
+import { describeStorageEnvironment } from './storage-environment'
 import {
   readWorkspaceIndex,
   sortIndexEntries,
@@ -203,8 +204,12 @@ export async function getAllProjects(): Promise<Project[]> {
     }
     return projects
   } catch (error) {
-    logger.error('getAllProjects failed', error)
-    throw new Error('Failed to load projects from workspace')
+    // This is the app's first fatal: it rejects a route beforeLoad, so the user
+    // gets a bare error page. Keep the underlying DOMException reachable via
+    // `cause` — its `name` is the whole diagnosis — and record the environment,
+    // which the error itself cannot tell us.
+    logger.error('getAllProjects failed', { environment: describeStorageEnvironment() }, error)
+    throw new Error('Failed to load projects from workspace', { cause: error })
   }
 }
 
@@ -219,7 +224,7 @@ export async function getProject(id: string): Promise<Project | undefined> {
     return restoreRootFolderHandle(serialized)
   } catch (error) {
     logger.error(`getProject(${id}) failed`, error)
-    throw new Error(`Failed to load project: ${id}`)
+    throw new Error(`Failed to load project: ${id}`, { cause: error })
   }
 }
 
@@ -301,7 +306,7 @@ export async function deleteProject(id: string): Promise<void> {
     await refreshIndex(root)
   } catch (error) {
     logger.error(`deleteProject(${id}) failed`, error)
-    throw new Error(`Failed to delete project: ${id}`)
+    throw new Error(`Failed to delete project: ${id}`, { cause: error })
   }
 }
 

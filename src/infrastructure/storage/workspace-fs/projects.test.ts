@@ -4,11 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import type { Project } from '@/types/project'
 import { handlesMocks } from '../test-utils/storage-test-mocks'
 
-// Passthrough spy so individual tests can make a single index.json write fail,
-// simulating a workspace we can read but not write to.
+// Passthrough spies so individual tests can fail a single index.json read or
+// write, simulating a workspace we can't write to (or can't read at all).
 vi.mock('./workspace-index', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./workspace-index')>()
-  return { ...actual, writeWorkspaceIndex: vi.fn(actual.writeWorkspaceIndex) }
+  return {
+    ...actual,
+    readWorkspaceIndex: vi.fn(actual.readWorkspaceIndex),
+    writeWorkspaceIndex: vi.fn(actual.writeWorkspaceIndex),
+  }
 })
 
 import {
@@ -20,7 +24,7 @@ import {
   updateProject,
 } from './projects'
 import { setWorkspaceRoot } from './root'
-import { writeWorkspaceIndex } from './workspace-index'
+import { readWorkspaceIndex, writeWorkspaceIndex } from './workspace-index'
 import { asHandle, createRoot, readFileText, MemDir } from './__tests__/in-memory-handle'
 
 /** Make the next single index.json write fail, as an unwritable workspace would. */
@@ -320,6 +324,24 @@ describe('workspace-fs projects', () => {
     // so they must still arrive newest-first.
     const all = await getAllProjects()
     expect(all.map((p) => p.id)).toEqual(['new', 'old'])
+  })
+
+  // getAllProjects rejects a route beforeLoad, so its error is all the user and
+  // any bug report ever see. Without `cause` the underlying DOMException name —
+  // NotAllowedError vs NotSupportedError vs NotFoundError, i.e. the entire
+  // diagnosis — is unrecoverable.
+  it('getAllProjects preserves the underlying error as `cause`', async () => {
+    const root = createRoot()
+    setWorkspaceRoot(asHandle(root))
+    const underlying = new DOMException('permission revoked', 'NotAllowedError')
+    vi.mocked(readWorkspaceIndex).mockRejectedValueOnce(underlying)
+
+    const caught = await getAllProjects().catch((error: unknown) => error)
+
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).toBe('Failed to load projects from workspace')
+    expect((caught as Error).cause).toBe(underlying)
+    expect(((caught as Error).cause as DOMException).name).toBe('NotAllowedError')
   })
 
   // The mirror of the above: for a caller that mutates state, a workspace that
