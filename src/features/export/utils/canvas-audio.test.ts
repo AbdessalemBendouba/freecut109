@@ -12,6 +12,7 @@ vi.mock('mediabunny', () => {
 
   class Input {
     readonly source: UrlSource
+    private disposed = false
 
     constructor(params: { source: UrlSource }) {
       inputConstructor()
@@ -19,20 +20,23 @@ vi.mock('mediabunny', () => {
     }
 
     async getPrimaryAudioTrack() {
-      return { src: this.source.url }
+      return { src: this.source.url, isDisposed: () => this.disposed }
     }
 
     async computeDuration() {
       return 10
     }
 
-    dispose() {}
+    dispose() {
+      this.disposed = true
+    }
   }
 
   class AudioSampleSink {
-    constructor(private readonly track: { src: string }) {}
+    constructor(private readonly track: { src: string; isDisposed: () => boolean }) {}
 
     async *samples(startTime = 0, endTime = 0) {
+      if (this.track.isDisposed()) throw new Error('Input has been disposed')
       if (this.track.src.includes('mediabunny-fails')) {
         throw new Error('Mediabunny range decode failed')
       }

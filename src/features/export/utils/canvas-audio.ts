@@ -1140,7 +1140,7 @@ async function decodeAudioWithMediabunny(params: {
       endTime: actualEndTime,
       totalDuration: duration,
     })
-    return decodeAudioRangeFromSink(
+    return await decodeAudioRangeFromSink(
       new mb.AudioSampleSink(audioTrack),
       params.itemId,
       actualStartTime,
@@ -1156,6 +1156,10 @@ function getCachedAudioDecode(src: string, itemId: string): DecodedAudio | null 
   if (!cached) return null
   log.debug('Using cached decoded audio', { itemId, src: src.substring(0, 50) })
   return { ...cached, itemId }
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 async function recoverAudioDecode(params: {
@@ -1185,10 +1189,9 @@ async function recoverAudioDecode(params: {
     }
   }
   if (!params.allowWebAudioFallback) throw params.error
-  log.warn('Mediabunny audio decode failed, using fallback', {
-    itemId: params.itemId,
-    error: params.error,
-  })
+  log.warn(
+    `Mediabunny audio decode failed for ${params.itemId}, using fallback: ${getErrorMessage(params.error)}`,
+  )
   return decodeAudioFallback(params.src, params.itemId, params.startTime, params.endTime)
 }
 
@@ -2575,10 +2578,7 @@ export async function processAudio(
         outputSamples: processedChannels[0]?.length,
       })
     } catch (error) {
-      log.error('Failed to process audio segment', {
-        itemId: segment.itemId,
-        error,
-      })
+      log.error(`Failed to process audio segment ${segment.itemId}: ${getErrorMessage(error)}`)
       // Continue with other segments
     }
   }
