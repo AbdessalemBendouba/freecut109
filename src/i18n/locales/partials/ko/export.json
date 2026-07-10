@@ -139,6 +139,15 @@
           "title": "비디오 코덱 지원됨",
           "detail": "{{codec}}은(는) 이 브라우저에서 {{container}}로 인코딩할 수 있습니다."
         },
+        "audio-codec-supported": {
+          "title": "오디오 코덱 지원됨",
+          "detail": "이 브라우저에서 {{codec}} 오디오를 {{container}}로 인코딩할 수 있습니다."
+        },
+        "audio-codec-unavailable": {
+          "title": "오디오 코덱을 사용할 수 없음",
+          "detail": "이 브라우저는 {{container}}용 {{codec}} 오디오를 인코딩할 수 없습니다.",
+          "fix": "Opus 오디오를 사용하려면 WebM 또는 MKV를 선택하거나 지원되는 브라우저로 업데이트하세요."
+        },
         "worker-unavailable-fallback": {
           "title": "워커 내보내기를 사용할 수 없습니다",
           "detail": "이 브라우저/세션은 내보내기 워커를 시작할 수 없어 렌더링이 메인 스레드에서 실행됩니다.",

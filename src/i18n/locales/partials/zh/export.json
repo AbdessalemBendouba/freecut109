@@ -139,6 +139,15 @@
           "title": "支持视频编解码器",
           "detail": "{{codec}} 可在此浏览器中编码为 {{container}}。"
         },
+        "audio-codec-supported": {
+          "title": "支持音频编解码器",
+          "detail": "此浏览器可将 {{codec}} 音频编码到 {{container}}。"
+        },
+        "audio-codec-unavailable": {
+          "title": "音频编解码器不可用",
+          "detail": "此浏览器无法为 {{container}} 编码 {{codec}} 音频。",
+          "fix": "请选择 WebM 或 MKV 以使用 Opus 音频，或更新到受支持的浏览器。"
+        },
         "worker-unavailable-fallback": {
           "title": "Worker 导出不可用",
           "detail": "此浏览器/会话无法启动导出 worker，因此渲染将在主线程运行。",

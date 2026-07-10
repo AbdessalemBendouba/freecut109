@@ -56,7 +56,13 @@ vi.mock('mediabunny', () => {
   }
 })
 
-import { downmixToOutputChannels, extractAudioSegments, processAudio } from './canvas-audio'
+import {
+  downmixToOutputChannels,
+  extractAudioSegments,
+  processAudio,
+  processAudioWindows,
+  supportsWindowedAudioProcessing,
+} from './canvas-audio'
 
 function makeTrack(params: {
   id: string
@@ -493,6 +499,45 @@ describe('extractAudioSegments', () => {
       expect.objectContaining({ lowGainDb: 4 }),
       expect.objectContaining({ highGainDb: 3, outputGainDb: 2 }),
     ])
+  })
+})
+
+describe('windowed audio processing', () => {
+  function simpleComposition(itemOverrides: Partial<AudioItem> = {}): CompositionInputProps {
+    return {
+      fps: 30,
+      durationInFrames: 90,
+      width: 1920,
+      height: 1080,
+      tracks: [
+        makeTrack({
+          id: 'track-a1',
+          order: 0,
+          kind: 'audio',
+          items: [makeAudioItem(itemOverrides)],
+        }),
+      ],
+    }
+  }
+
+  it('uses bounded windows for ordinary long-form clips', async () => {
+    const composition = simpleComposition()
+
+    expect(supportsWindowedAudioProcessing(composition)).toBe(true)
+
+    const windows = []
+    for await (const window of processAudioWindows(composition)) windows.push(window)
+
+    expect(windows).toHaveLength(1)
+    expect(windows[0]?.samples[0]).toHaveLength(3 * 48_000)
+    expect(windows[0]?.samples[0]?.[24_000]).toBeCloseTo(0.1, 4)
+  })
+
+  it('retains full-segment processing for stateful DSP clips', () => {
+    expect(supportsWindowedAudioProcessing(simpleComposition({ speed: 1.25 }))).toBe(false)
+    expect(
+      supportsWindowedAudioProcessing(simpleComposition({ audioEqHighGainDb: 3 })),
+    ).toBe(false)
   })
 })
 

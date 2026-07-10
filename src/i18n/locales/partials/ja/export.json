@@ -139,6 +139,15 @@
           "title": "動画コーデックに対応しています",
           "detail": "{{codec}} はこのブラウザーで {{container}} としてエンコードできます。"
         },
+        "audio-codec-supported": {
+          "title": "音声コーデックに対応しています",
+          "detail": "このブラウザーでは {{codec}} 音声を {{container}} にエンコードできます。"
+        },
+        "audio-codec-unavailable": {
+          "title": "音声コーデックを利用できません",
+          "detail": "このブラウザーでは {{container}} 用の {{codec}} 音声をエンコードできません。",
+          "fix": "Opus 音声を使用するには WebM または MKV を選ぶか、対応ブラウザーに更新してください。"
+        },
         "worker-unavailable-fallback": {
           "title": "ワーカー書き出しを利用できません",
           "detail": "このブラウザー/セッションでは書き出しワーカーを開始できないため、レンダリングはメインスレッドで実行されます。",

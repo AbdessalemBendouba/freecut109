@@ -9,7 +9,7 @@
  * lockstep.
  */
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { ExportSettings, ExtendedExportSettings } from '@/types/export'
 import type { RenderProgress, ClientRenderResult, ClientCodec } from '../utils/client-renderer'
 import {
@@ -23,6 +23,7 @@ import { isExtendedSettings, resolveClientSettings, runRender } from '../utils/r
 import { convertTimelineToComposition } from '../utils/timeline-to-composition'
 import { buildTranscriptSubtitleCues } from '../utils/embedded-subtitle-export'
 import { serializeSrt } from '@/shared/utils/subtitles'
+import { scheduleTemporaryExportOutputRelease } from '../utils/export-output-target'
 import { useTimelineStore } from '@/features/export/deps/timeline'
 import { useProjectStore } from '@/features/export/deps/projects'
 import { DEFAULT_PROJECT_HEIGHT, DEFAULT_PROJECT_WIDTH } from '@/shared/projects/defaults'
@@ -75,6 +76,7 @@ export function useClientRender(): UseClientRenderReturn {
   const [status, setStatus] = useState<ClientRenderStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ClientRenderResult | null>(null)
+  const resultRef = useRef<ClientRenderResult | null>(null)
 
   // AbortController for cancellation
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -113,6 +115,9 @@ export function useClientRender(): UseClientRenderReturn {
       const event = log.startEvent('render', opId)
 
       try {
+        const previousResult = resultRef.current
+        resultRef.current = null
+        scheduleTemporaryExportOutputRelease(previousResult)
         setIsExporting(true)
         setProgress(0)
         setError(null)
@@ -261,6 +266,7 @@ export function useClientRender(): UseClientRenderReturn {
           }
         }
 
+        resultRef.current = finalResult
         setResult(finalResult)
         setStatus('completed')
         setProgress(100)
@@ -360,8 +366,19 @@ export function useClientRender(): UseClientRenderReturn {
     setTotalFrames(undefined)
     setStatus('idle')
     setError(null)
+    const previousResult = resultRef.current
+    resultRef.current = null
+    scheduleTemporaryExportOutputRelease(previousResult)
     setResult(null)
   }, [])
+
+  useEffect(
+    () => () => {
+      scheduleTemporaryExportOutputRelease(resultRef.current)
+      resultRef.current = null
+    },
+    [],
+  )
 
   /**
    * Get supported codecs for the current resolution

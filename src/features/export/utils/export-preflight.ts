@@ -2,6 +2,7 @@ import type { CompositionInputProps, ExtendedExportSettings } from '@/types/expo
 import type { TimelineTrack } from '@/types/timeline'
 import { framesToSeconds } from '@/shared/utils/time-utils'
 import { isGifUrl, isWebpUrl } from '@/shared/utils/media-utils'
+import { ensureAudioEncoderSupport } from '@/shared/media/audio-encoder-support'
 import type { ClientCodec, ClientExportSettings, ClientVideoContainer } from './client-renderer'
 import {
   getPreferredContainerForCodec,
@@ -35,6 +36,7 @@ export interface AssessExportPreflightOptions {
   supportedVideoCodecs?: ClientCodec[]
   workerAvailable?: boolean
   offlineAudioContextAvailable?: boolean
+  audioEncoderSupported?: boolean
   brokenMediaIds?: string[]
 }
 
@@ -200,6 +202,44 @@ async function resolveSettingsForPreflight(
     : { error: postFallbackValidation.error, supportedVideoCodecs: codecs }
 }
 
+async function assessVideoAudioCodec(
+  clientSettings: ClientExportSettings,
+  tracks: TimelineTrack[],
+  audioEncoderSupported?: boolean,
+): Promise<ExportPreflightCheck | null> {
+  if (clientSettings.mode !== 'video' || !hasAudibleItem(tracks)) return null
+
+  const audioCodec = getDefaultAudioCodec(clientSettings.container)
+  const isSupported =
+    audioEncoderSupported ??
+    (await ensureAudioEncoderSupport(audioCodec, {
+      bitrate: clientSettings.audioBitrate ?? 192_000,
+      numberOfChannels: 2,
+      sampleRate: 48_000,
+    }))
+  const detailParams = {
+    codec: audioCodec.toUpperCase(),
+    container: clientSettings.container.toUpperCase(),
+  }
+
+  return isSupported
+    ? {
+        id: 'audio-codec-supported',
+        severity: 'ok',
+        titleKey: 'export.preflight.checks.audio-codec-supported.title',
+        detailKey: 'export.preflight.checks.audio-codec-supported.detail',
+        detailParams,
+      }
+    : {
+        id: 'audio-codec-unavailable',
+        severity: 'error',
+        titleKey: 'export.preflight.checks.audio-codec-unavailable.title',
+        detailKey: 'export.preflight.checks.audio-codec-unavailable.detail',
+        detailParams,
+        fixKey: 'export.preflight.checks.audio-codec-unavailable.fix',
+      }
+}
+
 export async function assessExportPreflight({
   settings,
   fps,
@@ -208,6 +248,7 @@ export async function assessExportPreflight({
   supportedVideoCodecs,
   workerAvailable = typeof Worker !== 'undefined',
   offlineAudioContextAvailable = typeof OfflineAudioContext !== 'undefined',
+  audioEncoderSupported,
   brokenMediaIds = [],
 }: AssessExportPreflightOptions): Promise<ExportPreflightResult> {
   const checks: ExportPreflightCheck[] = []
@@ -308,6 +349,13 @@ export async function assessExportPreflight({
       },
     })
   }
+
+  const audioCodecCheck = await assessVideoAudioCodec(
+    resolved.clientSettings,
+    tracks,
+    audioEncoderSupported,
+  )
+  if (audioCodecCheck) checks.push(audioCodecCheck)
 
   let predictedRenderPath: ExportPreflightResult['predictedRenderPath'] = 'worker'
 

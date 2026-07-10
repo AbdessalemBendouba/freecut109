@@ -139,6 +139,15 @@
           "title": "Video kodeği destekleniyor",
           "detail": "{{codec}} bu tarayıcıda {{container}} olarak kodlanabilir."
         },
+        "audio-codec-supported": {
+          "title": "Ses kodeği destekleniyor",
+          "detail": "{{codec}} ses bu tarayıcıda {{container}} içinde kodlanabilir."
+        },
+        "audio-codec-unavailable": {
+          "title": "Ses kodeği kullanılamıyor",
+          "detail": "Bu tarayıcı {{container}} için {{codec}} ses kodlayamıyor.",
+          "fix": "Opus ses için WebM veya MKV seçin ya da desteklenen bir tarayıcıya güncelleyin."
+        },
         "worker-unavailable-fallback": {
           "title": "Worker ile dışa aktarma kullanılamıyor",
           "detail": "Bu tarayıcı/oturum dışa aktarma worker’larını başlatamıyor, bu yüzden render ana iş parçacığında çalışacak.",

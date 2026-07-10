@@ -139,6 +139,15 @@
           "title": "Video codec supported",
           "detail": "{{codec}} can be encoded as {{container}} in this browser."
         },
+        "audio-codec-supported": {
+          "title": "Audio codec supported",
+          "detail": "{{codec}} audio can be encoded in {{container}} in this browser."
+        },
+        "audio-codec-unavailable": {
+          "title": "Audio codec unavailable",
+          "detail": "This browser cannot encode {{codec}} audio for {{container}}.",
+          "fix": "Choose WebM or MKV to use Opus audio, or update to a supported browser."
+        },
         "worker-unavailable-fallback": {
           "title": "Worker export unavailable",
           "detail": "This browser/session cannot start export workers, so rendering will run on the main thread.",

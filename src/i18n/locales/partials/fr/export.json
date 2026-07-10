@@ -139,6 +139,15 @@
           "title": "Codec vidéo pris en charge",
           "detail": "{{codec}} peut être encodé en {{container}} dans ce navigateur."
         },
+        "audio-codec-supported": {
+          "title": "Codec audio pris en charge",
+          "detail": "L’audio {{codec}} peut être encodé dans {{container}} avec ce navigateur."
+        },
+        "audio-codec-unavailable": {
+          "title": "Codec audio indisponible",
+          "detail": "Ce navigateur ne peut pas encoder l’audio {{codec}} pour {{container}}.",
+          "fix": "Choisissez WebM ou MKV pour utiliser l’audio Opus, ou mettez à jour votre navigateur."
+        },
         "worker-unavailable-fallback": {
           "title": "Exportation par worker indisponible",
           "detail": "Ce navigateur ou cette session ne peut pas démarrer les workers d’exportation ; le rendu s’exécutera donc sur le thread principal.",
