@@ -3,6 +3,8 @@ import type { CompositionInputProps } from '@/types/export'
 import type { AudioItem, CompositionItem, TimelineTrack, VideoItem } from '@/types/timeline'
 import { useCompositionsStore } from '@/features/export/deps/timeline-compositions'
 
+const { inputConstructor } = vi.hoisted(() => ({ inputConstructor: vi.fn() }))
+
 vi.mock('mediabunny', () => {
   class UrlSource {
     constructor(public readonly url: string) {}
@@ -12,6 +14,7 @@ vi.mock('mediabunny', () => {
     readonly source: UrlSource
 
     constructor(params: { source: UrlSource }) {
+      inputConstructor()
       this.source = params.source
     }
 
@@ -63,6 +66,7 @@ import {
   clearAudioDecodeCache,
   downmixToOutputChannels,
   extractAudioSegments,
+  getAudioPacketPassthroughPlan,
   processAudio,
   processAudioWindows,
   supportsWindowedAudioProcessing,
@@ -537,6 +541,18 @@ describe('windowed audio processing', () => {
     expect(windows[0]?.samples[0]?.[24_000]).toBeCloseTo(0.1, 4)
   })
 
+  it('reuses one media input across successive windows of the same source', async () => {
+    inputConstructor.mockClear()
+    const composition = simpleComposition({ durationInFrames: 1_830 })
+    composition.durationInFrames = 1_830
+
+    const windows = []
+    for await (const window of processAudioWindows(composition)) windows.push(window)
+
+    expect(windows).toHaveLength(3)
+    expect(inputConstructor).toHaveBeenCalledTimes(1)
+  })
+
   it('uses the Web Audio fallback when a window range cannot be decoded', async () => {
     const fallbackSamples = new Float32Array(10 * 48_000).fill(0.2)
     const fetchMock = vi.fn(async () => ({
@@ -640,6 +656,44 @@ describe('windowed audio processing', () => {
   it('retains full-segment processing for stateful DSP clips', () => {
     expect(supportsWindowedAudioProcessing(simpleComposition({ speed: 1.25 }))).toBe(false)
     expect(supportsWindowedAudioProcessing(simpleComposition({ audioEqHighGainDb: 3 }))).toBe(false)
+  })
+})
+
+describe('audio packet passthrough eligibility', () => {
+  const compositionWith = (overrides: Partial<AudioItem> = {}): CompositionInputProps => ({
+    fps: 30,
+    durationInFrames: 90,
+    width: 1920,
+    height: 1080,
+    tracks: [
+      makeTrack({
+        id: 'track-a1',
+        order: 0,
+        kind: 'audio',
+        items: [makeAudioItem(overrides)],
+      }),
+    ],
+  })
+
+  it('copies one continuous unmodified source', () => {
+    expect(getAudioPacketPassthroughPlan(compositionWith())).toEqual({
+      src: 'blob:audio',
+      durationSeconds: 3,
+    })
+  })
+
+  it.each([
+    [{ sourceStart: 15 }, 'trimmed'],
+    [{ volume: -3 }, 'gain-adjusted'],
+    [{ speed: 1.25 }, 'speed-adjusted'],
+    [{ audioFadeIn: 10 }, 'faded'],
+    [{ audioEqHighGainDb: 3 }, 'equalized'],
+  ] as const)('rejects %s audio (%s)', (overrides, _label) => {
+    expect(getAudioPacketPassthroughPlan(compositionWith(overrides))).toBeNull()
+  })
+
+  it('rejects a modified master bus', () => {
+    expect(getAudioPacketPassthroughPlan({ ...compositionWith(), masterBusDb: -2 })).toBeNull()
   })
 })
 
