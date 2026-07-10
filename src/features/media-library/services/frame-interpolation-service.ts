@@ -38,7 +38,7 @@ type InterpolationStatusListener = (
   etaSeconds?: number | null,
 ) => void
 
-type InterpolationMediaListener = (media: MediaMetadata) => void
+type InterpolationMediaListener = (media: MediaMetadata, projectId: string) => void
 
 type InterpolationSourceLoader = () => Promise<Blob | null>
 interface InterpolationOpfsSource {
@@ -83,10 +83,11 @@ async function removeTmpFile(jobId: string): Promise<void> {
   }
 }
 
-class FrameInterpolationService {
+export class FrameInterpolationService {
   private readonly pendingJobs: Job[] = []
   private readonly jobsByMediaId = new Map<string, Job>()
   private activeJob: Job | null = null
+  private readonly cancelledJobIds = new Set<string>()
 
   private statusListener: InterpolationStatusListener | null = null
   private mediaListener: InterpolationMediaListener | null = null
@@ -146,8 +147,17 @@ class FrameInterpolationService {
       this.finish(job, 'idle')
       return
     }
+
+    this.cancelledJobIds.add(job.jobId)
+    this.finish(job, 'idle')
     if (this.activeJob?.jobId === job.jobId) {
       this.post({ type: 'cancel', jobId: job.jobId })
+    }
+  }
+
+  cancelAll(): void {
+    for (const mediaId of [...this.jobsByMediaId.keys()]) {
+      this.cancel(mediaId)
     }
   }
 
@@ -205,9 +215,20 @@ class FrameInterpolationService {
         sourceMimeType = job.source.mimeType
       }
     } catch (error) {
-      logger.error('Frame interpolation source load failed', { mediaId: job.mediaId, error })
       this.activeJob = null
+      if (this.cancelledJobIds.delete(job.jobId)) {
+        void this.drain()
+        return
+      }
+      logger.error('Frame interpolation source load failed', { mediaId: job.mediaId, error })
       this.finish(job, 'error')
+      void this.drain()
+      return
+    }
+
+    if (this.cancelledJobIds.delete(job.jobId)) {
+      this.activeJob = null
+      await removeTmpFile(job.jobId)
       void this.drain()
       return
     }
@@ -228,14 +249,18 @@ class FrameInterpolationService {
     if (!job || job.jobId !== message.jobId) return
 
     if (message.type === 'progress') {
-      this.emitProgress(job, message.progress, message.stage, message.etaSeconds)
+      if (!this.cancelledJobIds.has(job.jobId)) {
+        this.emitProgress(job, message.progress, message.stage, message.etaSeconds)
+      }
       return
     }
 
     this.activeJob = null
 
     try {
-      if (message.type === 'complete') {
+      if (this.cancelledJobIds.has(job.jobId)) {
+        await removeTmpFile(job.jobId)
+      } else if (message.type === 'complete') {
         await this.importResult(job, message.result.outputFps)
       } else if (message.type === 'error') {
         logger.error('Frame interpolation failed', { mediaId: job.mediaId, error: message.error })
@@ -244,6 +269,7 @@ class FrameInterpolationService {
         this.finish(job, 'idle')
       }
     } finally {
+      this.cancelledJobIds.delete(job.jobId)
       void this.drain()
     }
   }
@@ -251,6 +277,7 @@ class FrameInterpolationService {
   private async importResult(job: Job, outputFps: number): Promise<void> {
     try {
       const rendered = await readTmpFile(job.jobId)
+      if (this.cancelledJobIds.has(job.jobId)) return
       if (!rendered || rendered.size === 0) {
         throw new Error('Interpolated render produced no file')
       }
@@ -264,12 +291,18 @@ class FrameInterpolationService {
       // deliberately: it registers a loader at import time, a side effect the store's tests
       // stub out.
       const { mediaLibraryService } = await import('./media-library-service')
+      if (this.cancelledJobIds.has(job.jobId)) return
       const media = await mediaLibraryService.importGeneratedVideo(file, job.projectId, {
         fps: outputFps,
         tags: [INTERPOLATED_MEDIA_TAG],
       })
 
-      this.mediaListener?.(media)
+      if (this.cancelledJobIds.has(job.jobId)) {
+        await mediaLibraryService.deleteMediaFromProject(job.projectId, media.id)
+        return
+      }
+
+      this.mediaListener?.(media, job.projectId)
       this.finish(job, 'ready')
       logger.info('Interpolated media imported', {
         sourceMediaId: job.mediaId,
@@ -277,6 +310,13 @@ class FrameInterpolationService {
         fps: outputFps,
       })
     } catch (error) {
+      if (this.cancelledJobIds.has(job.jobId)) {
+        logger.error('Failed to roll back cancelled interpolation import', {
+          mediaId: job.mediaId,
+          error,
+        })
+        return
+      }
       logger.error('Failed to import interpolated media', { mediaId: job.mediaId, error })
       this.finish(job, 'error')
     } finally {

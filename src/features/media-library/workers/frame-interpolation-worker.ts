@@ -301,7 +301,7 @@ async function interpolate(request: InterpolateRequest): Promise<void> {
     const lastFrame = prev.encoded
     prev.encoded = null
     lastFrame.setTimestamp(prevTimestamp)
-    lastFrame.setDuration(lastGap / factor)
+    lastFrame.setDuration(lastGap)
     await queue.add(lastFrame)
     await queue.drain()
     await audio.drain()

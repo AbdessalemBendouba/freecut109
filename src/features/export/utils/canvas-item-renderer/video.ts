@@ -295,12 +295,14 @@ export async function renderVideoItem(
     hasEnsureVideoItemReady: !!rctx.ensureVideoItemReady,
     speed,
   })
+  let mediabunnyReadyPromise: Promise<boolean> | null = null
   if (mediabunnyInitAction !== 'none' && rctx.ensureVideoItemReady) {
     // For variable-speed clips during playback, don't block on mediabunny init.
     // The init triggers a keyframe seek that blocks the main thread for 400ms+.
     // Instead, skip this frame (DOM video already drew it or it's invisible).
-    void rctx.ensureVideoItemReady(item.id)
+    mediabunnyReadyPromise = rctx.ensureVideoItemReady(item.id)
     if (mediabunnyInitAction === 'warm-background-and-skip') {
+      void mediabunnyReadyPromise
       return
     }
     // A cold main-thread MediaBunny init can take hundreds of milliseconds.
@@ -351,10 +353,36 @@ export async function renderVideoItem(
         tier2ToleranceSeconds,
       )
       if (drewWorkerBitmap) {
-        if (rctx.ensureVideoItemReady) {
+        if (rctx.ensureVideoItemReady && !mediabunnyReadyPromise) {
           void rctx.ensureVideoItemReady(item.id)
         }
         return
+      }
+    }
+
+    if (
+      mediabunnyInitAction === 'warm-background-and-continue' &&
+      mediabunnyReadyPromise &&
+      extractor
+    ) {
+      let ready = false
+      try {
+        ready = await mediabunnyReadyPromise
+      } catch {
+        // Best effort in preview; a failed initializer leaves this frame undrawn.
+      }
+      if (ready && useMediabunny.has(item.id) && !mediabunnyDisabledItems.has(item.id)) {
+        // Cached and worker-backed paths stay non-blocking. Only retry after every
+        // fallback missed, where returning now would otherwise expose a blank frame.
+        return renderVideoItem(
+          ctx,
+          item,
+          transform,
+          frame,
+          rctx,
+          sourceFrameOffset,
+          effectiveRenderSpan,
+        )
       }
     }
 

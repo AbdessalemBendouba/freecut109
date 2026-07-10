@@ -227,7 +227,7 @@ describe('decoder prewarm', () => {
     expect(overflowPosts).toHaveLength(1)
   })
 
-  it('supersedes an older queued target for the same source', async () => {
+  it('forwards superseded same-source waiters to the latest decode', async () => {
     autoRespondPreseek = false
     warmDecoderPrewarmWorkerPool()
 
@@ -239,8 +239,9 @@ describe('decoder prewarm', () => {
 
     registerObjectUrl('blob:latest', new Blob(['latest']))
     const stale = backgroundPreseek('blob:latest', 10)
+    const duplicateStale = backgroundPreseek('blob:latest', 10)
+    expect(duplicateStale).toBe(stale)
     const latest = backgroundPreseek('blob:latest', 11)
-    await expect(stale).resolves.toBeNull()
 
     const busyPost = createdWorkers[0]!.postMessage.mock.calls
       .map(([message]) => message as MockWorkerMessage)
@@ -257,11 +258,25 @@ describe('decoder prewarm', () => {
       expect(latestPosts.map((message) => message.timestamp)).toEqual([11])
     })
 
-    // Cleanup resolves the still-running latest worker request in afterEach.
-    void latest
-  })
+    const latestWorker = createdWorkers.find((worker) =>
+      worker.postMessage.mock.calls.some(
+        ([message]) => (message as MockWorkerMessage).src === 'blob:latest',
+      ),
+    )!
+    const latestPost = latestWorker.postMessage.mock.calls
+      .map(([message]) => message as MockWorkerMessage)
+      .find((message) => message.src === 'blob:latest')!
+    latestWorker.onmessage?.({
+      data: { type: 'preseek_done', id: latestPost.id, success: true, bitmap: mockBitmap },
+    } as MessageEvent)
 
-  it('can synchronously retry a target that was just superseded', async () => {
+    await expect(Promise.all([stale, duplicateStale, latest])).resolves.toEqual([
+      mockBitmap,
+      mockBitmap,
+      mockBitmap,
+    ])
+  })
+  it('forwards a supersession chain to a synchronously retried target', async () => {
     autoRespondPreseek = false
     warmDecoderPrewarmWorkerPool()
 
@@ -276,8 +291,6 @@ describe('decoder prewarm', () => {
     const newer = backgroundPreseek('blob:retry', 11)
     const retry = backgroundPreseek('blob:retry', 10)
     expect(retry).not.toBe(stale)
-    await expect(stale).resolves.toBeNull()
-    await expect(newer).resolves.toBeNull()
 
     const busyPost = createdWorkers[0]!.postMessage.mock.calls
       .map(([message]) => message as MockWorkerMessage)
@@ -294,9 +307,24 @@ describe('decoder prewarm', () => {
       expect(retryPosts.map((message) => message.timestamp)).toEqual([10])
     })
 
-    void retry
-  })
+    const retryWorker = createdWorkers.find((worker) =>
+      worker.postMessage.mock.calls.some(
+        ([message]) => (message as MockWorkerMessage).src === 'blob:retry',
+      ),
+    )!
+    const retryPost = retryWorker.postMessage.mock.calls
+      .map(([message]) => message as MockWorkerMessage)
+      .find((message) => message.src === 'blob:retry')!
+    retryWorker.onmessage?.({
+      data: { type: 'preseek_done', id: retryPost.id, success: true, bitmap: mockBitmap },
+    } as MessageEvent)
 
+    await expect(Promise.all([stale, newer, retry])).resolves.toEqual([
+      mockBitmap,
+      mockBitmap,
+      mockBitmap,
+    ])
+  })
   it('evicts the oldest sources when the bounded waiting queue is full', async () => {
     autoRespondPreseek = false
     warmDecoderPrewarmWorkerPool()

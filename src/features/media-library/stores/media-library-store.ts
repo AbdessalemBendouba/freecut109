@@ -162,6 +162,11 @@ const newStore: MediaLibraryStoreApi =
 
         // v3: Set current project context
         setCurrentProject: (projectId: string | null) => {
+          const previousProjectId = get().currentProjectId
+          if (previousProjectId !== projectId) {
+            frameInterpolationService.cancelAll()
+            upscaleService.cancelAll()
+          }
           const previousMediaIds = get().mediaItems.map((item) => item.id)
           for (const mediaId of previousMediaIds) {
             proxyService.clearProxyKey(mediaId)
@@ -686,8 +691,9 @@ if (!hotStore) {
     }
   })
 
-  frameInterpolationService.onMediaCreated((media) => {
-    useMediaLibraryStore.getState().prependMediaItem(media)
+  frameInterpolationService.onMediaCreated((media, projectId) => {
+    const store = useMediaLibraryStore.getState()
+    if (store.currentProjectId === projectId) store.prependMediaItem(media)
   })
 
   upscaleService.onStatusChange((mediaId, status, progress, stage, etaSeconds) => {
@@ -702,8 +708,9 @@ if (!hotStore) {
     }
   })
 
-  upscaleService.onMediaCreated((media) => {
-    useMediaLibraryStore.getState().prependMediaItem(media)
+  upscaleService.onMediaCreated((media, projectId) => {
+    const store = useMediaLibraryStore.getState()
+    if (store.currentProjectId === projectId) store.prependMediaItem(media)
   })
 
   proxyService.setMediaResolver((mediaId) => useMediaLibraryStore.getState().mediaById[mediaId])

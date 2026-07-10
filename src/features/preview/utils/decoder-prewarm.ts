@@ -328,12 +328,20 @@ function removeInflightPreseek(src: string, entry: InflightPreseek): void {
 }
 
 function queueLatestPreseek(src: string, timestamp: number): Promise<ImageBitmap | null> {
+  let resolve!: (bitmap: ImageBitmap | null) => void
+  const promise = new Promise<ImageBitmap | null>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  const inflightEntry: InflightPreseek = { timestamp, promise }
+
   const existing = queuedPreseekBySrc.get(src)
   if (existing) {
     queuedPreseekBySrc.delete(src)
     removeInflightPreseek(existing.src, existing.inflightEntry)
     decoderPrewarmMetrics.supersededRequests += 1
-    existing.resolve(null)
+    // Duplicate consumers may be waiting on the old queued promise. Forward
+    // them to the replacement decode instead of resolving a transient blank.
+    void promise.then(existing.resolve, () => existing.resolve(null))
   }
 
   const maxQueuedPreseeks = Math.max(1, workerPool.length)
@@ -347,11 +355,6 @@ function queueLatestPreseek(src: string, timestamp: number): Promise<ImageBitmap
     }
   }
 
-  let resolve!: (bitmap: ImageBitmap | null) => void
-  const promise = new Promise<ImageBitmap | null>((resolvePromise) => {
-    resolve = resolvePromise
-  })
-  const inflightEntry: InflightPreseek = { timestamp, promise }
   const queued: QueuedPreseek = { src, timestamp, resolve, inflightEntry }
   queuedPreseekBySrc.set(src, queued)
   addInflightPreseek(src, inflightEntry)

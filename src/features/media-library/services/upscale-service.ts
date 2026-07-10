@@ -35,7 +35,7 @@ type UpscaleStatusListener = (
   etaSeconds?: number | null,
 ) => void
 
-type UpscaleMediaListener = (media: MediaMetadata) => void
+type UpscaleMediaListener = (media: MediaMetadata, projectId: string) => void
 
 type UpscaleSourceLoader = () => Promise<Blob | null>
 interface UpscaleOpfsSource {
@@ -80,10 +80,11 @@ async function removeTmpFile(jobId: string): Promise<void> {
   }
 }
 
-class UpscaleService {
+export class UpscaleService {
   private readonly pendingJobs: Job[] = []
   private readonly jobsByMediaId = new Map<string, Job>()
   private activeJob: Job | null = null
+  private readonly cancelledJobIds = new Set<string>()
 
   private statusListener: UpscaleStatusListener | null = null
   private mediaListener: UpscaleMediaListener | null = null
@@ -144,8 +145,17 @@ class UpscaleService {
       this.finish(job, 'idle')
       return
     }
+
+    this.cancelledJobIds.add(job.jobId)
+    this.finish(job, 'idle')
     if (this.activeJob?.jobId === job.jobId) {
       this.post({ type: 'cancel', jobId: job.jobId })
+    }
+  }
+
+  cancelAll(): void {
+    for (const mediaId of [...this.jobsByMediaId.keys()]) {
+      this.cancel(mediaId)
     }
   }
 
@@ -203,9 +213,20 @@ class UpscaleService {
         sourceMimeType = job.source.mimeType
       }
     } catch (error) {
-      logger.error('Upscale source load failed', { mediaId: job.mediaId, error })
       this.activeJob = null
+      if (this.cancelledJobIds.delete(job.jobId)) {
+        void this.drain()
+        return
+      }
+      logger.error('Upscale source load failed', { mediaId: job.mediaId, error })
       this.finish(job, 'error')
+      void this.drain()
+      return
+    }
+
+    if (this.cancelledJobIds.delete(job.jobId)) {
+      this.activeJob = null
+      await removeTmpFile(job.jobId)
       void this.drain()
       return
     }
@@ -226,14 +247,18 @@ class UpscaleService {
     if (!job || job.jobId !== message.jobId) return
 
     if (message.type === 'progress') {
-      this.emitProgress(job, message.progress, message.stage, message.etaSeconds)
+      if (!this.cancelledJobIds.has(job.jobId)) {
+        this.emitProgress(job, message.progress, message.stage, message.etaSeconds)
+      }
       return
     }
 
     this.activeJob = null
 
     try {
-      if (message.type === 'complete') {
+      if (this.cancelledJobIds.has(job.jobId)) {
+        await removeTmpFile(job.jobId)
+      } else if (message.type === 'complete') {
         await this.importResult(
           job,
           message.result.width,
@@ -247,6 +272,7 @@ class UpscaleService {
         this.finish(job, 'idle')
       }
     } finally {
+      this.cancelledJobIds.delete(job.jobId)
       void this.drain()
     }
   }
@@ -254,6 +280,7 @@ class UpscaleService {
   private async importResult(job: Job, width: number, height: number, fps: number): Promise<void> {
     try {
       const rendered = await readTmpFile(job.jobId)
+      if (this.cancelledJobIds.has(job.jobId)) return
       if (!rendered || rendered.size === 0) {
         throw new Error('Upscale render produced no file')
       }
@@ -267,12 +294,18 @@ class UpscaleService {
       // deliberately: it registers a loader at import time, a side effect the store's tests stub
       // out.
       const { mediaLibraryService } = await import('./media-library-service')
+      if (this.cancelledJobIds.has(job.jobId)) return
       const media = await mediaLibraryService.importGeneratedVideo(file, job.projectId, {
         fps,
         tags: [UPSCALED_MEDIA_TAG],
       })
 
-      this.mediaListener?.(media)
+      if (this.cancelledJobIds.has(job.jobId)) {
+        await mediaLibraryService.deleteMediaFromProject(job.projectId, media.id)
+        return
+      }
+
+      this.mediaListener?.(media, job.projectId)
       this.finish(job, 'ready')
       logger.info('Upscaled media imported', {
         sourceMediaId: job.mediaId,
@@ -281,6 +314,13 @@ class UpscaleService {
         height,
       })
     } catch (error) {
+      if (this.cancelledJobIds.has(job.jobId)) {
+        logger.error('Failed to roll back cancelled upscale import', {
+          mediaId: job.mediaId,
+          error,
+        })
+        return
+      }
       logger.error('Failed to import upscaled media', { mediaId: job.mediaId, error })
       this.finish(job, 'error')
     } finally {
