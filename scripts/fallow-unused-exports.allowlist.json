@@ -346,11 +346,6 @@
       "reason": "Lazy-loaded through the editor timeline import helper."
     },
     {
-      "path": "src/features/timeline/components/silence-removal-dialog.tsx",
-      "exportName": "SilenceRemovalDialog",
-      "reason": "Lazy-loaded through the editor timeline import helper."
-    },
-    {
       "path": "src/features/timeline/contracts/editor.ts",
       "exportName": "setEffectAudioPulse",
       "reason": "unreviewed: carried over by the 2026-07-09 re-baseline; trace individually before deleting."

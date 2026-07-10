@@ -26,6 +26,7 @@ export interface RemoveSilenceRange {
 
 export interface RemoveSilenceResult {
   analyzedItemCount: number
+  removedRangeCount: number
   removedItemCount: number
   splitCount: number
 }
@@ -207,7 +208,7 @@ function removeTimelineRangesFromItems(
   rangesByMediaId: Record<string, RemoveSilenceRange[]>,
 ): RemoveSilenceResult {
   if (itemIds.length === 0) {
-    return { analyzedItemCount: 0, removedItemCount: 0, splitCount: 0 }
+    return { analyzedItemCount: 0, removedRangeCount: 0, removedItemCount: 0, splitCount: 0 }
   }
 
   return execute(
@@ -227,7 +228,7 @@ function removeTimelineRangesFromItems(
         )
 
       if (anchors.length === 0) {
-        return { analyzedItemCount: 0, removedItemCount: 0, splitCount: 0 }
+        return { analyzedItemCount: 0, removedRangeCount: 0, removedItemCount: 0, splitCount: 0 }
       }
 
       const anchorDescriptors = anchors.map((item) => ({
@@ -304,6 +305,7 @@ function removeTimelineRangesFromItems(
 
       const currentItems = useItemsStore.getState().items
       const idsToRemove = new Set<string>()
+      const removedRangeKeys = new Set<string>()
 
       for (const descriptor of anchorDescriptors) {
         const ranges = rangesByMediaId[descriptor.mediaId]
@@ -317,12 +319,22 @@ function removeTimelineRangesFromItems(
           const span = getItemSourceSpanSeconds(candidate, timelineFps)
           if (span !== null && isMostlyInsideRanges(span, ranges)) {
             idsToRemove.add(candidate.id)
+            ranges.forEach((range, rangeIndex) => {
+              if (range.end > span.start && range.start < span.end) {
+                removedRangeKeys.add(`${descriptor.originId}:${rangeIndex}`)
+              }
+            })
           }
         }
       }
 
       if (idsToRemove.size === 0) {
-        return { analyzedItemCount: anchors.length, removedItemCount: 0, splitCount }
+        return {
+          analyzedItemCount: anchors.length,
+          removedRangeCount: 0,
+          removedItemCount: 0,
+          splitCount,
+        }
       }
 
       const removalResult = applyRippleRemoval(Array.from(idsToRemove))
@@ -332,6 +344,7 @@ function removeTimelineRangesFromItems(
 
       return {
         analyzedItemCount: anchors.length,
+        removedRangeCount: removedRangeKeys.size,
         removedItemCount: removalResult.removedIds.length,
         splitCount,
       }

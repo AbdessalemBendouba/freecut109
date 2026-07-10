@@ -46,6 +46,30 @@ describe('removal preview overlays', () => {
     ])
   })
 
+  it('counts a linked audio/video range once in the summary', () => {
+    const audio = audioItem('audio-1', 'media-1')
+    const video = {
+      ...audio,
+      id: 'video-1',
+      type: 'video' as const,
+      linkedGroupId: 'group-1',
+      originId: 'origin-1',
+    } as TimelineItem
+    useItemsStore
+      .getState()
+      .setItems([
+        { ...audio, linkedGroupId: 'group-1', originId: 'origin-1' } as TimelineItem,
+        video,
+      ])
+
+    const summary = applySilencePreviewOverlays(['audio-1', 'video-1'], {
+      'media-1': [{ start: 1.5, end: 2.5 }],
+    })
+
+    expect(summary.rangeCount).toBe(1)
+    expect(summary.totalSeconds).toBeCloseTo(1)
+  })
+
   it('preserves filler preview overlay labels, tone, ranges, and summary', () => {
     const summary = applyFillerPreviewOverlays(['item-1'], {
       'media-1': [

@@ -93,7 +93,6 @@ type MediaActionsProps = ItemContextMenuSectionProps & {
   isVideoItem?: boolean
   playheadInBounds?: boolean
   canRemoveSilence?: boolean
-  isRemovingSilence?: boolean
   canRemoveFillers?: boolean
   isRemovingFillers?: boolean
   isTextItem?: boolean
@@ -501,7 +500,6 @@ function MediaActions({
   isVideoItem,
   playheadInBounds,
   canRemoveSilence,
-  isRemovingSilence,
   canRemoveFillers,
   isRemovingFillers,
   isTextItem,
@@ -534,10 +532,8 @@ function MediaActions({
 
       {canRemoveSilence && onRemoveSilence && (
         <>
-          <ContextMenuItem onClick={onRemoveSilence} disabled={isRemovingSilence}>
-            {isRemovingSilence
-              ? t('timeline.contextMenu.detectingSilence')
-              : t('timeline.contextMenu.removeSilence')}
+          <ContextMenuItem onClick={onRemoveSilence}>
+            {t('timeline.contextMenu.removeSilence')}
           </ContextMenuItem>
           <ContextMenuSeparator />
         </>
