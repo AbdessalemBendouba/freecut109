@@ -21,10 +21,20 @@ class MemFile {
   ) {}
 }
 
+/**
+ * How the mock's `move()` behaves. Chromium exposes `move` on the prototype but
+ * rejects it with NotSupportedError for non-OPFS handles on some builds, so the
+ * mock must be able to reproduce a *present but failing* move().
+ */
+export type MoveFailure = 'NotSupportedError' | 'NoModificationAllowedError'
+
 export class MemDir {
   kind = 'directory' as const
   private entries: Map<string, MemDir | MemFile> = new Map()
-  constructor(public name: string) {}
+  constructor(
+    public name: string,
+    public moveFailure: MoveFailure | null = null,
+  ) {}
 
   async getDirectoryHandle(name: string, options: { create?: boolean } = {}): Promise<MemDir> {
     const existing = this.entries.get(name)
@@ -37,7 +47,7 @@ export class MemDir {
     if (!options.create) {
       throw new DOMException('Not found', 'NotFoundError')
     }
-    const dir = new MemDir(name)
+    const dir = new MemDir(name, this.moveFailure)
     this.entries.set(name, dir)
     return dir
   }
@@ -121,8 +131,19 @@ export class MemFileHandle {
     }
   }
 
-  /** Chromium-only move() — exercises the atomic-write happy path in tests. */
+  /**
+   * Chromium-only move(). Always *present* — mirroring the browser, where
+   * feature-detecting `typeof handle.move === 'function'` tells you nothing
+   * about whether a call will succeed. Throws when the root was created with a
+   * `moveFailure`.
+   */
   async move(newParent: MemDir, newName: string): Promise<void> {
+    if (this.parent.moveFailure) {
+      throw new DOMException(
+        'The implementation did not support the requested type of object or operation.',
+        this.parent.moveFailure,
+      )
+    }
     if (newParent !== this.parent) {
       throw new Error('Cross-parent move not supported in mock')
     }
@@ -183,8 +204,8 @@ export class MemWritable {
   }
 }
 
-export function createRoot(name = 'workspace'): MemDir {
-  return new MemDir(name)
+export function createRoot(name = 'workspace', moveFailure: MoveFailure | null = null): MemDir {
+  return new MemDir(name, moveFailure)
 }
 
 /** Cast a MemDir to FileSystemDirectoryHandle. The mock is API-compatible. */

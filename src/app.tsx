@@ -4,10 +4,14 @@ import { GlobalTooltip } from '@/components/ui/global-tooltip'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { ErrorBoundary } from '@/app/error-boundary'
 import { PwaInstallPrompt } from '@/app/pwa-install-prompt'
+import { RouteErrorScreen } from '@/app/route-error'
 import { WorkspaceGate } from '@/features/workspace-gate/workspace-gate'
 import { routeTree } from './routeTree.gen'
 
-const router = createRouter({ routeTree })
+// Route errors (thrown from beforeLoad/loader) never reach the React
+// ErrorBoundary below — TanStack catches them first. Without this, they render
+// its untranslated built-in fallback with the message hidden in production.
+const router = createRouter({ routeTree, defaultErrorComponent: RouteErrorScreen })
 const LazyToaster = lazy(async () => {
   const { Toaster } = await import('@/components/ui/sonner')
   return { default: Toaster }
