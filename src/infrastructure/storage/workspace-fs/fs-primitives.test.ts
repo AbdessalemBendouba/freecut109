@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
+import { describe, expect, it, vi } from 'vite-plus/test'
 
 vi.mock('@/shared/logging/logger', () => ({
   createLogger: () => ({
@@ -28,15 +28,6 @@ import {
   MemFileHandle,
   readFileText,
 } from './__tests__/in-memory-handle'
-
-/**
- * fs-primitives caches whether move() works in a module-level flag, so each
- * test that probes that branch needs its own copy of the module.
- */
-async function freshWriteJsonAtomic(): Promise<typeof writeJsonAtomic> {
-  vi.resetModules()
-  return (await import('./fs-primitives')).writeJsonAtomic
-}
 
 /** Plant raw text into the in-memory FS. */
 async function writeRawText(dir: MemDir, name: string, text: string): Promise<void> {
@@ -84,10 +75,6 @@ describe('fs-primitives readJson', () => {
 })
 
 describe('fs-primitives writeJsonAtomic move() fallback', () => {
-  beforeEach(() => {
-    vi.resetModules()
-  })
-
   it('commits via move() when the handle supports it, leaving no tmp file', async () => {
     const root = createRoot()
     await writeJsonAtomic(asHandle(root), ['nested', 'index.json'], { a: 1 })
@@ -98,27 +85,25 @@ describe('fs-primitives writeJsonAtomic move() fallback', () => {
   })
 
   // Regression: `typeof handle.move === 'function'` is presence, not support.
-  // Chromium exposes move() on handles from showDirectoryPicker() but rejects
+  // Chromium exposes move() on handles from showDirectoryPicker() but can reject
   // it with NotSupportedError, which bricked project loading — getAllProjects
   // rebuilds index.json on a cold workspace, and the failed write propagated
   // out as "Failed to load projects from workspace".
   it('falls back to copy+delete when a present move() throws NotSupportedError', async () => {
-    const write = await freshWriteJsonAtomic()
     const root = createRoot('workspace', 'NotSupportedError')
 
-    await write(asHandle(root), ['index.json'], { projects: ['p1'] })
+    await writeJsonAtomic(asHandle(root), ['index.json'], { projects: ['p1'] })
 
     expect(await readFileText(root, 'index.json')).toContain('"projects"')
     expect(await readFileText(root, 'index.json.tmp')).toBeNull()
   })
 
-  it('probes move() once, then reuses the fallback for later writes', async () => {
-    const write = await freshWriteJsonAtomic()
+  it('probes move() once per workspace, then reuses the fallback', async () => {
     const root = createRoot('workspace', 'NotSupportedError')
     const moveSpy = vi.spyOn(MemFileHandle.prototype, 'move')
 
-    await write(asHandle(root), ['a.json'], { n: 1 })
-    await write(asHandle(root), ['b.json'], { n: 2 })
+    await writeJsonAtomic(asHandle(root), ['a.json'], { n: 1 })
+    await writeJsonAtomic(asHandle(root), ['b.json'], { n: 2 })
 
     expect(await readFileText(root, 'a.json')).toContain('"n": 1')
     expect(await readFileText(root, 'b.json')).toContain('"n": 2')
@@ -126,13 +111,35 @@ describe('fs-primitives writeJsonAtomic move() fallback', () => {
     moveSpy.mockRestore()
   })
 
+  // The probe result is a property of the workspace's filesystem, not of the
+  // page. setWorkspaceRoot swaps the active root on reconnect — and on the
+  // "choose a different folder" recovery offered after exactly this failure.
+  // A module-global flag would strand the new, healthy folder on the
+  // non-atomic path for the rest of the session.
+  it('does not let a rejecting workspace poison a later, healthy one', async () => {
+    const rejecting = createRoot('cloud-folder', 'NotSupportedError')
+    const healthy = createRoot('local-folder')
+    const moveSpy = vi.spyOn(MemFileHandle.prototype, 'move')
+
+    await writeJsonAtomic(asHandle(rejecting), ['index.json'], { n: 1 })
+    await writeJsonAtomic(asHandle(rejecting), ['other.json'], { n: 2 })
+    expect(moveSpy).toHaveBeenCalledTimes(1) // probed once, then cached
+
+    await writeJsonAtomic(asHandle(healthy), ['index.json'], { n: 3 })
+
+    // The new root is probed on its own merits and its move() succeeds.
+    expect(moveSpy).toHaveBeenCalledTimes(2)
+    expect(await readFileText(healthy, 'index.json')).toContain('"n": 3')
+    expect(await readFileText(healthy, 'index.json.tmp')).toBeNull()
+    moveSpy.mockRestore()
+  })
+
   // A locked handle is a real, retryable failure — it must not be mistaken for
-  // "this platform can't rename" and silently downgraded to a torn-write path.
+  // "this filesystem can't rename" and silently downgraded to a torn-write path.
   it('rethrows move() failures that are not NotSupportedError', async () => {
-    const write = await freshWriteJsonAtomic()
     const root = createRoot('workspace', 'NoModificationAllowedError')
 
-    await expect(write(asHandle(root), ['index.json'], { a: 1 })).rejects.toThrow(
+    await expect(writeJsonAtomic(asHandle(root), ['index.json'], { a: 1 })).rejects.toThrow(
       /did not support the requested type/,
     )
     expect(await readFileText(root, 'index.json')).toBeNull()

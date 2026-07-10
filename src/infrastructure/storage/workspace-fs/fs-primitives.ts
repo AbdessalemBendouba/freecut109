@@ -164,7 +164,7 @@ type MovableHandle = FileSystemFileHandle & {
 }
 
 /**
- * Whether `FileSystemFileHandle.move()` actually works in this session.
+ * Workspace roots whose `FileSystemFileHandle.move()` rejected as unsupported.
  *
  * `move` is always present on the prototype in Chromium, yet calling it can
  * still reject with NotSupportedError. This is not a blanket "not implemented":
@@ -174,18 +174,27 @@ type MovableHandle = FileSystemFileHandle & {
  * reject every non-OPFS move. Our root always comes from showDirectoryPicker(),
  * so we are never on the guaranteed-OPFS path.
  *
- * Presence is therefore NOT support; the only way to find out is to call it.
- * `undefined` = not yet probed. Cached so at most one doomed move() happens per
- * session rather than one per write. Never flipped back to true: a handle that
- * rejects move() once will reject it for the rest of the session.
+ * Presence is therefore NOT support; the only way to find out is to call it. We
+ * remember the answer so at most one doomed move() happens per workspace rather
+ * than one per write.
+ *
+ * Keyed on the root handle, NOT module-global: `setWorkspaceRoot` can swap the
+ * active root mid-session (reconnect, or "choose a different folder" after this
+ * very failure). A session-global flag would strand a freshly picked local
+ * folder — where move() works fine — on the non-atomic fallback for the rest of
+ * the page. A WeakSet also lets a discarded root be collected.
+ *
+ * Never un-set for a given root: a handle that rejects move() once will keep
+ * rejecting it, since the answer is a property of the underlying filesystem.
  */
-let moveSupported: boolean | undefined
+const rootsRejectingMove = new WeakSet<FileSystemDirectoryHandle>()
 
 /**
  * Replace `fileName` with the already-written `tmpName` in `parent`.
  * Prefers rename (truly atomic), degrades to copy + delete.
  */
 async function commitTmpFile(
+  root: FileSystemDirectoryHandle,
   parent: FileSystemDirectoryHandle,
   tmpHandle: FileSystemFileHandle,
   tmpName: string,
@@ -193,19 +202,18 @@ async function commitTmpFile(
   json: string,
 ): Promise<void> {
   const movable = tmpHandle as MovableHandle
-  if (moveSupported !== false && typeof movable.move === 'function') {
+  if (!rootsRejectingMove.has(root) && typeof movable.move === 'function') {
     try {
       await movable.move(parent, fileName)
-      moveSupported = true
       return
     } catch (error) {
       if (!isNotSupported(error)) throw error
-      moveSupported = false
-      // Logged once per session (the flag short-circuits later writes). Carries
+      rootsRejectingMove.add(root)
+      // Logged once per workspace (the set short-circuits later writes). Carries
       // the environment because the error alone cannot say *why* it rejected.
       logger.warn(
         'writeJsonAtomic: FileSystemFileHandle.move() rejected as unsupported — ' +
-          'falling back to a non-atomic copy+delete for the rest of this session',
+          'falling back to a non-atomic copy+delete for this workspace',
         { environment: describeStorageEnvironment() },
         error,
       )
@@ -241,7 +249,7 @@ export async function writeJsonAtomic(
       await writable.write(json)
       await writable.close()
 
-      await commitTmpFile(parent, tmpHandle, tmpName, fileName, json)
+      await commitTmpFile(root, parent, tmpHandle, tmpName, fileName, json)
 
       return json.length
     }),
