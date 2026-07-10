@@ -38,15 +38,23 @@ export async function readWorkspaceIndex(root: FileSystemDirectoryHandle): Promi
   return { version: INDEX_VERSION, updatedAt: 0, projects: [] }
 }
 
+/**
+ * Newest first — the order `index.json` is persisted in, and therefore the
+ * order callers reading it back observe. Callers that serve entries without a
+ * round-trip through disk must apply this themselves to match.
+ */
+export function sortIndexEntries(entries: WorkspaceIndexEntry[]): WorkspaceIndexEntry[] {
+  return [...entries].sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
 export async function writeWorkspaceIndex(
   root: FileSystemDirectoryHandle,
   entries: WorkspaceIndexEntry[],
 ): Promise<void> {
-  const sorted = [...entries].sort((a, b) => b.updatedAt - a.updatedAt)
   const index: WorkspaceIndex = {
     version: INDEX_VERSION,
     updatedAt: Date.now(),
-    projects: sorted,
+    projects: sortIndexEntries(entries),
   }
   await writeJsonAtomic(root, [INDEX_FILENAME], index)
 }

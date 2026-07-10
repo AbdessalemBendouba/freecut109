@@ -26,6 +26,7 @@ import {
 import { PROJECTS_DIR, projectDir, projectJsonPath, projectTrashedMarkerPath } from './paths'
 import {
   readWorkspaceIndex,
+  sortIndexEntries,
   writeWorkspaceIndex,
   type WorkspaceIndexEntry,
 } from './workspace-index'
@@ -109,10 +110,32 @@ async function rebuildIndex(root: FileSystemDirectoryHandle): Promise<WorkspaceI
   return indexEntries
 }
 
-async function refreshIndex(root: FileSystemDirectoryHandle): Promise<void> {
-  await withKeyLock(INDEX_LOCK_KEY, async () => {
-    const entries = await rebuildIndex(root)
-    await writeWorkspaceIndex(root, entries)
+/**
+ * Rebuild `index.json` from a directory scan, persist it, and return the
+ * entries — so callers need not re-read the file they just wrote.
+ *
+ * `persist` decides what a failed write means:
+ *  - `'required'` (default): rethrow. Mutating callers (delete) must surface a
+ *    workspace that won't accept writes.
+ *  - `'best-effort'`: warn and serve the scanned entries anyway. `index.json`
+ *    is a derived cache — `projects/` on disk is the source of truth — so a
+ *    workspace we can read but not write (read-only mount, or a browser whose
+ *    `FileSystemFileHandle.move()` rejects) must still list its projects
+ *    instead of failing the whole load.
+ */
+async function refreshIndex(
+  root: FileSystemDirectoryHandle,
+  persist: 'required' | 'best-effort' = 'required',
+): Promise<WorkspaceIndexEntry[]> {
+  return withKeyLock(INDEX_LOCK_KEY, async () => {
+    const entries = sortIndexEntries(await rebuildIndex(root))
+    try {
+      await writeWorkspaceIndex(root, entries)
+    } catch (error) {
+      if (persist === 'required') throw error
+      logger.warn('refreshIndex: could not persist index.json — serving from scan', error)
+    }
+    return entries
   })
 }
 
@@ -152,16 +175,17 @@ async function upsertIndexEntry(
 export async function getAllProjects(): Promise<Project[]> {
   const root = requireWorkspaceRoot()
   try {
-    let index = await readWorkspaceIndex(root)
-    // If the index is empty (missing or was corrupt), trigger a rebuild so
-    // healthy projects are not hidden. This is a no-op for genuinely empty
-    // workspaces (directory scan of an absent/empty projects/ dir returns []).
-    if (index.projects.length === 0) {
-      await refreshIndex(root)
-      index = await readWorkspaceIndex(root)
+    let entries = (await readWorkspaceIndex(root)).projects
+    // If the index is empty (missing or was corrupt), rebuild it from a
+    // directory scan so healthy projects are not hidden. This is a no-op for
+    // genuinely empty workspaces (scan of an absent/empty projects/ dir
+    // returns []). Reading must not depend on the rebuilt index landing on
+    // disk, so the persist is best-effort and we use the scan's own entries.
+    if (entries.length === 0) {
+      entries = await refreshIndex(root, 'best-effort')
     }
     const projects: Project[] = []
-    for (const entry of index.projects) {
+    for (const entry of entries) {
       // Defensive: the index should never contain trashed projects, but
       // if it drifted (e.g. marker written by another tab after index
       // was last rebuilt), skip them so they don't surface in the UI.
