@@ -531,6 +531,13 @@
       "unexpectedError": "Ocorreu um erro inesperado",
       "tryAgain": "Tentar novamente",
       "reloadPage": "Recarregar a página"
+    },
+    "routeError": {
+      "title": "Algo deu errado",
+      "description": "O FreeCut não conseguiu terminar de carregar esta página.",
+      "causePermission": "O FreeCut não tem mais permissão para usar sua pasta de trabalho. Reconecte-a ou escolha outra pasta.",
+      "causeMissing": "Sua pasta de trabalho não foi encontrada. Ela pode ter sido movida, renomeada ou excluída.",
+      "causeUnsupported": "Sua pasta de trabalho está em uma unidade que não oferece suporte a tudo o que o FreeCut precisa. Pastas sincronizadas na nuvem e pastas de rede costumam se comportar assim. Escolher uma pasta em um disco local geralmente resolve."
     }
   }
 }
