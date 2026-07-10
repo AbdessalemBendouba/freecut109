@@ -657,7 +657,6 @@ export const TimelineItem = memo(function TimelineItem({
     handleDetectScenes,
     handleRemoveSilence,
     handleRemoveFillers,
-    isRemovingSilence,
     isRemovingFillers,
   } = useTimelineItemActions({
     item,
@@ -879,7 +878,6 @@ export const TimelineItem = memo(function TimelineItem({
           onGenerateAudioFromText: handleGenerateAudioFromText,
           canRemoveSilence:
             (item.type === 'video' || item.type === 'audio') && !!item.mediaId && !isBroken,
-          isRemovingSilence,
           onRemoveSilence: handleRemoveSilence,
           canRemoveFillers:
             (item.type === 'video' || item.type === 'audio') && !!item.mediaId && !isBroken,

@@ -28,8 +28,10 @@ function getItemPreviewRanges(
   timelineFps: number,
 ): Array<{ startRatio: number; endRatio: number; seconds: number }> {
   return ranges.flatMap((range) => {
-    const startFrame = sourceSecondsToTimelineFrame(item, range.start, timelineFps)
-    const endFrame = sourceSecondsToTimelineFrame(item, range.end, timelineFps)
+    const mappedStartFrame = sourceSecondsToTimelineFrame(item, range.start, timelineFps)
+    const mappedEndFrame = sourceSecondsToTimelineFrame(item, range.end, timelineFps)
+    const startFrame = Math.min(mappedStartFrame, mappedEndFrame)
+    const endFrame = Math.max(mappedStartFrame, mappedEndFrame)
     const startRatio = Math.max(0, Math.min(1, (startFrame - item.from) / item.durationInFrames))
     const endRatio = Math.max(0, Math.min(1, (endFrame - item.from) / item.durationInFrames))
     if (endRatio <= startRatio) return []
@@ -65,8 +67,7 @@ export function applyRemovalPreviewOverlays(params: {
   const timelineFps = useTimelineSettingsStore.getState().fps
   const itemsById = useItemsStore.getState().itemById
   const overlayStore = useTimelineItemOverlayStore.getState()
-  let rangeCount = 0
-  let totalSeconds = 0
+  const secondsByLogicalRange = new Map<string, number>()
 
   for (const itemId of params.itemIds) {
     const item = itemsById[itemId]
@@ -82,8 +83,12 @@ export function applyRemovalPreviewOverlays(params: {
       continue
     }
 
-    rangeCount += previewRanges.length
-    totalSeconds += previewRanges.reduce((sum, range) => sum + range.seconds, 0)
+    ranges.forEach((range) => {
+      const previewRange = getItemPreviewRanges(item, [range], timelineFps)[0]
+      if (!previewRange) return
+      const key = `${item.originId ?? item.id}:${item.mediaId}:${range.start.toFixed(6)}:${range.end.toFixed(6)}`
+      if (!secondsByLogicalRange.has(key)) secondsByLogicalRange.set(key, previewRange.seconds)
+    })
     overlayStore.upsertOverlay(itemId, {
       id: params.overlayId,
       label: `${previewRanges.length} ${params.labelNoun} range${previewRanges.length === 1 ? '' : 's'}`,
@@ -95,5 +100,11 @@ export function applyRemovalPreviewOverlays(params: {
     })
   }
 
-  return { rangeCount, totalSeconds }
+  return {
+    rangeCount: secondsByLogicalRange.size,
+    totalSeconds: Array.from(secondsByLogicalRange.values()).reduce(
+      (sum, seconds) => sum + seconds,
+      0,
+    ),
+  }
 }

@@ -31,7 +31,18 @@ export function sourceSecondsToTimelineFrame(
   const sourceFps = getMediaSourceFps(item, timelineFps)
   const sourceFrame = Math.round(sourceSeconds * sourceFps)
   const sourceStart = item.type === 'video' || item.type === 'audio' ? (item.sourceStart ?? 0) : 0
-  const deltaSourceFrames = sourceFrame - sourceStart
+  const sourceEnd =
+    item.type === 'video' || item.type === 'audio'
+      ? (item.sourceEnd ??
+        sourceStart +
+          timelineToSourceFrames(
+            item.durationInFrames,
+            getMediaSpeed(item),
+            timelineFps,
+            sourceFps,
+          ))
+      : sourceStart
+  const deltaSourceFrames = item.isReversed ? sourceEnd - sourceFrame : sourceFrame - sourceStart
   const timelineDelta = sourceToTimelineFrames(
     deltaSourceFrames,
     getMediaSpeed(item),
@@ -54,8 +65,9 @@ export function getItemSourceSpanSeconds(
     timelineFps,
     sourceFps,
   )
+  const sourceEnd = item.sourceEnd ?? sourceStart + sourceFrames
   return {
     start: sourceStart / sourceFps,
-    end: (sourceStart + sourceFrames) / sourceFps,
+    end: sourceEnd / sourceFps,
   }
 }
