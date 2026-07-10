@@ -531,6 +531,13 @@
       "unexpectedError": "Se produjo un error inesperado",
       "tryAgain": "Intentar de nuevo",
       "reloadPage": "Recargar la página"
+    },
+    "routeError": {
+      "title": "Algo salió mal",
+      "description": "FreeCut no pudo terminar de cargar esta página.",
+      "causePermission": "FreeCut ya no tiene permiso para usar tu carpeta de trabajo. Vuelve a conectarla o elige otra carpeta.",
+      "causeMissing": "No se encontró tu carpeta de trabajo. Puede que se haya movido, renombrado o eliminado.",
+      "causeUnsupported": "Tu carpeta de trabajo está en una unidad que no admite todo lo que FreeCut necesita. Las carpetas sincronizadas en la nube y las de red suelen comportarse así. Elegir una carpeta en un disco local suele solucionarlo."
     }
   }
 }

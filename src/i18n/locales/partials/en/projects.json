@@ -531,6 +531,13 @@
       "unexpectedError": "An unexpected error occurred",
       "tryAgain": "Try Again",
       "reloadPage": "Reload Page"
+    },
+    "routeError": {
+      "title": "Something went wrong",
+      "description": "FreeCut could not finish loading this page.",
+      "causePermission": "FreeCut no longer has permission to use your workspace folder. Reconnect it, or choose a different folder.",
+      "causeMissing": "Your workspace folder could not be found. It may have been moved, renamed, or deleted.",
+      "causeUnsupported": "Your workspace folder is on a drive that does not support everything FreeCut needs. Cloud-synced and network folders often behave this way. Choosing a folder on a local disk usually fixes it."
     }
   }
 }
