@@ -295,21 +295,18 @@ export async function renderVideoItem(
     hasEnsureVideoItemReady: !!rctx.ensureVideoItemReady,
     speed,
   })
+  let mediabunnyReadyPromise: Promise<boolean> | null = null
   if (mediabunnyInitAction !== 'none' && rctx.ensureVideoItemReady) {
     // For variable-speed clips during playback, don't block on mediabunny init.
     // The init triggers a keyframe seek that blocks the main thread for 400ms+.
     // Instead, skip this frame (DOM video already drew it or it's invisible).
+    mediabunnyReadyPromise = rctx.ensureVideoItemReady(item.id)
     if (mediabunnyInitAction === 'warm-background-and-skip') {
-      void rctx.ensureVideoItemReady(item.id)
+      void mediabunnyReadyPromise
       return
     }
-    if (mediabunnyInitAction === 'await-ready') {
-      try {
-        await rctx.ensureVideoItemReady(item.id)
-      } catch {
-        // Best effort in preview path; fallback behavior handled below.
-      }
-    }
+    // A cold main-thread MediaBunny init can take hundreds of milliseconds.
+    // Continue through worker bitmap and cached-frame fallbacks while it warms.
   }
 
   // Preview fast-scrub runs in strict decode mode (no HTML video fallbacks).
@@ -356,10 +353,36 @@ export async function renderVideoItem(
         tier2ToleranceSeconds,
       )
       if (drewWorkerBitmap) {
-        if (rctx.ensureVideoItemReady) {
+        if (rctx.ensureVideoItemReady && !mediabunnyReadyPromise) {
           void rctx.ensureVideoItemReady(item.id)
         }
         return
+      }
+    }
+
+    if (
+      mediabunnyInitAction === 'warm-background-and-continue' &&
+      mediabunnyReadyPromise &&
+      extractor
+    ) {
+      let ready = false
+      try {
+        ready = await mediabunnyReadyPromise
+      } catch {
+        // Best effort in preview; a failed initializer leaves this frame undrawn.
+      }
+      if (ready && useMediabunny.has(item.id) && !mediabunnyDisabledItems.has(item.id)) {
+        // Cached and worker-backed paths stay non-blocking. Only retry after every
+        // fallback missed, where returning now would otherwise expose a blank frame.
+        return renderVideoItem(
+          ctx,
+          item,
+          transform,
+          frame,
+          rctx,
+          sourceFrameOffset,
+          effectiveRenderSpan,
+        )
       }
     }
 

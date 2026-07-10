@@ -20,6 +20,26 @@ const proxyStatusListenerRef = vi.hoisted(() => ({
     | null,
 }))
 
+const enhancementServiceListeners = vi.hoisted(() => ({
+  interpolationMedia: null as ((media: MediaMetadata, projectId: string) => void) | null,
+  upscaleMedia: null as ((media: MediaMetadata, projectId: string) => void) | null,
+}))
+
+const frameInterpolationServiceMocks = vi.hoisted(() => ({
+  cancelAll: vi.fn(),
+  onStatusChange: vi.fn(),
+  onMediaCreated: vi.fn((listener) => {
+    enhancementServiceListeners.interpolationMedia = listener
+  }),
+}))
+
+const upscaleServiceMocks = vi.hoisted(() => ({
+  cancelAll: vi.fn(),
+  onStatusChange: vi.fn(),
+  onMediaCreated: vi.fn((listener) => {
+    enhancementServiceListeners.upscaleMedia = listener
+  }),
+}))
 const proxyServiceMocks = vi.hoisted(() => ({
   canGenerateProxy: vi.fn(),
   clearProxyKey: vi.fn(),
@@ -70,6 +90,13 @@ vi.mock('../services/proxy-service', () => ({
   proxyService: proxyServiceMocks,
 }))
 
+vi.mock('../services/frame-interpolation-service', () => ({
+  frameInterpolationService: frameInterpolationServiceMocks,
+}))
+
+vi.mock('../services/upscale-service', () => ({
+  upscaleService: upscaleServiceMocks,
+}))
 vi.mock('../services/background-media-work', async () => {
   const { createBackgroundMediaWorkMocks } =
     await import('../test-utils/background-media-work-test-mocks')
@@ -229,5 +256,32 @@ describe('useMediaLibraryStore', () => {
     const state = useMediaLibraryStore.getState()
     expect(state.proxyStatus.has('media-1')).toBe(false)
     expect(state.proxyProgress.has('media-1')).toBe(false)
+  })
+  it('cancels enhancement jobs only when the project changes', () => {
+    useMediaLibraryStore.setState({ currentProjectId: 'project-a' })
+
+    useMediaLibraryStore.getState().setCurrentProject('project-b')
+
+    expect(frameInterpolationServiceMocks.cancelAll).toHaveBeenCalledOnce()
+    expect(upscaleServiceMocks.cancelAll).toHaveBeenCalledOnce()
+
+    vi.clearAllMocks()
+    useMediaLibraryStore.getState().setCurrentProject('project-b')
+    expect(frameInterpolationServiceMocks.cancelAll).not.toHaveBeenCalled()
+    expect(upscaleServiceMocks.cancelAll).not.toHaveBeenCalled()
+  })
+
+  it('ignores enhancement results created for a previous project', () => {
+    const interpolated = makeMedia({ id: 'interpolated' })
+    const upscaled = makeMedia({ id: 'upscaled' })
+    useMediaLibraryStore.setState({ currentProjectId: 'project-b', mediaItems: [] })
+
+    enhancementServiceListeners.interpolationMedia?.(interpolated, 'project-a')
+    enhancementServiceListeners.upscaleMedia?.(upscaled, 'project-a')
+    expect(useMediaLibraryStore.getState().mediaItems).toEqual([])
+
+    enhancementServiceListeners.interpolationMedia?.(interpolated, 'project-b')
+    enhancementServiceListeners.upscaleMedia?.(upscaled, 'project-b')
+    expect(useMediaLibraryStore.getState().mediaItems).toEqual([upscaled, interpolated])
   })
 })

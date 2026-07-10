@@ -62,7 +62,7 @@ describe('frame-source-policy', () => {
     ).toBe('warm-background-and-skip')
   })
 
-  it('awaits mediabunny readiness for 1x preview playback', () => {
+  it('warms mediabunny without blocking 1x preview playback', () => {
     expect(
       resolvePreviewMediabunnyInitAction({
         renderMode: 'preview',
@@ -71,7 +71,7 @@ describe('frame-source-policy', () => {
         hasEnsureVideoItemReady: true,
         speed: 1,
       }),
-    ).toBe('await-ready')
+    ).toBe('warm-background-and-continue')
   })
 
   it('uses strict waiting fallback only when preview has no decoder or fallback element', () => {

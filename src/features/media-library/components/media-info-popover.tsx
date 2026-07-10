@@ -136,7 +136,7 @@ export function MediaInfoPopover({
     rows.push({
       icon: <Film className="w-3 h-3" />,
       label: t('media.info.frameRate'),
-      value: t('media.info.fpsValue', { fps: media.fps.toFixed(2) }),
+      value: t('media.info.fpsValue', { value: media.fps.toFixed(2) }),
     })
   }
 

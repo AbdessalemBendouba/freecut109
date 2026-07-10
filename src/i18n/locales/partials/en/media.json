@@ -4,6 +4,7 @@
       "aiCaptionsCount": "AI Captions Count",
       "analyzeWithAI": "Analyze with AI",
       "analyzingWithAI": "Analyzing with AI",
+      "cancelInterpolation": "Cancel Interpolation",
       "chooseMkvOrWebm": "Choose MKV Or WebM",
       "deleteProxy": "Delete Proxy",
       "deleteTranscript": "Delete Transcript",
@@ -11,10 +12,13 @@
       "generateProxy": "Generate Proxy",
       "generateTranscript": "Generate Transcript",
       "importing": "Importing",
+      "interpolateFactor": "{{factor}}x frames",
+      "interpolateFrames": "Interpolate Frames",
       "preparing": "Preparing",
       "menuAi": "Menu AI",
       "menuCaptions": "Embedded captions",
       "menuFile": "File",
+      "menuInterpolation": "Frame Interpolation",
       "menuProxy": "Proxy",
       "menuTranscript": "Transcript",
       "playAudio": "Play Audio",
@@ -37,7 +41,15 @@
       "transcriptReadyFor": "Transcript ready for \"{{name}}\"",
       "transcriptionFailedFor": "Transcription failed for \"{{name}}\"",
       "transcriptsDeleted": "Transcripts Deleted",
-      "transcriptsReady": "Transcripts Ready"
+      "transcriptsReady": "Transcripts Ready",
+      "menuUpscale": "Upscale",
+      "upscaleVideo": "Upscale 2x",
+      "cancelUpscale": "Cancel Upscale",
+      "upscaleVariant": {
+        "liveAction": "Live Action",
+        "animation": "Anime",
+        "threeD": "3D Rendered"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "Compound Clips",
@@ -93,7 +105,7 @@
       "codec": "Codec",
       "dimensions": "Dimensions",
       "duration": "Duration",
-      "fpsValue": "FPS Value",
+      "fpsValue": "{{value}} fps",
       "frameRate": "Frame Rate",
       "loadingTranscript": "Loading Transcript",
       "mediaInfo": "Media info",
@@ -139,9 +151,13 @@
       "dragDropUnsupported": "Drag Drop Unsupported",
       "dropFilesHere": "Drop Files Here",
       "filesRejected": "Files Rejected",
+      "downloadingInterpolationModel": "Downloading Interpolation Model",
       "generateProxiesForSelected": "Generate proxies for {{count}} selected items",
       "generatingProxies": "Generating Proxies",
       "generatingTranscripts": "Generating Transcripts",
+      "interpolatingFrames": "Interpolating Frames",
+      "interpolationProgress": "Frame Interpolation Progress",
+      "timeRemaining": "{{time}} left",
       "gridItemSize": "Grid Item Size",
       "groupAudio": "Audio",
       "groupGifs": "GIFs",
@@ -218,7 +234,9 @@
         "waveform": "Waveform"
       },
       "importFailed_one": "{{count}} file failed to import. Check the file and try again.",
-      "importFailed_other": "{{count}} files failed to import. Check the files and try again."
+      "importFailed_other": "{{count}} files failed to import. Check the files and try again.",
+      "upscalingVideo": "Upscaling Video",
+      "upscaleProgress": "Upscale Progress"
     },
     "missingMedia": {
       "title": "Missing Media",

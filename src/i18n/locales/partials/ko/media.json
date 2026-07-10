@@ -4,6 +4,7 @@
       "aiCaptionsCount": "AI 자막 {{count}}개",
       "analyzeWithAI": "AI로 분석",
       "analyzingWithAI": "AI로 분석 중",
+      "cancelInterpolation": "보간 취소",
       "chooseMkvOrWebm": "MKV 또는 WebM 선택",
       "deleteProxy": "프록시 삭제",
       "deleteTranscript": "전사 삭제",
@@ -11,10 +12,13 @@
       "generateProxy": "프록시 생성",
       "generateTranscript": "전사 생성",
       "importing": "가져오는 중",
+      "interpolateFactor": "{{factor}}배 프레임",
+      "interpolateFrames": "프레임 보간하기",
       "preparing": "준비 중",
       "menuAi": "AI",
       "menuCaptions": "포함된 자막",
       "menuFile": "파일",
+      "menuInterpolation": "프레임 보간",
       "menuProxy": "프록시",
       "menuTranscript": "전사",
       "playAudio": "오디오 재생",
@@ -37,7 +41,15 @@
       "transcriptReadyFor": "\"{{name}}\"의 전사가 준비되었습니다",
       "transcriptionFailedFor": "\"{{name}}\"의 전사에 실패했습니다",
       "transcriptsDeleted": "전사가 삭제되었습니다",
-      "transcriptsReady": "전사가 준비되었습니다"
+      "transcriptsReady": "전사가 준비되었습니다",
+      "menuUpscale": "업스케일",
+      "upscaleVideo": "2x 업스케일",
+      "cancelUpscale": "업스케일 취소",
+      "upscaleVariant": {
+        "liveAction": "실사",
+        "animation": "애니",
+        "threeD": "3D 렌더링"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "복합 클립",
@@ -129,9 +141,13 @@
       "dragDropUnsupported": "여기에서는 끌어다 놓기를 지원하지 않습니다.",
       "dropFilesHere": "파일을 여기에 놓기",
       "filesRejected": "일부 파일을 추가할 수 없습니다.",
+      "downloadingInterpolationModel": "보간 모델 다운로드 중",
       "generateProxiesForSelected": "선택한 항목 {{count}}개의 프록시 생성",
       "generatingProxies": "프록시 생성 중…",
       "generatingTranscripts": "전사 생성 중…",
+      "interpolatingFrames": "프레임 보간 중…",
+      "interpolationProgress": "프레임 보간 진행률",
+      "timeRemaining": "{{time}} 남음",
       "gridItemSize": "썸네일 크기",
       "groupAudio": "오디오",
       "groupGifs": "GIF",
@@ -205,7 +221,9 @@
         "waveform": "파형"
       },
       "importFailed_one": "{{count}}개 파일을 가져오지 못했습니다. 파일을 확인하고 다시 시도하세요.",
-      "importFailed_other": "{{count}}개 파일을 가져오지 못했습니다. 파일을 확인하고 다시 시도하세요."
+      "importFailed_other": "{{count}}개 파일을 가져오지 못했습니다. 파일을 확인하고 다시 시도하세요.",
+      "upscalingVideo": "동영상 업스케일 중",
+      "upscaleProgress": "업스케일 진행률"
     },
     "missingMedia": {
       "title": "누락된 미디어",

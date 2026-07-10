@@ -113,6 +113,7 @@ describe('MediaInfoPopover', () => {
     expect(await screen.findByText('Transcript (1)')).toBeInTheDocument()
     expect(screen.getByText('Tiny')).toBeInTheDocument()
     expect(screen.getByText('Hello world from transcript')).toBeInTheDocument()
+    expect(screen.getByText('30.00 fps')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '0:01' }))
     expect(onSeekToCaption).toHaveBeenCalledWith(1.25)

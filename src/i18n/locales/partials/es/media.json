@@ -4,6 +4,7 @@
       "aiCaptionsCount": "{{count}} subtítulos con IA",
       "analyzeWithAI": "Analizar con IA",
       "analyzingWithAI": "Analizando con IA",
+      "cancelInterpolation": "Cancelar interpolación",
       "chooseMkvOrWebm": "Elige MKV o WebM",
       "deleteProxy": "Eliminar proxy",
       "deleteTranscript": "Eliminar transcripción",
@@ -11,10 +12,13 @@
       "generateProxy": "Generar proxy",
       "generateTranscript": "Generar transcripción",
       "importing": "Importando",
+      "interpolateFactor": "{{factor}}x fotogramas",
+      "interpolateFrames": "Interpolar fotogramas",
       "preparing": "Preparando",
       "menuAi": "IA",
       "menuCaptions": "Subtítulos incrustados",
       "menuFile": "Archivo",
+      "menuInterpolation": "Interpolación de fotogramas",
       "menuProxy": "Proxy",
       "menuTranscript": "Transcripción",
       "playAudio": "Reproducir audio",
@@ -37,7 +41,15 @@
       "transcriptReadyFor": "Transcripción lista para \"{{name}}\"",
       "transcriptionFailedFor": "Falló la transcripción de \"{{name}}\"",
       "transcriptsDeleted": "Transcripciones eliminadas",
-      "transcriptsReady": "Transcripciones listas"
+      "transcriptsReady": "Transcripciones listas",
+      "menuUpscale": "Escalar",
+      "upscaleVideo": "Escalar 2x",
+      "cancelUpscale": "Cancelar escalado",
+      "upscaleVariant": {
+        "liveAction": "Imagen real",
+        "animation": "Anime",
+        "threeD": "Render 3D"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "Clips compuestos",
@@ -129,9 +141,13 @@
       "dragDropUnsupported": "Arrastrar y soltar no es compatible aquí.",
       "dropFilesHere": "Suelta archivos aquí",
       "filesRejected": "Algunos archivos no se pudieron añadir.",
+      "downloadingInterpolationModel": "Descargando modelo de interpolación",
       "generateProxiesForSelected": "Generar proxies para {{count}} elementos seleccionados",
       "generatingProxies": "Generando proxies…",
       "generatingTranscripts": "Generando transcripciones…",
+      "interpolatingFrames": "Interpolando fotogramas…",
+      "interpolationProgress": "Progreso de la interpolación de fotogramas",
+      "timeRemaining": "quedan {{time}}",
       "gridItemSize": "Tamaño de miniatura",
       "groupAudio": "Audio",
       "groupGifs": "GIF",
@@ -205,7 +221,9 @@
         "waveform": "Forma de onda"
       },
       "importFailed_one": "{{count}} archivo no se pudo importar. Revisa el archivo e inténtalo de nuevo.",
-      "importFailed_other": "{{count}} archivos no se pudieron importar. Revisa los archivos e inténtalo de nuevo."
+      "importFailed_other": "{{count}} archivos no se pudieron importar. Revisa los archivos e inténtalo de nuevo.",
+      "upscalingVideo": "Escalando vídeo",
+      "upscaleProgress": "Progreso del escalado"
     },
     "missingMedia": {
       "title": "Medios faltantes",

@@ -44,6 +44,8 @@ export interface DecoderPrewarmMetricsSnapshot {
   workerPosts: number
   workerSuccesses: number
   workerFailures: number
+  queuedRequests: number
+  supersededRequests: number
   waitRequests: number
   waitMatches: number
   waitResolved: number
@@ -84,6 +86,13 @@ type InflightPreseek = {
   promise: Promise<ImageBitmap | null>
 }
 
+type QueuedPreseek = {
+  src: string
+  timestamp: number
+  resolve: (bitmap: ImageBitmap | null) => void
+  inflightEntry: InflightPreseek
+}
+
 const decoderPrewarmMetrics: DecoderPrewarmMetricsSnapshot = {
   requests: 0,
   cacheHits: 0,
@@ -91,6 +100,8 @@ const decoderPrewarmMetrics: DecoderPrewarmMetricsSnapshot = {
   workerPosts: 0,
   workerSuccesses: 0,
   workerFailures: 0,
+  queuedRequests: 0,
+  supersededRequests: 0,
   waitRequests: 0,
   waitMatches: 0,
   waitResolved: 0,
@@ -103,6 +114,8 @@ const decoderPrewarmMetrics: DecoderPrewarmMetricsSnapshot = {
 /** In-flight preseek promises keyed by source URL — lets the render engine await
  *  a pending worker decode instead of falling through to a blocking main-thread decode. */
 const inflightPreseekBySrc = new Map<string, InflightPreseek[]>()
+/** One latest waiting target per source, capped to one queue-width per worker. */
+const queuedPreseekBySrc = new Map<string, QueuedPreseek>()
 
 // Dev: expose cache for debugging. Guard `window` — this module is also pulled
 // into worker bundles (e.g. via the export deps barrel), where `window` is
@@ -235,6 +248,7 @@ function acquireWorker(): PoolWorker | null {
 
 function releaseWorker(pw: PoolWorker): void {
   pw.inflightCount = Math.max(0, pw.inflightCount - 1)
+  drainQueuedPreseeks()
 }
 
 function findClosestBitmapEntry(
@@ -313,6 +327,59 @@ function removeInflightPreseek(src: string, entry: InflightPreseek): void {
   inflightPreseekBySrc.set(src, filtered)
 }
 
+function queueLatestPreseek(src: string, timestamp: number): Promise<ImageBitmap | null> {
+  let resolve!: (bitmap: ImageBitmap | null) => void
+  const promise = new Promise<ImageBitmap | null>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  const inflightEntry: InflightPreseek = { timestamp, promise }
+
+  const existing = queuedPreseekBySrc.get(src)
+  if (existing) {
+    queuedPreseekBySrc.delete(src)
+    removeInflightPreseek(existing.src, existing.inflightEntry)
+    decoderPrewarmMetrics.supersededRequests += 1
+    // Duplicate consumers may be waiting on the old queued promise. Forward
+    // them to the replacement decode instead of resolving a transient blank.
+    void promise.then(existing.resolve, () => existing.resolve(null))
+  }
+
+  const maxQueuedPreseeks = Math.max(1, workerPool.length)
+  if (queuedPreseekBySrc.size >= maxQueuedPreseeks) {
+    const oldest = queuedPreseekBySrc.values().next().value as QueuedPreseek | undefined
+    if (oldest) {
+      queuedPreseekBySrc.delete(oldest.src)
+      removeInflightPreseek(oldest.src, oldest.inflightEntry)
+      decoderPrewarmMetrics.supersededRequests += 1
+      oldest.resolve(null)
+    }
+  }
+
+  const queued: QueuedPreseek = { src, timestamp, resolve, inflightEntry }
+  queuedPreseekBySrc.set(src, queued)
+  addInflightPreseek(src, inflightEntry)
+  decoderPrewarmMetrics.queuedRequests += 1
+  void promise.finally(() => removeInflightPreseek(src, inflightEntry))
+  return promise
+}
+
+function drainQueuedPreseeks(): void {
+  while (queuedPreseekBySrc.size > 0) {
+    const hasCapacity = workerPool.some((pw) => pw.inflightCount < MAX_INFLIGHT_PER_WORKER)
+    if (!hasCapacity) return
+
+    const queued = queuedPreseekBySrc.values().next().value as QueuedPreseek | undefined
+    if (!queued) return
+    queuedPreseekBySrc.delete(queued.src)
+    // Avoid matching the queued promise against itself when the real worker
+    // request starts. Other same-source in-flight work remains reusable.
+    removeInflightPreseek(queued.src, queued.inflightEntry)
+    void startBackgroundPreseek(queued.src, queued.timestamp, false).then(queued.resolve, () => {
+      queued.resolve(null)
+    })
+  }
+}
+
 /**
  * Pre-decode a video frame in a background Web Worker.
  * Returns the decoded ImageBitmap or null on failure.
@@ -376,7 +443,17 @@ async function resolveBlobForUrl(src: string): Promise<Blob | null> {
 }
 
 export function backgroundPreseek(src: string, timestamp: number): Promise<ImageBitmap | null> {
-  decoderPrewarmMetrics.requests += 1
+  return startBackgroundPreseek(src, timestamp, true)
+}
+
+function startBackgroundPreseek(
+  src: string,
+  timestamp: number,
+  countRequest: boolean,
+): Promise<ImageBitmap | null> {
+  if (countRequest) {
+    decoderPrewarmMetrics.requests += 1
+  }
 
   // Cache and inflight-reuse hits need zero worker capacity — check them before
   // the saturation guard so a saturated pool still serves already-decoded frames.
@@ -400,9 +477,13 @@ export function backgroundPreseek(src: string, timestamp: number): Promise<Image
     return inflightMatch.promise
   }
 
-  // Genuinely new decode work — drop it if every worker is saturated.
+  // Genuinely new decode work: retain only the latest target per source when
+  // every worker is busy. The bounded queue prevents stale scrub/playback
+  // requests from growing without limit while still using the next free worker.
   const pw = acquireWorker()
-  if (!pw) return Promise.resolve(null)
+  if (!pw) {
+    return workerPool.length > 0 ? queueLatestPreseek(src, timestamp) : Promise.resolve(null)
+  }
 
   const id = `preseek-${++requestId}`
   const promise = new Promise<ImageBitmap | null>((resolve) => {
@@ -707,6 +788,10 @@ export function disposePrewarmWorker(): void {
   workerPool = []
   poolInitialized = false
   decoderPrewarmMetrics.poolSize = 0
+  for (const queued of queuedPreseekBySrc.values()) {
+    queued.resolve(null)
+  }
+  queuedPreseekBySrc.clear()
   for (const pending of pendingRequests.values()) {
     pending.resolve(null)
   }

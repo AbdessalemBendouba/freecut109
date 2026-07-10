@@ -66,6 +66,9 @@ const mediaStoreState = vi.hoisted(() => ({
   importingIds: [] as string[],
   proxyStatus: new Map<string, 'generating' | 'ready' | 'error'>(),
   proxyProgress: new Map<string, number>(),
+  interpolationStatus: new Map<string, 'generating' | 'ready' | 'error'>(),
+  upscaleStatus: new Map<string, 'generating' | 'ready' | 'error'>(),
+  currentProjectId: 'test-project' as string | null,
   transcriptStatus: new Map<string, 'idle' | 'queued' | 'transcribing' | 'ready' | 'error'>(),
   transcriptProgress: new Map(),
   taggingMediaIds: new Set<string>(),
@@ -129,6 +132,9 @@ vi.mock('@/components/ui/context-menu', () => ({
   ),
   ContextMenuLabel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
   ContextMenuSeparator: () => <hr />,
+  ContextMenuSub: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ContextMenuSubTrigger: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ContextMenuSubContent: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }))
 
 vi.mock('./transcribe-dialog', () => ({

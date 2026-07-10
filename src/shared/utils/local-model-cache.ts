@@ -23,6 +23,7 @@ export type LocalModelCacheId =
   | 'kokoro-tts'
   | 'parakeet'
   | 'supertonic-tts'
+  | 'rife'
 
 export interface LocalModelCacheDefinition {
   id: LocalModelCacheId
@@ -95,6 +96,13 @@ export const LOCAL_MODEL_CACHE_DEFINITIONS: LocalModelCacheDefinition[] = [
     description: 'Supertonic TTS ONNX models, tokenizer configs, and voice styles.',
     cacheName: ONNX_MODEL_CACHE_NAME,
     matchPathFragments: ['/supertonic-3/'],
+  },
+  {
+    id: 'rife',
+    label: 'RIFE',
+    description: 'RIFE frame interpolation model, used to render higher-frame-rate video.',
+    cacheName: ONNX_MODEL_CACHE_NAME,
+    matchPathFragments: ['/RIFE_fp32_timestep/'],
   },
 ]
 

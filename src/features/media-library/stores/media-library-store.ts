@@ -12,6 +12,8 @@ import { loadMediaLibraryService } from './media-library-service-access'
 import { getMediaType } from '../utils/validation'
 import { createLogger, createOperationId } from '@/shared/logging/logger'
 import { proxyService } from '../services/proxy-service'
+import { frameInterpolationService } from '../services/frame-interpolation-service'
+import { upscaleService } from '../services/upscale-service'
 import { getSharedProxyKey } from '../utils/proxy-key'
 import { createImportActions } from './media-import-actions'
 import { createDeleteActions } from './media-delete-actions'
@@ -138,6 +140,18 @@ const newStore: MediaLibraryStoreApi =
         proxyStatus: new Map(),
         proxyProgress: new Map(),
 
+        // RIFE frame interpolation
+        interpolationStatus: new Map(),
+        interpolationProgress: new Map(),
+        interpolationStage: new Map(),
+        interpolationEtaSeconds: new Map(),
+
+        // Anime4K upscaling
+        upscaleStatus: new Map(),
+        upscaleProgress: new Map(),
+        upscaleStage: new Map(),
+        upscaleEtaSeconds: new Map(),
+
         // Transcript generation
         transcriptStatus: new Map(),
         transcriptProgress: new Map(),
@@ -148,6 +162,11 @@ const newStore: MediaLibraryStoreApi =
 
         // v3: Set current project context
         setCurrentProject: (projectId: string | null) => {
+          const previousProjectId = get().currentProjectId
+          if (previousProjectId !== projectId) {
+            frameInterpolationService.cancelAll()
+            upscaleService.cancelAll()
+          }
           const previousMediaIds = get().mediaItems.map((item) => item.id)
           for (const mediaId of previousMediaIds) {
             proxyService.clearProxyKey(mediaId)
@@ -163,6 +182,14 @@ const newStore: MediaLibraryStoreApi =
             isLoading: !!projectId, // Set loading if switching to a project
             proxyStatus: new Map(),
             proxyProgress: new Map(),
+            interpolationStatus: new Map(),
+            interpolationProgress: new Map(),
+            interpolationStage: new Map(),
+            interpolationEtaSeconds: new Map(),
+            upscaleStatus: new Map(),
+            upscaleProgress: new Map(),
+            upscaleStage: new Map(),
+            upscaleEtaSeconds: new Map(),
             transcriptStatus: new Map(),
             transcriptProgress: new Map(),
             taggingMediaIds: new Set(),
@@ -421,6 +448,91 @@ const newStore: MediaLibraryStoreApi =
           })
         },
 
+        // RIFE frame interpolation
+        setInterpolationStatus: (mediaId: string, status: 'generating' | 'ready' | 'error') => {
+          set((state) => {
+            const interpolationStatus = new Map(state.interpolationStatus)
+            interpolationStatus.set(mediaId, status)
+            return { interpolationStatus }
+          })
+        },
+
+        clearInterpolationStatus: (mediaId: string) => {
+          set((state) => {
+            const interpolationStatus = new Map(state.interpolationStatus)
+            interpolationStatus.delete(mediaId)
+            const interpolationProgress = new Map(state.interpolationProgress)
+            interpolationProgress.delete(mediaId)
+            const interpolationStage = new Map(state.interpolationStage)
+            interpolationStage.delete(mediaId)
+            const interpolationEtaSeconds = new Map(state.interpolationEtaSeconds)
+            interpolationEtaSeconds.delete(mediaId)
+            return {
+              interpolationStatus,
+              interpolationProgress,
+              interpolationStage,
+              interpolationEtaSeconds,
+            }
+          })
+        },
+
+        setInterpolationProgress: (mediaId: string, progress: number, stage, etaSeconds) => {
+          set((state) => {
+            const interpolationProgress = new Map(state.interpolationProgress)
+            interpolationProgress.set(mediaId, progress)
+            const interpolationStage = new Map(state.interpolationStage)
+            interpolationStage.set(mediaId, stage)
+
+            const interpolationEtaSeconds = new Map(state.interpolationEtaSeconds)
+            // A null ETA means "still warming up"; keep the last good value rather than
+            // flickering the label away.
+            if (typeof etaSeconds === 'number') {
+              interpolationEtaSeconds.set(mediaId, etaSeconds)
+            }
+            return { interpolationProgress, interpolationStage, interpolationEtaSeconds }
+          })
+        },
+
+        // Anime4K upscaling
+        setUpscaleStatus: (mediaId: string, status: 'generating' | 'ready' | 'error') => {
+          set((state) => {
+            const upscaleStatus = new Map(state.upscaleStatus)
+            upscaleStatus.set(mediaId, status)
+            return { upscaleStatus }
+          })
+        },
+
+        clearUpscaleStatus: (mediaId: string) => {
+          set((state) => {
+            const upscaleStatus = new Map(state.upscaleStatus)
+            upscaleStatus.delete(mediaId)
+            const upscaleProgress = new Map(state.upscaleProgress)
+            upscaleProgress.delete(mediaId)
+            const upscaleStage = new Map(state.upscaleStage)
+            upscaleStage.delete(mediaId)
+            const upscaleEtaSeconds = new Map(state.upscaleEtaSeconds)
+            upscaleEtaSeconds.delete(mediaId)
+            return { upscaleStatus, upscaleProgress, upscaleStage, upscaleEtaSeconds }
+          })
+        },
+
+        setUpscaleProgress: (mediaId: string, progress: number, stage, etaSeconds) => {
+          set((state) => {
+            const upscaleProgress = new Map(state.upscaleProgress)
+            upscaleProgress.set(mediaId, progress)
+            const upscaleStage = new Map(state.upscaleStage)
+            upscaleStage.set(mediaId, stage)
+
+            const upscaleEtaSeconds = new Map(state.upscaleEtaSeconds)
+            // A null ETA means "still warming up"; keep the last good value rather than
+            // flickering the label away.
+            if (typeof etaSeconds === 'number') {
+              upscaleEtaSeconds.set(mediaId, etaSeconds)
+            }
+            return { upscaleProgress, upscaleStage, upscaleEtaSeconds }
+          })
+        },
+
         setTranscriptStatus: (mediaId, status) => {
           set((state) => {
             const transcriptStatus = new Map(state.transcriptStatus)
@@ -563,6 +675,42 @@ if (!hotStore) {
     if (progress !== undefined) {
       store.setProxyProgress(mediaId, progress)
     }
+  })
+
+  // Frame interpolation reports against the SOURCE media id; the rendered result arrives as a
+  // brand-new library item via onMediaCreated.
+  frameInterpolationService.onStatusChange((mediaId, status, progress, stage, etaSeconds) => {
+    const store = useMediaLibraryStore.getState()
+    if (status === 'idle' || status === 'ready') {
+      store.clearInterpolationStatus(mediaId)
+      return
+    }
+    store.setInterpolationStatus(mediaId, status)
+    if (progress !== undefined && stage) {
+      store.setInterpolationProgress(mediaId, progress, stage, etaSeconds)
+    }
+  })
+
+  frameInterpolationService.onMediaCreated((media, projectId) => {
+    const store = useMediaLibraryStore.getState()
+    if (store.currentProjectId === projectId) store.prependMediaItem(media)
+  })
+
+  upscaleService.onStatusChange((mediaId, status, progress, stage, etaSeconds) => {
+    const store = useMediaLibraryStore.getState()
+    if (status === 'idle' || status === 'ready') {
+      store.clearUpscaleStatus(mediaId)
+      return
+    }
+    store.setUpscaleStatus(mediaId, status)
+    if (progress !== undefined && stage) {
+      store.setUpscaleProgress(mediaId, progress, stage, etaSeconds)
+    }
+  })
+
+  upscaleService.onMediaCreated((media, projectId) => {
+    const store = useMediaLibraryStore.getState()
+    if (store.currentProjectId === projectId) store.prependMediaItem(media)
   })
 
   proxyService.setMediaResolver((mediaId) => useMediaLibraryStore.getState().mediaById[mediaId])

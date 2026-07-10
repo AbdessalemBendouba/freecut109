@@ -4,6 +4,7 @@
       "aiCaptionsCount": "YZ altyazı sayısı",
       "analyzeWithAI": "YZ ile analiz et",
       "analyzingWithAI": "YZ ile analiz ediliyor",
+      "cancelInterpolation": "Enterpolasyonu iptal et",
       "chooseMkvOrWebm": "MKV veya WebM seç",
       "deleteProxy": "Proxy'yi sil",
       "deleteTranscript": "Transkripti sil",
@@ -11,10 +12,13 @@
       "generateProxy": "Proxy oluştur",
       "generateTranscript": "Transkript oluştur",
       "importing": "İçe aktarılıyor",
+      "interpolateFactor": "{{factor}}x kare",
+      "interpolateFrames": "Kare enterpolasyonu uygula",
       "preparing": "Hazırlanıyor",
       "menuAi": "YZ",
       "menuCaptions": "Gömülü altyazılar",
       "menuFile": "Dosya",
+      "menuInterpolation": "Kare Enterpolasyonu",
       "menuProxy": "Proxy",
       "menuTranscript": "Transkripsiyon",
       "playAudio": "Sesi oynat",
@@ -37,7 +41,15 @@
       "transcriptReadyFor": "\"{{name}}\" için transkript hazır",
       "transcriptionFailedFor": "\"{{name}}\" için transkripsiyon başarısız",
       "transcriptsDeleted": "Transkriptler silindi",
-      "transcriptsReady": "Transkriptler hazır"
+      "transcriptsReady": "Transkriptler hazır",
+      "menuUpscale": "Ölçekle",
+      "upscaleVideo": "2x ölçekle",
+      "cancelUpscale": "Ölçeklemeyi iptal et",
+      "upscaleVariant": {
+        "liveAction": "Gerçek çekim",
+        "animation": "Anime",
+        "threeD": "3B render"
+      }
     },
     "compositions": {
       "compoundClipsGroup": "Bileşik Klipler",
@@ -93,7 +105,7 @@
       "codec": "Kodek",
       "dimensions": "Boyutlar",
       "duration": "Süre",
-      "fpsValue": "FPS değeri",
+      "fpsValue": "{{value}} FPS",
       "frameRate": "Kare hızı",
       "loadingTranscript": "Transkript yükleniyor",
       "mediaInfo": "Medya bilgisi",
@@ -129,9 +141,13 @@
       "dragDropUnsupported": "Sürükle bırak desteklenmiyor",
       "dropFilesHere": "Dosyaları buraya bırakın",
       "filesRejected": "Dosyalar reddedildi",
+      "downloadingInterpolationModel": "Enterpolasyon modeli indiriliyor",
       "generateProxiesForSelected": "{{count}} seçili öğe için proxy oluştur",
       "generatingProxies": "Proxy'ler oluşturuluyor",
       "generatingTranscripts": "Transkriptler oluşturuluyor",
+      "interpolatingFrames": "Kare enterpolasyonu yapılıyor",
+      "interpolationProgress": "Kare enterpolasyonu ilerlemesi",
+      "timeRemaining": "{{time}} kaldı",
       "gridItemSize": "Izgara öğe boyutu",
       "groupAudio": "Ses",
       "groupGifs": "GIF'ler",
@@ -205,7 +221,9 @@
         "waveform": "Dalga biçimi"
       },
       "importFailed_one": "{{count}} dosya içe aktarılamadı. Dosyayı kontrol edip tekrar deneyin.",
-      "importFailed_other": "{{count}} dosya içe aktarılamadı. Dosyaları kontrol edip tekrar deneyin."
+      "importFailed_other": "{{count}} dosya içe aktarılamadı. Dosyaları kontrol edip tekrar deneyin.",
+      "upscalingVideo": "Video ölçekleniyor",
+      "upscaleProgress": "Ölçekleme ilerlemesi"
     },
     "missingMedia": {
       "title": "Eksik medya",

@@ -262,6 +262,61 @@ async function decodeAudioDurationSeconds(blob: Blob, fallbackSeconds: number): 
   }
 }
 
+type ProbedVideoMetadata = Extract<
+  Awaited<ReturnType<typeof mediaProcessorService.processMedia>>['metadata'],
+  { type: 'video' }
+>
+
+function resolveGeneratedThumbnailSize(
+  thumbnail: Blob | undefined,
+  dimensions: { width: number; height: number },
+): { width: number; height: number } | undefined {
+  if (!thumbnail) return undefined
+  return getThumbnailDimensions(
+    Math.max(1, dimensions.width || 1),
+    Math.max(1, dimensions.height || 1),
+    320,
+  )
+}
+
+/**
+ * `options.fps` wins over the probed rate: the caller (frame interpolation) computes the
+ * output rate exactly, which beats estimating it back off the encoded packet timestamps.
+ */
+function buildGeneratedVideoMetadata(
+  file: File,
+  mimeType: string,
+  metadata: ProbedVideoMetadata,
+  options?: { fps?: number; tags?: string[] },
+): MediaMetadata {
+  const requestedFps = options?.fps
+  const fps =
+    Number.isFinite(requestedFps) && (requestedFps ?? 0) > 0 ? requestedFps! : metadata.fps
+  const createdAt = Date.now()
+
+  return {
+    id: crypto.randomUUID(),
+    storageType: 'workspace',
+    fileName: file.name,
+    fileSize: file.size,
+    mimeType,
+    duration: metadata.duration,
+    width: metadata.width,
+    height: metadata.height,
+    fps,
+    codec: metadata.codec,
+    bitrate: metadata.bitrate ?? 0,
+    audioCodec: metadata.audioCodec,
+    audioCodecSupported: metadata.audioCodecSupported,
+    videoCodecSupported: metadata.videoCodecSupported,
+    keyframeTimestamps: metadata.keyframeTimestamps,
+    gopInterval: metadata.gopInterval,
+    tags: options?.tags ?? [],
+    createdAt,
+    updatedAt: createdAt,
+  }
+}
+
 class MediaLibraryService {
   /**
    * In-memory cache for thumbnail blob URLs to prevent flicker on re-renders.
@@ -1299,6 +1354,52 @@ class MediaLibraryService {
       projectId,
       mediaMetadata,
       thumbnailBlob,
+      thumbnailWidth: thumbnailDimensions?.width,
+      thumbnailHeight: thumbnailDimensions?.height,
+    })
+  }
+
+  /**
+   * Save a generated video (e.g. a frame-interpolated render) into the project media library
+   * as an OPFS-backed asset.
+   *
+   * Unlike the regular import paths this probes with `fastMetadata: false`. The fast probe
+   * hard-codes `fps: 30`, which would silently mislabel a 120fps render as 30fps — the
+   * timeline reads `media.fps` as the source frame rate, so every interpolated frame would be
+   * skipped. `options.fps` overrides the probe outright when the caller already knows the
+   * exact rate, which is more reliable than estimating it back off the encoded packets.
+   */
+  async importGeneratedVideo(
+    file: File,
+    projectId: string,
+    options?: { fps?: number; tags?: string[] },
+  ): Promise<MediaMetadata> {
+    if (!projectId) {
+      throw new Error('No project selected')
+    }
+
+    const resolvedMimeType = file.type || getMimeType(file)
+    if (!resolvedMimeType.startsWith('video/')) {
+      throw new Error(`Generated file must be a video. Received "${resolvedMimeType}".`)
+    }
+
+    const { metadata, thumbnail } = await mediaProcessorService.processMedia(
+      file,
+      resolvedMimeType,
+      { thumbnailTimestamp: 1, fastMetadata: false },
+    )
+    if (metadata.type !== 'video') {
+      throw new Error(`Generated file did not probe as video (got "${metadata.type}").`)
+    }
+
+    const thumbnailDimensions = resolveGeneratedThumbnailSize(thumbnail, metadata)
+    const mediaMetadata = buildGeneratedVideoMetadata(file, resolvedMimeType, metadata, options)
+
+    return persistGeneratedMediaAsset({
+      file,
+      projectId,
+      mediaMetadata,
+      thumbnailBlob: thumbnail,
       thumbnailWidth: thumbnailDimensions?.width,
       thumbnailHeight: thumbnailDimensions?.height,
     })
