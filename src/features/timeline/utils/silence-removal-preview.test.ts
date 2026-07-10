@@ -136,6 +136,65 @@ describe('silence removal analysis', () => {
     ).toEqual([])
   })
 
+  // Regression: a span that no word overlaps is silent end to end. Bailing out
+  // on "no overlapping speech" made these previews claim there was nothing to
+  // remove. Distinct from the no-cues case above, which is guarded earlier and
+  // must keep returning [] so an untranscribed clip is never wiped.
+  it('removes a span that lies entirely outside the transcribed speech', () => {
+    const transcript = {
+      mediaId: 'media-1',
+      segments: [{ start: 20, end: 24, text: 'one' }],
+    } as MediaTranscript
+    const settings = { minSilenceMs: 500, paddingStartMs: 100, paddingEndMs: 200 }
+
+    // Before the first word, after the last word, and an untranscribed gap
+    // between two selected spans — none of these overlap a word.
+    expect(
+      detectSpeechSilenceRanges(
+        transcript,
+        [
+          { start: 0, end: 10 },
+          { start: 30, end: 40 },
+        ],
+        settings,
+      ),
+    ).toEqual([
+      { start: 0.1, end: 9.8 },
+      { start: 30.1, end: 39.8 },
+    ])
+  })
+
+  it('still reports nothing for a non-overlapping span shorter than minSilence', () => {
+    const transcript = {
+      mediaId: 'media-1',
+      segments: [{ start: 20, end: 24, text: 'one' }],
+    } as MediaTranscript
+
+    expect(
+      detectSpeechSilenceRanges(transcript, [{ start: 0, end: 0.3 }], {
+        minSilenceMs: 500,
+        paddingStartMs: 100,
+        paddingEndMs: 100,
+      }),
+    ).toEqual([])
+  })
+
+  it('keeps padding from swallowing a non-overlapping span whole', () => {
+    const transcript = {
+      mediaId: 'media-1',
+      segments: [{ start: 20, end: 24, text: 'one' }],
+    } as MediaTranscript
+
+    // 0.6s span clears minSilence, but 0.4s + 0.4s of padding leaves nothing.
+    expect(
+      detectSpeechSilenceRanges(transcript, [{ start: 0, end: 0.6 }], {
+        minSilenceMs: 500,
+        paddingStartMs: 400,
+        paddingEndMs: 400,
+      }),
+    ).toEqual([])
+  })
+
   it('aborts before starting media work', async () => {
     useItemsStore.getState().setItems([makeAudioItem('audio-1', 'media-1')])
     const controller = new AbortController()

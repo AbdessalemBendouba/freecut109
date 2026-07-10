@@ -303,8 +303,17 @@ function detectSpeechSilenceForSpan(
   const overlappingSpeech = speech.filter(
     (spoken) => spoken.end > span.start && spoken.start < span.end,
   )
-  if (overlappingSpeech.length === 0) return []
 
+  // Deliberately no early return when nothing overlaps. Such a span contains no
+  // speech at all, so it is removable in full — and the trailing-gap call below
+  // yields exactly that, since `cursor` never advances past `span.start`. An
+  // early return here made a clip section before the first word, after the last
+  // word, or inside an untranscribed gap preview and apply as if there were
+  // nothing to remove.
+  //
+  // A transcript with no speech *anywhere* is a different case, guarded one
+  // level up in `detectSpeechSilenceRanges`, so this cannot wipe a clip whose
+  // audio was never transcribed.
   const ranges: AudioSilenceRange[] = []
   let cursor = span.start
   for (const spoken of overlappingSpeech) {
