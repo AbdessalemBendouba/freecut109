@@ -5,7 +5,6 @@ type MediabunnyModule = typeof import('mediabunny')
 const EXPORT_SCRATCH_DIR = 'freecut-export-output'
 const STREAM_CHUNK_SIZE_BYTES = 4 * 1024 * 1024
 const STALE_OUTPUT_AGE_MS = 24 * 60 * 60 * 1000
-const DOWNLOAD_CLEANUP_DELAY_MS = 30 * 60 * 1000
 let staleCleanupStarted = false
 
 export interface TemporaryExportOutput {
@@ -138,12 +137,4 @@ export async function releaseTemporaryExportOutput(
   } catch {
     // Cleanup is best-effort; the file may already have been removed.
   }
-}
-
-/** Keep a completed download's backing file alive while the browser consumes it. */
-export function scheduleTemporaryExportOutputRelease(
-  result: Pick<ClientRenderResult, 'temporaryOutput'> | null | undefined,
-): void {
-  if (!result?.temporaryOutput) return
-  setTimeout(() => void releaseTemporaryExportOutput(result), DOWNLOAD_CLEANUP_DELAY_MS)
 }

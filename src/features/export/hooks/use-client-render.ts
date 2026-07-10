@@ -23,7 +23,7 @@ import { isExtendedSettings, resolveClientSettings, runRender } from '../utils/r
 import { convertTimelineToComposition } from '../utils/timeline-to-composition'
 import { buildTranscriptSubtitleCues } from '../utils/embedded-subtitle-export'
 import { serializeSrt } from '@/shared/utils/subtitles'
-import { scheduleTemporaryExportOutputRelease } from '../utils/export-output-target'
+import { releaseTemporaryExportOutput } from '../utils/export-output-target'
 import { useTimelineStore } from '@/features/export/deps/timeline'
 import { useProjectStore } from '@/features/export/deps/projects'
 import { DEFAULT_PROJECT_HEIGHT, DEFAULT_PROJECT_WIDTH } from '@/shared/projects/defaults'
@@ -117,7 +117,7 @@ export function useClientRender(): UseClientRenderReturn {
       try {
         const previousResult = resultRef.current
         resultRef.current = null
-        scheduleTemporaryExportOutputRelease(previousResult)
+        void releaseTemporaryExportOutput(previousResult)
         setIsExporting(true)
         setProgress(0)
         setError(null)
@@ -368,13 +368,13 @@ export function useClientRender(): UseClientRenderReturn {
     setError(null)
     const previousResult = resultRef.current
     resultRef.current = null
-    scheduleTemporaryExportOutputRelease(previousResult)
+    void releaseTemporaryExportOutput(previousResult)
     setResult(null)
   }, [])
 
   useEffect(
     () => () => {
-      scheduleTemporaryExportOutputRelease(resultRef.current)
+      void releaseTemporaryExportOutput(resultRef.current)
       resultRef.current = null
     },
     [],

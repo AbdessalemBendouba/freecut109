@@ -1204,21 +1204,51 @@ async function decodeAudioFromSource(
 
     if (!allowWebAudioFallback) throw error
 
-    // Fall back to Web Audio API for full decode
+    // Fall back to Web Audio API. It must decode the full source, but returns
+    // only the requested range so windowed callers keep their bounded shape.
     log.warn('Mediabunny audio decode failed, using fallback', { itemId, error })
-    return decodeAudioFallback(src, itemId)
+    return decodeAudioFallback(src, itemId, startTime, endTime)
+  }
+}
+
+function sliceDecodedAudioRange(
+  decoded: DecodedAudio,
+  itemId: string,
+  startTime?: number,
+  endTime?: number,
+): DecodedAudio {
+  if (startTime === undefined && endTime === undefined) return { ...decoded, itemId }
+
+  const startFrame = Math.max(0, Math.floor((startTime ?? 0) * decoded.sampleRate))
+  const endFrame = Math.max(
+    startFrame,
+    Math.min(
+      decoded.samples[0]?.length ?? 0,
+      Math.ceil((endTime ?? decoded.duration) * decoded.sampleRate),
+    ),
+  )
+  return {
+    ...decoded,
+    itemId,
+    samples: decoded.samples.map((samples) => samples.subarray(startFrame, endFrame)),
+    duration: (endFrame - startFrame) / decoded.sampleRate,
   }
 }
 
 /**
  * Fallback audio decoder using Web Audio API (decodes entire file)
  */
-async function decodeAudioFallback(src: string, itemId: string): Promise<DecodedAudio> {
+async function decodeAudioFallback(
+  src: string,
+  itemId: string,
+  startTime?: number,
+  endTime?: number,
+): Promise<DecodedAudio> {
   // Check cache
   const cached = audioDecodeCache.get(src)
   if (cached) {
     log.debug('Using cached decoded audio (fallback)', { itemId })
-    return { ...cached, itemId }
+    return sliceDecodedAudioRange(cached, itemId, startTime, endTime)
   }
 
   log.debug('Decoding audio with Web Audio API fallback', { itemId, src: src.substring(0, 50) })
@@ -1257,7 +1287,7 @@ async function decodeAudioFallback(src: string, itemId: string): Promise<Decoded
     samples: samples[0]?.length,
   })
 
-  return result
+  return sliceDecodedAudioRange(result, itemId, startTime, endTime)
 }
 
 /**
@@ -1972,6 +2002,13 @@ async function processAudioWindowChannels(
   fps: number,
 ): Promise<Float32Array[]> {
   const processed = decoded.samples
+  const decodedSegmentOffset = Math.floor(
+    ((intersection.intersectionStart - intersection.segmentStart) / sampleRate) *
+      decoded.sampleRate,
+  )
+  const decodedSegmentLength = Math.ceil(
+    (intersection.segmentLength / sampleRate) * decoded.sampleRate,
+  )
   for (let channel = 0; channel < processed.length; channel++) {
     let samples = processed[channel]!
     if (segment.volumeKeyframes?.length) {
@@ -1987,17 +2024,18 @@ async function processAudioWindowChannels(
     } else if (segment.volume !== 0) {
       samples = applyVolume(samples, segment.volume)
     }
+    samples = applyWindowedSegmentFades(
+      samples,
+      segment,
+      decodedSegmentOffset,
+      decodedSegmentLength,
+      decoded.sampleRate,
+      fps,
+    )
     if (decoded.sampleRate !== sampleRate) {
       samples = await resample(samples, decoded.sampleRate, sampleRate)
     }
-    processed[channel] = applyWindowedSegmentFades(
-      samples,
-      segment,
-      intersection.intersectionStart - intersection.segmentStart,
-      intersection.segmentLength,
-      sampleRate,
-      fps,
-    )
+    processed[channel] = samples
   }
   return processed
 }
@@ -2050,8 +2088,6 @@ async function mixSegmentIntoAudioWindow(params: {
     sourceStartTime,
     sourceStartTime + requestedFrames / sampleRate,
     segment.audioCodec,
-    false,
-    false,
   )
   const processed = await processAudioWindowChannels(
     decoded,
