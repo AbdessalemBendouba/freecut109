@@ -531,6 +531,13 @@
       "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten",
       "tryAgain": "Erneut versuchen",
       "reloadPage": "Seite neu laden"
+    },
+    "routeError": {
+      "title": "Etwas ist schiefgelaufen",
+      "description": "FreeCut konnte diese Seite nicht vollständig laden.",
+      "causePermission": "FreeCut hat keine Berechtigung mehr für deinen Arbeitsordner. Verbinde ihn erneut oder wähle einen anderen Ordner.",
+      "causeMissing": "Dein Arbeitsordner wurde nicht gefunden. Möglicherweise wurde er verschoben, umbenannt oder gelöscht.",
+      "causeUnsupported": "Dein Arbeitsordner liegt auf einem Laufwerk, das nicht alles unterstützt, was FreeCut benötigt. Cloud-synchronisierte Ordner und Netzwerkordner verhalten sich häufig so. Ein Ordner auf einer lokalen Festplatte behebt das meist."
     }
   }
 }

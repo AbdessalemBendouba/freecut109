@@ -16,6 +16,7 @@
 
 import { createLogger } from '@/shared/logging/logger'
 import { notifyPermissionLost } from './root'
+import { describeStorageEnvironment } from './storage-environment'
 import { withKeyLock } from './with-key-lock'
 
 const logger = createLogger('WorkspaceFS')
@@ -38,6 +39,10 @@ function isNotFound(error: unknown): boolean {
 
 function isNotAllowed(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'NotAllowedError'
+}
+
+function isNotSupported(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'NotSupportedError'
 }
 
 function wrap<T>(operation: string, fn: () => Promise<T>): Promise<T> {
@@ -154,6 +159,80 @@ function writeJsonAtomicLockKey(segments: string[]): string {
   return `writeJsonAtomic:${segments.join('/')}`
 }
 
+type MovableHandle = FileSystemFileHandle & {
+  move?: (parent: FileSystemDirectoryHandle, newName: string) => Promise<void>
+}
+
+/**
+ * Workspace roots whose `FileSystemFileHandle.move()` rejected as unsupported.
+ *
+ * `move` is always present on the prototype in Chromium, yet calling it can
+ * still reject with NotSupportedError. This is not a blanket "not implemented":
+ * Chromium has shipped move() for local files since M111. The spec permits
+ * rejection when the file "does not correspond to a file on the underlying file
+ * system", which covers cloud-synced and network folders, and pre-M111 engines
+ * reject every non-OPFS move. Our root always comes from showDirectoryPicker(),
+ * so we are never on the guaranteed-OPFS path.
+ *
+ * Presence is therefore NOT support; the only way to find out is to call it. We
+ * remember the answer so at most one doomed move() happens per workspace rather
+ * than one per write.
+ *
+ * Keyed on the root handle, NOT module-global: `setWorkspaceRoot` can swap the
+ * active root mid-session (reconnect, or "choose a different folder" after this
+ * very failure). A session-global flag would strand a freshly picked local
+ * folder — where move() works fine — on the non-atomic fallback for the rest of
+ * the page. A WeakSet also lets a discarded root be collected.
+ *
+ * Never un-set for a given root: a handle that rejects move() once will keep
+ * rejecting it, since the answer is a property of the underlying filesystem.
+ */
+const rootsRejectingMove = new WeakSet<FileSystemDirectoryHandle>()
+
+/**
+ * Replace `fileName` with the already-written `tmpName` in `parent`.
+ * Prefers rename (truly atomic), degrades to copy + delete.
+ */
+async function commitTmpFile(
+  root: FileSystemDirectoryHandle,
+  parent: FileSystemDirectoryHandle,
+  tmpHandle: FileSystemFileHandle,
+  tmpName: string,
+  fileName: string,
+  json: string,
+): Promise<void> {
+  const movable = tmpHandle as MovableHandle
+  if (!rootsRejectingMove.has(root) && typeof movable.move === 'function') {
+    try {
+      await movable.move(parent, fileName)
+      return
+    } catch (error) {
+      if (!isNotSupported(error)) throw error
+      rootsRejectingMove.add(root)
+      // Logged once per workspace (the set short-circuits later writes). Carries
+      // the environment because the error alone cannot say *why* it rejected.
+      logger.warn(
+        'writeJsonAtomic: FileSystemFileHandle.move() rejected as unsupported — ' +
+          'falling back to a non-atomic copy+delete for this workspace',
+        { environment: describeStorageEnvironment() },
+        error,
+      )
+    }
+  }
+
+  // Fallback: copy tmp → target, then remove tmp. Not atomic — a crash between
+  // the two closes leaves a torn target — but it is the only option available.
+  const targetHandle = await parent.getFileHandle(fileName, { create: true })
+  const targetWritable = await targetHandle.createWritable()
+  await targetWritable.write(json)
+  await targetWritable.close()
+  try {
+    await parent.removeEntry(tmpName)
+  } catch (error) {
+    if (!isNotFound(error)) throw error
+  }
+}
+
 export async function writeJsonAtomic(
   root: FileSystemDirectoryHandle,
   segments: string[],
@@ -170,24 +249,7 @@ export async function writeJsonAtomic(
       await writable.write(json)
       await writable.close()
 
-      type MovableHandle = FileSystemFileHandle & {
-        move?: (parent: FileSystemDirectoryHandle, newName: string) => Promise<void>
-      }
-      const movable = tmpHandle as MovableHandle
-      if (typeof movable.move === 'function') {
-        await movable.move(parent, fileName)
-      } else {
-        // Fallback: copy tmp → target, then remove tmp.
-        const targetHandle = await parent.getFileHandle(fileName, { create: true })
-        const targetWritable = await targetHandle.createWritable()
-        await targetWritable.write(json)
-        await targetWritable.close()
-        try {
-          await parent.removeEntry(tmpName)
-        } catch (error) {
-          if (!isNotFound(error)) throw error
-        }
-      }
+      await commitTmpFile(root, parent, tmpHandle, tmpName, fileName, json)
 
       return json.length
     }),

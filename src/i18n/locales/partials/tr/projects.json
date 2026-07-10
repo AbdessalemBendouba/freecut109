@@ -531,6 +531,13 @@
       "unexpectedError": "Beklenmeyen bir hata oluştu",
       "tryAgain": "Tekrar Dene",
       "reloadPage": "Sayfayı Yeniden Yükle"
+    },
+    "routeError": {
+      "title": "Bir şeyler ters gitti",
+      "description": "FreeCut bu sayfayı yüklemeyi tamamlayamadı.",
+      "causePermission": "FreeCut artık çalışma klasörünüzü kullanma iznine sahip değil. Yeniden bağlayın veya başka bir klasör seçin.",
+      "causeMissing": "Çalışma klasörünüz bulunamadı. Taşınmış, yeniden adlandırılmış veya silinmiş olabilir.",
+      "causeUnsupported": "Çalışma klasörünüz, FreeCut'ın ihtiyaç duyduğu her şeyi desteklemeyen bir sürücüde. Buluta eşitlenen klasörler ve ağ klasörleri genellikle böyle davranır. Yerel bir diskteki klasörü seçmek sorunu genellikle çözer."
     }
   }
 }
