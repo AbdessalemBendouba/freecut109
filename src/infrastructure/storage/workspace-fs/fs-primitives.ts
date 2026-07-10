@@ -40,6 +40,10 @@ function isNotAllowed(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'NotAllowedError'
 }
 
+function isNotSupported(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'NotSupportedError'
+}
+
 function wrap<T>(operation: string, fn: () => Promise<T>): Promise<T> {
   return fn().catch((error) => {
     if (isNotAllowed(error)) {
@@ -154,6 +158,60 @@ function writeJsonAtomicLockKey(segments: string[]): string {
   return `writeJsonAtomic:${segments.join('/')}`
 }
 
+type MovableHandle = FileSystemFileHandle & {
+  move?: (parent: FileSystemDirectoryHandle, newName: string) => Promise<void>
+}
+
+/**
+ * Whether `FileSystemFileHandle.move()` actually works in this session.
+ *
+ * `move` is present on the prototype in Chromium but throws NotSupportedError
+ * for handles outside the origin-private file system on some builds — and our
+ * root always comes from showDirectoryPicker(). So presence is NOT support;
+ * the only way to find out is to call it. `undefined` = not yet probed.
+ * Cached so at most one doomed move() happens per session rather than one per
+ * write. Never flipped back to true: a handle that rejects move() once will
+ * reject it for the rest of the session.
+ */
+let moveSupported: boolean | undefined
+
+/**
+ * Replace `fileName` with the already-written `tmpName` in `parent`.
+ * Prefers rename (truly atomic), degrades to copy + delete.
+ */
+async function commitTmpFile(
+  parent: FileSystemDirectoryHandle,
+  tmpHandle: FileSystemFileHandle,
+  tmpName: string,
+  fileName: string,
+  json: string,
+): Promise<void> {
+  const movable = tmpHandle as MovableHandle
+  if (moveSupported !== false && typeof movable.move === 'function') {
+    try {
+      await movable.move(parent, fileName)
+      moveSupported = true
+      return
+    } catch (error) {
+      if (!isNotSupported(error)) throw error
+      moveSupported = false
+      logger.warn('writeJsonAtomic: move() unsupported, falling back to copy+delete')
+    }
+  }
+
+  // Fallback: copy tmp → target, then remove tmp. Not atomic — a crash between
+  // the two closes leaves a torn target — but it is the only option available.
+  const targetHandle = await parent.getFileHandle(fileName, { create: true })
+  const targetWritable = await targetHandle.createWritable()
+  await targetWritable.write(json)
+  await targetWritable.close()
+  try {
+    await parent.removeEntry(tmpName)
+  } catch (error) {
+    if (!isNotFound(error)) throw error
+  }
+}
+
 export async function writeJsonAtomic(
   root: FileSystemDirectoryHandle,
   segments: string[],
@@ -170,24 +228,7 @@ export async function writeJsonAtomic(
       await writable.write(json)
       await writable.close()
 
-      type MovableHandle = FileSystemFileHandle & {
-        move?: (parent: FileSystemDirectoryHandle, newName: string) => Promise<void>
-      }
-      const movable = tmpHandle as MovableHandle
-      if (typeof movable.move === 'function') {
-        await movable.move(parent, fileName)
-      } else {
-        // Fallback: copy tmp → target, then remove tmp.
-        const targetHandle = await parent.getFileHandle(fileName, { create: true })
-        const targetWritable = await targetHandle.createWritable()
-        await targetWritable.write(json)
-        await targetWritable.close()
-        try {
-          await parent.removeEntry(tmpName)
-        } catch (error) {
-          if (!isNotFound(error)) throw error
-        }
-      }
+      await commitTmpFile(parent, tmpHandle, tmpName, fileName, json)
 
       return json.length
     }),
