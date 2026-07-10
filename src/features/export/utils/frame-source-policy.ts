@@ -1,6 +1,9 @@
 export type RenderMode = 'export' | 'preview'
 
-export type PreviewMediabunnyInitAction = 'none' | 'await-ready' | 'warm-background-and-skip'
+export type PreviewMediabunnyInitAction =
+  | 'none'
+  | 'warm-background-and-continue'
+  | 'warm-background-and-skip'
 
 export interface PreviewDomVideoDrawDecision {
   hasReadyDomVideo: boolean
@@ -97,7 +100,9 @@ export function resolvePreviewMediabunnyInitAction(
     return 'none'
   }
 
-  return isVariableSpeedPlayback(speed) ? 'warm-background-and-skip' : 'await-ready'
+  return isVariableSpeedPlayback(speed)
+    ? 'warm-background-and-skip'
+    : 'warm-background-and-continue'
 }
 
 export function shouldUsePreviewStrictWaitingFallback(

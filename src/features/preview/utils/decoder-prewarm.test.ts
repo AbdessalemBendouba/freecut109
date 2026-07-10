@@ -163,7 +163,7 @@ describe('decoder prewarm', () => {
     expect(createdWorkers.length).toBe(spawnedCount)
   })
 
-  it('drops speculative preseek work when every worker is already busy', async () => {
+  it('runs a queued speculative preseek when a saturated worker becomes free', async () => {
     autoRespondPreseek = false
     warmDecoderPrewarmWorkerPool()
 
@@ -178,21 +178,208 @@ describe('decoder prewarm', () => {
     }
 
     // A duplicate request for an already-inflight src/timestamp needs no extra
-    // worker capacity — even with the pool saturated it must reuse the pending
-    // promise rather than be dropped to null like genuinely new decode work.
+    // worker capacity — even with the pool saturated it must reuse the promise.
     const duplicateResult = backgroundPreseek('blob:busy-0', 0)
     expect(duplicateResult).toBe(inflightPromises[0])
 
     registerObjectUrl('blob:overflow', new Blob(['overflow']))
-    const overflowResult = await backgroundPreseek('blob:overflow', 999)
+    const overflowResult = backgroundPreseek('blob:overflow', 999)
+    const duplicateOverflowResult = backgroundPreseek('blob:overflow', 999)
+    expect(duplicateOverflowResult).toBe(overflowResult)
 
-    const preseekPosts = createdWorkers
+    const initialPosts = createdWorkers
       .flatMap((worker) => worker.postMessage.mock.calls)
       .map(([message]) => message as MockWorkerMessage)
       .filter((message) => message.type === 'preseek')
+    expect(initialPosts).toHaveLength(poolSize)
 
-    expect(overflowResult).toBeNull()
-    expect(preseekPosts).toHaveLength(poolSize)
+    createdWorkers[0]!.onmessage?.({
+      data: { type: 'preseek_done', id: initialPosts[0]!.id, success: true, bitmap: mockBitmap },
+    } as MessageEvent)
+
+    await vi.waitFor(() => {
+      const queuedPost = createdWorkers
+        .flatMap((worker) => worker.postMessage.mock.calls)
+        .map(([message]) => message as MockWorkerMessage)
+        .find((message) => message.type === 'preseek' && message.src === 'blob:overflow')
+      expect(queuedPost).toBeDefined()
+    })
+
+    const queuedWorker = createdWorkers.find((worker) =>
+      worker.postMessage.mock.calls.some(
+        ([message]) =>
+          (message as MockWorkerMessage).type === 'preseek' &&
+          (message as MockWorkerMessage).src === 'blob:overflow',
+      ),
+    )!
+    const queuedPost = queuedWorker.postMessage.mock.calls
+      .map(([message]) => message as MockWorkerMessage)
+      .find((message) => message.type === 'preseek' && message.src === 'blob:overflow')!
+    queuedWorker.onmessage?.({
+      data: { type: 'preseek_done', id: queuedPost.id, success: true, bitmap: mockBitmap },
+    } as MessageEvent)
+
+    await expect(overflowResult).resolves.toBe(mockBitmap)
+    const overflowPosts = createdWorkers
+      .flatMap((worker) => worker.postMessage.mock.calls)
+      .map(([message]) => message as MockWorkerMessage)
+      .filter((message) => message.type === 'preseek' && message.src === 'blob:overflow')
+    expect(overflowPosts).toHaveLength(1)
+  })
+
+  it('supersedes an older queued target for the same source', async () => {
+    autoRespondPreseek = false
+    warmDecoderPrewarmWorkerPool()
+
+    for (let index = 0; index < createdWorkers.length; index += 1) {
+      const src = `blob:busy-${index}`
+      registerObjectUrl(src, new Blob([`video-${index}`]))
+      void backgroundPreseek(src, index)
+    }
+
+    registerObjectUrl('blob:latest', new Blob(['latest']))
+    const stale = backgroundPreseek('blob:latest', 10)
+    const latest = backgroundPreseek('blob:latest', 11)
+    await expect(stale).resolves.toBeNull()
+
+    const busyPost = createdWorkers[0]!.postMessage.mock.calls
+      .map(([message]) => message as MockWorkerMessage)
+      .find((message) => message.type === 'preseek')!
+    createdWorkers[0]!.onmessage?.({
+      data: { type: 'preseek_done', id: busyPost.id, success: true, bitmap: mockBitmap },
+    } as MessageEvent)
+
+    await vi.waitFor(() => {
+      const latestPosts = createdWorkers
+        .flatMap((worker) => worker.postMessage.mock.calls)
+        .map(([message]) => message as MockWorkerMessage)
+        .filter((message) => message.type === 'preseek' && message.src === 'blob:latest')
+      expect(latestPosts.map((message) => message.timestamp)).toEqual([11])
+    })
+
+    // Cleanup resolves the still-running latest worker request in afterEach.
+    void latest
+  })
+
+  it('can synchronously retry a target that was just superseded', async () => {
+    autoRespondPreseek = false
+    warmDecoderPrewarmWorkerPool()
+
+    for (let index = 0; index < createdWorkers.length; index += 1) {
+      const src = `blob:busy-${index}`
+      registerObjectUrl(src, new Blob([`video-${index}`]))
+      void backgroundPreseek(src, index)
+    }
+
+    registerObjectUrl('blob:retry', new Blob(['retry']))
+    const stale = backgroundPreseek('blob:retry', 10)
+    const newer = backgroundPreseek('blob:retry', 11)
+    const retry = backgroundPreseek('blob:retry', 10)
+    expect(retry).not.toBe(stale)
+    await expect(stale).resolves.toBeNull()
+    await expect(newer).resolves.toBeNull()
+
+    const busyPost = createdWorkers[0]!.postMessage.mock.calls
+      .map(([message]) => message as MockWorkerMessage)
+      .find((message) => message.type === 'preseek')!
+    createdWorkers[0]!.onmessage?.({
+      data: { type: 'preseek_done', id: busyPost.id, success: true, bitmap: mockBitmap },
+    } as MessageEvent)
+
+    await vi.waitFor(() => {
+      const retryPosts = createdWorkers
+        .flatMap((worker) => worker.postMessage.mock.calls)
+        .map(([message]) => message as MockWorkerMessage)
+        .filter((message) => message.type === 'preseek' && message.src === 'blob:retry')
+      expect(retryPosts.map((message) => message.timestamp)).toEqual([10])
+    })
+
+    void retry
+  })
+
+  it('evicts the oldest sources when the bounded waiting queue is full', async () => {
+    autoRespondPreseek = false
+    warmDecoderPrewarmWorkerPool()
+
+    const poolSize = createdWorkers.length
+    for (let index = 0; index < poolSize; index += 1) {
+      const src = `blob:busy-${index}`
+      registerObjectUrl(src, new Blob([`video-${index}`]))
+      void backgroundPreseek(src, index)
+    }
+
+    const queued = Array.from({ length: poolSize + 2 }, (_, index) => {
+      const src = `blob:queued-${index}`
+      registerObjectUrl(src, new Blob([`queued-${index}`]))
+      return { src, promise: backgroundPreseek(src, index + 100) }
+    })
+    await expect(queued[0]!.promise).resolves.toBeNull()
+    await expect(queued[1]!.promise).resolves.toBeNull()
+
+    const busyPosts = createdWorkers
+      .flatMap((worker) => worker.postMessage.mock.calls)
+      .map(([message]) => message as MockWorkerMessage)
+      .filter((message) => message.type === 'preseek' && message.src?.startsWith('blob:busy-'))
+    for (let index = 0; index < poolSize; index += 1) {
+      createdWorkers[index]!.onmessage?.({
+        data: {
+          type: 'preseek_done',
+          id: busyPosts[index]!.id,
+          success: true,
+          bitmap: mockBitmap,
+        },
+      } as MessageEvent)
+    }
+
+    await vi.waitFor(() => {
+      const queuedPosts = createdWorkers
+        .flatMap((worker) => worker.postMessage.mock.calls)
+        .map(([message]) => message as MockWorkerMessage)
+        .filter((message) => message.type === 'preseek' && message.src?.startsWith('blob:queued-'))
+      expect(queuedPosts.map((message) => message.src)).toEqual(
+        queued.slice(2).map(({ src }) => src),
+      )
+    })
+  })
+
+  it('clears active and queued requests on disposal before a clean restart', async () => {
+    autoRespondPreseek = false
+    warmDecoderPrewarmWorkerPool()
+
+    const oldWorkers = [...createdWorkers]
+    const active = oldWorkers.map((_, index) => {
+      const src = `blob:busy-${index}`
+      registerObjectUrl(src, new Blob([`video-${index}`]))
+      return backgroundPreseek(src, index)
+    })
+    registerObjectUrl('blob:restart', new Blob(['restart']))
+    const queued = backgroundPreseek('blob:restart', 5)
+
+    disposePrewarmWorker()
+
+    await expect(queued).resolves.toBeNull()
+    await expect(Promise.all(active)).resolves.toEqual(oldWorkers.map(() => null))
+    for (const worker of oldWorkers) {
+      expect(worker.terminate).toHaveBeenCalledOnce()
+      expect(
+        worker.postMessage.mock.calls.some(
+          ([message]) => (message as MockWorkerMessage).src === 'blob:restart',
+        ),
+      ).toBe(false)
+    }
+
+    autoRespondPreseek = true
+    const oldWorkerCount = createdWorkers.length
+    warmDecoderPrewarmWorkerPool()
+    await expect(backgroundPreseek('blob:restart', 5)).resolves.toBe(mockBitmap)
+    const restartedWorkers = createdWorkers.slice(oldWorkerCount)
+    expect(
+      restartedWorkers.some((worker) =>
+        worker.postMessage.mock.calls.some(
+          ([message]) => (message as MockWorkerMessage).src === 'blob:restart',
+        ),
+      ),
+    ).toBe(true)
   })
 
   it('closes bitmaps from late worker replies after a request is no longer pending', () => {

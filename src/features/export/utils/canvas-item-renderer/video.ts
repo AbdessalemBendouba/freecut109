@@ -299,17 +299,12 @@ export async function renderVideoItem(
     // For variable-speed clips during playback, don't block on mediabunny init.
     // The init triggers a keyframe seek that blocks the main thread for 400ms+.
     // Instead, skip this frame (DOM video already drew it or it's invisible).
+    void rctx.ensureVideoItemReady(item.id)
     if (mediabunnyInitAction === 'warm-background-and-skip') {
-      void rctx.ensureVideoItemReady(item.id)
       return
     }
-    if (mediabunnyInitAction === 'await-ready') {
-      try {
-        await rctx.ensureVideoItemReady(item.id)
-      } catch {
-        // Best effort in preview path; fallback behavior handled below.
-      }
-    }
+    // A cold main-thread MediaBunny init can take hundreds of milliseconds.
+    // Continue through worker bitmap and cached-frame fallbacks while it warms.
   }
 
   // Preview fast-scrub runs in strict decode mode (no HTML video fallbacks).
