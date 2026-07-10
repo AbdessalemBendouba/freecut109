@@ -139,6 +139,15 @@
           "title": "Códec de vídeo compatible",
           "detail": "{{codec}} se puede codificar como {{container}} en este navegador."
         },
+        "audio-codec-supported": {
+          "title": "Códec de audio compatible",
+          "detail": "El audio {{codec}} se puede codificar en {{container}} en este navegador."
+        },
+        "audio-codec-unavailable": {
+          "title": "Códec de audio no disponible",
+          "detail": "Este navegador no puede codificar audio {{codec}} para {{container}}.",
+          "fix": "Elige WebM o MKV para usar audio Opus, o actualiza a un navegador compatible."
+        },
         "worker-unavailable-fallback": {
           "title": "Exportación en worker no disponible",
           "detail": "Este navegador o sesión no puede iniciar workers de exportación, así que el renderizado se ejecutará en el hilo principal.",

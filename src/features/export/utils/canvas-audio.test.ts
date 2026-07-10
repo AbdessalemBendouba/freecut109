@@ -30,7 +30,10 @@ vi.mock('mediabunny', () => {
     constructor(private readonly track: { src: string }) {}
 
     async *samples(startTime = 0, endTime = 0) {
-      const sampleRate = 48000
+      if (this.track.src.includes('mediabunny-fails')) {
+        throw new Error('Mediabunny range decode failed')
+      }
+      const sampleRate = this.track.src.includes('44100') ? 44100 : 48000
       const frameCount = Math.max(1, Math.round((endTime - startTime) * sampleRate))
       const makePlane = () => new Float32Array(frameCount).fill(0.1)
       const planes = [makePlane(), makePlane()]
@@ -56,7 +59,14 @@ vi.mock('mediabunny', () => {
   }
 })
 
-import { downmixToOutputChannels, extractAudioSegments, processAudio } from './canvas-audio'
+import {
+  clearAudioDecodeCache,
+  downmixToOutputChannels,
+  extractAudioSegments,
+  processAudio,
+  processAudioWindows,
+  supportsWindowedAudioProcessing,
+} from './canvas-audio'
 
 function makeTrack(params: {
   id: string
@@ -493,6 +503,143 @@ describe('extractAudioSegments', () => {
       expect.objectContaining({ lowGainDb: 4 }),
       expect.objectContaining({ highGainDb: 3, outputGainDb: 2 }),
     ])
+  })
+})
+
+describe('windowed audio processing', () => {
+  function simpleComposition(itemOverrides: Partial<AudioItem> = {}): CompositionInputProps {
+    return {
+      fps: 30,
+      durationInFrames: 90,
+      width: 1920,
+      height: 1080,
+      tracks: [
+        makeTrack({
+          id: 'track-a1',
+          order: 0,
+          kind: 'audio',
+          items: [makeAudioItem(itemOverrides)],
+        }),
+      ],
+    }
+  }
+
+  it('uses bounded windows for ordinary long-form clips', async () => {
+    const composition = simpleComposition()
+
+    expect(supportsWindowedAudioProcessing(composition)).toBe(true)
+
+    const windows = []
+    for await (const window of processAudioWindows(composition)) windows.push(window)
+
+    expect(windows).toHaveLength(1)
+    expect(windows[0]?.samples[0]).toHaveLength(3 * 48_000)
+    expect(windows[0]?.samples[0]?.[24_000]).toBeCloseTo(0.1, 4)
+  })
+
+  it('uses the Web Audio fallback when a window range cannot be decoded', async () => {
+    const fallbackSamples = new Float32Array(10 * 48_000).fill(0.2)
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      arrayBuffer: async () => new ArrayBuffer(8),
+    }))
+    class FallbackOfflineAudioContext {
+      async decodeAudioData() {
+        return {
+          sampleRate: 48_000,
+          numberOfChannels: 2,
+          duration: 10,
+          getChannelData: () => fallbackSamples,
+        }
+      }
+    }
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('OfflineAudioContext', FallbackOfflineAudioContext)
+
+    try {
+      const windows = []
+      for await (const window of processAudioWindows(
+        simpleComposition({ src: 'blob:mediabunny-fails' }),
+      )) {
+        windows.push(window)
+      }
+
+      expect(windows[0]?.samples[0]?.[24_000]).toBeCloseTo(0.2, 4)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      clearAudioDecodeCache()
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('applies 44.1 kHz fades before resampling, matching full processing', async () => {
+    class ResamplingOfflineAudioContext {
+      readonly destination = {}
+      private sourceBuffer: AudioBuffer | null = null
+
+      constructor(
+        _channels: number,
+        private readonly length: number,
+        private readonly sampleRate: number,
+      ) {}
+
+      createBuffer(channels: number, length: number, sampleRate: number): AudioBuffer {
+        const channelData = Array.from({ length: channels }, () => new Float32Array(length))
+        return {
+          length,
+          sampleRate,
+          duration: length / sampleRate,
+          numberOfChannels: channels,
+          getChannelData: (channel: number) => channelData[channel]!,
+        } as AudioBuffer
+      }
+
+      createBufferSource() {
+        const context = this
+        return {
+          set buffer(value: AudioBuffer | null) {
+            context.sourceBuffer = value
+          },
+          connect() {},
+          start() {},
+        }
+      }
+
+      async startRendering(): Promise<AudioBuffer> {
+        const source = this.sourceBuffer!
+        const output = this.createBuffer(1, this.length, this.sampleRate)
+        const sourceSamples = source.getChannelData(0)
+        const outputSamples = output.getChannelData(0)
+        for (let i = 0; i < outputSamples.length; i++) {
+          outputSamples[i] =
+            sourceSamples[
+              Math.min(
+                sourceSamples.length - 1,
+                Math.floor((i * source.sampleRate) / this.sampleRate),
+              )
+            ]!
+        }
+        return output
+      }
+    }
+    vi.stubGlobal('OfflineAudioContext', ResamplingOfflineAudioContext)
+
+    try {
+      const composition = simpleComposition({ src: 'blob:audio-44100', audioFadeIn: 1 })
+      const full = await processAudio(composition)
+      const windows = []
+      for await (const window of processAudioWindows(composition)) windows.push(window)
+
+      expect(full).not.toBeNull()
+      expect(windows[0]?.samples[0]?.[23_999]).toBeCloseTo(full!.samples[0]![23_999]!, 7)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('retains full-segment processing for stateful DSP clips', () => {
+    expect(supportsWindowedAudioProcessing(simpleComposition({ speed: 1.25 }))).toBe(false)
+    expect(supportsWindowedAudioProcessing(simpleComposition({ audioEqHighGainDb: 3 }))).toBe(false)
   })
 })
 

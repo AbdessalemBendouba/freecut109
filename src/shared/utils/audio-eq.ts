@@ -694,7 +694,9 @@ export function resolvePreviewAudioEqStages(
   return stages
 }
 
-function isAudioEqStageActive(stage?: AudioEqSettings | ResolvedAudioEqSettings | null): boolean {
+export function isAudioEqStageActive(
+  stage?: AudioEqSettings | ResolvedAudioEqSettings | null,
+): boolean {
   if (!stage) return false
   return (
     Math.abs(stage.outputGainDb ?? 0) > AUDIO_EQ_ACTIVE_EPSILON ||

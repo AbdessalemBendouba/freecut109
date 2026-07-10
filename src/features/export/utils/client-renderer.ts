@@ -58,6 +58,8 @@ export interface ClientRenderResult {
   mimeType: string
   duration: number
   fileSize: number
+  /** OPFS scratch backing for large streamed outputs; remove when no longer used. */
+  temporaryOutput?: import('./export-output-target').TemporaryExportOutput
   /** Separate subtitle file to download alongside the video (sidecar mode). */
   subtitleSidecar?: { filename: string; content: string }
 }

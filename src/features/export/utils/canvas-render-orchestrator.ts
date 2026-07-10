@@ -17,12 +17,14 @@ import type { ClientExportSettings, RenderProgress, ClientRenderResult } from '.
 import { createOutputFormat, getDefaultAudioCodec, getMimeType } from './client-renderer'
 import { createMediabunnyInputSource } from '@/infrastructure/browser/mediabunny-input-source'
 import { createLogger } from '@/shared/logging/logger'
+import { ensureAudioEncoderSupport } from '@/shared/media/audio-encoder-support'
 import { hasMediaCrop } from '@/shared/utils/media-crop'
 import { DEFAULT_PROJECT_HEIGHT, DEFAULT_PROJECT_WIDTH } from '@/shared/projects/defaults'
 import {
   buildTranscriptSubtitleWebVtt,
   omitTranscriptSubtitleItemsForSoftSubtitleExport,
 } from './embedded-subtitle-export'
+import { createExportOutputTarget } from './export-output-target'
 
 // Subsystems
 import { createCompositionRenderer } from './client-render-engine'
@@ -46,6 +48,110 @@ async function loadCanvasAudio(): Promise<CanvasAudioModule> {
     canvasAudioModulePromise = import('./canvas-audio')
   }
   return canvasAudioModulePromise
+}
+
+const AUDIO_ENCODE_CHUNK_FRAMES = 48_000
+
+async function addAudioDataInChunks(
+  audioSource: InstanceType<MediabunnyModule['AudioSampleSource']>,
+  AudioSample: MediabunnyModule['AudioSample'],
+  audioData: { samples: Float32Array[]; sampleRate: number; channels: number },
+  signal?: AbortSignal,
+  startTimestamp = 0,
+): Promise<void> {
+  const totalFrames = audioData.samples[0]?.length ?? 0
+
+  for (let offset = 0; offset < totalFrames; offset += AUDIO_ENCODE_CHUNK_FRAMES) {
+    if (signal?.aborted) throw new DOMException('Audio encoding cancelled', 'AbortError')
+
+    const frameCount = Math.min(AUDIO_ENCODE_CHUNK_FRAMES, totalFrames - offset)
+    const planar = new Float32Array(frameCount * audioData.channels)
+    for (let channel = 0; channel < audioData.channels; channel++) {
+      const samples = audioData.samples[channel]
+      if (samples) planar.set(samples.subarray(offset, offset + frameCount), channel * frameCount)
+    }
+
+    const sample = new AudioSample({
+      data: planar,
+      format: 'f32-planar',
+      numberOfChannels: audioData.channels,
+      sampleRate: audioData.sampleRate,
+      timestamp: startTimestamp + offset / audioData.sampleRate,
+    })
+    try {
+      await audioSource.add(sample)
+    } finally {
+      sample.close()
+    }
+  }
+}
+
+async function addCompositionAudio(params: {
+  audioSource: InstanceType<MediabunnyModule['AudioSampleSource']>
+  AudioSample: MediabunnyModule['AudioSample']
+  canvasAudio: CanvasAudioModule
+  composition: CompositionInputProps
+  audioData: { samples: Float32Array[]; sampleRate: number; channels: number } | null
+  useWindowedAudio: boolean
+  signal?: AbortSignal
+}): Promise<number> {
+  const { audioSource, AudioSample, canvasAudio, composition, audioData, signal } = params
+  if (params.useWindowedAudio) {
+    let encodedFrames = 0
+    for await (const window of canvasAudio.processAudioWindows(composition, signal)) {
+      await addAudioDataInChunks(
+        audioSource,
+        AudioSample,
+        window,
+        signal,
+        encodedFrames / window.sampleRate,
+      )
+      encodedFrames += window.samples[0]?.length ?? 0
+    }
+    return encodedFrames
+  }
+
+  if (!audioData) return 0
+  await addAudioDataInChunks(audioSource, AudioSample, audioData, signal)
+  return audioData.samples[0]?.length ?? 0
+}
+
+function getAudioOnlyCodec(
+  container: ClientExportSettings['container'],
+): 'mp3' | 'aac' | 'pcm-s16' {
+  if (container === 'mp3') return 'mp3'
+  if (container === 'aac') return 'aac'
+  return 'pcm-s16'
+}
+
+async function registerMp3EncoderIfNeeded(container: ClientExportSettings['container']) {
+  if (container !== 'mp3') return
+  try {
+    const { registerMp3Encoder } = await import('@mediabunny/mp3-encoder')
+    registerMp3Encoder()
+    getLog().info('MP3 encoder registered')
+  } catch (error) {
+    getLog().warn('Failed to load MP3 encoder extension', error)
+  }
+}
+
+async function assertAudioOnlyEncoderSupported(
+  codec: 'mp3' | 'aac' | 'pcm-s16',
+  bitrate: number,
+): Promise<void> {
+  if (codec === 'pcm-s16') return
+  const supported = await ensureAudioEncoderSupport(codec, {
+    bitrate,
+    numberOfChannels: 2,
+    sampleRate: 48_000,
+  })
+  if (!supported) {
+    throw new Error(
+      `${codec.toUpperCase()} encoding is not supported in this browser. ` +
+        'Try exporting as WAV (lossless) instead.',
+    )
+  }
+  getLog().info(`Using ${codec.toUpperCase()} codec`)
 }
 
 export interface RenderEngineOptions {
@@ -184,9 +290,9 @@ async function tryPacketRemuxComposition(
   }
 
   const mediabunny: MediabunnyModule = await import('mediabunny')
-  const { Input, Output, BufferTarget, Conversion, ALL_FORMATS } = mediabunny
+  const { Input, Output, Conversion, ALL_FORMATS } = mediabunny
 
-  const format = (await createOutputFormat(settings.container, { fastStart: true })) as {
+  const validationFormat = (await createOutputFormat(settings.container, { fastStart: false })) as {
     getSupportedVideoCodecs?: () => string[]
     getSupportedAudioCodecs?: () => string[]
   }
@@ -215,7 +321,7 @@ async function tryPacketRemuxComposition(
       return null
     }
 
-    const supportedVideoCodecs = format.getSupportedVideoCodecs?.() ?? []
+    const supportedVideoCodecs = validationFormat.getSupportedVideoCodecs?.() ?? []
     if (!supportedVideoCodecs.includes(videoTrack.codec) || videoTrack.codec !== settings.codec) {
       return null
     }
@@ -230,7 +336,7 @@ async function tryPacketRemuxComposition(
     if (plan.includeAudio) {
       const audioTrack = await input.getPrimaryAudioTrack()
       if (audioTrack?.codec) {
-        const supportedAudioCodecs = format.getSupportedAudioCodecs?.() ?? []
+        const supportedAudioCodecs = validationFormat.getSupportedAudioCodecs?.() ?? []
         if (!supportedAudioCodecs.includes(audioTrack.codec)) {
           return null
         }
@@ -244,12 +350,18 @@ async function tryPacketRemuxComposition(
       message: 'Preparing packet remux...',
     })
 
-    // Create output resources only after all validation checks pass.
-    const target = new BufferTarget()
+    // Create output resources only after all validation checks pass. File-backed
+    // output keeps long remuxes out of the renderer process heap.
+    const mimeType = getMimeType(settings.container, settings.codec)
+    const outputTarget = await createExportOutputTarget(mediabunny, settings.container, mimeType)
+    const format = await createOutputFormat(settings.container, {
+      fastStart: outputTarget.kind === 'buffer',
+    })
     const output = new Output({
       format: format as unknown as ConstructorParameters<typeof Output>[0]['format'],
-      target,
+      target: outputTarget.target,
     })
+    let outputCompleted = false
 
     try {
       conversion = await Conversion.init({
@@ -284,12 +396,9 @@ async function tryPacketRemuxComposition(
 
       await conversion.execute()
 
-      const buffer = target.buffer
-      if (!buffer) {
-        throw new Error('No output buffer generated')
-      }
-
-      const blob = new Blob([buffer], { type: getMimeType(settings.container, settings.codec) })
+      const completed = await outputTarget.complete()
+      outputCompleted = true
+      const { blob } = completed
 
       onProgress({
         phase: 'finalizing',
@@ -309,12 +418,14 @@ async function tryPacketRemuxComposition(
 
       return {
         blob,
-        mimeType: getMimeType(settings.container, settings.codec),
+        mimeType,
         duration: durationSeconds,
         fileSize: blob.size,
+        temporaryOutput: completed.temporaryOutput,
       }
     } finally {
       ;(output as unknown as { dispose?: () => void }).dispose?.()
+      if (!outputCompleted) await outputTarget.discard()
     }
   } catch (error) {
     const isCanceled =
@@ -385,10 +496,10 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
   const mediabunny: MediabunnyModule = await import('mediabunny')
   const {
     Output,
-    BufferTarget,
     VideoSampleSource,
     VideoSample,
-    AudioBufferSource,
+    AudioSampleSource,
+    AudioSample,
     TextSubtitleSource,
   } = mediabunny
 
@@ -401,17 +512,18 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
 
   // Process audio in parallel with setup
   let audioData: { samples: Float32Array[]; sampleRate: number; channels: number } | null = null
-  if (await canvasAudio.hasAudioContent(composition)) {
-    try {
-      audioData = await canvasAudio.processAudio(composition, signal)
-      getLog().info('Audio processed', {
-        hasAudio: !!audioData,
-        sampleRate: audioData?.sampleRate,
-        channels: audioData?.channels,
-      })
-    } catch (error) {
-      getLog().error('Audio processing failed, continuing without audio', { error })
-    }
+  const compositionHasAudio = await canvasAudio.hasAudioContent(composition)
+  const useWindowedAudio =
+    compositionHasAudio &&
+    durationInFrames / fps >= 5 * 60 &&
+    canvasAudio.supportsWindowedAudioProcessing(composition)
+  if (compositionHasAudio && !useWindowedAudio) {
+    audioData = await canvasAudio.processAudio(composition, signal)
+    if (!audioData) throw new Error('Audio processing produced no output')
+    getLog().info('Audio processed', {
+      sampleRate: audioData.sampleRate,
+      channels: audioData.channels,
+    })
   }
 
   onProgress({
@@ -421,16 +533,16 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
     message: 'Creating encoder...',
   })
 
-  // Create output format
-  const format = await createOutputFormat(settings.container, { fastStart: true })
-
-  // Create buffer target to collect the output
-  const target = new BufferTarget()
+  const mimeType = getMimeType(settings.container, settings.codec)
+  const outputTarget = await createExportOutputTarget(mediabunny, settings.container, mimeType)
+  const format = await createOutputFormat(settings.container, {
+    fastStart: outputTarget.kind === 'buffer',
+  })
 
   // Create output
   const output = new Output({
     format,
-    target,
+    target: outputTarget.target,
   })
 
   // Subtitle handling per mode:
@@ -532,15 +644,10 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
     frameRate: fps,
   })
 
-  // Prepare audio source and buffer (stored outside try block for access after start)
-  let audioSource: InstanceType<typeof AudioBufferSource> | null = null
-  let audioBuffer: AudioBuffer | null = null
+  let audioSource: InstanceType<typeof AudioSampleSource> | null = null
 
-  if (audioData) {
+  if (audioData || useWindowedAudio) {
     try {
-      // Create audio buffer from processed samples
-      audioBuffer = canvasAudio.createAudioBuffer(audioData)
-
       // Select the container-compatible audio codec for the muxer.
       const audioCodec = getDefaultAudioCodec(settings.container)
       if (audioCodec !== 'aac' && audioCodec !== 'opus') {
@@ -548,9 +655,20 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
           `Unsupported audio codec ${audioCodec} for ${settings.container.toUpperCase()} export`,
         )
       }
+      const supported = await ensureAudioEncoderSupport(audioCodec, {
+        bitrate: settings.audioBitrate ?? 192_000,
+        numberOfChannels: audioData?.channels ?? 2,
+        sampleRate: audioData?.sampleRate ?? 48_000,
+      })
+      if (!supported) {
+        throw new Error(
+          `${audioCodec.toUpperCase()} audio encoding is not supported in this browser. ` +
+            'Choose WebM or MKV with Opus audio.',
+        )
+      }
 
       // Create audio source for encoding
-      audioSource = new AudioBufferSource({
+      audioSource = new AudioSampleSource({
         codec: audioCodec,
         bitrate: settings.audioBitrate ?? 192000,
       })
@@ -558,37 +676,61 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
       // Add audio track to output (audio data fed after start())
       output.addAudioTrack(audioSource)
       getLog().info('Audio track added to output', {
-        duration: audioBuffer.duration,
-        channels: audioBuffer.numberOfChannels,
-        sampleRate: audioBuffer.sampleRate,
+        duration: durationInFrames / fps,
+        channels: audioData?.channels ?? 2,
+        sampleRate: audioData?.sampleRate ?? 48_000,
         codec: audioCodec,
+        windowed: useWindowedAudio,
       })
     } catch (error) {
       getLog().error('Failed to setup audio track', { error })
-      audioSource = null
-      audioBuffer = null
+      await outputTarget.discard()
+      throw error
     }
   }
 
-  // Start the output
-  await output.start()
+  try {
+    await output.start()
 
-  if (transcriptSubtitleSource && transcriptSubtitleVtt) {
-    await transcriptSubtitleSource.add(transcriptSubtitleVtt)
-    transcriptSubtitleSource.close()
+    if (transcriptSubtitleSource && transcriptSubtitleVtt) {
+      await transcriptSubtitleSource.add(transcriptSubtitleVtt)
+      transcriptSubtitleSource.close()
+    }
+  } catch (error) {
+    await outputTarget.discard()
+    throw error
   }
 
-  // Feed audio buffer after output has started
-  // AudioBufferSource.add() must be called after output.start()
-  if (audioSource && audioBuffer) {
+  // Feed bounded planar chunks after output has started. This avoids a second
+  // full-timeline AudioBuffer allocation and respects encoder backpressure.
+  if (audioSource && (audioData || useWindowedAudio)) {
     try {
-      await audioSource.add(audioBuffer)
-      getLog().info('Audio buffer fed to encoder', {
-        duration: audioBuffer.duration,
-        samples: audioBuffer.length,
+      const encodedFrames = await addCompositionAudio({
+        audioSource,
+        AudioSample,
+        canvasAudio,
+        composition,
+        audioData,
+        useWindowedAudio,
+        signal,
       })
+      getLog().info('Audio chunks fed to encoder', {
+        duration: encodedFrames / 48_000,
+        samples: encodedFrames,
+        windowed: useWindowedAudio,
+      })
+      audioSource.close()
+      audioSource = null
+      audioData = null
     } catch (error) {
       getLog().error('Failed to feed audio to encoder', { error })
+      try {
+        if (output.state === 'started') await output.cancel()
+      } catch {
+        // Ignore cancellation errors; preserve the encoder failure.
+      }
+      await outputTarget.discard()
+      throw error
     }
   }
 
@@ -600,10 +742,10 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
     message: 'Rendering frames...',
   })
 
-  // Create a composition renderer
-  const frameRenderer = await createCompositionRenderer(renderCompositionInput, renderCanvas, ctx)
+  let frameRenderer: Awaited<ReturnType<typeof createCompositionRenderer>> | null = null
 
   try {
+    frameRenderer = await createCompositionRenderer(renderCompositionInput, renderCanvas, ctx)
     // Preload media
     await frameRenderer.preload()
 
@@ -693,7 +835,7 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
       message: 'Finalizing video...',
     })
 
-    // Close audio source before finalizing (signals no more audio data)
+    // Close an audio source that did not finish during preparation.
     if (audioSource) {
       try {
         audioSource.close()
@@ -706,13 +848,8 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
     // Finalize output
     await output.finalize()
 
-    // Get the buffer
-    const buffer = target.buffer
-    if (!buffer) {
-      throw new Error('No output buffer generated')
-    }
-
-    const blob = new Blob([buffer], { type: getMimeType(settings.container, settings.codec) })
+    const completed = await outputTarget.complete()
+    const { blob } = completed
 
     onProgress({
       phase: 'finalizing',
@@ -728,13 +865,14 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
 
     return {
       blob,
-      mimeType: getMimeType(settings.container, settings.codec),
+      mimeType,
       duration: durationSeconds,
       fileSize: blob.size,
+      temporaryOutput: completed.temporaryOutput,
     }
   } catch (error) {
     // Cleanup on error
-    frameRenderer.dispose()
+    frameRenderer?.dispose()
     canvasAudio.clearAudioDecodeCache()
 
     // Attempt to cancel the output on error
@@ -745,6 +883,7 @@ export async function renderComposition(options: RenderEngineOptions): Promise<C
     } catch {
       // Ignore cancel errors
     }
+    await outputTarget.discard()
     throw error
   }
 }
@@ -874,18 +1013,9 @@ export async function renderAudioOnly(options: AudioRenderOptions): Promise<Clie
 
   // Dynamically import mediabunny (AC-3 decoder is loaded lazily by canvas-audio when needed)
   const mediabunny = await import('mediabunny')
-  const { Output, BufferTarget, AudioBufferSource } = mediabunny
+  const { Output, AudioSampleSource, AudioSample } = mediabunny
 
-  // Register MP3 encoder if exporting to MP3
-  if (settings.container === 'mp3') {
-    try {
-      const { registerMp3Encoder } = await import('@mediabunny/mp3-encoder')
-      registerMp3Encoder()
-      getLog().info('MP3 encoder registered')
-    } catch (err) {
-      getLog().warn('Failed to load MP3 encoder extension', err)
-    }
-  }
+  await registerMp3EncoderIfNeeded(settings.container)
 
   onProgress({
     phase: 'preparing',
@@ -899,8 +1029,10 @@ export async function renderAudioOnly(options: AudioRenderOptions): Promise<Clie
     throw new Error('No audio content found in composition')
   }
 
-  const audioData = await canvasAudio.processAudio(composition, signal)
-  if (!audioData) {
+  const useWindowedAudio =
+    durationSeconds >= 5 * 60 && canvasAudio.supportsWindowedAudioProcessing(composition)
+  let audioData = useWindowedAudio ? null : await canvasAudio.processAudio(composition, signal)
+  if (!audioData && !useWindowedAudio) {
     throw new Error('Failed to process audio')
   }
 
@@ -911,69 +1043,32 @@ export async function renderAudioOnly(options: AudioRenderOptions): Promise<Clie
     message: 'Creating encoder...',
   })
 
-  // Create output format
-  const format = await createOutputFormat(settings.container, { fastStart: true })
+  const audioCodec = getAudioOnlyCodec(settings.container)
+  const audioBitrate = settings.audioBitrate ?? 192_000
+  await assertAudioOnlyEncoderSupported(audioCodec, audioBitrate)
 
-  // Create buffer target to collect the output
-  const target = new BufferTarget()
-
-  // Create output
-  const output = new Output({
-    format,
-    target,
+  const mimeType = getMimeType(settings.container)
+  const outputTarget = await createExportOutputTarget(mediabunny, settings.container, mimeType)
+  const format = await createOutputFormat(settings.container, {
+    fastStart: outputTarget.kind === 'buffer',
   })
-
-  // Determine audio codec based on container (container = codec for audio-only)
-  let audioCodec: 'mp3' | 'aac' | 'pcm-s16'
-  switch (settings.container) {
-    case 'mp3':
-      audioCodec = 'mp3'
-      break
-    case 'aac':
-      audioCodec = 'aac'
-      break
-    default:
-      audioCodec = 'pcm-s16'
-  }
-
-  // PCM codecs don't need browser encoding support – they're raw samples
-  const isPcmCodec = audioCodec === 'pcm-s16'
-
-  if (!isPcmCodec) {
-    // Check if codec is supported
-    const { canEncodeAudio } = mediabunny
-    const isSupported = await canEncodeAudio(audioCodec, {
-      bitrate: settings.audioBitrate ?? 192000,
-      numberOfChannels: 2,
-      sampleRate: 48000,
-    })
-
-    if (!isSupported) {
-      throw new Error(
-        `${audioCodec.toUpperCase()} encoding is not supported in this browser. ` +
-          `Try exporting as WAV (lossless) instead.`,
-      )
-    }
-    getLog().info(`Using ${audioCodec.toUpperCase()} codec`)
-  }
-
-  // Create audio buffer from processed samples
-  const audioBuffer = canvasAudio.createAudioBuffer(audioData)
+  const output = new Output({ format, target: outputTarget.target })
 
   // Create audio source for encoding
-  const audioSource = new AudioBufferSource({
+  const audioSource = new AudioSampleSource({
     codec: audioCodec,
-    bitrate: settings.audioBitrate ?? 192000,
+    bitrate: audioBitrate,
   })
 
   // Add audio track to output
   output.addAudioTrack(audioSource)
 
   getLog().info('Audio track configured', {
-    duration: audioBuffer.duration,
-    channels: audioBuffer.numberOfChannels,
-    sampleRate: audioBuffer.sampleRate,
+    duration: durationSeconds,
+    channels: audioData?.channels ?? 2,
+    sampleRate: audioData?.sampleRate ?? 48_000,
     codec: audioCodec,
+    windowed: useWindowedAudio,
   })
 
   onProgress({
@@ -983,32 +1078,41 @@ export async function renderAudioOnly(options: AudioRenderOptions): Promise<Clie
     message: 'Encoding audio...',
   })
 
-  // Start the output
-  await output.start()
+  let completed: Awaited<ReturnType<typeof outputTarget.complete>>
+  try {
+    await output.start()
+    await addCompositionAudio({
+      audioSource,
+      AudioSample,
+      canvasAudio,
+      composition,
+      audioData,
+      useWindowedAudio,
+      signal,
+    })
+    audioData = null
 
-  // Feed audio buffer
-  await audioSource.add(audioBuffer)
+    onProgress({
+      phase: 'finalizing',
+      progress: 90,
+      totalFrames: durationInFrames,
+      message: 'Finalizing audio...',
+    })
 
-  onProgress({
-    phase: 'finalizing',
-    progress: 90,
-    totalFrames: durationInFrames,
-    message: 'Finalizing audio...',
-  })
-
-  // Close audio source
-  audioSource.close()
-
-  // Finalize output
-  await output.finalize()
-
-  // Get the buffer
-  const buffer = target.buffer
-  if (!buffer) {
-    throw new Error('No output buffer generated')
+    audioSource.close()
+    await output.finalize()
+    completed = await outputTarget.complete()
+  } catch (error) {
+    try {
+      if (output.state === 'started') await output.cancel()
+    } catch {
+      // Ignore cancellation errors; preserve the original failure.
+    }
+    await outputTarget.discard()
+    throw error
   }
 
-  const blob = new Blob([buffer], { type: getMimeType(settings.container) })
+  const { blob } = completed
 
   onProgress({
     phase: 'finalizing',
@@ -1019,8 +1123,9 @@ export async function renderAudioOnly(options: AudioRenderOptions): Promise<Clie
 
   return {
     blob,
-    mimeType: getMimeType(settings.container),
+    mimeType,
     duration: durationSeconds,
     fileSize: blob.size,
+    temporaryOutput: completed.temporaryOutput,
   }
 }

@@ -104,34 +104,8 @@ interface HeadlessRenderSummary {
   fileSize: number
   durationSeconds: number
   fileName: string
-  /** Non-fatal issues (e.g. audio codec not encodable here, so audio was omitted). */
+  /** Non-fatal issues encountered while adapting the render settings. */
   warnings: string[]
-}
-
-/**
- * Ensure AAC can be encoded. Linux Chrome has no native WebCodecs AAC encoder,
- * so register the @mediabunny/aac-encoder WASM polyfill when native support is
- * absent — mediabunny then uses it automatically. (mp3/PCM are handled by the
- * export pipeline / need no encoder; opus is native in Chrome.)
- */
-async function ensureAudioEncoder(audioCodec: string | undefined): Promise<void> {
-  if (audioCodec !== 'aac') return
-  const { canEncodeAudio } = await import('mediabunny')
-  if (await canEncodeAudio('aac')) return
-  const { registerAacEncoder } = await import('@mediabunny/aac-encoder')
-  registerAacEncoder()
-  log.info('Registered @mediabunny/aac-encoder (no native AAC encoder in this environment)')
-}
-
-/** True if the audio codec can't be encoded here (after any polyfill registration). */
-async function audioCodecUnsupported(audioCodec: string | undefined): Promise<boolean> {
-  if (!audioCodec || audioCodec === 'mp3' || audioCodec.startsWith('pcm')) return false
-  const { canEncodeAudio } = await import('mediabunny')
-  try {
-    return !(await canEncodeAudio(audioCodec as Parameters<typeof canEncodeAudio>[0]))
-  } catch {
-    return true
-  }
 }
 
 type ProgressSink = (progress: RenderProgress) => void
@@ -299,17 +273,7 @@ async function renderTimeline(input: HeadlessTimelineInput): Promise<HeadlessRen
   seedMediaLibrary(media)
 
   await adaptVideoSettings(settings)
-  // Register the WASM AAC encoder if this environment lacks a native one.
-  await ensureAudioEncoder(settings.audioCodec)
-
   const warnings: string[] = []
-  if (settings.mode === 'video' && (await audioCodecUnsupported(settings.audioCodec))) {
-    const msg =
-      `Audio codec "${settings.audioCodec}" cannot be encoded in this environment; any audio will be omitted. ` +
-      `Use vp9/webm (Opus) for audio.`
-    warnings.push(msg)
-    log.warn(msg)
-  }
 
   const composition: CompositionInputProps = convertTimelineToComposition(
     tracks,

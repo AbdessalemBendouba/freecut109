@@ -39,6 +39,7 @@ async function renderQueuedJob(job: RenderJob): Promise<void> {
   })
 
   const controller = new AbortController()
+  let temporaryResult: import('../utils/client-renderer').ClientRenderResult | null = null
   registerJobController(job.id, controller)
   store.markRendering(job.id)
 
@@ -82,6 +83,7 @@ async function renderQueuedJob(job: RenderJob): Promise<void> {
       signal: controller.signal,
       onProgress: (progress) => useRenderQueueStore.getState().updateJobProgress(job.id, progress),
     })
+    temporaryResult = result
     if (fallbackReason) event.set('workerFallbackReason', fallbackReason)
 
     const saved = await saveExportFile(job.projectId, job.fileName, result.blob)
@@ -107,7 +109,14 @@ async function renderQueuedJob(job: RenderJob): Promise<void> {
       event.failure(err)
     }
   } finally {
-    unregisterJobController(job.id)
+    try {
+      if (temporaryResult) {
+        const { releaseTemporaryExportOutput } = await import('../utils/export-output-target')
+        await releaseTemporaryExportOutput(temporaryResult)
+      }
+    } finally {
+      unregisterJobController(job.id)
+    }
   }
 }
 

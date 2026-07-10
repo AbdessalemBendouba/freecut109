@@ -197,11 +197,6 @@
     },
     {
       "path": "src/features/export/utils/canvas-audio.ts",
-      "exportName": "clearAudioDecodeCache",
-      "reason": "Called through the canvas-audio namespace from the render orchestrator."
-    },
-    {
-      "path": "src/features/export/utils/canvas-audio.ts",
       "exportName": "createAudioBuffer",
       "reason": "Called through the canvas-audio namespace from export rendering."
     },

@@ -47,6 +47,7 @@ import {
   applyAudioEqStages,
   areAudioEqStagesEqual,
   getAudioEqSettings,
+  isAudioEqStageActive,
 } from '@/shared/utils/audio-eq'
 import {
   getAudioPitchRatioFromSemitones,
@@ -1026,6 +1027,7 @@ async function decodeAudioFromSource(
   endTime?: number,
   audioCodec?: string,
   ac3RetryAttempted: boolean = false,
+  allowWebAudioFallback: boolean = true,
 ): Promise<DecodedAudio> {
   // Check cache first (only for full file decodes for backward compatibility)
   if (startTime === undefined && endTime === undefined) {
@@ -1186,27 +1188,67 @@ async function decodeAudioFromSource(
     if (!ac3RetryAttempted && !isAc3AudioCodec(audioCodec)) {
       try {
         await ensureAc3DecoderRegistered()
-        return await decodeAudioFromSource(src, itemId, startTime, endTime, audioCodec, true)
+        return await decodeAudioFromSource(
+          src,
+          itemId,
+          startTime,
+          endTime,
+          audioCodec,
+          true,
+          allowWebAudioFallback,
+        )
       } catch {
         // Ignore and continue to Web Audio fallback below.
       }
     }
 
-    // Fall back to Web Audio API for full decode
+    if (!allowWebAudioFallback) throw error
+
+    // Fall back to Web Audio API. It must decode the full source, but returns
+    // only the requested range so windowed callers keep their bounded shape.
     log.warn('Mediabunny audio decode failed, using fallback', { itemId, error })
-    return decodeAudioFallback(src, itemId)
+    return decodeAudioFallback(src, itemId, startTime, endTime)
+  }
+}
+
+function sliceDecodedAudioRange(
+  decoded: DecodedAudio,
+  itemId: string,
+  startTime?: number,
+  endTime?: number,
+): DecodedAudio {
+  if (startTime === undefined && endTime === undefined) return { ...decoded, itemId }
+
+  const startFrame = Math.max(0, Math.floor((startTime ?? 0) * decoded.sampleRate))
+  const endFrame = Math.max(
+    startFrame,
+    Math.min(
+      decoded.samples[0]?.length ?? 0,
+      Math.ceil((endTime ?? decoded.duration) * decoded.sampleRate),
+    ),
+  )
+  return {
+    ...decoded,
+    itemId,
+    samples: decoded.samples.map((samples) => samples.subarray(startFrame, endFrame)),
+    duration: (endFrame - startFrame) / decoded.sampleRate,
   }
 }
 
 /**
  * Fallback audio decoder using Web Audio API (decodes entire file)
  */
-async function decodeAudioFallback(src: string, itemId: string): Promise<DecodedAudio> {
+async function decodeAudioFallback(
+  src: string,
+  itemId: string,
+  startTime?: number,
+  endTime?: number,
+): Promise<DecodedAudio> {
   // Check cache
   const cached = audioDecodeCache.get(src)
   if (cached) {
     log.debug('Using cached decoded audio (fallback)', { itemId })
-    return { ...cached, itemId }
+    return sliceDecodedAudioRange(cached, itemId, startTime, endTime)
   }
 
   log.debug('Decoding audio with Web Audio API fallback', { itemId, src: src.substring(0, 50) })
@@ -1245,7 +1287,7 @@ async function decodeAudioFallback(src: string, itemId: string): Promise<Decoded
     samples: samples[0]?.length,
   })
 
-  return result
+  return sliceDecodedAudioRange(result, itemId, startTime, endTime)
 }
 
 /**
@@ -1709,48 +1751,38 @@ function reverseAudioChannels(channels: Float32Array[]): Float32Array[] {
  * @param config - Audio processing configuration
  * @returns Mixed stereo audio samples
  */
-function mixAudioTracks(
-  segments: Array<{
-    samples: Float32Array[]
-    startSample: number
-    muted: boolean
-  }>,
-  config: AudioProcessingConfig,
-): Float32Array[] {
+function createAudioMixBuffer(config: AudioProcessingConfig): Float32Array[] {
   const { sampleRate, channels, fps, totalFrames } = config
   const totalSamples = Math.ceil((totalFrames / fps) * sampleRate)
-
-  // Create output buffers (stereo)
   const output: Float32Array[] = []
   for (let c = 0; c < channels; c++) {
     output.push(new Float32Array(totalSamples))
   }
+  return output
+}
 
-  // Mix each segment, downmixing source channels to the output layout.
-  for (const segment of segments) {
-    if (segment.muted) continue
+function mixAudioSegmentInto(
+  output: Float32Array[],
+  segment: { samples: Float32Array[]; startSample: number },
+  config: AudioProcessingConfig,
+): void {
+  const { channels } = config
+  const totalSamples = output[0]?.length ?? 0
+  const downmixed = downmixToOutputChannels(segment.samples, channels)
 
-    const downmixed = downmixToOutputChannels(segment.samples, channels)
-
-    for (let c = 0; c < channels; c++) {
-      const channelSamples = downmixed[c]
-      if (!channelSamples) continue
-
-      const outputChannel = output[c]!
-
-      for (let i = 0; i < channelSamples.length; i++) {
-        const outputIndex = segment.startSample + i
-        if (outputIndex < 0 || outputIndex >= totalSamples) continue
-
-        const sample = channelSamples[i]
-        const currentValue = outputChannel[outputIndex]
-        if (sample !== undefined && currentValue !== undefined) {
-          outputChannel[outputIndex] = currentValue + sample
-        }
-      }
+  for (let c = 0; c < channels; c++) {
+    const channelSamples = downmixed[c]!
+    const outputChannel = output[c]!
+    const sourceStart = Math.max(0, -segment.startSample)
+    const sourceEnd = Math.min(channelSamples.length, totalSamples - segment.startSample)
+    for (let i = sourceStart; i < sourceEnd; i++) {
+      const outputIndex = segment.startSample + i
+      outputChannel[outputIndex] = outputChannel[outputIndex]! + channelSamples[i]!
     }
   }
+}
 
+function softClipAudioMix(output: Float32Array[]): void {
   // Soft-clip to prevent harsh digital clipping while preserving overall loudness.
   // This matches browser preview behavior where audio peaks are naturally saturated
   // rather than the entire mix being reduced in volume.
@@ -1768,8 +1800,6 @@ function mixAudioTracks(
   if (clippedSamples > 0) {
     log.debug('Soft-clipped audio peaks', { clippedSamples })
   }
-
-  return output
 }
 
 /**
@@ -1795,6 +1825,342 @@ async function resolveSubCompMediaUrls(composition: CompositionInputProps): Prom
   if (urlResolutions.length > 0) {
     log.debug('Pre-resolving sub-comp audio URLs', { count: urlResolutions.length })
     await Promise.all(urlResolutions)
+  }
+}
+
+const STREAMING_AUDIO_CHUNK_SECONDS = 30
+
+function supportsWindowedAudioSegment(segment: AudioSegment): boolean {
+  return (
+    Math.abs(segment.speed - 1) <= 0.0001 &&
+    !segment.isReversed &&
+    !isAudioPitchShiftActive(segment.pitchShiftSemitones) &&
+    !segment.audioEqStages?.some(isAudioEqStageActive)
+  )
+}
+
+/**
+ * Long, ordinary clips can be mixed in bounded windows. Stateful DSP paths
+ * retain the full-segment implementation so speed/pitch/EQ continuity remains
+ * identical to preview.
+ */
+export function supportsWindowedAudioProcessing(composition: CompositionInputProps): boolean {
+  const segments = extractAudioSegments(composition, composition.fps).filter(
+    (segment) => !segment.muted,
+  )
+  return segments.length > 0 && segments.every(supportsWindowedAudioSegment)
+}
+
+type FramesToSamples = (frames: number | undefined) => number
+
+function applyClipFadeSpanToWindow(
+  output: Float32Array,
+  span: AudioClipFadeSpan,
+  segmentOffsetSamples: number,
+  toSamples: FramesToSamples,
+): void {
+  const spanStart = toSamples(span.startFrame)
+  const spanEnd = spanStart + toSamples(span.durationInFrames)
+  const fadeInSamples = Math.min(spanEnd - spanStart, toSamples(span.fadeInFrames))
+  const fadeOutSamples = Math.min(spanEnd - spanStart, toSamples(span.fadeOutFrames))
+
+  for (let i = 0; i < output.length; i++) {
+    const globalIndex = segmentOffsetSamples + i
+    if (globalIndex < spanStart || globalIndex >= spanEnd) continue
+    if (fadeInSamples > 0 && globalIndex < spanStart + fadeInSamples) {
+      const progress = (globalIndex - spanStart) / Math.max(1, fadeInSamples)
+      output[i] =
+        output[i]! * evaluateAudioFadeInCurve(progress, span.fadeInCurve, span.fadeInCurveX)
+    }
+    const fadeOutStart = spanEnd - fadeOutSamples
+    if (fadeOutSamples > 0 && globalIndex >= fadeOutStart) {
+      const progress = (globalIndex - fadeOutStart) / Math.max(1, fadeOutSamples)
+      output[i] =
+        output[i]! * evaluateAudioFadeOutCurve(progress, span.fadeOutCurve, span.fadeOutCurveX)
+    }
+  }
+}
+
+function applyClipFadeSpansToWindow(
+  output: Float32Array,
+  segment: AudioSegment,
+  segmentOffsetSamples: number,
+  toSamples: FramesToSamples,
+): void {
+  for (const span of segment.clipFadeSpans ?? []) {
+    applyClipFadeSpanToWindow(output, span, segmentOffsetSamples, toSamples)
+  }
+}
+
+function applyBasicFadesToWindow(
+  output: Float32Array,
+  segment: AudioSegment,
+  segmentOffsetSamples: number,
+  totalSegmentSamples: number,
+  toSamples: FramesToSamples,
+): void {
+  const contentStart =
+    toSamples(segment.contentStartOffsetFrames) + toSamples(segment.fadeInDelayFrames)
+  const contentEnd = Math.max(
+    contentStart,
+    totalSegmentSamples -
+      toSamples(segment.contentEndOffsetFrames) -
+      toSamples(segment.fadeOutLeadFrames),
+  )
+  const fadeInSamples = toSamples(segment.fadeInFrames)
+  const fadeOutSamples = toSamples(segment.fadeOutFrames)
+  const fadeOutStart = Math.max(contentStart, contentEnd - fadeOutSamples)
+
+  for (let i = 0; i < output.length; i++) {
+    const globalIndex = segmentOffsetSamples + i
+    if (globalIndex < contentStart || globalIndex >= contentEnd) {
+      output[i] = 0
+    } else if (fadeInSamples > 0 && globalIndex < contentStart + fadeInSamples) {
+      const progress = (globalIndex - contentStart) / fadeInSamples
+      output[i] =
+        output[i]! * evaluateAudioFadeInCurve(progress, segment.fadeInCurve, segment.fadeInCurveX)
+    } else if (fadeOutSamples > 0 && globalIndex >= fadeOutStart) {
+      const progress = (globalIndex - fadeOutStart) / fadeOutSamples
+      output[i] =
+        output[i]! *
+        evaluateAudioFadeOutCurve(progress, segment.fadeOutCurve, segment.fadeOutCurveX)
+    }
+  }
+}
+
+function applyCrossfadesToWindow(
+  output: Float32Array,
+  segment: AudioSegment,
+  segmentOffsetSamples: number,
+  totalSegmentSamples: number,
+  toSamples: FramesToSamples,
+): void {
+  const crossfadeIn = toSamples(segment.crossfadeFadeInFrames)
+  const crossfadeOut = toSamples(segment.crossfadeFadeOutFrames)
+  const fadeOutStart = totalSegmentSamples - crossfadeOut
+  for (let i = 0; i < output.length; i++) {
+    const globalIndex = segmentOffsetSamples + i
+    if (crossfadeIn > 0 && globalIndex < crossfadeIn) {
+      output[i] = output[i]! * Math.sin(((globalIndex / crossfadeIn) * Math.PI) / 2)
+    }
+    if (crossfadeOut > 0 && globalIndex >= fadeOutStart) {
+      output[i] =
+        output[i]! * Math.cos((((globalIndex - fadeOutStart) / crossfadeOut) * Math.PI) / 2)
+    }
+  }
+}
+
+function applyWindowedSegmentFades(
+  samples: Float32Array,
+  segment: AudioSegment,
+  segmentOffsetSamples: number,
+  totalSegmentSamples: number,
+  sampleRate: number,
+  fps: number,
+): Float32Array {
+  const output = new Float32Array(samples)
+  const toSamples: FramesToSamples = (frames) =>
+    Math.max(0, Math.floor(((frames ?? 0) / fps) * sampleRate))
+
+  if (segment.clipFadeSpans?.length) {
+    applyClipFadeSpansToWindow(output, segment, segmentOffsetSamples, toSamples)
+  } else {
+    applyBasicFadesToWindow(output, segment, segmentOffsetSamples, totalSegmentSamples, toSamples)
+  }
+  applyCrossfadesToWindow(output, segment, segmentOffsetSamples, totalSegmentSamples, toSamples)
+
+  return output
+}
+
+interface AudioWindowIntersection {
+  segmentStart: number
+  segmentLength: number
+  intersectionStart: number
+  intersectionEnd: number
+}
+
+function resolveAudioWindowIntersection(
+  segment: AudioSegment,
+  chunkStart: number,
+  chunkEnd: number,
+  sampleRate: number,
+  fps: number,
+): AudioWindowIntersection | null {
+  const segmentStart = Math.floor((segment.startFrame / fps) * sampleRate)
+  const segmentLength = Math.max(0, Math.ceil((segment.durationFrames / fps) * sampleRate))
+  const intersectionStart = Math.max(chunkStart, segmentStart)
+  const intersectionEnd = Math.min(chunkEnd, segmentStart + segmentLength)
+  if (intersectionEnd <= intersectionStart) return null
+  return { segmentStart, segmentLength, intersectionStart, intersectionEnd }
+}
+
+async function processAudioWindowChannels(
+  decoded: DecodedAudio,
+  segment: AudioSegment,
+  intersection: AudioWindowIntersection,
+  sampleRate: number,
+  fps: number,
+): Promise<Float32Array[]> {
+  const processed = decoded.samples
+  const decodedSegmentOffset = Math.floor(
+    ((intersection.intersectionStart - intersection.segmentStart) / sampleRate) *
+      decoded.sampleRate,
+  )
+  const decodedSegmentLength = Math.ceil(
+    (intersection.segmentLength / sampleRate) * decoded.sampleRate,
+  )
+  for (let channel = 0; channel < processed.length; channel++) {
+    let samples = processed[channel]!
+    if (segment.volumeKeyframes?.length) {
+      samples = applyAnimatedVolume(
+        samples,
+        segment.volumeKeyframes,
+        segment.volume,
+        (intersection.intersectionStart / sampleRate) * fps,
+        segment.itemFrom,
+        fps,
+        decoded.sampleRate,
+      )
+    } else if (segment.volume !== 0) {
+      samples = applyVolume(samples, segment.volume)
+    }
+    samples = applyWindowedSegmentFades(
+      samples,
+      segment,
+      decodedSegmentOffset,
+      decodedSegmentLength,
+      decoded.sampleRate,
+      fps,
+    )
+    if (decoded.sampleRate !== sampleRate) {
+      samples = await resample(samples, decoded.sampleRate, sampleRate)
+    }
+    processed[channel] = samples
+  }
+  return processed
+}
+
+function mixAudioWindowChannels(
+  mixed: Float32Array[],
+  processed: Float32Array[],
+  destinationOffset: number,
+  requestedFrames: number,
+): void {
+  const downmixed = downmixToOutputChannels(processed, mixed.length)
+  for (let channel = 0; channel < mixed.length; channel++) {
+    const source = downmixed[channel]!
+    const destination = mixed[channel]!
+    const framesToMix = Math.min(
+      requestedFrames,
+      source.length,
+      destination.length - destinationOffset,
+    )
+    for (let i = 0; i < framesToMix; i++) {
+      destination[destinationOffset + i] = destination[destinationOffset + i]! + source[i]!
+    }
+  }
+}
+
+async function mixSegmentIntoAudioWindow(params: {
+  segment: AudioSegment
+  mixed: Float32Array[]
+  chunkStart: number
+  chunkEnd: number
+  sampleRate: number
+  fps: number
+}): Promise<void> {
+  const { segment, mixed, chunkStart, chunkEnd, sampleRate, fps } = params
+  const intersection = resolveAudioWindowIntersection(
+    segment,
+    chunkStart,
+    chunkEnd,
+    sampleRate,
+    fps,
+  )
+  if (!intersection) return
+
+  const segmentOffset = intersection.intersectionStart - intersection.segmentStart
+  const requestedFrames = intersection.intersectionEnd - intersection.intersectionStart
+  const sourceStartTime = segment.sourceStartFrame / segment.sourceFps + segmentOffset / sampleRate
+  const decoded = await decodeAudioFromSource(
+    segment.src,
+    segment.itemId,
+    sourceStartTime,
+    sourceStartTime + requestedFrames / sampleRate,
+    segment.audioCodec,
+  )
+  const processed = await processAudioWindowChannels(
+    decoded,
+    segment,
+    intersection,
+    sampleRate,
+    fps,
+  )
+  mixAudioWindowChannels(
+    mixed,
+    processed,
+    intersection.intersectionStart - chunkStart,
+    requestedFrames,
+  )
+}
+
+function applyAudioWindowMasterGain(mixed: Float32Array[], masterGain: number): void {
+  for (const channel of mixed) {
+    for (let i = 0; i < channel.length; i++) channel[i] = channel[i]! * masterGain
+  }
+}
+
+/**
+ * Mix long, non-stateful audio timelines in fixed windows. Every yielded chunk
+ * begins exactly where the previous one ended, including silent windows.
+ */
+export async function* processAudioWindows(
+  composition: CompositionInputProps,
+  signal?: AbortSignal,
+): AsyncGenerator<{ samples: Float32Array[]; sampleRate: number; channels: number }> {
+  const { fps, durationInFrames = 0 } = composition
+  await resolveSubCompMediaUrls(composition)
+
+  const segments = extractAudioSegments(composition, fps).filter((segment) => !segment.muted)
+  if (segments.length === 0 || !segments.every(supportsWindowedAudioSegment)) {
+    throw new Error('Audio timeline requires full-segment processing')
+  }
+
+  if (segments.some((segment) => isAc3AudioCodec(segment.audioCodec))) {
+    await ensureAc3DecoderRegistered()
+  }
+
+  const sampleRate = 48_000
+  const channels = 2
+  const totalSamples = Math.ceil((durationInFrames / fps) * sampleRate)
+  const chunkSamples = STREAMING_AUDIO_CHUNK_SECONDS * sampleRate
+  const masterGain =
+    typeof composition.masterBusDb === 'number' && composition.masterBusDb !== 0
+      ? dbToGain(composition.masterBusDb)
+      : 1
+
+  for (let chunkStart = 0; chunkStart < totalSamples; chunkStart += chunkSamples) {
+    if (signal?.aborted) throw new DOMException('Audio processing cancelled', 'AbortError')
+
+    const chunkLength = Math.min(chunkSamples, totalSamples - chunkStart)
+    const chunkEnd = chunkStart + chunkLength
+    const mixed = [new Float32Array(chunkLength), new Float32Array(chunkLength)]
+
+    for (const segment of segments) {
+      await mixSegmentIntoAudioWindow({
+        segment,
+        mixed,
+        chunkStart,
+        chunkEnd,
+        sampleRate,
+        fps,
+      })
+    }
+
+    softClipAudioMix(mixed)
+    applyAudioWindowMasterGain(mixed, masterGain)
+
+    yield { samples: mixed, sampleRate, channels }
   }
 }
 
@@ -1849,12 +2215,11 @@ export async function processAudio(
     durationSeconds: durationInFrames / fps,
   })
 
-  // Decode and process each segment
-  const processedSegments: Array<{
-    samples: Float32Array[]
-    startSample: number
-    muted: boolean
-  }> = []
+  // Allocate the final mix once, then fold each processed segment into it
+  // immediately. Keeping every decoded segment alive until the end multiplies
+  // memory use on long, multi-clip timelines.
+  const mixedSamples = createAudioMixBuffer(config)
+  let processedSegmentCount = 0
 
   for (const segment of activeSegments) {
     if (signal?.aborted) {
@@ -1989,11 +2354,8 @@ export async function processAudio(
       // Calculate start position in output
       const startSample = Math.floor((segment.startFrame / fps) * config.sampleRate)
 
-      processedSegments.push({
-        samples: processedChannels,
-        startSample,
-        muted: segment.muted,
-      })
+      mixAudioSegmentInto(mixedSamples, { samples: processedChannels, startSample }, config)
+      processedSegmentCount++
 
       log.debug('Processed audio segment', {
         itemId: segment.itemId,
@@ -2010,13 +2372,12 @@ export async function processAudio(
     }
   }
 
-  if (processedSegments.length === 0) {
+  if (processedSegmentCount === 0) {
     log.warn('No audio segments were successfully processed')
     return null
   }
 
-  // Mix all segments
-  const mixedSamples = mixAudioTracks(processedSegments, config)
+  softClipAudioMix(mixedSamples)
 
   // Apply project-scoped master bus gain to the final mix. Monitor volume
   // (per-device) is intentionally NOT applied during export — it's a
