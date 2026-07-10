@@ -28,7 +28,6 @@ import {
   type UpscaleStage,
 } from '../upscale-constants'
 import {
-  AudioCopier,
   Cancelled,
   CancellationRegistry,
   createMp4Encoder,

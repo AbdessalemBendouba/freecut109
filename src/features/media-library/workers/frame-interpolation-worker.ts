@@ -31,7 +31,6 @@ import {
   type InterpolationStage,
 } from '../frame-interpolation-constants'
 import {
-  AudioCopier,
   Cancelled,
   CancellationRegistry,
   createRenderCanvas,
