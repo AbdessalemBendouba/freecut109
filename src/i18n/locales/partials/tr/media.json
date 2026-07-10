@@ -47,7 +47,7 @@
       "cancelUpscale": "Ölçeklemeyi iptal et",
       "upscaleVariant": {
         "liveAction": "Gerçek çekim",
-        "animation": "Animasyon",
+        "animation": "Anime",
         "threeD": "3B render"
       }
     },
@@ -105,7 +105,7 @@
       "codec": "Kodek",
       "dimensions": "Boyutlar",
       "duration": "Süre",
-      "fpsValue": "FPS değeri",
+      "fpsValue": "{{value}} FPS",
       "frameRate": "Kare hızı",
       "loadingTranscript": "Transkript yükleniyor",
       "mediaInfo": "Medya bilgisi",

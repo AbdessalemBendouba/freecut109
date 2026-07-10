@@ -47,7 +47,7 @@
       "cancelUpscale": "Cancel Upscale",
       "upscaleVariant": {
         "liveAction": "Live Action",
-        "animation": "Animation",
+        "animation": "Anime",
         "threeD": "3D Rendered"
       }
     },
@@ -105,7 +105,7 @@
       "codec": "Codec",
       "dimensions": "Dimensions",
       "duration": "Duration",
-      "fpsValue": "FPS Value",
+      "fpsValue": "{{value}} fps",
       "frameRate": "Frame Rate",
       "loadingTranscript": "Loading Transcript",
       "mediaInfo": "Media info",

@@ -225,19 +225,7 @@ export function createRenderCanvas(width: number, height: number) {
 const KEYFRAME_INTERVAL_SECONDS = 2
 const STREAM_CHUNK_SIZE_BYTES = 4 * 1024 * 1024
 
-/**
- * Everything that decides whether `VideoEncoder` will accept a config.
- *
- * `mediabunny` folds these into the descriptor it hands `VideoEncoder.isConfigSupported`, and the
- * answer changes with every one of them — the codec string itself is derived from width, height and
- * the resolved bitrate. So the probe and the encoder must be built from *one* object. They were not,
- * twice: first the probe asked for `prefer-hardware` at the default 1Mbps, then it still omitted
- * `latencyMode`. Both times HEVC said yes to the probe, no to the encoder, and the render died on
- * the first frame after decoding the whole file.
- */
 interface VideoEncodeSettings {
-  width: number
-  height: number
   bitrate: InstanceType<Mediabunny['Quality']>
   latencyMode: 'quality' | 'realtime'
 }
@@ -252,58 +240,98 @@ type EncodableCodec = 'hevc' | 'avc' | 'vp9' | 'av1'
  */
 const CODEC_PREFERENCE: readonly EncodableCodec[] = ['hevc', 'avc', 'vp9', 'av1']
 
+function addVideoTrack(
+  mb: Mediabunny,
+  output: OutputInstance,
+  codec: EncodableCodec,
+  settings: VideoEncodeSettings,
+  frameRate: number,
+): VideoSampleSourceInstance {
+  const source = new mb.VideoSampleSource({
+    codec,
+    bitrate: settings.bitrate,
+    latencyMode: settings.latencyMode,
+    keyFrameInterval: KEYFRAME_INTERVAL_SECONDS,
+  })
+  output.addVideoTrack(source, { frameRate })
+  return source
+}
+
 /**
- * The first codec this browser will encode with *these exact settings*, restricted to what the
- * container can carry. Probing costs a millisecond; discovering the answer at the first `add()`
- * costs however long it took to decode and process the whole file.
+ * Exercise Mediabunny's real encoder path with one blank frame. `canEncodeVideo()` cannot perform
+ * this preflight faithfully: it omits the output track's frame rate and the sample's display size,
+ * while `VideoSampleSource` adds both to the WebCodecs config. Chrome can approve that incomplete
+ * HEVC probe and reject the encoder when the first frame arrives.
  */
+async function canEncodeFrame(
+  mb: Mediabunny,
+  codec: EncodableCodec,
+  settings: VideoEncodeSettings,
+  frame: { width: number; height: number; fps: number },
+  canvas: OffscreenCanvas,
+): Promise<boolean> {
+  const output = new mb.Output({
+    format: new mb.Mp4OutputFormat({ fastStart: false }),
+    target: new mb.NullTarget(),
+  })
+  const source = addVideoTrack(mb, output, codec, settings, frame.fps)
+
+  const sample = new mb.VideoSample(canvas, { timestamp: 0, duration: 1 / frame.fps })
+  try {
+    await output.start()
+    await source.add(sample)
+    return true
+  } catch {
+    return false
+  } finally {
+    sample.close()
+    await output.cancel()
+  }
+}
+
 async function pickCodec(
   mb: Mediabunny,
   format: InstanceType<Mediabunny['Mp4OutputFormat']>,
   settings: VideoEncodeSettings,
+  frame: { width: number; height: number; fps: number },
 ): Promise<EncodableCodec> {
   const containable = new Set<string>(format.getSupportedVideoCodecs())
   const candidates = CODEC_PREFERENCE.filter((codec) => containable.has(codec))
+  const { canvas, ctx } = createRenderCanvas(frame.width, frame.height)
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, frame.width, frame.height)
 
-  for (const codec of candidates) {
-    if (await mb.canEncodeVideo(codec, settings).catch(() => false)) return codec
+  try {
+    for (const codec of candidates) {
+      if (await canEncodeFrame(mb, codec, settings, frame, canvas)) return codec
+    }
+  } finally {
+    canvas.width = 1
+    canvas.height = 1
   }
   throw new Error(
-    `This browser cannot encode ${settings.width}x${settings.height} video with any of: ${candidates.join(', ')}.`,
+    `This browser cannot encode ${frame.width}x${frame.height} video with any of: ${candidates.join(', ')}.`,
   )
 }
 
-/**
- * An MP4 encoder writing to `writable`, using the first codec this browser accepts for the frame
- * size. `pickCodec` and the `VideoSampleSource` below read the same `settings` object, which is the
- * whole point: nothing here can disagree with what the encoder is later handed.
- */
 export async function createMp4Encoder(
   mb: Mediabunny,
   writable: FileSystemWritableFileStream,
   frame: { width: number; height: number; fps: number },
 ) {
   const settings: VideoEncodeSettings = {
-    width: frame.width,
-    height: frame.height,
     bitrate: mb.QUALITY_HIGH,
     latencyMode: 'quality',
   }
   const format = new mb.Mp4OutputFormat({ fastStart: false })
-  const codec = await pickCodec(mb, format, settings)
+  const codec = await pickCodec(mb, format, settings, frame)
   logger.info('Encoding render output', { codec, width: frame.width, height: frame.height })
 
   const output = new mb.Output({
     format,
     target: new mb.StreamTarget(writable, { chunked: true, chunkSize: STREAM_CHUNK_SIZE_BYTES }),
   })
-  const videoSource = new mb.VideoSampleSource({
-    codec,
-    bitrate: settings.bitrate,
-    latencyMode: settings.latencyMode,
-    keyFrameInterval: KEYFRAME_INTERVAL_SECONDS,
-  })
-  output.addVideoTrack(videoSource, { frameRate: frame.fps })
+  const videoSource = addVideoTrack(mb, output, codec, settings, frame.fps)
   return { output, videoSource, codec }
 }
 

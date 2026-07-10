@@ -47,7 +47,7 @@
       "cancelUpscale": "업스케일 취소",
       "upscaleVariant": {
         "liveAction": "실사",
-        "animation": "애니메이션",
+        "animation": "애니",
         "threeD": "3D 렌더링"
       }
     },
