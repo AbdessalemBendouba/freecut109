@@ -45,6 +45,10 @@ import { warmDecoderPrewarmWorkerPool } from '../utils/decoder-prewarm'
 import { collectVisualInvalidationRanges } from '../utils/preview-frame-invalidation'
 import { resolvePreviewCaptureFrame } from '../utils/preview-capture-frame'
 import {
+  markPlaybackStartReadiness,
+  resetPlaybackStartReadiness,
+} from '../utils/playback-cold-start-event'
+import {
   isFrameInRanges,
   normalizeFrameRanges,
   type FrameInvalidationRequest,
@@ -249,6 +253,7 @@ export function usePreviewRendererController({
   ])
 
   const disposeFastScrubRenderer = useCallback(() => {
+    resetPlaybackStartReadiness()
     scrubInitPromiseRef.current = null
     scrubPreloadPromiseRef.current = null
     scrubRequestedFrameRef.current = null
@@ -495,6 +500,17 @@ export function usePreviewRendererController({
       if (scrubRendererRef.current) return scrubRendererRef.current
       if (scrubInitPromiseRef.current) return scrubInitPromiseRef.current
 
+      markPlaybackStartReadiness({
+        rendererInitStartedMs: performance.now(),
+        rendererReadyMs: null,
+        rendererInitFailedMs: null,
+        rendererPreloadStartedMs: null,
+        rendererPriorityMediaReadyMs: null,
+        rendererPreloadFinishedMs: null,
+        lookaheadFrame: null,
+        lookaheadOrigin: null,
+        lookaheadReadyMs: null,
+      })
       scrubInitPromiseRef.current = (async () => {
         try {
           const offscreen = new OffscreenCanvas(renderSize.width, renderSize.height)
@@ -522,6 +538,7 @@ export function usePreviewRendererController({
           scrubOffscreenRenderedFrameRef.current = null
           scrubRendererRef.current = renderer
           scrubRendererStructureKeyRef.current = fastScrubRendererStructureKey
+          markPlaybackStartReadiness({ rendererReadyMs: performance.now() })
           setActivePreviewScrubbingCache(
             'getScrubbingCache' in renderer ? renderer.getScrubbingCache() : null,
           )
@@ -555,16 +572,22 @@ export function usePreviewRendererController({
             void resumeScrubLoopRef.current()
           }
 
+          markPlaybackStartReadiness({ rendererPreloadStartedMs: performance.now() })
+          const onPriorityMediaReady = () => {
+            markPlaybackStartReadiness({ rendererPriorityMediaReadyMs: performance.now() })
+            kickRerender()
+          }
           const preloadPromise = renderer
             .preload({
               priorityFrame: preloadPriorityFrame,
               priorityWindowFrames: Math.max(12, Math.round(fps * 4)),
-              onPriorityMediaReady: kickRerender,
+              onPriorityMediaReady,
             })
             .catch((error) => {
               logger.warn('Renderer preload failed:', error)
             })
             .finally(() => {
+              markPlaybackStartReadiness({ rendererPreloadFinishedMs: performance.now() })
               if (scrubPreloadPromiseRef.current === preloadPromise) {
                 scrubPreloadPromiseRef.current = null
               }
@@ -579,6 +602,7 @@ export function usePreviewRendererController({
           ])
           return renderer
         } catch (error) {
+          markPlaybackStartReadiness({ rendererInitFailedMs: performance.now() })
           logger.warn('Failed to initialize renderer, falling back to Player seeks:', error)
           scrubRendererRef.current = null
           setActivePreviewScrubbingCache(null)
@@ -1509,6 +1533,11 @@ export function usePreviewRendererController({
 
   useEffect(() => {
     if (!FAST_SCRUB_RENDERER_ENABLED) return
+    markPlaybackStartReadiness({
+      gpuWarmStartedMs: performance.now(),
+      gpuWarmFinishedMs: null,
+      gpuWarmAvailable: false,
+    })
     void (async () => {
       try {
         const { EffectsPipeline } = await import('@/infrastructure/gpu-effects')
@@ -1516,6 +1545,7 @@ export function usePreviewRendererController({
         if (device) {
           const warmPipeline = await EffectsPipeline.create()
           if (warmPipeline) {
+            markPlaybackStartReadiness({ gpuWarmAvailable: true })
             try {
               const { TransitionPipeline } = await import('@/infrastructure/gpu-transitions')
               TransitionPipeline.create(device)?.destroy()
@@ -1526,6 +1556,8 @@ export function usePreviewRendererController({
         }
       } catch {
         // GPU not available, the renderer will fall back to the CPU path.
+      } finally {
+        markPlaybackStartReadiness({ gpuWarmFinishedMs: performance.now() })
       }
     })()
   }, [])

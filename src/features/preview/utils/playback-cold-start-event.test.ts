@@ -4,6 +4,8 @@ import {
   cancelPlaybackColdStart,
   isPlaybackColdStartPending,
   markPlaybackColdStart,
+  markPlaybackStartReadiness,
+  resetPlaybackStartReadiness,
   resolvePlaybackColdStartFrameAdvance,
   resolvePlaybackColdStartVisibleFrame,
 } from './playback-cold-start-event'
@@ -23,6 +25,7 @@ describe('playback cold start wide event', () => {
   beforeEach(() => {
     // Drain any measurement leaked from a previous test before spying.
     cancelPlaybackColdStart('test_cleanup')
+    resetPlaybackStartReadiness({ preserveGpu: false })
     infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {})
   })
 
@@ -111,6 +114,44 @@ describe('playback cold start wide event', () => {
       audio_context_state: 'unavailable',
       ms_to_first_frame_advance: 250,
       ms_to_first_visible_frame: 270,
+    })
+  })
+
+  it('captures renderer, preload, GPU, and prepared-frame readiness at play', () => {
+    markPlaybackStartReadiness({
+      rendererInitStartedMs: 100,
+      rendererReadyMs: 180,
+      rendererPreloadStartedMs: 185,
+      rendererPriorityMediaReadyMs: 250,
+      rendererPreloadFinishedMs: 400,
+      gpuWarmStartedMs: 110,
+      gpuWarmFinishedMs: 160,
+      gpuWarmAvailable: true,
+      lookaheadFrame: 101,
+      lookaheadOrigin: 'initial_load',
+      lookaheadReadyMs: 450,
+    })
+
+    beginPlaybackColdStart(
+      { startFrame: 100, forceFastScrubOverlay: true, audioContextState: 'running' },
+      500,
+    )
+    resolvePlaybackColdStartFrameAdvance(101, 530)
+    resolvePlaybackColdStartVisibleFrame(101, 'rendered_overlay', 540)
+
+    expect(emittedEvents(infoSpy)[0]).toMatchObject({
+      renderer_state_at_play: 'ready',
+      renderer_init_ms: 80,
+      renderer_ready_age_ms: 320,
+      renderer_preload_state_at_play: 'complete',
+      renderer_preload_ms: 215,
+      priority_media_ready_at_play: true,
+      gpu_warm_ready_at_play: true,
+      gpu_warm_state_at_play: 'ready',
+      gpu_warm_ms: 50,
+      prepared_lookahead_hit: true,
+      prepared_lookahead_origin: 'initial_load',
+      prepared_lookahead_age_ms: 50,
     })
   })
 

@@ -36,7 +36,109 @@ export type PlaybackColdStartPresentationSource =
   | 'rendered_overlay'
   | 'composition_paint'
 
+export type PlaybackStartLookaheadOrigin = 'initial_load' | 'post_pause'
+
+export interface PlaybackStartReadiness {
+  rendererInitStartedMs: number | null
+  rendererReadyMs: number | null
+  rendererInitFailedMs: number | null
+  rendererPreloadStartedMs: number | null
+  rendererPriorityMediaReadyMs: number | null
+  rendererPreloadFinishedMs: number | null
+  gpuWarmStartedMs: number | null
+  gpuWarmFinishedMs: number | null
+  gpuWarmAvailable: boolean | null
+  lookaheadFrame: number | null
+  lookaheadOrigin: PlaybackStartLookaheadOrigin | null
+  lookaheadReadyMs: number | null
+}
+
+const emptyReadiness = (): PlaybackStartReadiness => ({
+  rendererInitStartedMs: null,
+  rendererReadyMs: null,
+  rendererInitFailedMs: null,
+  rendererPreloadStartedMs: null,
+  rendererPriorityMediaReadyMs: null,
+  rendererPreloadFinishedMs: null,
+  gpuWarmStartedMs: null,
+  gpuWarmFinishedMs: null,
+  gpuWarmAvailable: null,
+  lookaheadFrame: null,
+  lookaheadOrigin: null,
+  lookaheadReadyMs: null,
+})
+
 let active: ActivePlaybackColdStart | null = null
+let readiness = emptyReadiness()
+
+export function resetPlaybackStartReadiness(options: { preserveGpu?: boolean } = {}): void {
+  const previous = readiness
+  readiness = emptyReadiness()
+  if (options.preserveGpu !== false) {
+    readiness.gpuWarmStartedMs = previous.gpuWarmStartedMs
+    readiness.gpuWarmFinishedMs = previous.gpuWarmFinishedMs
+    readiness.gpuWarmAvailable = previous.gpuWarmAvailable
+  }
+}
+
+export function markPlaybackStartReadiness(data: Partial<PlaybackStartReadiness>): void {
+  Object.assign(readiness, data)
+}
+
+function elapsedMs(startMs: number | null, endMs: number | null): number | null {
+  if (startMs === null || endMs === null) return null
+  return Math.round(endMs - startMs)
+}
+
+function ageMs(timestampMs: number | null, nowMs: number): number | null {
+  if (timestampMs === null) return null
+  return Math.max(0, Math.round(nowMs - timestampMs))
+}
+
+function getRendererStateAtPlay(): 'ready' | 'failed' | 'initializing' | 'not_started' {
+  if (readiness.rendererReadyMs !== null) return 'ready'
+  if (readiness.rendererInitFailedMs !== null) return 'failed'
+  if (readiness.rendererInitStartedMs !== null) return 'initializing'
+  return 'not_started'
+}
+
+function getPreloadStateAtPlay(): 'complete' | 'loading' | 'not_started' {
+  if (readiness.rendererPreloadFinishedMs !== null) return 'complete'
+  if (readiness.rendererPreloadStartedMs !== null) return 'loading'
+  return 'not_started'
+}
+
+function getGpuWarmStateAtPlay(): 'ready' | 'unavailable' | 'warming' | 'not_started' {
+  if (readiness.gpuWarmAvailable === true) return 'ready'
+  if (readiness.gpuWarmFinishedMs !== null) return 'unavailable'
+  if (readiness.gpuWarmStartedMs !== null) return 'warming'
+  return 'not_started'
+}
+
+function getReadinessAtPlay(startFrame: number, nowMs: number): Record<string, unknown> {
+  const preparedLookaheadHit =
+    readiness.lookaheadReadyMs !== null && readiness.lookaheadFrame === startFrame + 1
+
+  return {
+    renderer_state_at_play: getRendererStateAtPlay(),
+    renderer_init_ms: elapsedMs(readiness.rendererInitStartedMs, readiness.rendererReadyMs),
+    renderer_ready_age_ms: ageMs(readiness.rendererReadyMs, nowMs),
+    renderer_preload_state_at_play: getPreloadStateAtPlay(),
+    renderer_preload_ms: elapsedMs(
+      readiness.rendererPreloadStartedMs,
+      readiness.rendererPreloadFinishedMs,
+    ),
+    priority_media_ready_at_play: readiness.rendererPriorityMediaReadyMs !== null,
+    gpu_warm_state_at_play: getGpuWarmStateAtPlay(),
+    gpu_warm_ready_at_play: readiness.gpuWarmAvailable === true,
+    gpu_warm_ms: elapsedMs(readiness.gpuWarmStartedMs, readiness.gpuWarmFinishedMs),
+    prepared_lookahead_hit: preparedLookaheadHit,
+    prepared_lookahead_origin: preparedLookaheadHit ? readiness.lookaheadOrigin : null,
+    prepared_lookahead_age_ms: preparedLookaheadHit
+      ? ageMs(readiness.lookaheadReadyMs, nowMs)
+      : null,
+  }
+}
 
 function readVisibilityState(): DocumentVisibilityState | 'unknown' {
   return typeof document !== 'undefined' ? document.visibilityState : 'unknown'
@@ -72,6 +174,7 @@ export function beginPlaybackColdStart(
     force_fast_scrub_overlay: ctx.forceFastScrubOverlay,
     audio_context_state: ctx.audioContextState ?? 'unavailable',
     visibility_state_at_play: visibility,
+    ...getReadinessAtPlay(ctx.startFrame, nowMs),
   })
   active = {
     event,

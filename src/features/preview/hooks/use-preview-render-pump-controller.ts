@@ -53,7 +53,9 @@ import {
   beginPlaybackColdStart,
   cancelPlaybackColdStart,
   markPlaybackColdStart,
+  markPlaybackStartReadiness,
   resolvePlaybackColdStartVisibleFrame,
+  type PlaybackStartLookaheadOrigin,
 } from '../utils/playback-cold-start-event'
 import {
   ensureAudioContextResumed,
@@ -77,6 +79,37 @@ type PlaybackStoreSnapshot = ReturnType<typeof usePlaybackStore.getState>
 type GizmoStoreSnapshot = ReturnType<typeof useGizmoStore.getState>
 
 type FastScrubRenderer = CompositionRendererInstance
+
+function shouldReusePreparedLookaheadOnPlay(params: {
+  state: PlaybackStoreSnapshot
+  prev: PlaybackStoreSnapshot
+  forceFastScrubOverlay: boolean
+  isSplitComparison: boolean
+  renderedFrame: number | null
+}): boolean {
+  return (
+    params.state.isPlaying !== params.prev.isPlaying &&
+    params.state.isPlaying &&
+    params.forceFastScrubOverlay &&
+    params.state.previewFrame === null &&
+    !params.isSplitComparison &&
+    params.renderedFrame === params.state.currentFrame + 1
+  )
+}
+
+function shouldPresentPreparedPlaybackFrame(params: {
+  state: PlaybackStoreSnapshot
+  forceFastScrubOverlay: boolean
+  targetFrame: number | null
+  renderedFrame: number | null
+}): params is typeof params & { targetFrame: number } {
+  return (
+    params.state.isPlaying &&
+    params.forceFastScrubOverlay &&
+    params.targetFrame !== null &&
+    params.renderedFrame === params.targetFrame
+  )
+}
 
 function getGizmoPreviewInvalidation(
   state: GizmoStoreSnapshot,
@@ -264,6 +297,11 @@ export function usePreviewRenderPump({
   recordRenderFrameJitter,
 }: UsePreviewRenderPumpParams) {
   const unmountingRef = useRef(false)
+  const pausedPlaybackLookaheadFrameRef = useRef<number | null>(null)
+  const pausedPlaybackLookaheadOriginRef = useRef<PlaybackStartLookaheadOrigin | null>(null)
+  const pausedPlaybackLookaheadStartedMsRef = useRef<number | null>(null)
+  const initialLookaheadIdleIdRef = useRef<number | null>(null)
+  const initialLookaheadTimeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     unmountingRef.current = false
@@ -274,7 +312,6 @@ export function usePreviewRenderPump({
 
   useEffect(() => {
     scrubMountedRef.current = true
-    let pausedPlaybackLookaheadFrame: number | null = null
 
     const drawSourceToDisplay = (
       source: OffscreenCanvas | HTMLCanvasElement,
@@ -730,14 +767,29 @@ export function usePreviewRenderPump({
 
           if (isPriorityFrame) {
             const playbackState = usePlaybackStore.getState()
-            if (pausedPlaybackLookaheadFrame === frameToRender) {
+            if (pausedPlaybackLookaheadFrameRef.current === frameToRender) {
+              const lookaheadReadyMs = performance.now()
+              markPlaybackStartReadiness({
+                lookaheadFrame: frameToRender,
+                lookaheadOrigin: pausedPlaybackLookaheadOriginRef.current,
+                lookaheadReadyMs,
+              })
+              if (pausedPlaybackLookaheadStartedMsRef.current !== null) {
+                markPlaybackColdStart({
+                  prepared_lookahead_render_ms: Math.round(
+                    lookaheadReadyMs - pausedPlaybackLookaheadStartedMsRef.current,
+                  ),
+                })
+              }
               // The offscreen canvas now holds the first frame after the
               // paused playhead. Keep the visible display canvas on the
               // paused frame until the Clock reaches this prepared frame.
               if (playbackState.currentFrame !== frameToRender) {
                 continue
               }
-              pausedPlaybackLookaheadFrame = null
+              pausedPlaybackLookaheadFrameRef.current = null
+              pausedPlaybackLookaheadOriginRef.current = null
+              pausedPlaybackLookaheadStartedMsRef.current = null
             }
             const playbackTransitionState = getPlaybackTransitionStateForFrame(frameToRender)
             const shouldShowPlaybackTransitionOverlay =
@@ -875,9 +927,15 @@ export function usePreviewRenderPump({
       }
     }
 
-    const schedulePausedPlaybackLookahead = (pausedAtFrame: number) => {
+    const schedulePausedPlaybackLookahead = (
+      pausedAtFrame: number,
+      origin: PlaybackStartLookaheadOrigin,
+      deferUntilIdle = false,
+    ) => {
       if (!forceFastScrubOverlay) return
-      queueMicrotask(() => {
+      const queueLookahead = () => {
+        initialLookaheadIdleIdRef.current = null
+        initialLookaheadTimeoutIdRef.current = null
         const playback = usePlaybackStore.getState()
         if (
           playback.isPlaying ||
@@ -889,15 +947,41 @@ export function usePreviewRenderPump({
 
         const lookaheadFrame = pausedAtFrame + 1
         if (
-          pausedPlaybackLookaheadFrame === lookaheadFrame ||
+          (pausedPlaybackLookaheadFrameRef.current === lookaheadFrame &&
+            scrubRenderInFlightRef.current) ||
           scrubOffscreenRenderedFrameRef.current === lookaheadFrame
         ) {
           return
         }
-        pausedPlaybackLookaheadFrame = lookaheadFrame
-        scrubRequestedFrameRef.current = pausedPlaybackLookaheadFrame
+        pausedPlaybackLookaheadFrameRef.current = lookaheadFrame
+        pausedPlaybackLookaheadOriginRef.current = origin
+        pausedPlaybackLookaheadStartedMsRef.current = performance.now()
+        markPlaybackStartReadiness({
+          lookaheadFrame,
+          lookaheadOrigin: origin,
+          lookaheadReadyMs: null,
+        })
+        scrubRequestedFrameRef.current = pausedPlaybackLookaheadFrameRef.current
         void pumpRenderLoop()
-      })
+      }
+
+      if (deferUntilIdle) {
+        if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+          initialLookaheadIdleIdRef.current = (
+            window as Window & {
+              requestIdleCallback: (
+                callback: IdleRequestCallback,
+                options?: IdleRequestOptions,
+              ) => number
+            }
+          ).requestIdleCallback(queueLookahead, { timeout: 600 })
+        } else {
+          initialLookaheadTimeoutIdRef.current = setTimeout(queueLookahead, 120)
+        }
+        return
+      }
+
+      queueMicrotask(queueLookahead)
     }
 
     resumeScrubLoopRef.current = () => {
@@ -930,30 +1014,35 @@ export function usePreviewRenderPump({
 
       if (currentFrame !== lastRafRenderedFrame) {
         lastRafRenderedFrame = currentFrame
-        // Check if this frame was pre-rendered by the transition prepare.
-        // If so, present it immediately (0ms) instead of going through the
-        // async pumpRenderLoop (which would take 180-240ms for the first
-        // transition frame due to mediabunny decode).
-        const buffered = transitionSessionBufferedFramesRef.current.get(currentFrame)
-        if (buffered) {
-          drawSourceToDisplay(buffered, currentFrame)
-          scrubOffscreenRenderedFrameRef.current = currentFrame
+        if (scrubOffscreenRenderedFrameRef.current === currentFrame) {
+          drawToDisplay(currentFrame)
           lastRafPresentedFrame = currentFrame
-          // Pre-start the render loop for the next uncached frame so the
-          // GPU + decode pipeline is already warm when the buffer runs out.
-          // Without this, the first post-cache frame stalls 100-200ms.
-          const nextFrame = currentFrame + 1
-          if (
-            !transitionSessionBufferedFramesRef.current.has(nextFrame) &&
-            !scrubRenderInFlightRef.current
-          ) {
-            scrubRequestedFrameRef.current = nextFrame
-            void pumpRenderLoop()
-          }
         } else {
-          scrubRequestedFrameRef.current = currentFrame
-          if (!scrubRenderInFlightRef.current) {
-            void pumpRenderLoop()
+          // Check if this frame was pre-rendered by the transition prepare.
+          // If so, present it immediately (0ms) instead of going through the
+          // async pumpRenderLoop (which would take 180-240ms for the first
+          // transition frame due to mediabunny decode).
+          const buffered = transitionSessionBufferedFramesRef.current.get(currentFrame)
+          if (buffered) {
+            drawSourceToDisplay(buffered, currentFrame)
+            scrubOffscreenRenderedFrameRef.current = currentFrame
+            lastRafPresentedFrame = currentFrame
+            // Pre-start the render loop for the next uncached frame so the
+            // GPU + decode pipeline is already warm when the buffer runs out.
+            // Without this, the first post-cache frame stalls 100-200ms.
+            const nextFrame = currentFrame + 1
+            if (
+              !transitionSessionBufferedFramesRef.current.has(nextFrame) &&
+              !scrubRenderInFlightRef.current
+            ) {
+              scrubRequestedFrameRef.current = nextFrame
+              void pumpRenderLoop()
+            }
+          } else {
+            scrubRequestedFrameRef.current = currentFrame
+            if (!scrubRenderInFlightRef.current) {
+              void pumpRenderLoop()
+            }
           }
         }
       } else if (
@@ -1042,7 +1131,9 @@ export function usePreviewRenderPump({
           return
         }
 
-        lastRafRenderedFrame = -1
+        const frame = state.currentFrame
+        const hasPreparedLookahead = scrubOffscreenRenderedFrameRef.current === frame + 1
+        lastRafRenderedFrame = hasPreparedLookahead ? frame : -1
         // Render-pump invariant: playback takeover is the one path allowed to
         // force-clear the lock. It bumps generation first so any stale pump
         // finishing later cannot release the new owner's lock.
@@ -1050,9 +1141,8 @@ export function usePreviewRenderPump({
         scrubRenderInFlightRef.current = false
         clearPrewarmQueue()
 
-        const frame = state.currentFrame
         markPlaybackColdStart({
-          paused_lookahead_hit: scrubOffscreenRenderedFrameRef.current === frame + 1,
+          paused_lookahead_hit: hasPreparedLookahead,
         })
         const prewarmItemIds = collectPlaybackStartVariableSpeedPrewarmItemIds(
           combinedTracks,
@@ -1101,7 +1191,7 @@ export function usePreviewRenderPump({
         lastPlayingPrearmTargetRef.current = null
         clearTransitionPlaybackSession()
 
-        schedulePausedPlaybackLookahead(state.currentFrame)
+        schedulePausedPlaybackLookahead(state.currentFrame, 'post_pause')
       }
     }
 
@@ -1428,6 +1518,22 @@ export function usePreviewRenderPump({
       const isAtomicScrubTarget = isAtomicPreviewTarget(state)
 
       if (targetFrame === prevTargetFrame && !playStateChanged) return
+      if (
+        shouldReusePreparedLookaheadOnPlay({
+          state,
+          prev,
+          forceFastScrubOverlay,
+          isSplitComparison: useGizmoStore.getState().colorGradeComparisonMode === 'split',
+          renderedFrame: scrubOffscreenRenderedFrameRef.current,
+        })
+      ) {
+        // Playback lifecycle already handed control to the rAF pump. Keep the
+        // prepared advancing frame intact instead of re-rendering the paused
+        // start frame and overwriting it during the first display interval.
+        scrubRequestedFrameRef.current = null
+        markPlaybackColdStart({ play_start_reused_prepared_lookahead: true })
+        return
+      }
 
       const scrubDirectionPlan = resolveScrubDirectionPlan({
         state,
@@ -1541,6 +1647,17 @@ export function usePreviewRenderPump({
         } catch {
           hideAllOverlays()
         }
+        return
+      }
+
+      const preparedPlaybackFrame = {
+        state,
+        forceFastScrubOverlay,
+        targetFrame,
+        renderedFrame: scrubOffscreenRenderedFrameRef.current,
+      }
+      if (shouldPresentPreparedPlaybackFrame(preparedPlaybackFrame)) {
+        drawToDisplay(preparedPlaybackFrame.targetFrame)
         return
       }
 
@@ -1807,6 +1924,9 @@ export function usePreviewRenderPump({
       const initialFrame = playbackState.previewFrame ?? playbackState.currentFrame
       scrubRequestedFrameRef.current = initialFrame
       void pumpRenderLoop()
+      if (!playbackState.isPlaying && playbackState.previewFrame === null) {
+        schedulePausedPlaybackLookahead(initialFrame, 'initial_load', true)
+      }
       // Start rAF pump if already playing
       if (playbackState.isPlaying && forceFastScrubOverlay && playbackRafId === null) {
         playbackRafId = requestAnimationFrame(playbackRafPump)
@@ -1872,6 +1992,20 @@ export function usePreviewRenderPump({
         cancelAnimationFrame(playbackRafId)
         playbackRafId = null
       }
+      if (
+        initialLookaheadIdleIdRef.current !== null &&
+        typeof window !== 'undefined' &&
+        'cancelIdleCallback' in window
+      ) {
+        ;(window as Window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(
+          initialLookaheadIdleIdRef.current,
+        )
+      }
+      if (initialLookaheadTimeoutIdRef.current !== null) {
+        clearTimeout(initialLookaheadTimeoutIdRef.current)
+      }
+      initialLookaheadIdleIdRef.current = null
+      initialLookaheadTimeoutIdRef.current = null
       resumeScrubLoopRef.current = () => {}
       unsubscribe()
       unsubscribeGizmo()

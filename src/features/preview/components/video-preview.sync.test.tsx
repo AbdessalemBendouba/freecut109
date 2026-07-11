@@ -1214,6 +1214,41 @@ describe('VideoPreview sync behavior', () => {
     })
   })
 
+  it('prepares the initial playback lookahead without replacing the visible paused frame', async () => {
+    setSingleVideoItemAtFrame({
+      id: 'item-initial-lookahead',
+      effects: [
+        {
+          id: 'effect-initial-lookahead',
+          enabled: true,
+          effect: { type: 'gpu-effect', gpuEffectType: 'gpu-sepia', params: { amount: 0.5 } },
+        },
+      ],
+    })
+
+    const { renderer, scrubCanvas } = await renderReadySingleRendererPreview(24, {
+      expectedDisplayedFrame: 24,
+    })
+
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(25)
+    })
+    expect(getDisplayedFrame()).toBe(24)
+    expect(scrubCanvas.style.visibility).toBe('visible')
+
+    renderer.renderFrame.mockClear()
+    act(() => {
+      usePlaybackStore.getState().play()
+      usePlaybackStore.getState().setCurrentFrame(25)
+    })
+
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(25)
+    })
+    expect(renderer.renderFrame).not.toHaveBeenCalledWith(24)
+    expect(renderer.renderFrame).not.toHaveBeenCalledWith(25)
+  })
+
   it('reuses the active fast-scrub renderer for committed transform updates on gpu-effect clips', async () => {
     setSingleVideoTrack()
     useItemsStore.getState().setItems([
