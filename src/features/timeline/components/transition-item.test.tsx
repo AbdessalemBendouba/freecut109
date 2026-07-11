@@ -61,7 +61,7 @@ describe('TransitionItem preview bridge motion', () => {
 
   beforeEach(() => {
     useTimelineSettingsStore.setState({ fps: 30 })
-    useZoomStore.getState().setZoomLevelImmediate(1)
+    useZoomStore.getState().setZoomLevelSynchronized(1)
     useItemsStore.getState().setItems([])
     useItemsStore.getState().setTracks([])
     useSelectionStore.setState({ selectedTransitionId: null, dragState: null })
@@ -93,6 +93,22 @@ describe('TransitionItem preview bridge motion', () => {
 
     const updatedLeftPx = parseFloat(screen.getByTitle('Fade (0.7s)').style.left)
     expect(updatedLeftPx - initialLeftPx).toBe(30)
+  })
+
+  it('keeps bridge geometry pinned to clips during live zoom', () => {
+    setTransitionClips()
+
+    render(<TransitionItem transition={transition} />)
+
+    const overlay = screen.getByTitle('Fade (0.7s)')
+    const initialLeft = Number.parseFloat(overlay.style.left)
+    const initialWidth = Number.parseFloat(overlay.style.width)
+
+    act(() => useZoomStore.getState().setZoomLevelImmediate(1.5))
+
+    expect(useZoomStore.getState().contentLevel).toBe(1)
+    expect(Number.parseFloat(overlay.style.left)).toBeCloseTo(initialLeft * 1.5)
+    expect(Number.parseFloat(overlay.style.width)).toBeCloseTo(initialWidth * 1.5)
   })
 
   it('updates bridge position in realtime while rolling preview delta changes', () => {

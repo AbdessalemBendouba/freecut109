@@ -15,7 +15,7 @@ import {
   useTransitionDragStore,
   type DraggedTransitionDescriptor,
 } from '@/shared/state/transition-drag'
-import { useTimelineCommittedZoomContext } from '../contexts/timeline-zoom-context'
+import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
 import { useTransitionResize } from '../hooks/use-transition-resize'
 import { dragOffsetRef } from '../hooks/use-timeline-drag'
 import type { TimelineState, TimelineActions } from '../types'
@@ -75,7 +75,10 @@ export const TransitionItem = memo(function TransitionItem({
   trackHidden = false,
 }: TransitionItemProps) {
   perfMarkRender('TransitionItem')
-  const { frameToPixels } = useTimelineCommittedZoomContext()
+  // Transition bridges are lightweight geometry and must stay pinned to the
+  // clip edges during live wheel zoom. Expensive clip media remains on the
+  // settled zoom path; only visible bridges subscribe here.
+  const { frameToPixels } = useTimelineZoomContext()
   const fps = useTimelineStore((s: TimelineState) => s.fps)
   const removeTransition = useTimelineStore((s: TimelineActions) => s.removeTransition)
   const updateTransition = useTimelineStore((s: TimelineActions) => s.updateTransition)
