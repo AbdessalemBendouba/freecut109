@@ -277,7 +277,12 @@ async function peekNextSample(state: ExtractorState): Promise<WorkerSample | nul
     return null
   }
 
-  const nextResult = await state.sampleIterator.next()
+  const iterator = state.sampleIterator
+  const nextResult = await iterator.next()
+  if (iterator !== state.sampleIterator) {
+    if (!nextResult.done) closeSample(nextResult.value)
+    return null
+  }
   if (nextResult.done) {
     state.iteratorDone = true
     return null

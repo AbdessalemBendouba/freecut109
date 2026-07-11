@@ -5,6 +5,7 @@ import {
   isPlaybackColdStartPending,
   markPlaybackColdStart,
   resolvePlaybackColdStartFrameAdvance,
+  resolvePlaybackColdStartVisibleFrame,
 } from './playback-cold-start-event'
 
 function emittedEvents(infoSpy: { mock: { calls: unknown[][] } }) {
@@ -30,7 +31,7 @@ describe('playback cold start wide event', () => {
     infoSpy.mockRestore()
   })
 
-  it('emits a completed event on the first frame advance past the start frame', () => {
+  it('emits a completed event when the first advancing frame is visibly presented', () => {
     beginPlaybackColdStart(
       { startFrame: 100, forceFastScrubOverlay: true, audioContextState: 'running' },
       1000,
@@ -42,6 +43,10 @@ describe('playback cold start wide event', () => {
     expect(isPlaybackColdStartPending()).toBe(true)
 
     resolvePlaybackColdStartFrameAdvance(101, 1042)
+    expect(isPlaybackColdStartPending()).toBe(true)
+    expect(emittedEvents(infoSpy)).toHaveLength(0)
+
+    expect(resolvePlaybackColdStartVisibleFrame(101, 'dom_video', 1068)).toBe(true)
     expect(isPlaybackColdStartPending()).toBe(false)
 
     const events = emittedEvents(infoSpy)
@@ -51,6 +56,9 @@ describe('playback cold start wide event', () => {
       start_frame: 100,
       first_advanced_frame: 101,
       ms_to_first_frame_advance: 42,
+      first_visible_frame: 101,
+      first_visible_frame_source: 'dom_video',
+      ms_to_first_visible_frame: 68,
       force_fast_scrub_overlay: true,
       audio_context_state: 'running',
       visibility_state_at_play: 'visible',
@@ -75,6 +83,7 @@ describe('playback cold start wide event', () => {
     Reflect.deleteProperty(document, 'visibilityState')
 
     resolvePlaybackColdStartFrameAdvance(1, 2500)
+    resolvePlaybackColdStartVisibleFrame(1, 'rendered_overlay', 2520)
 
     const events = emittedEvents(infoSpy)
     expect(events).toHaveLength(1)
@@ -92,6 +101,7 @@ describe('playback cold start wide event', () => {
     markPlaybackColdStart({ variable_speed_items: 2 })
     markPlaybackColdStart({ prewarm_gate_ms: 180 })
     resolvePlaybackColdStartFrameAdvance(1, 250)
+    resolvePlaybackColdStartVisibleFrame(1, 'composition_paint', 270)
 
     const events = emittedEvents(infoSpy)
     expect(events).toHaveLength(1)
@@ -100,6 +110,7 @@ describe('playback cold start wide event', () => {
       prewarm_gate_ms: 180,
       audio_context_state: 'unavailable',
       ms_to_first_frame_advance: 250,
+      ms_to_first_visible_frame: 270,
     })
   })
 
@@ -130,6 +141,7 @@ describe('playback cold start wide event', () => {
       100,
     )
     resolvePlaybackColdStartFrameAdvance(11, 130)
+    resolvePlaybackColdStartVisibleFrame(11, 'dom_video', 150)
 
     const events = emittedEvents(infoSpy)
     expect(events).toHaveLength(2)
@@ -143,6 +155,7 @@ describe('playback cold start wide event', () => {
   it('ignores resolve and mark calls when no measurement is active', () => {
     markPlaybackColdStart({ stray: true })
     resolvePlaybackColdStartFrameAdvance(5)
+    expect(resolvePlaybackColdStartVisibleFrame(5, 'dom_video')).toBe(false)
     cancelPlaybackColdStart('noop')
     expect(emittedEvents(infoSpy)).toHaveLength(0)
   })

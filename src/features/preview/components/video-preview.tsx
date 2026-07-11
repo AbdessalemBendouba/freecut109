@@ -130,7 +130,6 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     hasSlide4Up,
     activeGizmoItemType,
     isGizmoInteracting,
-    isPlaying,
     zoom,
     useProxy,
     busAudioEq,
@@ -448,17 +447,34 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
 
   const forceFastScrubOverlay = showGpuEffectsOverlay
 
+  // The split comparison is the only render-time branch that needs playback
+  // state. Keep the selected value stable for the normal (non-split) preview
+  // so pressing Play does not invalidate the entire VideoPreview tree.
+  const isPlayingForSplitComparison = usePlaybackStore(
+    (state) => colorGradeComparisonMode === 'split' && state.isPlaying,
+  )
+
   // While the GPU overlay owns the preview during playback, the DOM composition
   // tree is occluded — freeze its per-item visual recomputation so it stops
   // re-deriving transforms/masks/text on every frame behind the overlay. The
   // overlay composites the real frames; mount/visibility and video sync stay live.
   useEffect(() => {
-    const frozen = forceFastScrubOverlay && isPlaying
-    usePlaybackStore.getState().setCompositionVisualFrozen(frozen)
+    const applyFrozenState = (isPlaying: boolean) => {
+      usePlaybackStore.getState().setCompositionVisualFrozen(forceFastScrubOverlay && isPlaying)
+    }
+
+    applyFrozenState(usePlaybackStore.getState().isPlaying)
+    const unsubscribe = usePlaybackStore.subscribe((state, previousState) => {
+      if (state.isPlaying !== previousState.isPlaying) {
+        applyFrozenState(state.isPlaying)
+      }
+    })
+
     return () => {
+      unsubscribe()
       usePlaybackStore.getState().setCompositionVisualFrozen(false)
     }
-  }, [forceFastScrubOverlay, isPlaying])
+  }, [forceFastScrubOverlay])
 
   const {
     clearTransitionPlaybackSession,
@@ -490,7 +506,6 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     keyframes,
     activeGizmoItemType,
     isGizmoInteracting,
-    isPlaying,
     forceFastScrubOverlay,
     previewPerfRef,
     isGizmoInteractingRef,
@@ -661,7 +676,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
       />
     </>
   ) : null
-  const shouldShowAfterDuringSplitPlayback = isPlaying && colorGradeComparisonMode === 'split'
+  const shouldShowAfterDuringSplitPlayback = isPlayingForSplitComparison
   const stageColorGradeComparisonMode = shouldShowAfterDuringSplitPlayback
     ? 'off'
     : colorGradeComparisonMode

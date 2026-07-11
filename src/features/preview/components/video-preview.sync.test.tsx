@@ -2005,6 +2005,13 @@ describe('VideoPreview sync behavior', () => {
       expect(scrubCanvas.style.visibility).toBe('visible')
       expect(getDisplayedFrame()).toBe(25)
     })
+
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(26)
+      // Frame 26 is prepared only in the offscreen surface; the paused
+      // preview must remain visibly pinned to frame 25.
+      expect(getDisplayedFrame()).toBe(25)
+    })
   })
 
   it('switches a paused ruler seek onto the fast-scrub overlay when landing on a gpu-effect clip', async () => {

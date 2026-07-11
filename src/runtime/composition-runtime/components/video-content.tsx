@@ -125,7 +125,6 @@ const NativePreviewVideo: React.FC<{
   const { fps } = useVideoConfig()
   const pool = useVideoSourcePool()
   const elementRef = useRef<HTMLVideoElement | null>(null)
-  const forceRenderTimeoutRef = useRef<number | null>(null)
   const preWarmTimerRef = useRef<number | null>(null)
   const preWarmGenRef = useRef(0)
 
@@ -143,6 +142,7 @@ const NativePreviewVideo: React.FC<{
       preWarmTimerRef.current = null
       const v = elementRef.current
       if (v && v.paused && v.readyState >= 2 && !usePlaybackStore.getState().isPlaying) {
+        const wasMuted = v.muted
         v.muted = true
         v.play()
           .then(() => {
@@ -152,10 +152,10 @@ const NativePreviewVideo: React.FC<{
             }
             // Always unmute — if playback started or another scrub superseded
             // this pre-warm, leaving muted=true causes silent playback.
-            v.muted = false
+            v.muted = wasMuted
           })
           .catch(() => {
-            v.muted = false
+            v.muted = wasMuted
           })
       }
     }, 50)
@@ -409,6 +409,10 @@ const NativePreviewVideo: React.FC<{
           element.play().catch(() => {})
         }
         needsInitialSyncRef.current = false
+      } else if (!usePlaybackStore.getState().isPlaying) {
+        // The first warm can run before HAVE_CURRENT_DATA and return. Re-arm
+        // as soon as the paused current source becomes decodable.
+        schedulePreWarm()
       }
     }
     const handleSeeked = () => {
@@ -482,22 +486,11 @@ const NativePreviewVideo: React.FC<{
       )
     }
 
-    // Force a frame render by doing a quick play/pause - some browsers need this
-    // to actually display the video frame after seeking.
+    // Warm the paused current source so the next Play keeps its decoder hot.
     // Only when NOT playing — during playback, the sync effect handles play()
     // and this timeout’s play→pause sequence would race with it.
     if (!currentlyPlaying) {
-      const forceFrameRender = () => {
-        if (element.paused && element.readyState >= 2 && !usePlaybackStore.getState().isPlaying) {
-          element
-            .play()
-            .then(() => {
-              element.pause()
-            })
-            .catch(() => {})
-        }
-      }
-      forceRenderTimeoutRef.current = window.setTimeout(forceFrameRender, 100)
+      schedulePreWarm()
     }
 
     // Stall watchdog: if the element is stuck at readyState 0 for too long
@@ -529,10 +522,6 @@ const NativePreviewVideo: React.FC<{
 
       // Pause and remove from DOM
       element.pause()
-      if (forceRenderTimeoutRef.current !== null) {
-        clearTimeout(forceRenderTimeoutRef.current)
-        forceRenderTimeoutRef.current = null
-      }
       if (preWarmTimerRef.current !== null) {
         clearTimeout(preWarmTimerRef.current)
         preWarmTimerRef.current = null
@@ -565,6 +554,7 @@ const NativePreviewVideo: React.FC<{
     syncRegisteredVideoElement,
     clearRegisteredVideoElement,
     fitMode,
+    schedulePreWarm,
   ])
 
   useEffect(() => {

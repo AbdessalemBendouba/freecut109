@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -20,6 +21,11 @@ import { FAST_SCRUB_RENDERER_ENABLED } from '../utils/preview-constants'
 import { getPreviewDisplayCanvasStyle } from '../utils/preview-display-canvas'
 import { getPreviewPixelSnapOffset, ZERO_PIXEL_SNAP_OFFSET } from '../utils/preview-pixel-snap'
 import type { ColorGradeComparisonMode } from '../stores/gizmo-store'
+import {
+  isPlaybackColdStartPending,
+  markPlaybackColdStart,
+  resolvePlaybackColdStartVisibleFrame,
+} from '../utils/playback-cold-start-event'
 
 interface PreviewStageProps {
   backgroundRef: RefObject<HTMLDivElement | null>
@@ -47,6 +53,18 @@ interface PreviewStageProps {
   perfPanel?: ReactNode
   comparisonOverlay?: ReactNode
   overlayControls?: ReactNode
+}
+
+function canObservePlaybackPresentation(watchGeneration: number, generation: number): boolean {
+  return (
+    watchGeneration === generation &&
+    usePlaybackStore.getState().isPlaying &&
+    isPlaybackColdStartPending()
+  )
+}
+
+function supportsVideoFrameCallback(video: HTMLVideoElement): boolean {
+  return typeof video.requestVideoFrameCallback === 'function'
 }
 
 export const PreviewStage = memo(function PreviewStage({
@@ -79,7 +97,135 @@ export const PreviewStage = memo(function PreviewStage({
   const useProxy = usePlaybackStore((s) => s.useProxy)
   const pixelSnapAnchorRef = useRef<HTMLDivElement | null>(null)
   const playerSurfaceRef = useRef<HTMLDivElement | null>(null)
+  const renderedOverlayVisibleRef = useRef(isRenderedOverlayVisible)
+  renderedOverlayVisibleRef.current = isRenderedOverlayVisible
   const [pixelSnapOffset, setPixelSnapOffset] = useState(ZERO_PIXEL_SNAP_OFFSET)
+
+  // Observe the browser's actual video presentation rather than treating a
+  // Clock tick as visible output. The subscription is imperative so playback
+  // transitions do not invalidate the PreviewStage React tree.
+  useEffect(() => {
+    let generation = 0
+    const videoCallbackHandles = new Map<HTMLVideoElement, number>()
+    const rafHandles = new Set<number>()
+
+    const cancelPresentationWatch = () => {
+      generation += 1
+      for (const [video, handle] of videoCallbackHandles) {
+        video.cancelVideoFrameCallback?.(handle)
+      }
+      videoCallbackHandles.clear()
+      for (const handle of rafHandles) cancelAnimationFrame(handle)
+      rafHandles.clear()
+    }
+
+    const scheduleRaf = (callback: () => void) => {
+      const handle = requestAnimationFrame(() => {
+        rafHandles.delete(handle)
+        callback()
+      })
+      rafHandles.add(handle)
+    }
+
+    const isVisiblyComposited = (video: HTMLVideoElement) => {
+      const style = getComputedStyle(video)
+      return (
+        video.isConnected &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        style.opacity !== '0' &&
+        video.getClientRects().length > 0
+      )
+    }
+
+    const armVideo = (video: HTMLVideoElement, watchGeneration: number) => {
+      if (typeof video.requestVideoFrameCallback !== 'function') return
+      const handle = video.requestVideoFrameCallback(() => {
+        videoCallbackHandles.delete(video)
+        if (
+          watchGeneration !== generation ||
+          !usePlaybackStore.getState().isPlaying ||
+          renderedOverlayVisibleRef.current
+        ) {
+          return
+        }
+        const frame = Math.max(0, Math.round(playerRef.current?.getCurrentFrame() ?? 0))
+        if (resolvePlaybackColdStartVisibleFrame(frame, 'dom_video')) {
+          cancelPresentationWatch()
+          return
+        }
+        // A callback for the already-paused frame can race the first Clock
+        // advance. Keep listening until an advancing frame is presented.
+        armVideo(video, watchGeneration)
+      })
+      videoCallbackHandles.set(video, handle)
+    }
+
+    const armPresentationWatch = (watchGeneration: number, attempt = 0) => {
+      if (!canObservePlaybackPresentation(watchGeneration, generation)) return
+      // The rendered canvas owns the visible surface in this mode and reports
+      // directly from its draw path.
+      if (renderedOverlayVisibleRef.current) return
+
+      const surface = playerSurfaceRef.current
+      const videos = surface
+        ? Array.from(surface.querySelectorAll('video')).filter(isVisiblyComposited)
+        : []
+      const observableVideos = videos.filter(supportsVideoFrameCallback)
+      if (observableVideos.length > 0) {
+        markPlaybackColdStart({
+          active_dom_video_count: observableVideos.length,
+          active_video_ready_state_at_play: Math.min(
+            ...observableVideos.map((video) => video.readyState),
+          ),
+          active_video_network_state_at_play: Math.max(
+            ...observableVideos.map((video) => video.networkState),
+          ),
+        })
+        for (const video of observableVideos) armVideo(video, watchGeneration)
+        return
+      }
+
+      if (attempt < 2) {
+        scheduleRaf(() => armPresentationWatch(watchGeneration, attempt + 1))
+        return
+      }
+
+      // Static/image-only compositions have no media presentation callback.
+      // Two animation frames after the committed Clock update is the earliest
+      // paint-confirmed fallback for that surface.
+      scheduleRaf(() => {
+        scheduleRaf(() => {
+          const frame = Math.max(0, Math.round(playerRef.current?.getCurrentFrame() ?? 0))
+          if (resolvePlaybackColdStartVisibleFrame(frame, 'composition_paint')) {
+            cancelPresentationWatch()
+          }
+        })
+      })
+    }
+
+    const subscribe = usePlaybackStore.subscribe
+    if (typeof subscribe !== 'function') {
+      return cancelPresentationWatch
+    }
+
+    const unsubscribe = subscribe((state, previousState) => {
+      if (state.isPlaying && !previousState.isPlaying) {
+        cancelPresentationWatch()
+        const watchGeneration = generation
+        // Other playback subscribers begin the wide event in the same store
+        // dispatch. Arm after that synchronous subscriber pass completes.
+        queueMicrotask(() => armPresentationWatch(watchGeneration))
+      } else if (!state.isPlaying && previousState.isPlaying) {
+        cancelPresentationWatch()
+      }
+    })
+
+    return () => {
+      unsubscribe()
+      cancelPresentationWatch()
+    }
+  }, [playerRef])
 
   const setPixelSnappedPlayerContainerRef = useCallback(
     (el: HTMLDivElement | null) => {

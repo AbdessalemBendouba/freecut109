@@ -1,22 +1,17 @@
 /**
- * Wide-event instrumentation for playback cold start — the window between the
- * user pressing play and the first advancing frame reaching the preview.
+ * Wide-event instrumentation for playback cold start: the window between the
+ * user pressing Play and the first advancing frame becoming visibly presented.
  *
  * One measurement is active at a time (playback is a singleton):
- * - `beginPlaybackColdStart` on the store's `isPlaying` false→true transition
- * - `markPlaybackColdStart` to attach gate context (variable-speed prewarm
- *   await, pump start delay) as the start path progresses
- * - `resolvePlaybackColdStartFrameAdvance` on the first Clock framechange that
- *   moves past the start frame — emits the event
- * - `cancelPlaybackColdStart` when playback stops before any frame advanced —
- *   emits the event with `result: 'cancelled'` so aborted starts stay visible
+ * - `beginPlaybackColdStart` on the store's `isPlaying` false-to-true transition
+ * - `markPlaybackColdStart` to attach gate/readiness context
+ * - `resolvePlaybackColdStartFrameAdvance` records the first Clock advance
+ * - `resolvePlaybackColdStartVisibleFrame` emits when that advancing frame is
+ *   actually presented by a visible DOM video or rendered preview canvas
+ * - `cancelPlaybackColdStart` emits an aborted start that never presented
  *
- * Visibility guard: the Clock is rAF-driven, so a hidden/occluded tab freezes
- * frame delivery entirely and resumes with a wall-time catch-up jump. A
- * measurement that overlaps a hidden period reports multi-second
- * `ms_to_first_frame_advance` values that say nothing about real cold start.
- * Such events are flagged `hidden_during_measurement: true` — exclude them
- * when reading the metric.
+ * A measurement overlapping a hidden tab is retained but flagged so it can be
+ * excluded from cold-start analysis.
  */
 import { createLogger, createOperationId, type WideEvent } from '@/shared/logging/logger'
 
@@ -33,7 +28,13 @@ interface ActivePlaybackColdStart {
   startFrame: number
   startMs: number
   hiddenDuringMeasurement: boolean
+  firstAdvancedFrame: number | null
 }
+
+export type PlaybackColdStartPresentationSource =
+  | 'dom_video'
+  | 'rendered_overlay'
+  | 'composition_paint'
 
 let active: ActivePlaybackColdStart | null = null
 
@@ -77,32 +78,51 @@ export function beginPlaybackColdStart(
     startFrame: ctx.startFrame,
     startMs: nowMs,
     hiddenDuringMeasurement: visibility === 'hidden',
+    firstAdvancedFrame: null,
   }
   watchVisibility()
 }
 
-/** Attach gate context (prewarm await ms, item counts, …) to the active measurement. */
+/** Attach gate/readiness context to the active measurement. */
 export function markPlaybackColdStart(data: Record<string, unknown>): void {
   active?.event.merge(data)
 }
 
-/**
- * Complete the measurement on the first frame that advanced past the start
- * frame. Safe to call on every framechange — no-ops once resolved.
- */
+/** Record the first Clock frame that advanced past the play-start frame. */
 export function resolvePlaybackColdStartFrameAdvance(
   frame: number,
   nowMs: number = performance.now(),
 ): void {
-  if (!active || frame === active.startFrame) return
+  if (!active || active.firstAdvancedFrame !== null || frame === active.startFrame) return
+  active.firstAdvancedFrame = frame
   active.event.merge({
     first_advanced_frame: frame,
     ms_to_first_frame_advance: Math.round(nowMs - active.startMs),
   })
-  emit('completed', null, nowMs)
 }
 
-/** Playback stopped before any frame advanced — flush so the abort is visible. */
+/**
+ * Complete the measurement when an advancing frame is visibly presented.
+ * Returns true only when this call completed the active measurement.
+ */
+export function resolvePlaybackColdStartVisibleFrame(
+  frame: number,
+  source: PlaybackColdStartPresentationSource,
+  nowMs: number = performance.now(),
+): boolean {
+  if (!active || active.firstAdvancedFrame === null || frame === active.startFrame) {
+    return false
+  }
+  active.event.merge({
+    first_visible_frame: frame,
+    first_visible_frame_source: source,
+    ms_to_first_visible_frame: Math.round(nowMs - active.startMs),
+  })
+  emit('completed', null, nowMs)
+  return true
+}
+
+/** Playback stopped before an advancing frame was presented. */
 export function cancelPlaybackColdStart(reason: string, nowMs: number = performance.now()): void {
   if (!active) return
   emit('cancelled', reason, nowMs)
@@ -122,7 +142,7 @@ function emit(result: 'completed' | 'cancelled', cancelReason: string | null, no
   unwatchVisibility()
 }
 
-/** Test hook: true while a measurement is awaiting its first frame advance. */
+/** Test/runtime hook: true while awaiting first visible presentation. */
 export function isPlaybackColdStartPending(): boolean {
   return active !== null
 }

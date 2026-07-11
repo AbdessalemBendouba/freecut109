@@ -53,6 +53,7 @@ import {
   beginPlaybackColdStart,
   cancelPlaybackColdStart,
   markPlaybackColdStart,
+  resolvePlaybackColdStartVisibleFrame,
 } from '../utils/playback-cold-start-event'
 import {
   ensureAudioContextResumed,
@@ -273,6 +274,7 @@ export function usePreviewRenderPump({
 
   useEffect(() => {
     scrubMountedRef.current = true
+    let pausedPlaybackLookaheadFrame: number | null = null
 
     const drawSourceToDisplay = (
       source: OffscreenCanvas | HTMLCanvasElement,
@@ -284,6 +286,7 @@ export function usePreviewRenderPump({
       if (!displayCtx) return
       drawSourceToPreviewDisplayCanvas(displayCtx, displayCanvas, source)
       setDisplayedFrame(renderedFrame)
+      resolvePlaybackColdStartVisibleFrame(renderedFrame, 'rendered_overlay')
     }
 
     const drawToDisplay = (renderedFrame: number) => {
@@ -727,6 +730,15 @@ export function usePreviewRenderPump({
 
           if (isPriorityFrame) {
             const playbackState = usePlaybackStore.getState()
+            if (pausedPlaybackLookaheadFrame === frameToRender) {
+              // The offscreen canvas now holds the first frame after the
+              // paused playhead. Keep the visible display canvas on the
+              // paused frame until the Clock reaches this prepared frame.
+              if (playbackState.currentFrame !== frameToRender) {
+                continue
+              }
+              pausedPlaybackLookaheadFrame = null
+            }
             const playbackTransitionState = getPlaybackTransitionStateForFrame(frameToRender)
             const shouldShowPlaybackTransitionOverlay =
               playbackState.isPlaying &&
@@ -861,6 +873,31 @@ export function usePreviewRenderPump({
         // force-clear or the new pump's finally handles it. Releasing would
         // allow a concurrent pump to start and share mutable canvas state.
       }
+    }
+
+    const schedulePausedPlaybackLookahead = (pausedAtFrame: number) => {
+      if (!forceFastScrubOverlay) return
+      queueMicrotask(() => {
+        const playback = usePlaybackStore.getState()
+        if (
+          playback.isPlaying ||
+          playback.previewFrame !== null ||
+          playback.currentFrame !== pausedAtFrame
+        ) {
+          return
+        }
+
+        const lookaheadFrame = pausedAtFrame + 1
+        if (
+          pausedPlaybackLookaheadFrame === lookaheadFrame ||
+          scrubOffscreenRenderedFrameRef.current === lookaheadFrame
+        ) {
+          return
+        }
+        pausedPlaybackLookaheadFrame = lookaheadFrame
+        scrubRequestedFrameRef.current = pausedPlaybackLookaheadFrame
+        void pumpRenderLoop()
+      })
     }
 
     resumeScrubLoopRef.current = () => {
@@ -1014,6 +1051,9 @@ export function usePreviewRenderPump({
         clearPrewarmQueue()
 
         const frame = state.currentFrame
+        markPlaybackColdStart({
+          paused_lookahead_hit: scrubOffscreenRenderedFrameRef.current === frame + 1,
+        })
         const prewarmItemIds = collectPlaybackStartVariableSpeedPrewarmItemIds(
           combinedTracks,
           frame,
@@ -1060,6 +1100,8 @@ export function usePreviewRenderPump({
         playbackRafId = null
         lastPlayingPrearmTargetRef.current = null
         clearTransitionPlaybackSession()
+
+        schedulePausedPlaybackLookahead(state.currentFrame)
       }
     }
 
