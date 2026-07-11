@@ -96,7 +96,6 @@ import {
   type TimelineDropGhostPreviewsHandle,
 } from './timeline-drop-ghost-previews'
 import { TimelineTrackItems } from './timeline-track-items'
-import { shouldUseHybridTimelineRenderer } from '../utils/hybrid-timeline-density'
 
 /**
  * Lightweight on-demand context menu for track gaps.
@@ -290,7 +289,6 @@ export const TimelineTrack = memo(function TimelineTrack({ track }: TimelineTrac
   const { visibleItems: trackItems, visibleTransitions: trackTransitions } = useVisibleItems(
     track.id,
   )
-  const totalItemCount = useItemsStore((state) => state.items.length)
   // Full item count — used for context menu guard (must not depend on virtualized subset)
   const hasAnyItems = useItemsStore((s) => (s.itemsByTrackId[track.id]?.length ?? 0) > 0)
   const addItem = useTimelineStore((s) => s.addItem)
@@ -1241,11 +1239,6 @@ export const TimelineTrack = memo(function TimelineTrack({ track }: TimelineTrac
           trackItems={trackItems}
           trackLocked={isTrackLocked}
           trackHidden={isTrackDisabled}
-          trackHeight={track.height}
-          hybridEnabled={shouldUseHybridTimelineRenderer({
-            totalItemCount,
-            trackItemCount: trackItems.length,
-          })}
         />
 
         {/* Render transitions for this track */}

@@ -178,7 +178,7 @@ describe('TransitionItem preview bridge motion', () => {
 
   it('keeps the existing bridge droppable when zoomed out to its compact minimum width', () => {
     setTransitionClips({ right: { from: 160 } })
-    useZoomStore.getState().setZoomLevelImmediate(0.1)
+    useZoomStore.getState().setZoomLevelSynchronized(0.1)
     useTransitionDragStore
       .getState()
       .setDraggedTransition({ presentation: 'wipe', direction: 'from-left' })

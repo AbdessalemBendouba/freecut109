@@ -15,7 +15,7 @@ import {
   useTransitionDragStore,
   type DraggedTransitionDescriptor,
 } from '@/shared/state/transition-drag'
-import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
+import { useTimelineCommittedZoomContext } from '../contexts/timeline-zoom-context'
 import { useTransitionResize } from '../hooks/use-transition-resize'
 import { dragOffsetRef } from '../hooks/use-timeline-drag'
 import type { TimelineState, TimelineActions } from '../types'
@@ -75,7 +75,7 @@ export const TransitionItem = memo(function TransitionItem({
   trackHidden = false,
 }: TransitionItemProps) {
   perfMarkRender('TransitionItem')
-  const { frameToPixels } = useTimelineZoomContext()
+  const { frameToPixels } = useTimelineCommittedZoomContext()
   const fps = useTimelineStore((s: TimelineState) => s.fps)
   const removeTransition = useTimelineStore((s: TimelineActions) => s.removeTransition)
   const updateTransition = useTimelineStore((s: TimelineActions) => s.updateTransition)
