@@ -17,6 +17,10 @@ import {
 } from '../utils/decoder-prewarm'
 import { getDirectionalPrewarmOffsets } from '../utils/fast-scrub-prewarm'
 import { shouldShowFastScrubOverlay } from '../utils/fast-scrub-overlay-guard'
+import {
+  hasPendingPreviewInput,
+  yieldToPendingPreviewInput,
+} from '../utils/preview-input-yield'
 import { resolvePlaybackTransitionOverlayState } from '../utils/playback-transition-overlay'
 import {
   FAST_SCRUB_DIRECTIONAL_PREWARM_BACKWARD_STEPS,
@@ -582,6 +586,9 @@ export function usePreviewRenderPump({
 
         let prewarmBudgetStart = 0
         while (scrubMountedRef.current) {
+          if (hasPendingPreviewInput(usePlaybackStore.getState().isPlaying)) {
+            await yieldToPendingPreviewInput()
+          }
           if (shouldPreferPlayerForPreview(usePlaybackStore.getState().previewFrame)) {
             hideFastScrubOverlay()
             hidePlaybackTransitionOverlay()
