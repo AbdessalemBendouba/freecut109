@@ -143,8 +143,9 @@ export function useDragVisualState({
       const participation = dragParticipationRef.current
       const isPartOfDrag = participation > 0 && !isDragging
       const isAltPreviewDrag = participation === 2
+      const shouldUpdatePreview = isPartOfDrag || isAltPreviewDrag
 
-      if (!isPartOfDrag) {
+      if (!shouldUpdatePreview) {
         cleanupDragStyles()
         return
       }
@@ -174,7 +175,7 @@ export function useDragVisualState({
       rafIdRef.current = requestAnimationFrame(updateTransform)
     }
 
-    if (dragParticipation > 0 && !isDragging) {
+    if (dragParticipation > 0 && (!isDragging || dragParticipation === 2)) {
       rafIdRef.current = requestAnimationFrame(updateTransform)
       return cleanupDragStyles
     }
