@@ -491,17 +491,20 @@ async function batchPreseek(
       let i = 0
       try {
         for await (const sample of iterator) {
-          if (!sample || i >= timestamps.length) {
-            i++
+          const timestamp = timestamps[i]
+          i++
+
+          if (!sample) {
             continue
           }
 
-          const ts = timestamps[i]!
-          i++
-
           try {
+            // Defensive: mediabunny should yield at most one sample per requested
+            // timestamp, but an over-producing iterator must not leak the extra
+            // VideoSample while the stream is being torn down.
+            if (timestamp === undefined) continue
             const bitmap = renderSampleToBitmap(state, sample)
-            if (bitmap) results.set(ts, bitmap)
+            if (bitmap) results.set(timestamp, bitmap)
           } finally {
             sample.close?.()
           }

@@ -1,19 +1,21 @@
-import { memo } from 'react'
-import { ErrorBoundary } from '@/app/error-boundary'
-import { KeyframeGraphPanel } from '@/features/editor/deps/timeline-contract'
-import { PreviewArea } from '../preview-area'
-import { AnimateTimelineStrip } from './animate-timeline-strip'
-import { AnimationPresetLibrary } from './animation-preset-library'
+import { memo, useState } from "react";
+import { useHotkeys } from "react-hotkeys-hook";
+import { ErrorBoundary } from "@/app/error-boundary";
+import { HOTKEY_OPTIONS } from "@/config/hotkeys";
+import { KeyframeGraphPanel } from "@/features/editor/deps/timeline-contract";
+import { PreviewArea } from "../preview-area";
+import { AnimateTimelineStrip } from "./animate-timeline-strip";
+import { AnimationPresetLibrary } from "./animation-preset-library";
 
 interface AnimateLayoutProps {
   project: {
-    width: number
-    height: number
-    fps: number
-  }
+    width: number;
+    height: number;
+    fps: number;
+  };
 }
 
-const noop = () => {}
+const noop = () => {};
 
 /**
  * Animate workspace layout: a fixed column of a small preview, the shared mini
@@ -23,20 +25,35 @@ const noop = () => {}
  * the Color workspace's imperative-branch approach in `editor.tsx` rather than
  * the resizable preview/timeline split.
  */
-export const AnimateLayout = memo(function AnimateLayout({ project }: AnimateLayoutProps) {
+export const AnimateLayout = memo(function AnimateLayout({
+  project,
+}: AnimateLayoutProps) {
+  const [isKeyframeFocusMode, setIsKeyframeFocusMode] = useState(false);
+
+  useHotkeys(
+    "escape",
+    () => setIsKeyframeFocusMode(false),
+    { ...HOTKEY_OPTIONS, enabled: isKeyframeFocusMode },
+    [isKeyframeFocusMode],
+  );
+
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-      {/* Small preview — the animation result stays visible while editing curves */}
-      <div className="flex min-h-0 basis-[38%] flex-col overflow-hidden">
-        <ErrorBoundary level="feature">
-          <PreviewArea project={project} />
-        </ErrorBoundary>
-      </div>
+      {!isKeyframeFocusMode && (
+        <>
+          {/* Small preview — the animation result stays visible while editing curves */}
+          <div className="flex min-h-0 basis-[38%] flex-col overflow-hidden [@media(max-height:900px)]:basis-[32%]">
+            <ErrorBoundary level="feature">
+              <PreviewArea project={project} />
+            </ErrorBoundary>
+          </div>
 
-      {/* Mini timeline — select the clip to animate + scrub for context */}
-      <ErrorBoundary level="feature">
-        <AnimateTimelineStrip />
-      </ErrorBoundary>
+          {/* Mini timeline — select the clip to animate + scrub for context */}
+          <ErrorBoundary level="feature">
+            <AnimateTimelineStrip />
+          </ErrorBoundary>
+        </>
+      )}
 
       {/* Editing surface (dopesheet + curve editor) beside the preset library */}
       <div className="flex min-h-0 flex-1 overflow-hidden border-t border-border">
@@ -46,6 +63,8 @@ export const AnimateLayout = memo(function AnimateLayout({ project }: AnimateLay
               isOpen
               splitView
               showCloseButton={false}
+              isFocusMode={isKeyframeFocusMode}
+              onFocusModeChange={setIsKeyframeFocusMode}
               onToggle={noop}
               onClose={noop}
               placement="side"
@@ -57,5 +76,5 @@ export const AnimateLayout = memo(function AnimateLayout({ project }: AnimateLay
         </ErrorBoundary>
       </div>
     </div>
-  )
-})
+  );
+});

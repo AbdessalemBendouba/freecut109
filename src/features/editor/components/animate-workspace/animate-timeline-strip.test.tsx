@@ -65,9 +65,15 @@ describe('AnimateTimelineStrip', () => {
     render(<AnimateTimelineStrip />)
 
     expect(screen.getByTestId('animate-timeline-strip')).toBeInTheDocument()
+    expect(screen.getByTestId('animate-timeline-strip')).toHaveClass(
+      '[@media(max-height:900px)]:h-[120px]',
+    )
     expect(screen.getByTestId('animate-timeline-scrub-surface')).toBeInTheDocument()
     expect(screen.getByTestId('animate-timeline-playhead')).toBeInTheDocument()
     expect(screen.getAllByTestId('animate-timeline-film-tile').length).toBe(2)
+    expect(screen.getByTestId('animate-timeline-filmstrip-scroll')).toHaveClass(
+      '[@media(max-height:900px)]:hidden',
+    )
     expect(screen.getAllByTestId('animate-timeline-clip').length).toBe(2)
     expect(screen.getAllByText('V1').length).toBeGreaterThan(0)
   })
