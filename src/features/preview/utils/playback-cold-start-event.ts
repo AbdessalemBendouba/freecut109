@@ -16,6 +16,13 @@
 import { createLogger, createOperationId, type WideEvent } from '@/shared/logging/logger'
 
 const log = createLogger('PlaybackColdStart')
+const PLAYBACK_COLD_START_PERF_LOG_ENABLED = import.meta.env.MODE === 'perf'
+
+// Perf builds are production-optimized, but cold-start profiling still needs
+// the completed wide event. Keep normal production logging unchanged.
+if (import.meta.env.MODE === 'perf') {
+  log.setLevel(1)
+}
 
 export interface PlaybackColdStartContext {
   startFrame: number
@@ -25,6 +32,7 @@ export interface PlaybackColdStartContext {
 
 interface ActivePlaybackColdStart {
   event: WideEvent
+  perfData: Record<string, unknown>
   startFrame: number
   startMs: number
   hiddenDuringMeasurement: boolean
@@ -169,15 +177,17 @@ export function beginPlaybackColdStart(
   }
   const event = log.startEvent('playback_cold_start', createOperationId())
   const visibility = readVisibilityState()
-  event.merge({
+  const initialData = {
     start_frame: ctx.startFrame,
     force_fast_scrub_overlay: ctx.forceFastScrubOverlay,
     audio_context_state: ctx.audioContextState ?? 'unavailable',
     visibility_state_at_play: visibility,
     ...getReadinessAtPlay(ctx.startFrame, nowMs),
-  })
+  }
+  event.merge(initialData)
   active = {
     event,
+    perfData: { ...initialData },
     startFrame: ctx.startFrame,
     startMs: nowMs,
     hiddenDuringMeasurement: visibility === 'hidden',
@@ -188,7 +198,9 @@ export function beginPlaybackColdStart(
 
 /** Attach gate/readiness context to the active measurement. */
 export function markPlaybackColdStart(data: Record<string, unknown>): void {
-  active?.event.merge(data)
+  if (!active) return
+  active.event.merge(data)
+  Object.assign(active.perfData, data)
 }
 
 /** Record the first Clock frame that advanced past the play-start frame. */
@@ -198,7 +210,7 @@ export function resolvePlaybackColdStartFrameAdvance(
 ): void {
   if (!active || active.firstAdvancedFrame !== null || frame === active.startFrame) return
   active.firstAdvancedFrame = frame
-  active.event.merge({
+  markPlaybackColdStart({
     first_advanced_frame: frame,
     ms_to_first_frame_advance: Math.round(nowMs - active.startMs),
   })
@@ -216,7 +228,7 @@ export function resolvePlaybackColdStartVisibleFrame(
   if (!active || active.firstAdvancedFrame === null || frame === active.startFrame) {
     return false
   }
-  active.event.merge({
+  markPlaybackColdStart({
     first_visible_frame: frame,
     first_visible_frame_source: source,
     ms_to_first_visible_frame: Math.round(nowMs - active.startMs),
@@ -234,12 +246,23 @@ export function cancelPlaybackColdStart(reason: string, nowMs: number = performa
 function emit(result: 'completed' | 'cancelled', cancelReason: string | null, nowMs: number): void {
   if (!active) return
   if (result === 'cancelled') {
-    active.event.merge({ ms_to_cancel: Math.round(nowMs - active.startMs) })
+    markPlaybackColdStart({ ms_to_cancel: Math.round(nowMs - active.startMs) })
     if (cancelReason !== null) {
-      active.event.merge({ cancel_reason: cancelReason })
+      markPlaybackColdStart({ cancel_reason: cancelReason })
     }
   }
-  active.event.merge({ hidden_during_measurement: active.hiddenDuringMeasurement })
+  markPlaybackColdStart({ hidden_during_measurement: active.hiddenDuringMeasurement })
+  if (PLAYBACK_COLD_START_PERF_LOG_ENABLED) {
+    console.warn(
+      '[PlaybackColdStart] playback_cold_start_perf',
+      JSON.stringify({
+        ...active.perfData,
+        outcome: 'success',
+        duration_ms: Math.round(nowMs - active.startMs),
+        result,
+      }),
+    )
+  }
   active.event.success({ result })
   active = null
   unwatchVisibility()

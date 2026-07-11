@@ -479,6 +479,21 @@ export function usePreviewRenderPump({
       }, 0)
     }
 
+    let renderPumpRestartTimeoutId: ReturnType<typeof setTimeout> | null = null
+    const scheduleRenderPumpRestart = () => {
+      if (renderPumpRestartTimeoutId !== null || !scrubMountedRef.current) return
+      renderPumpRestartTimeoutId = setTimeout(() => {
+        renderPumpRestartTimeoutId = null
+        if (
+          scrubMountedRef.current &&
+          !scrubRenderInFlightRef.current &&
+          scrubRequestedFrameRef.current !== null
+        ) {
+          void pumpRenderLoop()
+        }
+      }, 0)
+    }
+
     // Single-owner async pump for scrub rendering. Callers never spawn a
     // second worker; they only replace `scrubRequestedFrameRef` and let the
     // current owner pick up the newest request on the next loop iteration.
@@ -924,7 +939,10 @@ export function usePreviewRenderPump({
             scheduleOpportunisticTransitionPrepare()
           }
           if (scrubRequestedFrameRef.current !== null) {
-            void pumpRenderLoop()
+            // Break the promise-recursion chain. Under synchronous test
+            // doubles (and occasionally a run of cache hits in browsers), an
+            // immediate restart can recurse until the stack overflows.
+            scheduleRenderPumpRestart()
           }
         }
         // Stale generation — a newer seek/play bumped the generation while
@@ -2011,8 +2029,12 @@ export function usePreviewRenderPump({
       if (initialLookaheadTimeoutIdRef.current !== null) {
         clearTimeout(initialLookaheadTimeoutIdRef.current)
       }
+      if (renderPumpRestartTimeoutId !== null) {
+        clearTimeout(renderPumpRestartTimeoutId)
+      }
       initialLookaheadIdleIdRef.current = null
       initialLookaheadTimeoutIdRef.current = null
+      renderPumpRestartTimeoutId = null
       resumeScrubLoopRef.current = () => {}
       unsubscribe()
       unsubscribeGizmo()

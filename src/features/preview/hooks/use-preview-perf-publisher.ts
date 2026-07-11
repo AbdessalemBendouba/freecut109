@@ -22,6 +22,8 @@ import type {
 } from './use-preview-transition-session-controller'
 
 const logger = createLogger('VideoPreview')
+const PREVIEW_PERF_ENABLED = import.meta.env.DEV || import.meta.env.MODE === 'perf'
+const PREVIEW_PERF_LOG_ENABLED = import.meta.env.MODE === 'perf'
 
 interface PreviewPerfStats extends PreviewWarmPerfStats {
   resolveSamples: number
@@ -80,7 +82,7 @@ export function usePreviewPerfPublisher({
   })
 
   const trackPlayerSeek = useCallback((targetFrame: number) => {
-    if (!import.meta.env.DEV) return
+    if (!PREVIEW_PERF_ENABLED) return
     pendingSeekLatencyRef.current = {
       targetFrame,
       startedAtMs: performance.now(),
@@ -88,7 +90,7 @@ export function usePreviewPerfPublisher({
   }, [])
 
   const resolvePendingSeekLatency = useCallback((frame: number) => {
-    if (!import.meta.env.DEV) return
+    if (!PREVIEW_PERF_ENABLED) return
     const pending = pendingSeekLatencyRef.current
     if (!pending || pending.targetFrame !== frame) return
 
@@ -100,7 +102,7 @@ export function usePreviewPerfPublisher({
   }, [])
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return
+    if (!PREVIEW_PERF_ENABLED) return
 
     const publish = () => {
       const stats = previewPerfRef.current
@@ -214,8 +216,8 @@ export function usePreviewPerfPublisher({
       }
 
       window.__PREVIEW_PERF__ = snapshot
-      if (window.__PREVIEW_PERF_LOG__) {
-        logger.warn('PreviewPerf', snapshot)
+      if (PREVIEW_PERF_LOG_ENABLED || window.__PREVIEW_PERF_LOG__) {
+        logger.warn('PreviewPerf', JSON.stringify(snapshot))
       }
     }
 
