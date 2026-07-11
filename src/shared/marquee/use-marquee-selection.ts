@@ -77,7 +77,10 @@ interface UseMarqueeSelectionOptions {
   /** Defer onSelectionChange until mouseup; useful when live commits are too expensive */
   commitSelectionOnMouseUp?: boolean
 
-  /** When deferring selection, still publish throttled live commits at this cadence */
+  /**
+   * When deferring selection, optionally publish throttled live commits at this cadence.
+   * Defaults to 0 so expensive global selection consumers only update on mouseup.
+   */
   liveCommitThrottleMs?: number
 }
 
@@ -171,7 +174,7 @@ export function useMarqueeSelection({
   appendMode = false,
   threshold = 5,
   commitSelectionOnMouseUp = false,
-  liveCommitThrottleMs = commitSelectionOnMouseUp ? 33 : 0,
+  liveCommitThrottleMs = 0,
 }: UseMarqueeSelectionOptions) {
   // Use hitAreaRef for bounds checking if provided, otherwise fall back to containerRef
   const boundsRef = hitAreaRef ?? containerRef

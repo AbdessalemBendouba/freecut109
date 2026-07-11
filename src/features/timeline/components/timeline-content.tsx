@@ -456,7 +456,6 @@ const TimelineMarqueeLayer = memo(function TimelineMarqueeLayer({
     enabled: itemIds.length > 0,
     threshold: 5,
     commitSelectionOnMouseUp: true,
-    liveCommitThrottleMs: 66,
   })
 
   useEffect(() => {
