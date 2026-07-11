@@ -960,10 +960,11 @@ export const TimelineContent = memo(function TimelineContent({
     }
   }, [furthestItemEndFrame, containerWidth, syncViewportFromContainer]) // Depends on content end, not full items array
 
-  // Track scroll position with coalesced updates for viewport culling
-  // Throttle at 50ms to match zoom throttle rate - prevents width jitter during zoom+scroll
+  // Persist scroll position after scrolling settles. Viewport culling already
+  // uses the dedicated viewport store on RAF; publishing this persistence-only
+  // value during the gesture wakes every subscriber to the legacy facade.
   const scrollUpdateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const SCROLL_THROTTLE_MS = 50 // Match zoom throttle for synchronized updates
+  const SCROLL_PERSIST_DEBOUNCE_MS = 150
   const setScrollPosition = useTimelineStore((s) => s.setScrollPosition)
 
   useEffect(() => {
@@ -974,14 +975,13 @@ export const TimelineContent = memo(function TimelineContent({
       scrollLeftRef.current = container.scrollLeft
       scheduleViewportSync()
 
-      // Coalesce scroll updates at same rate as zoom throttle
-      if (scrollUpdateTimeoutRef.current === null) {
-        scrollUpdateTimeoutRef.current = setTimeout(() => {
-          scrollUpdateTimeoutRef.current = null
-          // Sync to store for persistence (debounced to avoid excessive updates)
-          setScrollPosition(scrollLeftRef.current)
-        }, SCROLL_THROTTLE_MS)
+      if (scrollUpdateTimeoutRef.current !== null) {
+        clearTimeout(scrollUpdateTimeoutRef.current)
       }
+      scrollUpdateTimeoutRef.current = setTimeout(() => {
+        scrollUpdateTimeoutRef.current = null
+        setScrollPosition(scrollLeftRef.current)
+      }, SCROLL_PERSIST_DEBOUNCE_MS)
     }
 
     container.addEventListener('scroll', handleScroll, { passive: true })
