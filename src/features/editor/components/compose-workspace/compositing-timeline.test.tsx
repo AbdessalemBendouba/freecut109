@@ -1,0 +1,537 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { MediaMetadata } from '@/types/storage'
+import { usePlaybackStore } from '@/shared/state/playback'
+import { useSelectionStore } from '@/shared/state/selection'
+import { useClipboardStore } from '@/shared/state/clipboard'
+import { useEditorStore } from '@/shared/state/editor'
+import {
+  makeTimelineTrack,
+  resetTimelineCompositionTestState,
+  setDefaultRootTimelineTracks,
+} from '@/features/editor/deps/timeline-test-helpers-contract'
+import {
+  useCompositionNavigationStore,
+  useCompositionsStore,
+  useItemsStore,
+  useKeyframesStore,
+  useKeyframeSelectionStore,
+  useTimelineCommandStore,
+  openComposition,
+} from '@/features/editor/deps/timeline-contract'
+import { useMediaLibraryStore } from '@/features/editor/deps/media-library-contract'
+import type { ShapeItem } from '@/types/timeline'
+import { useComposeUiStore } from './compose-ui-store'
+import { CompositingTimeline } from './compositing-timeline'
+
+vi.mock('@/features/editor/deps/media-library-contract', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/features/editor/deps/media-library-contract')>()
+  return { ...actual, resolveMediaUrl: vi.fn().mockResolvedValue('blob:motion-media') }
+})
+
+function makeDataTransfer(payload: unknown) {
+  return {
+    getData: (type: string) => (type === 'application/json' ? JSON.stringify(payload) : ''),
+    types: ['application/json'],
+    dropEffect: 'copy',
+  }
+}
+
+const track = makeTimelineTrack({ id: 'layer-track', name: 'Rectangle', kind: 'video', order: 0 })
+const shape: ShapeItem = {
+  id: 'shape-1',
+  type: 'shape',
+  trackId: track.id,
+  from: 0,
+  durationInFrames: 120,
+  label: 'Hero rectangle',
+  shapeType: 'rectangle',
+  fillColor: '#22d3ee',
+  strokeWidth: 0,
+  transform: { x: 100, y: 80, width: 400, height: 220, rotation: 0, opacity: 1 },
+}
+
+describe('CompositingTimeline', () => {
+  beforeEach(() => {
+    resetTimelineCompositionTestState()
+    useCompositionNavigationStore.getState().resetToRoot()
+    setDefaultRootTimelineTracks()
+    useItemsStore.getState().setItems([])
+    useCompositionsStore.getState().addComposition({
+      id: 'comp-1',
+      name: 'Motion title',
+      editorKind: 'composite-2d',
+      tracks: [track],
+      items: [shape],
+      transitions: [],
+      keyframes: [],
+      fps: 30,
+      width: 1920,
+      height: 1080,
+      durationInFrames: 120,
+    })
+    useCompositionNavigationStore.getState().switchToSequence('comp-1')
+    useMediaLibraryStore.setState({ mediaItems: [], mediaById: {} })
+    useComposeUiStore.setState({ expandedLayerIdsByComposition: {} })
+    useClipboardStore.setState({ itemsClipboard: null, transitionClipboard: null })
+    useEditorStore.getState().setKeyframeEditorShortcutScopeActive(false)
+    useKeyframeSelectionStore.getState().clearSelection()
+  })
+
+  afterEach(() => {
+    cleanup()
+    resetTimelineCompositionTestState()
+  })
+
+  it('keeps the Motion layer header and expands classic dope-sheet child rows', () => {
+    render(<CompositingTimeline />)
+
+    expect(screen.getByTestId('compositing-timeline')).toBeInTheDocument()
+    expect(screen.getAllByText('Hero rectangle')).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+    expect(screen.getByText('X Position')).toBeInTheDocument()
+    expect(screen.getByText('Opacity')).toBeInTheDocument()
+    expect(
+      screen.getByRole('spinbutton', { name: /x position value at playhead/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('uses one shared flag-and-line playhead and supports continuous ruler scrubbing', () => {
+    render(<CompositingTimeline />)
+    const playhead = screen.getByTestId('motion-playhead')
+    expect(screen.getAllByTestId('motion-playhead')).toHaveLength(1)
+    expect(playhead.querySelectorAll('span')).toHaveLength(2)
+    expect(playhead.parentElement).toHaveStyle({ left: '510px', right: '9px' })
+
+    const ruler = screen.getByText('0.0s').parentElement!.parentElement!
+    vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 28,
+      width: 300,
+      height: 28,
+      toJSON: () => ({}),
+    })
+    fireEvent.pointerDown(ruler, { pointerId: 1, button: 0, clientX: 0 })
+    fireEvent.pointerMove(ruler, { pointerId: 1, buttons: 1, clientX: 150 })
+    fireEvent.pointerUp(ruler, { pointerId: 1, clientX: 150 })
+
+    expect(usePlaybackStore.getState().currentFrame).toBe(60)
+  })
+
+  it('adds an undoable property keyframe at the shared playhead', () => {
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }),
+    )
+
+    const itemKeyframes = useKeyframesStore.getState().keyframesByItemId[shape.id]
+    expect(itemKeyframes?.properties[0]?.keyframes).toEqual([
+      expect.objectContaining({ frame: 0, value: 100 }),
+    ])
+
+    useTimelineCommandStore.getState().undo()
+    expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
+  })
+
+  it('does not create a keyframe when a property input is only focused and blurred', () => {
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    const input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
+    fireEvent.focus(input)
+    fireEvent.blur(input)
+
+    expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
+  })
+
+  it('edits a selected keyframe before creating one at the playhead', () => {
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }),
+    )
+
+    const firstKeyframe = useKeyframesStore.getState().keyframesByItemId[shape.id]!
+      .properties[0]!.keyframes[0]!
+    useKeyframeSelectionStore.getState().selectKeyframes([
+      { itemId: shape.id, property: 'x', keyframeId: firstKeyframe.id },
+    ])
+    act(() => usePlaybackStore.getState().setCurrentFrame(60))
+
+    let input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: '180' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    let keyframes = useKeyframesStore.getState().keyframesByItemId[shape.id]!.properties[0]!
+      .keyframes
+    expect(keyframes).toEqual([expect.objectContaining({ frame: 0, value: 180 })])
+
+    useKeyframeSelectionStore.getState().clearSelection()
+    input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: '220' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    keyframes = useKeyframesStore.getState().keyframesByItemId[shape.id]!.properties[0]!.keyframes
+    expect(keyframes).toEqual([
+      expect.objectContaining({ frame: 0, value: 180 }),
+      expect.objectContaining({ frame: 60, value: 220 }),
+    ])
+  })
+
+  it('deletes selected diamonds without deleting the selected layer', async () => {
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }),
+    )
+
+    const keyframe = useKeyframesStore.getState().keyframesByItemId[shape.id]!.properties[0]!
+      .keyframes[0]!
+    useKeyframeSelectionStore.getState().selectKeyframes([
+      { itemId: shape.id, property: 'x', keyframeId: keyframe.id },
+    ])
+
+    const marker = await screen.findByTestId(`row-keyframe-x-${keyframe.id}`)
+    fireEvent.pointerEnter(marker)
+    expect(useEditorStore.getState().keyframeEditorShortcutScopeActive).toBe(true)
+    fireEvent.keyDown(marker, { key: 'Delete' })
+
+    await waitFor(() => {
+      expect(
+        useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes,
+      ).toHaveLength(0)
+    })
+    expect(useItemsStore.getState().itemById[shape.id]).toBeDefined()
+  })
+
+  it('swaps the dope-sheet lanes for the selected property curve inline', () => {
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    const rowBefore = screen.getByText('X Position').closest('.group')
+    expect(rowBefore).not.toHaveClass('pl-6')
+    expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toHaveClass(
+      'w-[80px]',
+    )
+
+    const curveButton = screen.getByRole('button', { name: /show x position curve/i })
+    expect(curveButton).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(curveButton)
+
+    expect(screen.getByTestId('dopesheet-graph-pane')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /show x position curve/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.queryByText('Motion curves')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /sheet/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /graph/i })).not.toBeInTheDocument()
+    expect(screen.getByText('X Position').closest('.group')).not.toHaveClass('pl-6')
+
+    fireEvent.click(screen.getByRole('button', { name: /show x position curve/i }))
+    expect(screen.queryByTestId('dopesheet-graph-pane')).not.toBeInTheDocument()
+  })
+
+  it(
+    'filters expanded rows to animated properties and exposes classic segment easing',
+    async () => {
+      render(<CompositingTimeline />)
+      fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+      fireEvent.click(
+        screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }),
+      )
+      act(() => usePlaybackStore.getState().setCurrentFrame(60))
+      fireEvent.click(
+        await screen.findByRole('button', { name: /toggle x position keyframe at playhead/i }),
+      )
+
+      const easingTrigger = await screen.findByRole('button', { name: 'Easing' })
+      fireEvent.click(easingTrigger)
+      expect(await screen.findByText('Cubic Easing')).toBeInTheDocument()
+
+      fireEvent.change(screen.getByRole('combobox', { name: 'Property filter' }), {
+        target: { value: 'keyframed' },
+      })
+      expect(screen.getByText('X Position')).toBeInTheDocument()
+      expect(screen.queryByText('Y Position')).not.toBeInTheDocument()
+    },
+    10_000,
+  )
+
+  it('exposes layer actions in the context menu and renames inline', async () => {
+    render(<CompositingTimeline />)
+    const layerName = screen.getByRole('button', { name: /1hero rectangle/i })
+    fireEvent.contextMenu(layerName)
+    expect(await screen.findByRole('menuitem', { name: 'Rename' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Duplicate' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Copy' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Paste' })).toHaveAttribute('data-disabled')
+    expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    fireEvent.doubleClick(layerName)
+
+    const nameInput = screen.getByRole('textbox', { name: 'Layer name' })
+    fireEvent.change(nameInput, { target: { value: 'Renamed rectangle' } })
+    fireEvent.keyDown(nameInput, { key: 'Enter' })
+    expect(useItemsStore.getState().itemById[shape.id]?.label).toBe('Renamed rectangle')
+  })
+
+  it('creates a dedicated backing track when adding a generated layer', () => {
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByTitle('Add text layer'))
+
+    const state = useItemsStore.getState()
+    const textLayer = state.items.find((item) => item.type === 'text')
+    expect(textLayer).toBeDefined()
+    expect(state.tracks.some((candidate) => candidate.id === textLayer?.trackId)).toBe(true)
+  })
+
+  it('drags a layer span in time and commits one undoable move', () => {
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 60 }])
+    render(<CompositingTimeline />)
+    const span = screen.getByTestId(`motion-layer-span-${shape.id}`)
+    vi.spyOn(span.parentElement!, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 34,
+      width: 300,
+      height: 34,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(span, { pointerId: 1, button: 0, clientX: 0 })
+    fireEvent.pointerMove(span, { pointerId: 1, clientX: 30 })
+    fireEvent.pointerUp(span, { pointerId: 1, clientX: 30 })
+
+    expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(12)
+    useTimelineCommandStore.getState().undo()
+    expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(0)
+  })
+
+  it('reorders layers from the three-dot handle in one undo step', () => {
+    const secondTrack = makeTimelineTrack({
+      id: 'layer-track-2',
+      name: 'Circle',
+      kind: 'video',
+      order: 1,
+    })
+    const secondShape: ShapeItem = {
+      ...shape,
+      id: 'shape-2',
+      trackId: secondTrack.id,
+      label: 'Circle',
+      shapeType: 'ellipse',
+    }
+    useItemsStore.getState().setTracks([track, secondTrack])
+    useItemsStore.getState().setItems([shape, secondShape])
+
+    const { container } = render(<CompositingTimeline />)
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('[data-motion-row-track-id]'))
+    rows.forEach((row, index) => {
+      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({
+        x: 0,
+        y: index * 34,
+        left: 0,
+        top: index * 34,
+        right: 800,
+        bottom: index * 34 + 34,
+        width: 800,
+        height: 34,
+        toJSON: () => ({}),
+      })
+    })
+
+    const handle = screen.getByTestId(`motion-reorder-handle-${secondTrack.id}`)
+    fireEvent.pointerDown(handle, { pointerId: 2, button: 0, clientY: 51 })
+    fireEvent.pointerMove(handle, { pointerId: 2, clientY: 0 })
+    fireEvent.pointerUp(handle, { pointerId: 2, clientY: 0 })
+
+    expect(
+      [...useItemsStore.getState().tracks]
+        .sort((left, right) => left.order - right.order)
+        .map((candidate) => candidate.id),
+    ).toEqual([secondTrack.id, track.id])
+    useTimelineCommandStore.getState().undo()
+    expect(
+      [...useItemsStore.getState().tracks]
+        .sort((left, right) => left.order - right.order)
+        .map((candidate) => candidate.id),
+    ).toEqual([track.id, secondTrack.id])
+  })
+
+  it('reorders a group as one top-level row without moving its children out', () => {
+    const groupTrack = makeTimelineTrack({
+      id: 'group-track',
+      name: 'Group 1',
+      kind: 'video',
+      order: 0,
+      isGroup: true,
+    })
+    const childTrack = makeTimelineTrack({
+      ...track,
+      id: 'child-track',
+      order: 0,
+      parentTrackId: groupTrack.id,
+    })
+    const topTrack = makeTimelineTrack({
+      id: 'top-track',
+      name: 'Top layer',
+      kind: 'video',
+      order: 1,
+    })
+    useItemsStore.getState().setTracks([groupTrack, childTrack, topTrack])
+    useItemsStore.getState().setItems([
+      { ...shape, trackId: childTrack.id },
+      { ...shape, id: 'shape-top', trackId: topTrack.id, label: 'Top layer' },
+    ])
+
+    const { container } = render(<CompositingTimeline />)
+    const rows = Array.from(container.querySelectorAll<HTMLElement>('[data-motion-row-track-id]'))
+    rows.forEach((row, index) => {
+      vi.spyOn(row, 'getBoundingClientRect').mockReturnValue({
+        x: 0,
+        y: index * 34,
+        left: 0,
+        top: index * 34,
+        right: 800,
+        bottom: index * 34 + 34,
+        width: 800,
+        height: 34,
+        toJSON: () => ({}),
+      })
+    })
+
+    const handle = screen.getByTestId(`motion-reorder-handle-${topTrack.id}`)
+    fireEvent.pointerDown(handle, { pointerId: 3, button: 0, clientY: 85 })
+    fireEvent.pointerMove(handle, { pointerId: 3, clientY: 0 })
+    fireEvent.pointerUp(handle, { pointerId: 3, clientY: 0 })
+
+    const reordered = useItemsStore.getState().tracks
+    expect(reordered.find((candidate) => candidate.id === topTrack.id)?.order).toBe(0)
+    expect(reordered.find((candidate) => candidate.id === groupTrack.id)?.order).toBe(1)
+    expect(reordered.find((candidate) => candidate.id === childTrack.id)?.parentTrackId).toBe(
+      groupTrack.id,
+    )
+  })
+
+  it('groups selected layers into a collapsible parent track and can ungroup them', () => {
+    const secondTrack = makeTimelineTrack({
+      id: 'layer-track-2',
+      name: 'Circle',
+      kind: 'video',
+      order: 1,
+    })
+    const secondShape: ShapeItem = {
+      ...shape,
+      id: 'shape-2',
+      trackId: secondTrack.id,
+      label: 'Circle',
+      shapeType: 'ellipse',
+    }
+    useItemsStore.getState().setTracks([track, secondTrack])
+    useItemsStore.getState().setItems([shape, secondShape])
+    useSelectionStore.getState().selectItems([shape.id, secondShape.id])
+
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByTitle('Group selected layers'))
+
+    const groupedState = useItemsStore.getState()
+    const groupTrack = groupedState.tracks.find((candidate) => candidate.isGroup)
+    expect(groupTrack).toBeDefined()
+    expect(
+      groupedState.tracks
+        .filter((candidate) => candidate.id === track.id || candidate.id === secondTrack.id)
+        .every((candidate) => candidate.parentTrackId === groupTrack?.id),
+    ).toBe(true)
+    expect(screen.getByTestId(`motion-group-${groupTrack!.id}`)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ungroup' }))
+    expect(useItemsStore.getState().tracks.some((candidate) => candidate.isGroup)).toBe(false)
+  })
+
+  it('accepts text and shape templates dragged from the shared media sidebar', () => {
+    render(<CompositingTimeline />)
+    const timeline = screen.getByTestId('compositing-timeline')
+    fireEvent.drop(timeline, {
+      dataTransfer: makeDataTransfer({
+        type: 'timeline-template',
+        itemType: 'text',
+        label: 'Library title',
+      }),
+    })
+
+    expect(useItemsStore.getState().items).toContainEqual(
+      expect.objectContaining({ type: 'text', label: 'Library title' }),
+    )
+  })
+
+  it('accepts media assets dragged from the shared media library', async () => {
+    const media = {
+      id: 'media-image',
+      fileName: 'texture.png',
+      mimeType: 'image/png',
+      duration: 0,
+    } as MediaMetadata
+    useMediaLibraryStore.setState({ mediaItems: [media], mediaById: { [media.id]: media } })
+    render(<CompositingTimeline />)
+
+    fireEvent.drop(screen.getByTestId('compositing-timeline'), {
+      dataTransfer: makeDataTransfer({
+        type: 'media-item',
+        mediaId: media.id,
+        mediaType: 'image',
+        fileName: media.fileName,
+        duration: media.duration,
+      }),
+    })
+
+    await waitFor(() =>
+      expect(useItemsStore.getState().items).toContainEqual(
+        expect.objectContaining({ type: 'image', mediaId: media.id }),
+      ),
+    )
+  })
+
+  it('nests compositions from the media library and blocks reverse cycles', () => {
+    useCompositionsStore.getState().addComposition({
+      id: 'child-comp',
+      name: 'Child',
+      editorKind: 'composite-2d',
+      tracks: [],
+      items: [],
+      transitions: [],
+      keyframes: [],
+      fps: 30,
+      width: 1920,
+      height: 1080,
+      durationInFrames: 120,
+    })
+    const { rerender } = render(<CompositingTimeline />)
+    fireEvent.drop(screen.getByTestId('compositing-timeline'), {
+      dataTransfer: makeDataTransfer({ type: 'composition', compositionId: 'child-comp' }),
+    })
+    expect(useItemsStore.getState().items).toContainEqual(
+      expect.objectContaining({ type: 'composition', compositionId: 'child-comp' }),
+    )
+
+    openComposition('child-comp', 'Child')
+    rerender(<CompositingTimeline />)
+    fireEvent.drop(screen.getByTestId('compositing-timeline'), {
+      dataTransfer: makeDataTransfer({ type: 'composition', compositionId: 'comp-1' }),
+    })
+    expect(useItemsStore.getState().items).toEqual([])
+  })
+})

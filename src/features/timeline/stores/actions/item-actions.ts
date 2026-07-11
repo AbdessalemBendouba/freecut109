@@ -160,6 +160,21 @@ export function addItemOnNewTrack(item: TimelineItem, tracks: TimelineTrack[]): 
   )
 }
 
+/** Add several layer items and their already-planned backing tracks atomically. */
+export function addItemsOnNewTracks(items: TimelineItem[], tracks: TimelineTrack[]): void {
+  if (items.length === 0) return
+  execute(
+    'ADD_ITEMS_ON_NEW_TRACKS',
+    () => {
+      const store = useItemsStore.getState()
+      store.setTracks(tracks)
+      store._addItems(items)
+      useTimelineSettingsStore.getState().markDirty()
+    },
+    { count: items.length, trackCount: tracks.length },
+  )
+}
+
 export function updateItem(id: string, updates: Partial<TimelineItem>): void {
   execute(
     'UPDATE_ITEM',

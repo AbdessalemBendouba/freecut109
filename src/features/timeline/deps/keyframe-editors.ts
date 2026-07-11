@@ -4,6 +4,7 @@
 
 export {
   DopesheetEditor,
+  KEYFRAME_EDGE_INSET,
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,
   captureAnimationFromItem,

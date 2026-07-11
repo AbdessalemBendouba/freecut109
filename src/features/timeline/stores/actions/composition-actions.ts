@@ -546,6 +546,12 @@ export function createPreComp(name?: string, itemIds?: string[]): TimelineItem |
       const subComp: SubComposition = {
         id: compositionId,
         name: compName,
+        editorKind:
+          activeCompositionId !== null &&
+          useCompositionsStore.getState().getComposition(activeCompositionId)?.editorKind ===
+            'composite-2d'
+            ? 'composite-2d'
+            : 'sequence',
         items: subCompItems,
         tracks: subCompTracks,
         transitions: subCompTransitions,
@@ -1076,6 +1082,7 @@ export function createSequence(name?: string): string {
   const sequence: SubComposition = {
     id,
     name: sequenceName,
+    editorKind: 'sequence',
     items: [],
     tracks: [makeTrack('V1', 'video', 0), makeTrack('A1', 'audio', 1)],
     transitions: [],
@@ -1102,12 +1109,114 @@ export function createSequence(name?: string): string {
   return id
 }
 
+export interface CreateCompositeCompositionOptions {
+  name?: string
+  width?: number
+  height?: number
+  fps?: number
+  durationInFrames?: number
+  backgroundColor?: string
+}
+
+function finiteClampedInteger(
+  value: number | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const candidate = typeof value === 'number' && Number.isFinite(value) ? value : fallback
+  return Math.max(min, Math.min(max, Math.round(candidate)))
+}
+
+/** Generate a default, non-colliding name for a new 2D composition. */
+function nextCompositeCompositionName(): string {
+  const existing = new Set(useCompositionsStore.getState().compositions.map((c) => c.name))
+  let n =
+    useCompositionsStore
+      .getState()
+      .compositions.filter((composition) => composition.editorKind === 'composite-2d').length + 1
+  let candidate = `Composition ${n}`
+  while (existing.has(candidate)) {
+    n += 1
+    candidate = `Composition ${n}`
+  }
+  return candidate
+}
+
+/**
+ * Create an empty layer-based 2D composition and open it as the active root.
+ *
+ * It deliberately does not join `topLevelSequenceIds`: those ids drive the
+ * classic editorial tab strip. Compose owns its own browser/navigation UI.
+ * The shared composition registry still makes the result reusable and
+ * nestable everywhere a CompositionItem is accepted.
+ */
+export function createCompositeComposition(
+  options: CreateCompositeCompositionOptions = {},
+): string {
+  const id = crypto.randomUUID()
+  const projectMetadata = useProjectStore.getState().currentProject?.metadata
+  const projectFps = useTimelineSettingsStore.getState().fps
+  const fps = finiteClampedInteger(options.fps, projectFps, 1, 120)
+  const width = finiteClampedInteger(
+    options.width,
+    projectMetadata?.width ?? DEFAULT_PROJECT_WIDTH,
+    1,
+    7680,
+  )
+  const height = finiteClampedInteger(
+    options.height,
+    projectMetadata?.height ?? DEFAULT_PROJECT_HEIGHT,
+    1,
+    4320,
+  )
+  const durationInFrames = finiteClampedInteger(
+    options.durationInFrames,
+    fps * 10,
+    1,
+    fps * 60 * 60,
+  )
+  const name = options.name?.trim() || nextCompositeCompositionName()
+  const backgroundColor = options.backgroundColor ?? projectMetadata?.backgroundColor
+
+  const composition: SubComposition = {
+    id,
+    name,
+    editorKind: 'composite-2d',
+    items: [],
+    tracks: [],
+    transitions: [],
+    keyframes: [],
+    fps,
+    width,
+    height,
+    durationInFrames,
+    ...(backgroundColor && { backgroundColor }),
+  }
+
+  execute(
+    'CREATE_COMPOSITE_COMPOSITION',
+    () => {
+      useCompositionsStore.getState().addComposition(composition)
+    },
+    { compositionId: id, editorKind: composition.editorKind },
+  )
+  useTimelineSettingsStore.getState().markDirty()
+  useCompositionNavigationStore.getState().switchToSequence(id)
+  return id
+}
+
 /**
  * Open a composition for editing. If it's a top-level sequence tab, switch to
  * that tab (its own root — no Main above it); otherwise drill into it as a
  * compound clip from the current context.
  */
 export function openComposition(compositionId: string, label?: string, entryItemId?: string): void {
+  const composition = useCompositionsStore.getState().getComposition(compositionId)
+  if (composition?.editorKind === 'composite-2d') {
+    useCompositionNavigationStore.getState().switchToSequence(compositionId)
+    return
+  }
   if (useSequencesStore.getState().isTopLevelSequence(compositionId)) {
     useCompositionNavigationStore.getState().switchToSequence(compositionId)
     return
@@ -1119,7 +1228,8 @@ export function openComposition(compositionId: string, label?: string, entryItem
 
 /** Promote an existing composition (compound clip) to a standalone tab and open it. */
 export function openCompositionAsTab(compositionId: string): void {
-  if (!useCompositionsStore.getState().getComposition(compositionId)) return
+  const composition = useCompositionsStore.getState().getComposition(compositionId)
+  if (!composition || composition.editorKind !== 'sequence') return
   useSequencesStore.getState().addTopLevelSequence(compositionId)
   useTimelineSettingsStore.getState().markDirty()
   useCompositionNavigationStore.getState().switchToSequence(compositionId)

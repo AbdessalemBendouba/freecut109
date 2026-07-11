@@ -7,7 +7,12 @@ export { useTimelineStore } from '../stores/timeline-store'
 export { useTimelineSettingsStore } from '../stores/timeline-settings-store'
 export { useItemsStore } from '../stores/items-store'
 export { useKeyframesStore } from '../stores/keyframes-store'
+export { useKeyframeSelectionStore } from '../stores/keyframe-selection-store'
 export { useCompositionsStore } from '../stores/compositions-store'
+export {
+  getActiveTabId,
+  useCompositionNavigationStore,
+} from '../stores/composition-navigation-store'
 export { useTimelineCommandStore } from '../stores/timeline-command-store'
 export { useBentoLayoutDialogStore } from '../components/bento-layout-dialog-store'
 export { useReverseConformDialogStore } from '../stores/reverse-conform-dialog-store'
@@ -17,6 +22,8 @@ export { captureSnapshot } from '../stores/commands/snapshot'
 export { execute as executeTimelineCommand } from '../stores/actions/shared'
 export { Timeline } from '../components/timeline'
 export { KeyframeGraphPanel } from '../components/keyframe-graph-panel'
+export { DopesheetEditor, KEYFRAME_EDGE_INSET } from '../deps/keyframe-editors'
+export { interpolatePropertyValue } from '../deps/keyframes'
 export { TranscriptEditorPanel } from '../components/transcript-editor/transcript-editor-panel'
 export { useTimelineShortcuts } from '../hooks/use-timeline-shortcuts'
 export { useTransitionBreakageNotifications } from '../hooks/use-transition-breakage-notifications'
@@ -28,15 +35,42 @@ export { resolveTransitionTargetFromSelection } from '../utils/transition-target
 export {
   createDefaultAdjustmentItem,
   createDefaultShapeItem,
+  createTimelineTemplateItem,
   createTextTemplateItem,
   getDefaultGeneratedLayerDurationInFrames,
+  isTimelineTemplateDragData,
 } from '../utils/generated-layer-items'
 export { findCompatibleTrackForItemType } from '../utils/track-item-compatibility'
 export { createOverlayLayerTrack } from '../utils/new-track-zone-media'
 export { createClassicTrack, getTrackKind } from '../utils/classic-tracks'
 export { getDefaultActiveTrackId } from '../utils/default-active-track'
 export { resolveEffectiveTrackStates } from '../utils/group-utils'
+export { wouldCreateCompositionCycle } from '../utils/composition-graph'
+export { buildDroppedCompositionTimelineItems } from '../utils/dropped-composition'
+export {
+  buildDroppedMediaTimelineItems,
+  getDroppedMediaDurationInFrames,
+} from '../utils/dropped-media'
+export { resolveDroppedMediaEntriesFromPayload } from '../utils/drop-execution'
 export { linkItems } from '../stores/actions/item-actions'
+export {
+  addItemOnNewTrack,
+  addItemsOnNewTracks,
+  duplicateItemsWithTrackChanges,
+  moveItems,
+  removeItems,
+  updateItem,
+} from '../stores/actions/item-actions'
+export { setTracks } from '../stores/actions/track-actions'
+export {
+  addKeyframe,
+  removeKeyframe,
+  removeKeyframes,
+  updateKeyframe,
+  updateKeyframes,
+} from '../stores/actions/keyframe-actions'
+export { createCompositeComposition, openComposition } from '../stores/actions/composition-actions'
+export type { CreateCompositeCompositionOptions } from '../stores/actions/composition-actions'
 export { applyAnimationPreset } from '../stores/actions/preset-actions'
 export { applyMotionPresetKeyframes } from '../stores/actions/keyframe-actions'
 export type { MotionPresetClear } from '../stores/actions/keyframe-actions'
@@ -57,6 +91,10 @@ export {
   removeTextMotionEffect,
 } from '../stores/actions/text-motion-actions'
 export { captureAnimationFromItem, getPresetCompatibility } from '../deps/keyframe-editors'
+export {
+  getAnimatablePropertiesForItem,
+  getEffectPropertyBaseValue,
+} from '../deps/keyframe-editors'
 export { rateStretchItemWithoutHistory } from '../stores/actions/item-edit-actions'
 export { setInOutPointsWithoutHistory } from '../stores/actions/marker-actions'
 export { timelineToSourceFrames, sourceToTimelineFrames } from '../utils/source-calculations'

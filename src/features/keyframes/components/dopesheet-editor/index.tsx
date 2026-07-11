@@ -79,7 +79,6 @@ import {
   PROPERTY_COLUMN_WIDTH,
   SPACIOUS_PROPERTY_COLUMN_WIDTH,
   ROW_HEIGHT,
-  RULER_HEIGHT,
   SNAP_THRESHOLD_PX,
   ZOOM_IN_FACTOR,
   ZOOM_OUT_FACTOR,
@@ -174,6 +173,11 @@ interface DopesheetEditorProps {
   onSelectionChange?: (keyframeIds: Set<string>) => void;
   /** Callback when property selection changes */
   onPropertyChange?: (property: AnimatableProperty | null) => void;
+  /** Notify an embedding surface when a property's inline curve is shown or hidden. */
+  onCurveVisibilityChange?: (
+    property: AnimatableProperty,
+    visible: boolean,
+  ) => void;
   /** Callback when a property row becomes the active interaction target */
   onActivePropertyChange?: (property: AnimatableProperty) => void;
   /** Callback when playhead is scrubbed (frame is clip-relative) */
@@ -243,6 +247,18 @@ interface DopesheetEditorProps {
   /** Use the wider property column + value inputs (Animate workspace, where
    *  there is room). Defaults to the compact sidebar sizing. */
   spacious?: boolean;
+  /** Render selected property groups as direct rows in the graph property column. */
+  inlinePropertyGroupIds?: readonly string[];
+  /** Render only property/keyframe rows for embedding beneath another surface's header. */
+  presentation?: "editor" | "lanes";
+  /** Override the property column width when embedding lane rows. */
+  propertyColumnWidth?: number;
+  /** Show one selected property curve at a time instead of layered graph curves. */
+  singleCurveMode?: boolean;
+  /** Optional controlled property filter for embedded lane presentations. */
+  propertyFilter?: "all" | "keyframed";
+  /** Render the playhead. Disable it when the parent owns one shared overlay. */
+  showPlayhead?: boolean;
   /** Activate editor-only shortcuts when this surface owns pointer or keyboard focus. */
   shortcutsEnabled?: boolean;
   /** User-configurable bindings for high-frequency keyframe actions. */
@@ -262,6 +278,7 @@ type StructureRow = { property: AnimatableProperty; keyframes: Keyframe[] };
 // Stable empty fallbacks so memoized timeline cells don't see fresh `[]` refs.
 const EMPTY_KEYFRAMES: Keyframe[] = [];
 const EMPTY_STRUCTURE_ROWS: StructureRow[] = [];
+const EMPTY_PROPERTY_GROUP_IDS: readonly string[] = [];
 const EMPTY_FRAME_GROUPS: DopesheetPropertyGroupStructure<StructureRow>["frameGroups"] =
   [];
 
@@ -284,6 +301,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   onSegmentEasingChange,
   onSelectionChange,
   onPropertyChange,
+  onCurveVisibilityChange,
   onActivePropertyChange,
   onScrub,
   onScrubStart,
@@ -313,6 +331,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   disabled = false,
   visualizationMode = "dopesheet",
   spacious = false,
+  inlinePropertyGroupIds = EMPTY_PROPERTY_GROUP_IDS,
+  presentation = "editor",
+  propertyColumnWidth,
+  singleCurveMode = false,
+  propertyFilter,
+  showPlayhead = true,
   shortcutsEnabled = false,
   shortcuts,
   className,
@@ -325,9 +349,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const showGraphPane = visualizationMode !== "dopesheet";
   const isSplitView = visualizationMode === "split";
   // Wider property column + value inputs when there is room (Animate workspace).
-  const columnWidth = spacious
-    ? SPACIOUS_PROPERTY_COLUMN_WIDTH
-    : PROPERTY_COLUMN_WIDTH;
+  const columnWidth =
+    propertyColumnWidth ??
+    (spacious ? SPACIOUS_PROPERTY_COLUMN_WIDTH : PROPERTY_COLUMN_WIDTH);
   const timelineRef = useRef<HTMLDivElement>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const graphPaneRef = useRef<HTMLDivElement>(null);
@@ -352,6 +376,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     (state) => state.toggleAutoKeyframeEnabled,
   );
   const skipNextBlurCommitPropertyRef = useRef<AnimatableProperty | null>(null);
+  const valueDraftAtFocusRef = useRef<
+    Partial<Record<AnimatableProperty, string>>
+  >({});
   const appliedDragPreviewFramesRef = useRef<Record<string, number> | null>(
     null,
   );
@@ -412,6 +439,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     () => getPropertyAccordionGroups(availableProperties),
     [availableProperties],
   );
+  const inlinePropertyGroupIdSet = useMemo(
+    () => new Set(inlinePropertyGroupIds),
+    [inlinePropertyGroupIds],
+  );
   const propertyGroupIdByProperty = useMemo(() => {
     const map = new Map<AnimatableProperty, string>();
     for (const group of allPropertyGroups) {
@@ -432,6 +463,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   );
   const {
     graphVisibleProperties,
+    setGraphVisibleProperties,
     graphRulerUnit,
     setGraphRulerUnit,
     showAllGraphHandles,
@@ -461,6 +493,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     toggleLockedProperty,
     setGroupLocked,
   } = usePropertyFilters({ allPropertyGroups, availableProperties });
+  const filterKeyframedOnly =
+    propertyFilter === undefined
+      ? showKeyframedOnly
+      : propertyFilter === "keyframed";
 
   const filteredProperties = useMemo(
     () =>
@@ -468,7 +504,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         const groupId = propertyGroupIdByProperty.get(property);
         const groupVisible = groupId ? (visibleGroups[groupId] ?? true) : true;
         if (!groupVisible) return false;
-        if (showKeyframedOnly && !keyframedPropertyIds.has(property))
+        if (filterKeyframedOnly && !keyframedPropertyIds.has(property))
           return false;
         return true;
       }),
@@ -476,7 +512,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       availableProperties,
       keyframedPropertyIds,
       propertyGroupIdByProperty,
-      showKeyframedOnly,
+      filterKeyframedOnly,
       visibleGroups,
     ],
   );
@@ -487,7 +523,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const visibleProperties = filteredProperties;
   const propertyColumnProperties = filteredProperties;
   const hasPropertyFilters =
-    showKeyframedOnly ||
+    filterKeyframedOnly ||
     allPropertyGroups.some((group) => visibleGroups[group.id] === false);
 
   // Frame-independent keyframe data. These references only change when the
@@ -860,15 +896,18 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     let top = 0;
 
     for (const group of groupedSheetRows) {
-      entries.push({ type: "group", group, top });
-      top += GROUP_HEADER_HEIGHT;
+      const inline = inlinePropertyGroupIdSet.has(group.id);
+      if (!inline) {
+        entries.push({ type: "group", group, top });
+        top += GROUP_HEADER_HEIGHT;
+      }
 
-      if (!(expandedGroups[group.id] ?? true)) {
+      if (!inline && !(expandedGroups[group.id] ?? true)) {
         continue;
       }
 
       for (const row of group.rows) {
-        entries.push({ type: "row", row, top });
+        entries.push({ type: "row", row, top, indented: !inline });
         top += ROW_HEIGHT;
       }
     }
@@ -877,7 +916,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       entries,
       contentHeight: top,
     };
-  }, [expandedGroups, groupedSheetRows]);
+  }, [expandedGroups, groupedSheetRows, inlinePropertyGroupIdSet]);
   const keyframePoints = useMemo(
     () =>
       renderedSheetEntries.entries.flatMap((entry) => {
@@ -1320,11 +1359,37 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const activateProperty = useCallback(
     (property: AnimatableProperty) => {
       if (showGraphPane) {
+        if (singleCurveMode) {
+          setGraphVisibleProperties(new Set([property]));
+          onCurveVisibilityChange?.(property, true);
+        }
         onPropertyChange?.(property);
       }
       onActivePropertyChange?.(property);
     },
-    [onActivePropertyChange, onPropertyChange, showGraphPane],
+    [
+      onActivePropertyChange,
+      onCurveVisibilityChange,
+      onPropertyChange,
+      setGraphVisibleProperties,
+      showGraphPane,
+      singleCurveMode,
+    ],
+  );
+
+  const showSinglePropertyCurve = useCallback(
+    (property: AnimatableProperty) => {
+      setGraphVisibleProperties(new Set([property]));
+      onPropertyChange?.(property);
+      onActivePropertyChange?.(property);
+      onCurveVisibilityChange?.(property, true);
+    },
+    [
+      onActivePropertyChange,
+      onCurveVisibilityChange,
+      onPropertyChange,
+      setGraphVisibleProperties,
+    ],
   );
 
   const removeKeyframesForRows = useCallback(
@@ -2386,7 +2451,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const renderPropertyRowContent = useCallback(
     (row: DopesheetPropertyRow, options?: { indented?: boolean }) => {
       const rowLocked = isPropertyLocked(row.property);
-      const curveVisible = graphVisibleProperties.has(row.property);
+      const curveVisible = singleCurveMode
+        ? showGraphPane && selectedProperty === row.property
+        : graphVisibleProperties.has(row.property);
       const rowLabel = getKeyframePropertyLabel(t, row.property);
       const showLeftClusterAtRest =
         (autoKeyEnabledByProperty[row.property] ?? false) ||
@@ -2434,6 +2501,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               )}
               onClick={(event) => {
                 event.stopPropagation();
+                if (singleCurveMode) {
+                  if (curveVisible) {
+                    onCurveVisibilityChange?.(row.property, false);
+                  } else {
+                    showSinglePropertyCurve(row.property);
+                  }
+                  return;
+                }
                 togglePropertyCurve(row.property);
               }}
               title={t("timeline.keyframeEditor.showPropertyCurve", {
@@ -2541,11 +2616,17 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               onFocus={() => {
                 activateProperty(row.property);
                 setEditingValueProperty(row.property);
+                valueDraftAtFocusRef.current[row.property] =
+                  valueDrafts[row.property] ?? "";
               }}
               onBlur={() => {
+                const draftChanged =
+                  valueDraftAtFocusRef.current[row.property] !==
+                  (valueDrafts[row.property] ?? "");
+                delete valueDraftAtFocusRef.current[row.property];
                 if (skipNextBlurCommitPropertyRef.current === row.property) {
                   skipNextBlurCommitPropertyRef.current = null;
-                } else {
+                } else if (draftChanged) {
                   handleRowValueCommit(row.property, {
                     allowCreate:
                       autoKeyEnabledByProperty[row.property] ?? false,
@@ -2606,7 +2687,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 isColorAnimatableProperty(row.property)
                   ? "w-[68px]"
                   : spacious
-                    ? "w-[64px]"
+                    ? "w-[80px]"
                     : "w-[44px]",
               )}
               disabled={
@@ -2791,13 +2872,17 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       isCurrentFrameBlocked,
       onAddKeyframe,
       onNavigateToKeyframe,
+      onCurveVisibilityChange,
       onPropertyValueCommit,
       propertyValues,
+      selectedProperty,
       t,
       togglePropertyCurve,
       toggleLockedProperty,
       valueDrafts,
       showGraphPane,
+      showSinglePropertyCurve,
+      singleCurveMode,
       spacious,
     ],
   );
@@ -3223,7 +3308,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             className="grid border-b border-border/60"
             style={{ ...propertyGridStyle, height: ROW_HEIGHT }}
           >
-            {renderPropertyRowContent(row, { indented: true })}
+            {renderPropertyRowContent(row, { indented: entry.indented })}
             <PropertyTimelineCell
               itemId={itemId}
               property={row.property}
@@ -3286,7 +3371,21 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   );
   const propertyColumnElements = useMemo(
     () =>
-      groupedPropertyRows.flatMap((group) => {
+      groupedPropertyRows.flatMap<React.ReactNode>((group): React.ReactNode[] => {
+        const inline = inlinePropertyGroupIdSet.has(group.id);
+        const propertyElements = group.rows.map((row) => (
+          <div
+            key={row.property}
+            className="border-b border-border/60"
+            style={{ height: ROW_HEIGHT }}
+          >
+            {renderPropertyRowContent(row, { indented: !inline })}
+          </div>
+        ));
+        if (inline) {
+          return propertyElements;
+        }
+
         const groupOpen = expandedGroups[group.id] ?? true;
         const elements: React.ReactNode[] = [
           <div key={group.id} className="h-6 border-b border-border/60">
@@ -3298,21 +3397,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           return elements;
         }
 
-        return elements.concat(
-          group.rows.map((row) => (
-            <div
-              key={row.property}
-              className="border-b border-border/60"
-              style={{ height: ROW_HEIGHT }}
-            >
-              {renderPropertyRowContent(row, { indented: true })}
-            </div>
-          )),
-        );
+        return elements.concat(propertyElements);
       }),
     [
       expandedGroups,
       groupedPropertyRows,
+      inlinePropertyGroupIdSet,
       renderGroupHeaderContent,
       renderPropertyRowContent,
     ],
@@ -3346,17 +3436,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onRulerPointerMove={handleRulerPointerMove}
       onRulerPointerUp={handleRulerPointerUp}
       rulerTickElements={rulerTickElements}
-      playheadFlag={
-        <DopesheetPlayheadLine
-          variant="flag"
-          relativeFrame={currentFrame}
-          itemFrom={itemFrom}
-          totalFrames={totalFrames}
-          frameToX={frameToX}
-          maxLeft={effectiveTimelineWidth - 1}
-          className="absolute top-0 bottom-0 pointer-events-none z-10"
-        />
-      }
     />
   );
   // The timeline cells (ruler, rows, graph) all sit behind a 1px `border-l`, so
@@ -3364,7 +3443,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   // those cells, so it must add that 1px to line up with ticks, keyframes and the
   // ruler flag.
   const timelineContentLeft = columnWidth + 1;
-  const playheadOverlayElement = (
+  const playheadOverlayElement = showPlayhead ? (
     <div
       data-testid="dopesheet-playhead-clip"
       className="absolute top-0 bottom-0 right-0 overflow-hidden pointer-events-none z-20"
@@ -3379,15 +3458,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         className="absolute top-0 bottom-0"
       />
     </div>
-  );
-  // Split view: one shared playhead line spanning the sheet + graph panes (the
-  // graph's own line is hidden via `hidePlayhead`). A single element guarantees
-  // the two panes can't drift in position or appearance.
-  const splitPlayheadOverlayElement = (
+  ) : null;
+  // Split view: one playhead element spans the ruler, sheet, and graph panes.
+  // The graph's own line is hidden via `hidePlayhead`.
+  const splitPlayheadOverlayElement = showPlayhead ? (
     <div
       data-testid="dopesheet-playhead-clip"
-      className="absolute right-0 bottom-0 overflow-hidden pointer-events-none z-30"
-      style={{ left: timelineContentLeft, top: RULER_HEIGHT }}
+      className="absolute top-0 right-0 bottom-0 overflow-hidden pointer-events-none z-30"
+      style={{ left: timelineContentLeft }}
     >
       <DopesheetPlayheadLine
         relativeFrame={currentFrame}
@@ -3398,7 +3476,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         className="absolute top-0 bottom-0"
       />
     </div>
-  );
+  ) : null;
   const sheetBodyElement = (
     <DopesheetSheetBody
       scrollAreaRef={scrollAreaRef}
@@ -3410,6 +3488,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       marqueeRect={marqueeRect}
       marqueeJustEnded={marqueeJustEndedRef.current}
       propertyColumnWidth={columnWidth}
+      subtractRulerHeight={presentation !== "lanes"}
       onTimelineBackgroundPointerDown={handleTimelineBackgroundPointerDown}
     />
   );
@@ -3433,7 +3512,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       itemId={itemId}
       keyframesByProperty={keyframesByProperty}
       graphDisplayProperty={graphDisplayProperty}
-      graphVisibleProperties={[...graphVisibleProperties]}
+      graphVisibleProperties={
+        singleCurveMode && graphDisplayProperty
+          ? [graphDisplayProperty]
+          : [...graphVisibleProperties]
+      }
       selectedKeyframeIds={selectedKeyframeIds}
       currentFrame={currentFrame}
       itemFrom={itemFrom}
@@ -3460,9 +3543,29 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       graphRulerUnit={graphRulerUnit}
       autoZoomGraphHeight={autoZoomGraphHeight}
       graphVerticalZoomValue={graphVerticalZoomValue}
-      hidePlayhead={isSplitView}
+      hidePlayhead={!showPlayhead || isSplitView}
+      subtractRulerHeight={presentation !== "lanes"}
     />
   );
+
+  if (presentation === "lanes") {
+    return (
+      <div
+        className={cn("relative overflow-hidden", disabled && "opacity-60 pointer-events-none", className)}
+        style={{ height, width }}
+        onWheel={handleWheel}
+        onKeyDown={handleGraphPaneKeyDown}
+      >
+        <div
+          ref={timelineRef}
+          className="pointer-events-none absolute inset-y-0 right-0"
+          style={{ left: columnWidth }}
+        />
+        {showGraphPane ? graphPaneElement : sheetBodyElement}
+        {showSheetPane ? playheadOverlayElement : null}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -3478,7 +3581,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             <DopesheetParameterMenu
               disabled={disabled}
               hasAvailableProperties={availableProperties.length > 0}
-              parameterFilter={showKeyframedOnly ? "keyframed" : "all"}
+              parameterFilter={filterKeyframedOnly ? "keyframed" : "all"}
               onToggleKeyframedOnly={() =>
                 setShowKeyframedOnly((prev) => !prev)
               }

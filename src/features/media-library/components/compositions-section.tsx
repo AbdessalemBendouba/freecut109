@@ -73,27 +73,29 @@ export function CompositionsSection() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
 
-  // Sequences and compound clips are the same primitive; only top-level-tab
-  // membership distinguishes them. Partition for display (sequences first),
-  // but keep a single flat ordered list so range-select spans both groups.
+  // Classic sequences/compound clips and layer-based compositions share the
+  // render primitive but open in different editing surfaces.
   const sequenceIdSet = useMemo(() => new Set(topLevelSequenceIds), [topLevelSequenceIds])
-  const { sequences, compoundClips } = useMemo(() => {
+  const { sequences, compositeCompositions, compoundClips } = useMemo(() => {
     const seqs: SubComposition[] = []
+    const composites: SubComposition[] = []
     const clips: SubComposition[] = []
     for (const comp of compositions) {
-      if (sequenceIdSet.has(comp.id)) seqs.push(comp)
+      if (comp.editorKind === 'composite-2d') composites.push(comp)
+      else if (sequenceIdSet.has(comp.id)) seqs.push(comp)
       else clips.push(comp)
     }
-    return { sequences: seqs, compoundClips: clips }
+    return { sequences: seqs, compositeCompositions: composites, compoundClips: clips }
   }, [compositions, sequenceIdSet])
   const orderedCompositions = useMemo(
-    () => [...sequences, ...compoundClips],
-    [sequences, compoundClips],
+    () => [...sequences, ...compositeCompositions, ...compoundClips],
+    [sequences, compositeCompositions, compoundClips],
   )
   // Only show the per-group sub-headers when both groups are populated —
   // otherwise the section header alone is enough and a lone sub-header reads
   // as redundant chrome.
-  const showGroupHeaders = sequences.length > 0 && compoundClips.length > 0
+  const showGroupHeaders =
+    [sequences, compositeCompositions, compoundClips].filter((group) => group.length > 0).length > 1
 
   const compositionsRef = useRef(orderedCompositions)
   const editValueRef = useRef(editValue)
@@ -109,7 +111,16 @@ export function CompositionsSection() {
   }, [editValue])
 
   const handleEnter = useCallback((comp: SubComposition) => {
-    // Sequence tabs switch to their own tab; plain compound clips drill in.
+    if (comp.editorKind === 'composite-2d') {
+      const editor = useEditorStore.getState()
+      if (editor.workspace !== 'motion') {
+        editor.setWorkspace('motion')
+        // Let Motion mount and capture the outgoing editorial tab before the
+        // shared runtime stores swap to the selected composition.
+        requestAnimationFrame(() => openComposition(comp.id, comp.name))
+        return
+      }
+    }
     openComposition(comp.id, comp.name)
   }, [])
 
@@ -261,6 +272,7 @@ export function CompositionsSection() {
         onSelect={handlers.onSelect}
         onEnter={handlers.onEnter}
         onOpenAsTab={handlers.onOpenAsTab}
+        canOpenAsTab={comp.editorKind !== 'composite-2d'}
         onDelete={handlers.onDelete}
         onStartRename={handlers.onStartRename}
         onCommitRename={handleCommitRename}
@@ -298,6 +310,21 @@ export function CompositionsSection() {
               )}
               <div className={groupContainerClassName} style={groupContainerStyle}>
                 {sequences.map(renderCard)}
+              </div>
+            </div>
+          )}
+          {compositeCompositions.length > 0 && (
+            <div>
+              {showGroupHeaders && (
+                <CompositionGroupHeader
+                  label={t('media.compositions.compositionsGroup', {
+                    defaultValue: 'Compositions',
+                  })}
+                  count={compositeCompositions.length}
+                />
+              )}
+              <div className={groupContainerClassName} style={groupContainerStyle}>
+                {compositeCompositions.map(renderCard)}
               </div>
             </div>
           )}
@@ -398,6 +425,7 @@ interface CompositionCardProps {
   onSelect: (event: React.MouseEvent) => void
   onEnter: () => void
   onOpenAsTab: () => void
+  canOpenAsTab: boolean
   onDelete: () => void
   onStartRename: () => void
   onCommitRename: (id: string) => void
@@ -428,6 +456,7 @@ const CompositionCardInternal = memo(function CompositionCardInternal({
   onSelect,
   onEnter,
   onOpenAsTab,
+  canOpenAsTab,
   onDelete,
   onStartRename,
   onCommitRename,
@@ -656,9 +685,11 @@ const CompositionCardInternal = memo(function CompositionCardInternal({
 
         <ContextMenuContent>
           <ContextMenuItem onClick={onEnter}>{t('media.compositions.enter')}</ContextMenuItem>
-          <ContextMenuItem onClick={onOpenAsTab}>
-            {t('media.compositions.openAsTab')}
-          </ContextMenuItem>
+          {canOpenAsTab ? (
+            <ContextMenuItem onClick={onOpenAsTab}>
+              {t('media.compositions.openAsTab')}
+            </ContextMenuItem>
+          ) : null}
           <ContextMenuItem onClick={onStartRename}>
             {t('media.compositions.rename')}
           </ContextMenuItem>
@@ -744,7 +775,11 @@ const CompositionCardInternal = memo(function CompositionCardInternal({
 
       <ContextMenuContent>
         <ContextMenuItem onClick={onEnter}>{t('media.compositions.enter')}</ContextMenuItem>
-        <ContextMenuItem onClick={onOpenAsTab}>{t('media.compositions.openAsTab')}</ContextMenuItem>
+        {canOpenAsTab ? (
+          <ContextMenuItem onClick={onOpenAsTab}>
+            {t('media.compositions.openAsTab')}
+          </ContextMenuItem>
+        ) : null}
         <ContextMenuItem onClick={onStartRename}>{t('media.compositions.rename')}</ContextMenuItem>
         <ContextMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
           {t('common.delete')}

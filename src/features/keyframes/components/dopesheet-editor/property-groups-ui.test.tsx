@@ -149,6 +149,31 @@ describe('DopesheetEditor property groups', () => {
     expect(onPropertyChange).toHaveBeenCalledWith('y')
   })
 
+  it('can render transform properties directly while preserving other group headers', () => {
+    renderEditor({
+      visualizationMode: 'graph',
+      inlinePropertyGroupIds: ['transform'],
+    })
+
+    expect(screen.queryByRole('button', { name: /collapse transform/i })).toBeNull()
+    expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /collapse audio/i })).toBeTruthy()
+  })
+
+  it('renders lane-only presentation without duplicating editor chrome', () => {
+    renderEditor({
+      presentation: 'lanes',
+      propertyColumnWidth: 420,
+      inlinePropertyGroupIds: ['transform', 'audio'],
+    })
+
+    expect(screen.queryByText('Parameters')).toBeNull()
+    expect(screen.queryByTestId('dopesheet-ruler')).toBeNull()
+    expect(screen.queryByTestId('keyframe-navigator-property-column')).toBeNull()
+    expect(screen.queryByRole('button', { name: /collapse transform/i })).toBeNull()
+    expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeTruthy()
+  })
+
   it('keeps visibility toggles when selecting a different active row in graph mode', () => {
     renderEditor({
       keyframesByProperty: {

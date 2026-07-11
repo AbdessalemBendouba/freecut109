@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { beforeAll, describe, expect, it, vi } from 'vite-plus/test'
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
+import { resetAutoKeyframeStore } from '../../stores/auto-keyframe-store'
 import { DopesheetEditor } from './index'
 
 describe('DopesheetEditor value input commits', () => {
@@ -11,6 +12,8 @@ describe('DopesheetEditor value input commits', () => {
 
     vi.stubGlobal('ResizeObserver', ResizeObserverMock)
   })
+
+  beforeEach(() => resetAutoKeyframeStore())
 
   function renderEditor(onPropertyValueCommit = vi.fn()) {
     render(
@@ -63,5 +66,16 @@ describe('DopesheetEditor value input commits', () => {
 
     expect(onPropertyValueCommit).toHaveBeenCalledTimes(1)
     expect(onPropertyValueCommit).toHaveBeenCalledWith('x', 120, { allowCreate: true })
+  })
+
+  it('does not commit an unchanged value on blur, even when auto-key is enabled', () => {
+    const onPropertyValueCommit = vi.fn()
+    const input = renderEditor(onPropertyValueCommit)
+
+    fireEvent.click(screen.getByRole('button', { name: /enable auto-key for x position/i }))
+    fireEvent.focus(input)
+    fireEvent.blur(input)
+
+    expect(onPropertyValueCommit).not.toHaveBeenCalled()
   })
 })

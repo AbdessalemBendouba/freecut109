@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vite-plus/test'
 import { useItemsStore, useTimelineStore } from '@/features/editor/deps/timeline-store'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useSelectionStore } from '@/shared/state/selection'
-import type { AudioItem, TimelineTrack, VideoItem } from '@/types/timeline'
+import type { AudioItem, CompositionItem, TimelineTrack, VideoItem } from '@/types/timeline'
 import { AnimateTimelineStrip } from './animate-timeline-strip'
 
 const VIDEO_TRACK: TimelineTrack = {
@@ -43,6 +43,18 @@ const VIDEO_ITEM_2: VideoItem = {
   id: 'clip-2',
   from: 200,
   label: 'overlay.mp4',
+}
+
+const COMPOSITION_ITEM: CompositionItem = {
+  id: 'motion-composition-clip',
+  type: 'composition',
+  compositionId: 'motion-composition',
+  compositionWidth: 1920,
+  compositionHeight: 1080,
+  trackId: 'v1',
+  from: 24,
+  durationInFrames: 180,
+  label: 'Motion title',
 }
 
 describe('AnimateTimelineStrip', () => {
@@ -93,6 +105,18 @@ describe('AnimateTimelineStrip', () => {
 
     // clip-1 (from 48) precedes clip-2 (from 200) on V1.
     expect(useSelectionStore.getState().selectedItemIds).toEqual(['clip-1'])
+  })
+
+  it('keeps an embedded composition clip available to the classic Animate workspace', () => {
+    useItemsStore.getState().setItems([COMPOSITION_ITEM])
+
+    render(<AnimateTimelineStrip />)
+
+    expect(screen.getByTestId('animate-timeline-film-tile')).toHaveAttribute(
+      'data-clip-id',
+      COMPOSITION_ITEM.id,
+    )
+    expect(useSelectionStore.getState().selectedItemIds).toEqual([COMPOSITION_ITEM.id])
   })
 
   describe('linked audio companion (A1 paired with V1)', () => {

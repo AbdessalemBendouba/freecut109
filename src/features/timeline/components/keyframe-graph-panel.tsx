@@ -113,10 +113,13 @@ interface KeyframeGraphPanelProps {
   isFocusMode?: boolean;
   /** Toggle the Animate workspace's focused keyframe layout. */
   onFocusModeChange?: (isFocusMode: boolean) => void;
+  /** Motion workspace context: a dedicated selected-layer value-curve editor. */
+  surface?: "default" | "motion";
 }
 
 type KeyframeEditorMode = "graph" | "dopesheet" | "split";
 const KEYFRAME_EDITOR_MODE_STORAGE_KEY = "timeline:keyframeEditorMode";
+const MOTION_INLINE_PROPERTY_GROUP_IDS = ["transform"] as const;
 const EASING_OPTIONS: Array<{
   value: EasingType;
   labelKey: string;
@@ -309,6 +312,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
   splitView = false,
   isFocusMode = false,
   onFocusModeChange,
+  surface = "default",
 }: KeyframeGraphPanelProps) {
   const { t } = useTranslation();
   const easingOptions = useMemo(
@@ -537,7 +541,11 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
   // panel is too short to stack both panes, so a persisted "split" falls back
   // to the dopesheet there.
   const effectiveEditorMode: KeyframeEditorMode =
-    !splitView && editorMode === "split" ? "dopesheet" : editorMode;
+    surface === "motion"
+      ? "graph"
+      : !splitView && editorMode === "split"
+        ? "dopesheet"
+        : editorMode;
 
   useEffect(() => {
     if (!isOpen) {
@@ -1262,6 +1270,21 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     ) => {
       if (!selectedItemForEditor) return;
 
+      const selectedPropertyKeyframes = selectedEditorKeyframes.filter(
+        ({ ref }) => ref.property === property,
+      );
+      if (selectedPropertyKeyframes.length > 0) {
+        timelineActions.updateKeyframes(
+          selectedPropertyKeyframes.map(({ ref }) => ({
+            itemId: ref.itemId,
+            property: ref.property,
+            keyframeId: ref.keyframeId,
+            updates: { value },
+          })),
+        );
+        return;
+      }
+
       const existingKeyframe = keyframesByProperty[property]?.find(
         (keyframe) => keyframe.frame === relativeFrame,
       );
@@ -1302,7 +1325,13 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
         });
       }
     },
-    [keyframesByProperty, relativeFrame, selectKeyframe, selectedItemForEditor],
+    [
+      keyframesByProperty,
+      relativeFrame,
+      selectKeyframe,
+      selectedEditorKeyframes,
+      selectedItemForEditor,
+    ],
   );
 
   // Handle removing keyframes
@@ -1412,7 +1441,9 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       <div className="h-8 flex items-center justify-between px-3 bg-secondary/30 border-b border-border">
         <div className="flex items-center gap-2">
           <span className="text-xs font-medium text-muted-foreground">
-            {t("timeline.keyframeEditor.title")}
+            {surface === "motion"
+              ? t("editor.compose.motionCurves")
+              : t("timeline.keyframeEditor.title")}
             {selectedItemForEditor && (
               <span className="ml-2 text-foreground">
                 - {selectedItemForEditor.label || selectedItemForEditor.type}
@@ -1426,57 +1457,69 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
 
         <div
           className="flex items-center gap-0.5 rounded-md border border-border/60 bg-background/50 p-0.5"
-          role="tablist"
-          aria-label={t("timeline.keyframeEditor.title")}
+          role={surface === "motion" ? undefined : "tablist"}
+          aria-label={
+            surface === "motion"
+              ? t("editor.compose.motionCurves")
+              : t("timeline.keyframeEditor.title")
+          }
         >
-          <Button
-            variant={
-              effectiveEditorMode === "dopesheet" ? "secondary" : "ghost"
-            }
-            size="sm"
-            className="h-6 px-2 text-[11px]"
-            role="tab"
-            aria-selected={effectiveEditorMode === "dopesheet"}
-            title={t("timeline.keyframeEditor.legend.sheetMode")}
-            aria-label={t("timeline.keyframeEditor.legend.sheetMode")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setEditorMode("dopesheet");
-            }}
-          >
-            {t("timeline.keyframeEditor.sheet")}
-          </Button>
-          <Button
-            variant={effectiveEditorMode === "graph" ? "secondary" : "ghost"}
-            size="sm"
-            className="h-6 px-2 text-[11px]"
-            role="tab"
-            aria-selected={effectiveEditorMode === "graph"}
-            title={t("timeline.keyframeEditor.legend.graphMode")}
-            aria-label={t("timeline.keyframeEditor.legend.graphMode")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setEditorMode("graph");
-            }}
-          >
-            {t("timeline.keyframeEditor.graph")}
-          </Button>
-          {splitView && (
-            <Button
-              variant={effectiveEditorMode === "split" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              role="tab"
-              aria-selected={effectiveEditorMode === "split"}
-              title={t("timeline.keyframeEditor.split")}
-              aria-label={t("timeline.keyframeEditor.split")}
-              onClick={(e) => {
-                e.stopPropagation();
-                setEditorMode("split");
-              }}
-            >
-              {t("timeline.keyframeEditor.split")}
-            </Button>
+          {surface !== "motion" && (
+            <>
+              <Button
+                variant={
+                  effectiveEditorMode === "dopesheet" ? "secondary" : "ghost"
+                }
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                role="tab"
+                aria-selected={effectiveEditorMode === "dopesheet"}
+                title={t("timeline.keyframeEditor.legend.sheetMode")}
+                aria-label={t("timeline.keyframeEditor.legend.sheetMode")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditorMode("dopesheet");
+                }}
+              >
+                {t("timeline.keyframeEditor.sheet")}
+              </Button>
+              <Button
+                variant={
+                  effectiveEditorMode === "graph" ? "secondary" : "ghost"
+                }
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                role="tab"
+                aria-selected={effectiveEditorMode === "graph"}
+                title={t("timeline.keyframeEditor.legend.graphMode")}
+                aria-label={t("timeline.keyframeEditor.legend.graphMode")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditorMode("graph");
+                }}
+              >
+                {t("timeline.keyframeEditor.graph")}
+              </Button>
+              {splitView && (
+                <Button
+                  variant={
+                    effectiveEditorMode === "split" ? "secondary" : "ghost"
+                  }
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  role="tab"
+                  aria-selected={effectiveEditorMode === "split"}
+                  title={t("timeline.keyframeEditor.split")}
+                  aria-label={t("timeline.keyframeEditor.split")}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditorMode("split");
+                  }}
+                >
+                  {t("timeline.keyframeEditor.split")}
+                </Button>
+              )}
+            </>
           )}
           {onFocusModeChange && (
             <Button
@@ -1579,7 +1622,12 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   canBakeMotion={canBakeProceduralMotion}
                   onBakeMotion={handleBakeProceduralMotion}
                   visualizationMode={effectiveEditorMode}
-                  spacious={splitView}
+                  spacious={splitView || surface === "motion"}
+                  inlinePropertyGroupIds={
+                    surface === "motion"
+                      ? MOTION_INLINE_PROPERTY_GROUP_IDS
+                      : undefined
+                  }
                   shortcutsEnabled={
                     isPointerWithinEditor || isFocusWithinEditor
                   }

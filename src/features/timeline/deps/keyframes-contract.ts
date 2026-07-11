@@ -24,6 +24,7 @@ export {
   isFrameInTransitionRegion,
 } from '@/features/keyframes/utils/transition-region'
 export { DopesheetEditor } from '@/features/keyframes/components/dopesheet-editor'
+export { KEYFRAME_EDGE_INSET } from '@/features/keyframes/components/dopesheet-editor/layout'
 export { getAnimatablePropertiesForItem } from '@/features/keyframes/utils/animatable-properties'
 export type { ProceduralPreviewInput } from '@/features/keyframes/utils/procedural-preview'
 export { buildBakeMotionPlan } from '@/features/keyframes/utils/bake-motion'

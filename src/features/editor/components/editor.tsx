@@ -13,6 +13,7 @@ import { PreviewArea } from './preview-area'
 import { ColorGradingDock } from './color-grading-dock'
 import { ColorTimelineNavigator } from './color-timeline-navigator'
 import { AnimateLayout } from './animate-workspace/animate-layout'
+import { MotionPreviewArea, MotionTimelineDock } from './compose-workspace/compose-layout'
 import { InteractionLockRegion } from './interaction-lock-region'
 import { AudioMeterPanel } from './audio-meter-panel'
 import {
@@ -652,8 +653,9 @@ export const LoadedEditor = memo(function LoadedEditor({
   const timelineDuration = 30
   const isColorWorkspace = workspace === 'color'
   const isAnimateWorkspace = workspace === 'animate'
-  // Both the Color and Animate workspaces replace the default split layout and
-  // hide the inline media/properties sidebars.
+  const isMotionWorkspace = workspace === 'motion'
+  // Color and Animate replace the default editor shell. Motion deliberately
+  // keeps it and swaps only the lower timeline dock.
   const hidesDefaultSidebars = isColorWorkspace || isAnimateWorkspace
 
   return (
@@ -732,7 +734,11 @@ export const LoadedEditor = memo(function LoadedEditor({
 
                 {/* Center - Preview */}
                 <ErrorBoundary level="feature">
-                  <PreviewArea project={project} />
+                  {isMotionWorkspace ? (
+                    <MotionPreviewArea project={project} />
+                  ) : (
+                    <PreviewArea project={project} />
+                  )}
                 </ErrorBoundary>
 
                 {/* Right Sidebar - Properties (inline with preview) */}
@@ -762,7 +768,11 @@ export const LoadedEditor = memo(function LoadedEditor({
                 <ErrorBoundary level="feature">
                   <div className="h-full flex overflow-hidden">
                     <div className="min-w-0 flex-1">
-                      <Timeline duration={timelineDuration} />
+                      {isMotionWorkspace ? (
+                        <MotionTimelineDock project={project} />
+                      ) : (
+                        <Timeline duration={timelineDuration} />
+                      )}
                     </div>
                     <AudioMeterPanel />
                   </div>
