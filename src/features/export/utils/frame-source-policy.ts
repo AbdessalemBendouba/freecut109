@@ -46,6 +46,17 @@ export interface PreviewVideoElementFallbackOptions {
   mediabunnyFailedThisFrame: boolean
 }
 
+export interface PreviewGpuEffectFrameHoldOptions {
+  domVideo: HTMLVideoElement | null
+  sourceTime: number
+  speed: number
+  isRenderingTransition: boolean
+  currentFrame: number
+  cachedFrame: number
+  hasCachedFrame: boolean
+  fps: number
+}
+
 export function isVariableSpeedPlayback(speed: number): boolean {
   return Math.abs(speed - 1) >= 0.01
 }
@@ -83,6 +94,57 @@ export function resolvePreviewDomVideoDrawDecision(
     drift,
     driftThreshold,
   }
+}
+
+/**
+ * Chromium can briefly demote a playing video below HAVE_CURRENT_DATA while
+ * retaining its dimensions, last presented frame, and an accurate currentTime.
+ * GPU effects can safely keep presenting their previous output for that short
+ * gap instead of flashing through the decode fallback.
+ */
+export function shouldHoldPreviewGpuEffectFrame(
+  options: PreviewGpuEffectFrameHoldOptions,
+): boolean {
+  const {
+    domVideo,
+    sourceTime,
+    speed,
+    isRenderingTransition,
+    currentFrame,
+    cachedFrame,
+    hasCachedFrame,
+    fps,
+  } = options
+  if (
+    !domVideo ||
+    domVideo.readyState >= 2 ||
+    domVideo.videoWidth <= 0 ||
+    !isPreviewGpuEffectFrameHoldFresh({
+      currentFrame,
+      cachedFrame,
+      hasCachedFrame,
+      fps,
+    })
+  ) {
+    return false
+  }
+
+  const driftThreshold = getPreviewDomVideoDriftThreshold(
+    speed,
+    isRenderingTransition || domVideo.dataset.transitionHold === '1',
+  )
+  return Math.abs(domVideo.currentTime - sourceTime) <= driftThreshold
+}
+
+export function isPreviewGpuEffectFrameHoldFresh(options: {
+  currentFrame: number
+  cachedFrame: number
+  hasCachedFrame: boolean
+  fps: number
+}): boolean {
+  const { currentFrame, cachedFrame, hasCachedFrame, fps } = options
+  const maxHoldFrames = Math.max(3, Math.ceil(fps))
+  return hasCachedFrame && Math.abs(currentFrame - cachedFrame) <= maxHoldFrames
 }
 
 export function resolvePreviewMediabunnyInitAction(

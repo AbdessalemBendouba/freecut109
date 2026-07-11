@@ -3,8 +3,10 @@
 import { describe, expect, it } from 'vite-plus/test'
 
 import {
+  isPreviewGpuEffectFrameHoldFresh,
   resolvePreviewDomVideoDrawDecision,
   resolvePreviewMediabunnyInitAction,
+  shouldHoldPreviewGpuEffectFrame,
   shouldAllowPreviewVideoElementFallback,
   shouldTryPreviewWorkerBitmap,
   shouldUsePreviewStrictWaitingFallback,
@@ -33,6 +35,84 @@ describe('frame-source-policy', () => {
     expect(decision.hasReadyDomVideo).toBe(true)
     expect(decision.shouldDraw).toBe(true)
     expect(decision.driftThreshold).toBe(0.2)
+  })
+
+  it('holds the last GPU-effect frame across a transient metadata-only state', () => {
+    expect(
+      shouldHoldPreviewGpuEffectFrame({
+        domVideo: makeDomVideo({ readyState: 1, currentTime: 10.08 }),
+        sourceTime: 10,
+        speed: 1,
+        isRenderingTransition: false,
+        currentFrame: 101,
+        cachedFrame: 100,
+        hasCachedFrame: true,
+        fps: 30,
+      }),
+    ).toBe(true)
+    expect(
+      shouldHoldPreviewGpuEffectFrame({
+        domVideo: makeDomVideo({ readyState: 0, currentTime: 10.08 }),
+        sourceTime: 10,
+        speed: 1,
+        isRenderingTransition: false,
+        currentFrame: 102,
+        cachedFrame: 100,
+        hasCachedFrame: true,
+        fps: 30,
+      }),
+    ).toBe(true)
+  })
+
+  it('does not hold a stale, empty, or drifted GPU-effect frame', () => {
+    const base = {
+      sourceTime: 10,
+      speed: 1,
+      isRenderingTransition: false,
+      currentFrame: 101,
+      cachedFrame: 100,
+      hasCachedFrame: true,
+      fps: 30,
+    }
+
+    expect(
+      shouldHoldPreviewGpuEffectFrame({
+        ...base,
+        domVideo: makeDomVideo({ readyState: 0, videoWidth: 0, currentTime: 10 }),
+      }),
+    ).toBe(false)
+    expect(
+      shouldHoldPreviewGpuEffectFrame({
+        ...base,
+        domVideo: makeDomVideo({ readyState: 1, currentTime: 10.5 }),
+      }),
+    ).toBe(false)
+    expect(
+      shouldHoldPreviewGpuEffectFrame({
+        ...base,
+        domVideo: makeDomVideo({ readyState: 1, currentTime: 10 }),
+        currentFrame: 132,
+      }),
+    ).toBe(false)
+  })
+
+  it('bounds a missing-video continuity hold to one second', () => {
+    expect(
+      isPreviewGpuEffectFrameHoldFresh({
+        currentFrame: 129,
+        cachedFrame: 100,
+        hasCachedFrame: true,
+        fps: 30,
+      }),
+    ).toBe(true)
+    expect(
+      isPreviewGpuEffectFrameHoldFresh({
+        currentFrame: 131,
+        cachedFrame: 100,
+        hasCachedFrame: true,
+        fps: 30,
+      }),
+    ).toBe(false)
   })
 
   it('widens DOM video tolerance when transition hold is active', () => {

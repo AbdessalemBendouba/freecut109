@@ -92,7 +92,10 @@ import {
   type SubCompRenderData,
 } from './canvas-item-renderer'
 import { ScrubbingCache } from '@/features/export/deps/preview'
-import { resolveFrameRenderOptimization } from './render-path-optimizer'
+import {
+  resolveFrameRenderOptimization,
+  shouldUseScrubbingFrameCache,
+} from './render-path-optimizer'
 import { ReverseVideoFrameCache } from './reverse-video-frame-cache'
 import { resolveReverseConformedVideoItem } from '@/shared/utils/reverse-conform-item'
 import {
@@ -149,6 +152,13 @@ interface ScrubPerfSample {
   f: number
   path: 'cache-hit' | 'direct' | 'full'
   ms: number
+  planMs?: number
+  taskMs?: number
+  gpuWaitMs?: number
+  compositeMs?: number
+  finalizeMs?: number
+  taskCount?: number
+  transitionCount?: number
 }
 type ScrubPerfGlobal = {
   __SCRUB_PERF__?: boolean
@@ -159,12 +169,17 @@ function scrubPerfStart(): number {
   return (globalThis as ScrubPerfGlobal).__SCRUB_PERF__ ? performance.now() : -1
 }
 
-function recordScrubPerf(frame: number, path: ScrubPerfSample['path'], startMs: number): void {
+function recordScrubPerf(
+  frame: number,
+  path: ScrubPerfSample['path'],
+  startMs: number,
+  details: Omit<ScrubPerfSample, 'f' | 'path' | 'ms'> = {},
+): void {
   if (startMs < 0) return
   const w = globalThis as ScrubPerfGlobal
   const ms = Number((performance.now() - startMs).toFixed(2))
   const buffer = (w.__scrubPerf ??= [])
-  buffer.push({ f: frame, path, ms })
+  buffer.push({ f: frame, path, ms, ...details })
   if (buffer.length > 3000) buffer.shift()
   try {
     performance.measure(`scrub.renderFrame.${path}`, { start: startMs })
@@ -275,8 +290,18 @@ export async function createCompositionRenderer(
   const FRAME_CACHE_ENABLED = renderMode === 'preview'
   const scrubbingCache = FRAME_CACHE_ENABLED ? new ScrubbingCache() : null
   let lastRenderedFrame = -1
+  let liveDomVideoPlaybackActive = Boolean(domVideoElementProvider)
+  let scrubbingFrameCacheActive = shouldUseScrubbingFrameCache(
+    Boolean(scrubbingCache),
+    liveDomVideoPlaybackActive,
+  )
   const cacheRenderedFrame = (frame: number) => {
-    if (!scrubbingCache) {
+    // Sequential playback already has the decoder's live frame available and
+    // should not copy every full-resolution output into the scrub cache. Those
+    // GPU copies compete with the next frame's effects/composite work and retain
+    // textures that playback is unlikely to revisit immediately. Paused seeks
+    // still populate all cache tiers as before.
+    if (!scrubbingCache || !scrubbingFrameCacheActive) {
       return
     }
 
@@ -1415,7 +1440,7 @@ export async function createCompositionRenderer(
       const scrubPerfStartMs = scrubPerfStart()
       // 3-tier cache lookup (preview only)
       // Tier 1 (GPU texture) → Tier 3 (RAM ImageBitmap) → miss → full render
-      if (scrubbingCache) {
+      if (scrubbingCache && scrubbingFrameCacheActive) {
         const cached = scrubbingCache.getFrame(frame)
         if (cached) {
           ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -1737,6 +1762,10 @@ export async function createCompositionRenderer(
 
       // === PERFORMANCE: Use pooled canvas instead of creating new one each frame ===
       const { canvas: contentCanvas, ctx: contentCtx } = canvasPool.acquire()
+      const scrubPerfTaskStartMs = scrubPerfStartMs >= 0 ? performance.now() : -1
+      let scrubPerfTaskEndMs = scrubPerfTaskStartMs
+      let scrubPerfGpuWaitEndMs = scrubPerfTaskStartMs
+      let scrubPerfCompositeEndMs = scrubPerfTaskStartMs
 
       // Render tracks in order (bottom to top), with transitions at their track position
       // Track order: higher values render first (behind), lower values render last (on top)
@@ -1830,6 +1859,7 @@ export async function createCompositionRenderer(
         try {
           // Fire all item renders in parallel (video decodes run concurrently).
           results = await Promise.all(renderTasks.map((task) => renderTask(task)))
+          scrubPerfTaskEndMs = scrubPerfStartMs >= 0 ? performance.now() : -1
         } finally {
           // End GPU pool mode before compositing, even if one task fails.
           if (shouldUseDeferredGpuBatch && itemRenderContext.gpuPipeline) {
@@ -1837,9 +1867,12 @@ export async function createCompositionRenderer(
           }
         }
 
-        if (shouldUseDeferredGpuBatch && itemRenderContext.gpuPipeline) {
-          await itemRenderContext.gpuPipeline.waitForSubmittedWork()
-        }
+        // Consume pooled WebGPU canvases synchronously below. Awaiting the queue
+        // here crosses a task boundary, allowing the browser to present and
+        // discard a GPUCanvasContext texture before Canvas2D reads it. The first
+        // drawImage performs the required GPU stall and preserves heavy effect
+        // stacks without intermittent black frames.
+        scrubPerfGpuWaitEndMs = scrubPerfStartMs >= 0 ? performance.now() : -1
 
         finalCompositeSource = await compositeFrameResults({
           useGpuCompositor,
@@ -1861,6 +1894,7 @@ export async function createCompositionRenderer(
           renderTransitionFallbackCanvas,
           renderItemWithEffects,
         })
+        scrubPerfCompositeEndMs = scrubPerfStartMs >= 0 ? performance.now() : -1
       }
 
       // Log occlusion culling stats periodically (only in development)
@@ -1873,7 +1907,18 @@ export async function createCompositionRenderer(
       // Release content canvas back to pool
       canvasPool.release(contentCanvas)
       cacheRenderedFrame(frame)
-      recordScrubPerf(frame, 'full', scrubPerfStartMs)
+      if (scrubPerfStartMs >= 0) {
+        const scrubPerfEndMs = performance.now()
+        recordScrubPerf(frame, 'full', scrubPerfStartMs, {
+          planMs: Number((scrubPerfTaskStartMs - scrubPerfStartMs).toFixed(2)),
+          taskMs: Number((scrubPerfTaskEndMs - scrubPerfTaskStartMs).toFixed(2)),
+          gpuWaitMs: Number((scrubPerfGpuWaitEndMs - scrubPerfTaskEndMs).toFixed(2)),
+          compositeMs: Number((scrubPerfCompositeEndMs - scrubPerfGpuWaitEndMs).toFixed(2)),
+          finalizeMs: Number((scrubPerfEndMs - scrubPerfCompositeEndMs).toFixed(2)),
+          taskCount: renderTasks.length,
+          transitionCount: activeTransitions.length,
+        })
+      }
     },
 
     async prewarmFrame(frame: number) {
@@ -2021,6 +2066,11 @@ export async function createCompositionRenderer(
       provider: ((itemId: string) => HTMLVideoElement | null) | undefined,
     ) {
       itemRenderContext.domVideoElementProvider = provider
+      liveDomVideoPlaybackActive = Boolean(provider)
+      scrubbingFrameCacheActive = shouldUseScrubbingFrameCache(
+        Boolean(scrubbingCache),
+        liveDomVideoPlaybackActive,
+      )
     },
 
     /**
