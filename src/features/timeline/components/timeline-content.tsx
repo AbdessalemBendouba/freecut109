@@ -44,6 +44,7 @@ import { TimelineMediaDropZone } from './timeline-media-drop-zone'
 import { TimelineRecordingOverlay } from './timeline-recording-overlay'
 import { FirstTrackRowFrame, TrackRowFrame, TrackSectionDivider } from './track-row-frame'
 import { MarqueeOverlay } from '@/shared/marquee/marquee-overlay'
+import { announceTimelineMarqueeActive } from '../utils/timeline-interaction-events'
 
 // Group utilities
 import { getVisibleTrackIds } from '../utils/group-utils'
@@ -1093,6 +1094,7 @@ export const TimelineContent = memo(function TimelineContent({
 
   const handleMarqueeActiveChange = useCallback(
     (active: boolean) => {
+      announceTimelineMarqueeActive(active)
       if (marqueeResetTimeoutRef.current !== null) {
         clearTimeout(marqueeResetTimeoutRef.current)
         marqueeResetTimeoutRef.current = null

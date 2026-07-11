@@ -9,7 +9,6 @@ import type {
   TimelineItem as TimelineItemType,
 } from '@/types/timeline'
 import type { MediaMetadata } from '@/types/storage'
-import { TimelineItem } from './timeline-item'
 import { TransitionItem } from './transition-item'
 import { useTimelineStore } from '../stores/timeline-store'
 import {
@@ -96,6 +95,8 @@ import {
   TimelineDropGhostPreviews,
   type TimelineDropGhostPreviewsHandle,
 } from './timeline-drop-ghost-previews'
+import { TimelineTrackItems } from './timeline-track-items'
+import { shouldUseHybridTimelineRenderer } from '../utils/hybrid-timeline-density'
 
 /**
  * Lightweight on-demand context menu for track gaps.
@@ -210,37 +211,6 @@ function areTrackPropsEqual(prev: TimelineTrackProps, next: TimelineTrackProps):
 }
 
 /**
- * Memoized item list — prevents the items `.map()` from running when the parent
- * TimelineTrack re-renders for drag-preview or state changes that don't affect items.
- * Without this, every track re-render recreates JSX for all items, and even though
- * individual TimelineItem components are memo'd, the parent reconciliation cost
- * (prop diffing × items) adds up across frequent drag-over events.
- */
-const TimelineTrackItems = memo(function TimelineTrackItems({
-  trackItems,
-  trackLocked,
-  trackHidden,
-}: {
-  trackItems: ReadonlyArray<TimelineItemType>
-  trackLocked: boolean
-  trackHidden: boolean
-}) {
-  return (
-    <>
-      {trackItems.map((item) => (
-        <TimelineItem
-          key={item.id}
-          item={item}
-          timelineDuration={30}
-          trackLocked={trackLocked}
-          trackHidden={trackHidden}
-        />
-      ))}
-    </>
-  )
-})
-
-/**
  * Timeline Track Component
  *
  * Renders a single timeline track with:
@@ -320,6 +290,7 @@ export const TimelineTrack = memo(function TimelineTrack({ track }: TimelineTrac
   const { visibleItems: trackItems, visibleTransitions: trackTransitions } = useVisibleItems(
     track.id,
   )
+  const totalItemCount = useItemsStore((state) => state.items.length)
   // Full item count — used for context menu guard (must not depend on virtualized subset)
   const hasAnyItems = useItemsStore((s) => (s.itemsByTrackId[track.id]?.length ?? 0) > 0)
   const addItem = useTimelineStore((s) => s.addItem)
@@ -1270,6 +1241,11 @@ export const TimelineTrack = memo(function TimelineTrack({ track }: TimelineTrac
           trackItems={trackItems}
           trackLocked={isTrackLocked}
           trackHidden={isTrackDisabled}
+          trackHeight={track.height}
+          hybridEnabled={shouldUseHybridTimelineRenderer({
+            totalItemCount,
+            trackItemCount: trackItems.length,
+          })}
         />
 
         {/* Render transitions for this track */}

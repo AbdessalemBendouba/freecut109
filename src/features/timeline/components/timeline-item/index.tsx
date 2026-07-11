@@ -95,6 +95,7 @@ interface TimelineItemProps {
   timelineDuration?: number
   trackLocked?: boolean
   trackHidden?: boolean
+  onHoverChange?: (itemId: string, hovered: boolean) => void
 }
 
 /**
@@ -115,6 +116,7 @@ export const TimelineItem = memo(function TimelineItem({
   timelineDuration = 30,
   trackLocked = false,
   trackHidden = false,
+  onHoverChange,
 }: TimelineItemProps) {
   perfMarkRender('TimelineItem')
   // Granular selector: only re-render when THIS item's selection state changes
@@ -963,8 +965,12 @@ export const TimelineItem = memo(function TimelineItem({
           onClick={handleClick}
           onDoubleClick={handleDoubleClick}
           onMouseDown={handleMouseDown}
+          onMouseEnter={() => onHoverChange?.(item.id, true)}
           onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
+          onMouseLeave={() => {
+            handleMouseLeave()
+            onHoverChange?.(item.id, false)
+          }}
           onContextMenu={handleContextMenu}
           onDragEnter={handleEffectDragEnter}
           onDragOver={handleEffectDragOver}
