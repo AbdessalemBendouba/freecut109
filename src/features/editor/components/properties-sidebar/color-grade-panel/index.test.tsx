@@ -45,8 +45,8 @@ vi.mock('@/features/editor/deps/effects-contract', () => ({
   ),
 }))
 
-vi.mock('@/features/editor/deps/timeline-contract', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/features/editor/deps/timeline-contract')>()
+vi.mock('@/features/editor/deps/timeline-keyframe-ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/editor/deps/timeline-keyframe-ui')>()
   return {
     ...actual,
     KeyframeGraphPanel: ({

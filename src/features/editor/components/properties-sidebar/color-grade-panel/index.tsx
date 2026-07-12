@@ -4,7 +4,7 @@ import { Palette } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useItemsStore } from '@/features/editor/deps/timeline-store'
-import { KeyframeGraphPanel } from '@/features/editor/deps/timeline-contract'
+import { KeyframeGraphPanel } from '@/features/editor/deps/timeline-keyframe-ui'
 import { addAdjustmentLayer } from '@/features/editor/utils/add-adjustment-layer'
 import type { TimelineItem } from '@/types/timeline'
 

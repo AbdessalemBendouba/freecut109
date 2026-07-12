@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { AnimateLayout } from "./animate-layout";
 
-vi.mock("@/features/editor/deps/timeline-contract", () => ({
+vi.mock("@/features/editor/deps/timeline-keyframe-ui", () => ({
   KeyframeGraphPanel: ({
     isFocusMode,
     onFocusModeChange,

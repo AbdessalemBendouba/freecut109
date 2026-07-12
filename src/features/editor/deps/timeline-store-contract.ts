@@ -1,0 +1,47 @@
+/**
+ * Adapter exports for timeline store dependencies.
+ * Editor modules should import timeline store types/selectors from here.
+ */
+
+export type { TimelineState, TimelineActions } from '@/features/timeline/types'
+export type { MotionPresetClear } from '@/features/timeline/stores/actions/keyframe-actions'
+export {
+  useTimelineStore,
+} from '@/features/timeline/stores/timeline-store'
+export { useTimelineSettingsStore } from '@/features/timeline/stores/timeline-settings-store'
+export { useItemsStore } from '@/features/timeline/stores/items-store'
+export { useKeyframesStore } from '@/features/timeline/stores/keyframes-store'
+export { useCompositionsStore } from '@/features/timeline/stores/compositions-store'
+export {
+  getActiveTabId,
+  useCompositionNavigationStore,
+} from '@/features/timeline/stores/composition-navigation-store'
+export { useTimelineCommandStore } from '@/features/timeline/stores/timeline-command-store'
+export { execute as executeTimelineCommand } from '@/features/timeline/stores/actions/shared'
+export { captureSnapshot } from '@/features/timeline/stores/commands/snapshot'
+export { rateStretchItemWithoutHistory } from '@/features/timeline/stores/actions/item-edit-actions'
+export { setInOutPointsWithoutHistory } from '@/features/timeline/stores/actions/marker-actions'
+export { applyAnimationPreset } from '@/features/timeline/stores/actions/preset-actions'
+export {
+  applyMotionPresetKeyframes,
+} from '@/features/timeline/stores/actions/keyframe-actions'
+export {
+  applyMotionModifierToItems,
+  updateMotionModifiersLive,
+  beginMotionModifierEdit,
+  commitMotionModifierEdit,
+  removeMotionModifierFromItems,
+  setEffectAudioPulse,
+  bakeMotionToKeyframes,
+} from '@/features/timeline/stores/actions/motion-modifier-actions'
+export {
+  applyTextMotionEffect,
+  updateTextMotionLive,
+  beginTextMotionEdit,
+  commitTextMotionEdit,
+  removeTextMotionEffect,
+} from '@/features/timeline/stores/actions/text-motion-actions'
+export {
+  captureAnimationFromItem,
+  getPresetCompatibility,
+} from '@/features/timeline/deps/keyframe-editors'

@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label'
 import {
   createCompositeComposition,
   type CreateCompositeCompositionOptions,
-} from '@/features/editor/deps/timeline-contract'
+} from '@/features/editor/deps/timeline-motion'
 
 interface NewCompositionDialogProps {
   open: boolean

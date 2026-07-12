@@ -4,7 +4,7 @@ import {
   getActiveTabId,
   useCompositionNavigationStore,
   useCompositionsStore,
-} from '@/features/editor/deps/timeline-contract'
+} from '@/features/editor/deps/timeline-store'
 import { useEditorStore } from '@/shared/state/editor'
 import { PreviewArea } from '../preview-area'
 import { CompositingTimeline } from './compositing-timeline'

@@ -76,7 +76,7 @@ import {
   useTimelineCommandStore,
   useTimelineSettingsStore,
   wouldCreateCompositionCycle,
-} from '@/features/editor/deps/timeline-contract'
+} from '@/features/editor/deps/timeline-motion'
 import {
   clearMediaDragData,
   getMediaDragData,

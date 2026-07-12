@@ -10,14 +10,11 @@ import { Toolbar } from './toolbar'
 import { MediaSidebar } from './media-sidebar'
 import { PropertiesSidebar } from './properties-sidebar'
 import { PreviewArea } from './preview-area'
-import { ColorGradingDock } from './color-grading-dock'
-import { ColorTimelineNavigator } from './color-timeline-navigator'
-import { AnimateLayout } from './animate-workspace/animate-layout'
 import { MotionPreviewArea, MotionTimelineDock } from './compose-workspace/compose-layout'
 import { InteractionLockRegion } from './interaction-lock-region'
 import { AudioMeterPanel } from './audio-meter-panel'
 import {
-  Timeline,
+  importTimeline,
   importBentoLayoutDialog,
   importFillerRemovalDialog,
   importReverseConformDialog,
@@ -69,6 +66,20 @@ import {
 } from '@/features/editor/deps/media-library'
 import { IoDragReadout } from '@/shared/timeline/io-range'
 const logger = createLogger('Editor')
+const LazyTimeline = lazy(() => importTimeline().then(({ Timeline }) => ({ default: Timeline })))
+const LazyAnimateLayout = lazy(() =>
+  import('./animate-workspace/animate-layout').then(({ AnimateLayout }) => ({
+    default: AnimateLayout,
+  })),
+)
+const LazyColorGradingDock = lazy(() =>
+  import('./color-grading-dock').then(({ ColorGradingDock }) => ({ default: ColorGradingDock })),
+)
+const LazyColorTimelineNavigator = lazy(() =>
+  import('./color-timeline-navigator').then(({ ColorTimelineNavigator }) => ({
+    default: ColorTimelineNavigator,
+  })),
+)
 const EDITOR_PROJECT_ROUTE_ID = '/editor/$projectId'
 
 function workspaceTimelineSizeStorageKey(workspace: EditorWorkspaceId): string {
@@ -692,7 +703,9 @@ export const LoadedEditor = memo(function LoadedEditor({
 
         {/* Right side: Preview/Properties + Timeline */}
         {isAnimateWorkspace ? (
-          <AnimateLayout project={project} />
+          <Suspense fallback={null}>
+            <LazyAnimateLayout project={project} />
+          </Suspense>
         ) : isColorWorkspace ? (
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -700,13 +713,17 @@ export const LoadedEditor = memo(function LoadedEditor({
                 <PreviewArea project={project} />
               </ErrorBoundary>
             </div>
-            <ColorTimelineNavigator />
+            <Suspense fallback={null}>
+              <LazyColorTimelineNavigator />
+            </Suspense>
             <InteractionLockRegion
               locked={isMaskEditingActive}
               className="h-[37%] min-h-[288px] max-h-[39vh] shrink-0"
             >
               <ErrorBoundary level="feature">
-                <ColorGradingDock />
+                <Suspense fallback={null}>
+                  <LazyColorGradingDock />
+                </Suspense>
               </ErrorBoundary>
             </InteractionLockRegion>
           </div>
@@ -771,7 +788,9 @@ export const LoadedEditor = memo(function LoadedEditor({
                       {isMotionWorkspace ? (
                         <MotionTimelineDock project={project} />
                       ) : (
-                        <Timeline duration={timelineDuration} />
+                        <Suspense fallback={null}>
+                          <LazyTimeline duration={timelineDuration} />
+                        </Suspense>
                       )}
                     </div>
                     <AudioMeterPanel />

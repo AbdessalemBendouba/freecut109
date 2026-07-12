@@ -18,7 +18,7 @@ import {
   useKeyframeSelectionStore,
   useTimelineCommandStore,
   openComposition,
-} from '@/features/editor/deps/timeline-contract'
+} from '@/features/editor/deps/timeline-motion'
 import { useMediaLibraryStore } from '@/features/editor/deps/media-library-contract'
 import type { ShapeItem } from '@/types/timeline'
 import { useComposeUiStore } from './compose-ui-store'

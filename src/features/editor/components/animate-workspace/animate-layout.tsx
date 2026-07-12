@@ -2,7 +2,7 @@ import { memo, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { ErrorBoundary } from "@/app/error-boundary";
 import { HOTKEY_OPTIONS } from "@/config/hotkeys";
-import { KeyframeGraphPanel } from "@/features/editor/deps/timeline-contract";
+import { KeyframeGraphPanel } from "@/features/editor/deps/timeline-keyframe-ui";
 import { PreviewArea } from "../preview-area";
 import { AnimateTimelineStrip } from "./animate-timeline-strip";
 import { AnimationPresetLibrary } from "./animation-preset-library";
