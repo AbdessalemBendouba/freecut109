@@ -60,7 +60,11 @@ import {
 import { type ActiveTransition } from './canvas-transitions'
 import { type CachedGifFrames, gifFrameCache } from '@/features/export/deps/timeline-gif-cache'
 import { CanvasPool, TextMeasurementCache } from './canvas-pool'
-import { SharedVideoExtractorPool, type VideoFrameSource } from './shared-video-extractor'
+import {
+  acquireSharedPreviewVideoExtractorPool,
+  SharedVideoExtractorPool,
+  type VideoFrameSource,
+} from './shared-video-extractor'
 import { getCompositeOperation } from '@/types/blend-mode-css'
 import {
   useCompositionsStore,
@@ -134,6 +138,30 @@ function getPrewarmVideoSourceTimeSeconds(item: VideoItem, frame: number, fps: n
 export { subCompositionRenderDataHasGpuEffects }
 
 export type RenderedFrameCacheMode = 'full' | 'gpu-only' | 'skip'
+
+export interface VideoPreloadPlan {
+  priorityItemIds: string[]
+  eagerItemIds: string[]
+  deferredItemIds: string[]
+}
+
+/** Export opens every source up front; preview opens only the bounded priority window. */
+export function resolveVideoPreloadPlan(
+  renderMode: 'export' | 'preview',
+  allItemIds: Iterable<string>,
+  priorityItemIds: Iterable<string>,
+): VideoPreloadPlan {
+  const all = [...new Set(allItemIds)]
+  const available = new Set(all)
+  const priority = [...new Set(priorityItemIds)].filter((itemId) => available.has(itemId))
+  const prioritySet = new Set(priority)
+  const remaining = all.filter((itemId) => !prioritySet.has(itemId))
+  return {
+    priorityItemIds: priority,
+    eagerItemIds: renderMode === 'export' ? remaining : [],
+    deferredItemIds: renderMode === 'preview' ? remaining : [],
+  }
+}
 
 /**
  * Avoid retaining isolated frames from large random seeks. They have almost no
@@ -380,12 +408,16 @@ export async function createCompositionRenderer(
 
   // === PERFORMANCE OPTIMIZATION: Use mediabunny for video decoding ===
   // VideoFrameExtractor provides precise frame access without seek delays
-  const sharedVideoExtractors = new SharedVideoExtractorPool({
-    // Same-source transitions and overlaps can require multiple concurrent decode
-    // timelines. Keep a small fixed lane cap to prevent per-clip duplication.
-    maxLanesPerSource: 4,
-    logFrameFailuresAsDebug: renderMode === 'preview',
-  })
+  const sharedPreviewExtractorLease =
+    renderMode === 'preview' ? acquireSharedPreviewVideoExtractorPool() : null
+  const sharedVideoExtractors =
+    sharedPreviewExtractorLease?.pool ??
+    new SharedVideoExtractorPool({
+      // Same-source transitions and overlaps can require multiple concurrent decode
+      // timelines. Keep a small fixed lane cap to prevent per-clip duplication.
+      maxLanesPerSource: 4,
+      logFrameFailuresAsDebug: false,
+    })
   const videoExtractors = new Map<string, VideoFrameSource>()
   const videoSourceByItemId = new Map<string, string>()
   const videoItemIdsBySource = new Map<string, Set<string>>()
@@ -406,7 +438,7 @@ export async function createCompositionRenderer(
       if (prevSet && prevSet.size === 0) {
         videoItemIdsBySource.delete(prevSrc)
       }
-      sharedVideoExtractors.releaseItem(itemId)
+      sharedVideoExtractors.releaseItem(itemId, prevSrc)
     }
     videoSourceByItemId.set(itemId, src)
     let ids = videoItemIdsBySource.get(src)
@@ -878,9 +910,10 @@ export async function createCompositionRenderer(
       .catch(() => {})
   }
 
-  const reportPreviewDecodeCoverage = () => {
-    if (previewStrictDecode && useMediabunny.size !== videoExtractors.size) {
-      const failedItemIds = [...videoExtractors.keys()].filter((id) => !useMediabunny.has(id))
+  const reportPreviewDecodeCoverage = (expectedReadyItemIds: Iterable<string>) => {
+    if (previewStrictDecode) {
+      const failedItemIds = [...expectedReadyItemIds].filter((id) => !useMediabunny.has(id))
+      if (failedItemIds.length === 0) return
       getLog().debug('Preview Mediabunny coverage incomplete; fallback paths remain available', {
         failedCount: failedItemIds.length,
         failedItemIds,
@@ -941,21 +974,27 @@ export async function createCompositionRenderer(
       if (prioritizedMainVideoIds.length > 0) {
         await initializeMediabunnyForItems(prioritizedMainVideoIds)
       }
-      const prioritizedMainSet = new Set(prioritizedMainVideoIds)
-      const remainingMainVideoIds = [...videoExtractors.keys()].filter(
-        (itemId) => !prioritizedMainSet.has(itemId),
+      const mainVideoPreloadPlan = resolveVideoPreloadPlan(
+        renderMode,
+        videoExtractors.keys(),
+        prioritizedMainVideoIds,
       )
-      if (remainingMainVideoIds.length > 0) {
-        await initializeMediabunnyForItems(remainingMainVideoIds)
+      // Export needs every source ready before frame 0. Preview renders initialize
+      // a missed source on demand, so opening all remaining project media here only
+      // creates decoder/GC churn for clips the user may never visit.
+      if (mainVideoPreloadPlan.eagerItemIds.length > 0) {
+        await initializeMediabunnyForItems(mainVideoPreloadPlan.eagerItemIds)
       }
 
       getLog().info('Video initialization complete', {
         mediabunny: useMediabunny.size,
-        fallback: videoExtractors.size - useMediabunny.size,
+        deferred: mainVideoPreloadPlan.deferredItemIds.length,
+        fallback:
+          renderMode === 'export' ? videoExtractors.size - useMediabunny.size : undefined,
         uniqueSources: new Set(videoSourceByItemId.values()).size,
       })
 
-      reportPreviewDecodeCoverage()
+      reportPreviewDecodeCoverage(prioritizedMainVideoIds)
 
       // === Preload ALL fallback video elements ===
       // Load every video element (not just those that failed mediabunny init)
@@ -1234,14 +1273,16 @@ export async function createCompositionRenderer(
           getLog().warn('onPriorityMediaReady callback threw', { error: err })
         }
 
-        const remainingSubVideoItemIds = subVideoItemIds.filter(
-          (itemId) => !prioritySubCompVideoItemIds.has(itemId),
+        const subVideoPreloadPlan = resolveVideoPreloadPlan(
+          renderMode,
+          subVideoItemIds,
+          prioritizedSubVideoItemIds,
         )
-        if (remainingSubVideoItemIds.length > 0) {
-          await initializeMediabunnyForItems(remainingSubVideoItemIds)
+        if (subVideoPreloadPlan.eagerItemIds.length > 0) {
+          await initializeMediabunnyForItems(subVideoPreloadPlan.eagerItemIds)
         }
 
-        reportPreviewDecodeCoverage()
+        reportPreviewDecodeCoverage(prioritizedSubVideoItemIds)
 
         // Load fallback video elements for sub-comp items that failed mediabunny init
         if (hasDom && !previewStrictDecode) {
@@ -2199,10 +2240,14 @@ export async function createCompositionRenderer(
       inFlightInitByItem.clear()
 
       // Clean up mediabunny video extractors
-      for (const itemId of videoExtractors.keys()) {
-        sharedVideoExtractors.releaseItem(itemId)
+      for (const [itemId, src] of videoSourceByItemId) {
+        sharedVideoExtractors.releaseItem(itemId, src)
       }
-      sharedVideoExtractors.dispose()
+      if (sharedPreviewExtractorLease) {
+        sharedPreviewExtractorLease.release()
+      } else {
+        sharedVideoExtractors.dispose()
+      }
       videoExtractors.clear()
       videoSourceByItemId.clear()
       videoItemIdsBySource.clear()

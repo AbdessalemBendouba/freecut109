@@ -51,6 +51,7 @@ interface VideoPreviewProps {
     height: number
   }
   suspendOverlay?: boolean
+  chrome?: PreviewOverlayChrome
 }
 
 type PreviewOverlayChrome = 'edit' | 'color'
@@ -820,9 +821,10 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
 })
 
 export const VideoPreview = memo(function VideoPreview(props: VideoPreviewProps) {
-  return <VideoPreviewBase {...props} overlayChrome="edit" />
+  const { chrome = 'edit', ...previewProps } = props
+  return <VideoPreviewBase {...previewProps} overlayChrome={chrome} />
 })
 
 export const ColorVideoPreview = memo(function ColorVideoPreview(props: VideoPreviewProps) {
-  return <VideoPreviewBase {...props} overlayChrome="color" />
+  return <VideoPreview {...props} chrome="color" />
 })

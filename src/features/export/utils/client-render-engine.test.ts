@@ -3,8 +3,29 @@ import type { TimelineItem } from '@/types/timeline'
 import type { SubCompRenderData } from './canvas-item-renderer'
 import {
   resolveRenderedFrameCacheMode,
+  resolveVideoPreloadPlan,
   subCompositionRenderDataHasGpuEffects,
 } from './client-render-engine'
+
+describe('resolveVideoPreloadPlan', () => {
+  it('defers every non-priority source in preview mode', () => {
+    expect(
+      resolveVideoPreloadPlan('preview', ['active', 'nearby', 'far', 'far'], ['active', 'nearby']),
+    ).toEqual({
+      priorityItemIds: ['active', 'nearby'],
+      eagerItemIds: [],
+      deferredItemIds: ['far'],
+    })
+  })
+
+  it('keeps export eager after initializing its priority sources first', () => {
+    expect(resolveVideoPreloadPlan('export', ['active', 'nearby', 'far'], ['nearby'])).toEqual({
+      priorityItemIds: ['nearby'],
+      eagerItemIds: ['active', 'far'],
+      deferredItemIds: [],
+    })
+  })
+})
 
 describe('resolveRenderedFrameCacheMode', () => {
   it('seeds the cache, keeps nearby scrub frames, and skips isolated overview seeks', () => {
