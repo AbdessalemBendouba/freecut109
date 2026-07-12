@@ -77,8 +77,16 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
   const colorGradeComparisonMode = useGizmoStore((s) => s.colorGradeComparisonMode)
   const colorGradeSplitPosition = useGizmoStore((s) => s.colorGradeSplitPosition)
   const setColorGradeSplitPosition = useGizmoStore((s) => s.setColorGradeSplitPosition)
-  const currentFrame = usePlaybackStore((s) => s.currentFrame)
-  const previewFrame = usePlaybackStore((s) => s.previewFrame)
+  // Frame values are only consumed by the color-grade comparison branch near
+  // the bottom of this component. Returning a stable sentinel while comparison
+  // is off keeps ordinary playback/scrubbing from re-rendering this large tree.
+  const comparisonEnabled = colorGradeComparisonMode !== 'off'
+  const comparisonCurrentFrame = usePlaybackStore((s) =>
+    comparisonEnabled ? s.currentFrame : null,
+  )
+  const comparisonPreviewFrame = usePlaybackStore((s) =>
+    comparisonEnabled ? s.previewFrame : null,
+  )
   // Capture the playhead once at mount so a workspace-driven remount (switching
   // to/from Color swaps VideoPreview<->ColorVideoPreview, remounting the Player)
   // starts the fresh clock at the current frame. Without this the new Player
@@ -88,7 +96,9 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
   if (initialPlayheadFrameRef.current === null) {
     initialPlayheadFrameRef.current = usePlaybackStore.getState().currentFrame
   }
-  const displayedFrame = usePreviewBridgeStore((s) => s.displayedFrame)
+  const comparisonDisplayedFrame = usePreviewBridgeStore((s) =>
+    comparisonEnabled ? s.displayedFrame : null,
+  )
   const livePreviewEdits = useGizmoStore((s) => s.preview)
   const [playerDisplayedFrame, setPlayerDisplayedFrame] = useState<number | null>(null)
   const latestPlayerDisplayedFrameRef = useRef<number | null>(null)
@@ -680,10 +690,13 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
   const stageColorGradeComparisonMode = shouldShowAfterDuringSplitPlayback
     ? 'off'
     : colorGradeComparisonMode
-  const baseComparisonTargetFrame = Math.max(0, Math.round(previewFrame ?? currentFrame))
+  const baseComparisonTargetFrame = Math.max(
+    0,
+    Math.round(comparisonPreviewFrame ?? comparisonCurrentFrame ?? 0),
+  )
   const comparisonTargetFrame =
-    stageColorGradeComparisonMode === 'split' && displayedFrame !== null
-      ? displayedFrame
+    stageColorGradeComparisonMode === 'split' && comparisonDisplayedFrame !== null
+      ? comparisonDisplayedFrame
       : baseComparisonTargetFrame
 
   // Leaving split comparison clears the rendered after-frame. Kept as its own
@@ -766,7 +779,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
   const isColorGradeComparisonActive = stageColorGradeComparisonMode !== 'off'
   const isSplitGradeComparison = stageColorGradeComparisonMode === 'split'
   const isColorGradeComparisonFrameReady =
-    displayedFrame === comparisonTargetFrame &&
+    comparisonDisplayedFrame === comparisonTargetFrame &&
     (isSplitGradeComparison
       ? splitAfterRenderedFrame === comparisonTargetFrame
       : stageColorGradeComparisonMode === 'before' ||

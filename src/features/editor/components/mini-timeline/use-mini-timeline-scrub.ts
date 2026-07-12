@@ -4,6 +4,8 @@ import {
   shouldCommitScrubFrame,
 } from '@/features/editor/deps/timeline-utils'
 import { usePlaybackStore } from '@/shared/state/playback'
+import { usePreviewBridgeStore } from '@/shared/state/preview-bridge'
+import { shouldWaitForMiniTimelinePreview } from './scrub-backpressure'
 
 export interface MiniTimelineScrubHandlers {
   onPointerDown: (event: PointerEvent<HTMLDivElement>) => void
@@ -16,9 +18,9 @@ export interface MiniTimelineScrubHandlers {
  * Fast-scrub engine shared by the Color navigator and Animate strip. The
  * surface rect is captured once on pointer down (no per-move layout reads),
  * commits are rAF-batched and gated by the adaptive scrub throttle, and the
- * preview frame is skimmed during the drag with the committed frame written on
- * release (see CLAUDE.md render gotchas). Spread the returned handlers onto the
- * scrub surface element.
+ * transient preview frame is updated during the drag without waking every
+ * authoritative-current-frame consumer, and the exact pointer position is
+ * committed on release. Spread the returned handlers onto the scrub surface.
  */
 export function useMiniTimelineScrub({
   maxFrame,
@@ -29,8 +31,9 @@ export function useMiniTimelineScrub({
   fps: number
   labelWidth: number
 }): MiniTimelineScrubHandlers {
-  const setCurrentFrame = usePlaybackStore((s) => s.setCurrentFrame)
+  const finishScrub = usePlaybackStore((s) => s.finishScrub)
   const setPreviewFrame = usePlaybackStore((s) => s.setPreviewFrame)
+  const setCompositionVisualFrozen = usePlaybackStore((s) => s.setCompositionVisualFrozen)
   const pausePlayback = usePlaybackStore((s) => s.pause)
 
   const isScrubbingRef = useRef(false)
@@ -38,6 +41,8 @@ export function useMiniTimelineScrub({
   const scrubThrottleRef = useRef(createScrubThrottleState())
   const pendingClientXRef = useRef<number | null>(null)
   const scrubRafRef = useRef<number | null>(null)
+  const lastRequestedFrameRef = useRef<number | null>(null)
+  const lastRequestAtMsRef = useRef(0)
   // Latest geometry in refs so the rAF loop / handlers read fresh values
   // without being recreated on every frame-count change.
   const maxFrameRef = useRef(maxFrame)
@@ -64,7 +69,15 @@ export function useMiniTimelineScrub({
     pendingClientXRef.current = null
   }, [])
 
-  useEffect(() => cancelScrubRaf, [cancelScrubRaf])
+  useEffect(
+    () => () => {
+      cancelScrubRaf()
+      if (isScrubbingRef.current) {
+        usePlaybackStore.getState().setCompositionVisualFrozen(false)
+      }
+    },
+    [cancelScrubRaf],
+  )
 
   const runScrubLoop = useCallback(() => {
     const clientX = pendingClientXRef.current
@@ -78,15 +91,25 @@ export function useMiniTimelineScrub({
       const timelineWidth = Math.max(1, rect.width - labelWidth)
       const safeFps = fpsRef.current > 0 ? fpsRef.current : 30
       const pixelsPerSecond = (timelineWidth * safeFps) / Math.max(1, maxFrameRef.current)
+      const nowMs = performance.now()
+      const waitForPreview = shouldWaitForMiniTimelinePreview({
+        lastRequestedFrame: lastRequestedFrameRef.current,
+        displayedFrame: usePreviewBridgeStore.getState().displayedFrame,
+        elapsedMs: nowMs - lastRequestAtMsRef.current,
+      })
       if (
+        !waitForPreview &&
         shouldCommitScrubFrame({
           state: scrubThrottleRef.current,
           pointerX: clientX - rect.left - labelWidth,
           targetFrame: frame,
           pixelsPerSecond,
-          nowMs: performance.now(),
+          nowMs,
+          overview: true,
         })
       ) {
+        lastRequestedFrameRef.current = frame
+        lastRequestAtMsRef.current = nowMs
         setPreviewFrame(frame, null)
       }
     }
@@ -102,18 +125,28 @@ export function useMiniTimelineScrub({
       const frame = clientXToFrame(event.clientX)
       if (frame === null) return
       pausePlayback()
+      setCompositionVisualFrozen(true)
       pendingClientXRef.current = event.clientX
       scrubThrottleRef.current = createScrubThrottleState({
         pointerX: event.clientX - scrubRectRef.current.left - labelWidth,
         frame,
         nowMs: performance.now(),
       })
+      lastRequestedFrameRef.current = frame
+      lastRequestAtMsRef.current = performance.now()
       setPreviewFrame(frame, null)
       if (scrubRafRef.current === null) {
         scrubRafRef.current = requestAnimationFrame(runScrubLoop)
       }
     },
-    [clientXToFrame, labelWidth, pausePlayback, runScrubLoop, setPreviewFrame],
+    [
+      clientXToFrame,
+      labelWidth,
+      pausePlayback,
+      runScrubLoop,
+      setCompositionVisualFrozen,
+      setPreviewFrame,
+    ],
   )
 
   const onPointerMove = useCallback((event: PointerEvent<HTMLDivElement>) => {
@@ -125,30 +158,42 @@ export function useMiniTimelineScrub({
     (event: PointerEvent<HTMLDivElement>) => {
       if (!isScrubbingRef.current) return
       cancelScrubRaf()
+      lastRequestedFrameRef.current = null
       const frame = clientXToFrame(event.clientX)
-      if (frame !== null) setCurrentFrame(frame)
+      if (frame !== null) finishScrub(frame)
       isScrubbingRef.current = false
       scrubRectRef.current = null
       if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId)
       }
-      setPreviewFrame(null)
+      if (frame === null) {
+        setPreviewFrame(null)
+        setCompositionVisualFrozen(false)
+      }
     },
-    [cancelScrubRaf, clientXToFrame, setCurrentFrame, setPreviewFrame],
+    [
+      cancelScrubRaf,
+      clientXToFrame,
+      finishScrub,
+      setCompositionVisualFrozen,
+      setPreviewFrame,
+    ],
   )
 
   const onPointerCancel = useCallback(
     (event: PointerEvent<HTMLDivElement>) => {
       if (!isScrubbingRef.current) return
       cancelScrubRaf()
+      lastRequestedFrameRef.current = null
       isScrubbingRef.current = false
       scrubRectRef.current = null
       if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId)
       }
       setPreviewFrame(null)
+      setCompositionVisualFrozen(false)
     },
-    [cancelScrubRaf, setPreviewFrame],
+    [cancelScrubRaf, setCompositionVisualFrozen, setPreviewFrame],
   )
 
   return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel }

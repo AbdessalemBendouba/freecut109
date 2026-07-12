@@ -191,4 +191,23 @@ describe('AnimateTimelineStrip', () => {
     expect(useSelectionStore.getState().selectedItemIds).toEqual(['clip-2'])
     expect(usePlaybackStore.getState().currentFrame).toBe(200)
   })
+
+  it('keeps drag state transient and commits the exact release frame', () => {
+    render(<AnimateTimelineStrip />)
+    const surface = screen.getByTestId('animate-timeline-scrub-surface')
+    surface.getBoundingClientRect = () =>
+      ({ left: 0, width: 1000, top: 0, right: 1000, bottom: 120, height: 120 }) as DOMRect
+
+    fireEvent.pointerDown(surface, { button: 0, pointerId: 7, clientX: 250 })
+    const dragging = usePlaybackStore.getState()
+    expect(dragging.previewFrame).not.toBeNull()
+    expect(dragging.currentFrame).toBe(0)
+    expect(dragging.compositionVisualFrozen).toBe(true)
+
+    fireEvent.pointerUp(surface, { button: 0, pointerId: 7, clientX: 750 })
+    const released = usePlaybackStore.getState()
+    expect(released.previewFrame).toBeNull()
+    expect(released.compositionVisualFrozen).toBe(false)
+    expect(released.currentFrame).toBeGreaterThan(dragging.currentFrame)
+  })
 })

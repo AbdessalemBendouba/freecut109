@@ -218,6 +218,28 @@ describe('playback-store', () => {
       expect(state.currentFrameEpoch).toBe(state.previewFrameEpoch)
     })
 
+    it('finishes a transient scrub in one atomic state update', () => {
+      usePlaybackStore.setState({
+        currentFrame: 10,
+        previewFrame: 42,
+        previewItemId: 'item-1',
+        compositionVisualFrozen: true,
+      })
+      const listener = vi.fn()
+      const unsubscribe = usePlaybackStore.subscribe(listener)
+
+      usePlaybackStore.getState().finishScrub(42)
+
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect(usePlaybackStore.getState()).toMatchObject({
+        currentFrame: 42,
+        previewFrame: null,
+        previewItemId: null,
+        compositionVisualFrozen: false,
+      })
+      unsubscribe()
+    })
+
     it('avoids entering scrub mode when the paused ruler clicks the already-current frame', () => {
       usePlaybackStore.getState().setCurrentFrame(42)
       const stateA = usePlaybackStore.getState()
