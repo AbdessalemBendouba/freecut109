@@ -35,6 +35,41 @@ describe('GPU effect registry', () => {
     }
   })
 
+  it('exposes every color parameter to the shared keyframe pipeline', () => {
+    const colorParams = [...GPU_EFFECT_REGISTRY.values()].flatMap((effect) =>
+      Object.entries(effect.params)
+        .filter(([, param]) => param.type === 'color')
+        .map(([paramKey, param]) => ({ effectId: effect.id, paramKey, param })),
+    )
+
+    expect(colorParams.length).toBeGreaterThan(0)
+    expect(
+      colorParams
+        .filter(({ param }) => param.animatable !== true)
+        .map(({ effectId, paramKey }) => ({
+          effectId,
+          paramKey,
+        })),
+    ).toEqual([])
+  })
+
+  it('packs interpolated eight-digit colors into RGBA uniforms', () => {
+    const effect = getGpuEffect('gpu-fluted-glass')!
+    const uniforms = effect.packUniforms(
+      {
+        ...getGpuEffectDefaultParams(effect.id),
+        colorBack: '#12345680',
+      },
+      1920,
+      1080,
+    )!
+
+    expect(uniforms[0]).toBeCloseTo(0x12 / 255, 6)
+    expect(uniforms[1]).toBeCloseTo(0x34 / 255, 6)
+    expect(uniforms[2]).toBeCloseTo(0x56 / 255, 6)
+    expect(uniforms[3]).toBeCloseTo(0x80 / 255, 6)
+  })
+
   it('registers the dither effect with stable default uniforms', () => {
     const effect = getGpuEffect('gpu-dither')
     expect(effect).toBeDefined()

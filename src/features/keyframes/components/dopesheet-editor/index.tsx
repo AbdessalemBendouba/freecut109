@@ -416,7 +416,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   // has a single keyframe.
   const graphableProperties = useMemo(
     () =>
-      availableProperties.filter((property) => (keyframesByProperty[property]?.length ?? 0) >= 2),
+      availableProperties.filter(
+        (property) =>
+          !isColorAnimatableProperty(property) && (keyframesByProperty[property]?.length ?? 0) >= 2,
+      ),
     [availableProperties, keyframesByProperty],
   )
   const allPropertyGroups = useMemo(

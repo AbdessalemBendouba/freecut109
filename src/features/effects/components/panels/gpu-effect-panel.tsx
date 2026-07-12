@@ -297,6 +297,9 @@ export const GpuEffectPanel = memo(function GpuEffectPanel({
             if (param.type === 'color') {
               const keyframeProperty = getKeyframeProperty(effect.id, key)
               const keyframeValue = getGpuEffectKeyframeValue(effect, key, currentValue)
+              const allowAlpha = [currentValue, param.default].some(
+                (value) => typeof value === 'string' && /^#[0-9a-f]{8}$/i.test(value.trim()),
+              )
               return (
                 <PropertyRow
                   key={key}
@@ -307,6 +310,7 @@ export const GpuEffectPanel = memo(function GpuEffectPanel({
                     color={currentValue as string}
                     onChange={(v) => onParamChange(effect.id, key, v)}
                     onLiveChange={(v) => onParamLiveChange(effect.id, key, v)}
+                    allowAlpha={allowAlpha}
                     disabled={!paramEnabled}
                   />
                   {keyframeProperty && keyframeValue !== null ? (

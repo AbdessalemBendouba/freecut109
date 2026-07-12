@@ -426,9 +426,9 @@ const WheelControl = memo(function WheelControl({
 })
 
 const WHEEL_DESCRIPTORS = [
-  { labelKey: 'effects.wheels.shadows', hueKey: 'shadowsHue', amountKey: 'shadowsAmount' },
-  { labelKey: 'effects.wheels.midtones', hueKey: 'midtonesHue', amountKey: 'midtonesAmount' },
-  { labelKey: 'effects.wheels.highlights', hueKey: 'highlightsHue', amountKey: 'highlightsAmount' },
+  { labelKey: 'effects.params.lift', hueKey: 'shadowsHue', amountKey: 'shadowsAmount' },
+  { labelKey: 'effects.params.gamma', hueKey: 'midtonesHue', amountKey: 'midtonesAmount' },
+  { labelKey: 'effects.params.gain', hueKey: 'highlightsHue', amountKey: 'highlightsAmount' },
 ] as const
 
 /**
@@ -978,13 +978,20 @@ export const GpuWheelsPanel = memo(function GpuWheelsPanel({
     const display = DOCK_PARAM_DISPLAY[key] ?? { scale: 1, bias: 0, step: param.step ?? 1 }
     const value = (displayParams[key] as number) ?? param.default
     const label = getEffectParamLabel(t, definition, key)
+    const resetLabel = t('effects.panel.resetParameterToDefault', {
+      parameter: label,
+      defaultValue: `Reset ${label} to default`,
+    })
 
     return (
-      <label
+      <div
         key={key}
-        className="grid min-w-0 grid-cols-[minmax(0,1fr)_4.75rem] items-center gap-2"
+        className="grid min-w-0 grid-cols-[minmax(3.75rem,1fr)_3.75rem_1rem] items-center gap-x-0.5"
       >
-        <span className="min-w-0 truncate text-right text-[11px] text-muted-foreground">
+        <span
+          className="min-w-0 whitespace-nowrap text-right text-[10px] text-muted-foreground"
+          title={label}
+        >
           {label}
         </span>
         <span className="flex min-w-0 flex-col items-center">
@@ -1009,7 +1016,19 @@ export const GpuWheelsPanel = memo(function GpuWheelsPanel({
             )}
           />
         </span>
-      </label>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-4 w-4 flex-shrink-0 text-muted-foreground hover:text-foreground"
+          onClick={() => emitCommitParam(key, param.default)}
+          disabled={!effect.enabled || Object.is(value, param.default)}
+          title={resetLabel}
+          aria-label={resetLabel}
+        >
+          <RotateCcw className="h-2.5 w-2.5" />
+        </Button>
+      </div>
     )
   }
 

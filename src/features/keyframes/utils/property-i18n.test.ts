@@ -15,4 +15,22 @@ describe('keyframe property labels', () => {
     expect(getKeyframePropertyLabel(t, property)).toBe('Color Wheels: Exposure')
     expect(getKeyframePropertyShortLabel(t, property)).toBe('Exposure')
   })
+
+  it('labels color-wheel channels with their visible Lift, Gamma, and Gain wheels', () => {
+    const cases = [
+      ['shadowsHue', 'Lift Hue'],
+      ['shadowsAmount', 'Lift Amount'],
+      ['midtonesHue', 'Gamma Hue'],
+      ['midtonesAmount', 'Gamma Amount'],
+      ['highlightsHue', 'Gain Hue'],
+      ['highlightsAmount', 'Gain Amount'],
+    ] as const
+
+    for (const [paramKey, label] of cases) {
+      const property = buildEffectAnimatableProperty('gpu-color-wheels', 'wheels-1', paramKey)
+      expect(getKeyframePropertyLabel(t, property)).toBe(`Color Wheels: ${label}`)
+      expect(getKeyframePropertyShortLabel(t, property)).toBe(label)
+      expect(property).toBe(`effect:gpu-color-wheels:wheels-1:${paramKey}`)
+    }
+  })
 })

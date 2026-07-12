@@ -925,9 +925,14 @@ fn flutedGlassFragment(input: VertexOutput) -> @location(0) vec4f {
   return vec4f(color, opacity);
 }`,
   params: {
-    colorBack: { type: 'color', label: 'Back Color', default: '#00000000' },
-    colorShadow: { type: 'color', label: 'Shadow Color', default: '#000000' },
-    colorHighlight: { type: 'color', label: 'Highlight Color', default: '#ffffff' },
+    colorBack: { type: 'color', label: 'Back Color', default: '#00000000', animatable: true },
+    colorShadow: { type: 'color', label: 'Shadow Color', default: '#000000', animatable: true },
+    colorHighlight: {
+      type: 'color',
+      label: 'Highlight Color',
+      default: '#ffffff',
+      animatable: true,
+    },
     shadows: {
       type: 'number',
       label: 'Shadows',
@@ -1246,8 +1251,13 @@ fn rippleGlassFragment(input: VertexOutput) -> @location(0) vec4f {
   return vec4f(rgb, color.a);
 }`,
   params: {
-    colorShadow: { type: 'color', label: 'Shadow Color', default: '#000000' },
-    colorHighlight: { type: 'color', label: 'Highlight Color', default: '#ffffff' },
+    colorShadow: { type: 'color', label: 'Shadow Color', default: '#000000', animatable: true },
+    colorHighlight: {
+      type: 'color',
+      label: 'Highlight Color',
+      default: '#ffffff',
+      animatable: true,
+    },
     amount: {
       type: 'number',
       label: 'Amount',
@@ -1437,8 +1447,13 @@ fn glassMosaicFragment(input: VertexOutput) -> @location(0) vec4f {
   return vec4f(rgb, color.a);
 }`,
   params: {
-    colorShadow: { type: 'color', label: 'Shadow Color', default: '#000000' },
-    colorHighlight: { type: 'color', label: 'Highlight Color', default: '#ffffff' },
+    colorShadow: { type: 'color', label: 'Shadow Color', default: '#000000', animatable: true },
+    colorHighlight: {
+      type: 'color',
+      label: 'Highlight Color',
+      default: '#ffffff',
+      animatable: true,
+    },
     amount: {
       type: 'number',
       label: 'Amount',

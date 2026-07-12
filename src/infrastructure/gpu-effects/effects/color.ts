@@ -664,7 +664,7 @@ fn colorWheelsFragment(input: VertexOutput) -> @location(0) vec4f {
   params: {
     shadowsHue: {
       type: 'number',
-      label: 'Shadows Hue',
+      label: 'Lift Hue',
       default: 0,
       min: 0,
       max: 360,
@@ -673,7 +673,7 @@ fn colorWheelsFragment(input: VertexOutput) -> @location(0) vec4f {
     },
     shadowsAmount: {
       type: 'number',
-      label: 'Shadows Amount',
+      label: 'Lift Amount',
       default: 0,
       min: 0,
       max: 1,
@@ -682,7 +682,7 @@ fn colorWheelsFragment(input: VertexOutput) -> @location(0) vec4f {
     },
     midtonesHue: {
       type: 'number',
-      label: 'Midtones Hue',
+      label: 'Gamma Hue',
       default: 0,
       min: 0,
       max: 360,
@@ -691,7 +691,7 @@ fn colorWheelsFragment(input: VertexOutput) -> @location(0) vec4f {
     },
     midtonesAmount: {
       type: 'number',
-      label: 'Midtones Amount',
+      label: 'Gamma Amount',
       default: 0,
       min: 0,
       max: 1,
@@ -700,7 +700,7 @@ fn colorWheelsFragment(input: VertexOutput) -> @location(0) vec4f {
     },
     highlightsHue: {
       type: 'number',
-      label: 'Highlights Hue',
+      label: 'Gain Hue',
       default: 0,
       min: 0,
       max: 360,
@@ -709,7 +709,7 @@ fn colorWheelsFragment(input: VertexOutput) -> @location(0) vec4f {
     },
     highlightsAmount: {
       type: 'number',
-      label: 'Highlights Amount',
+      label: 'Gain Amount',
       default: 0,
       min: 0,
       max: 1,
