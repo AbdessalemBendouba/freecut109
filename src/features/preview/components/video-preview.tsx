@@ -413,7 +413,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
           const { createCompositionRenderer } = await importCompositionRenderer()
           const renderer = await createCompositionRenderer(fastScrubInputProps, canvas, ctx, {
             mode: 'preview',
-            useProxyMedia: useProxy,
+            useProxyMedia: true,
             getPreviewTransformOverride,
             getPreviewEffectsOverride: getPreviewEffectsOverrideWithGradeApplied,
             getPreviewCornerPinOverride,
@@ -450,11 +450,10 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
       getPreviewEffectsOverrideWithGradeApplied,
       getPreviewPathVerticesOverride,
       getPreviewTransformOverride,
-      isResolving,
-      renderSize.height,
-      renderSize.width,
-      useProxy,
-    ])
+        isResolving,
+        renderSize.height,
+        renderSize.width,
+      ])
 
   const forceFastScrubOverlay = showGpuEffectsOverlay
 
@@ -582,7 +581,10 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
   usePreviewRenderPump({
     fps,
     forceFastScrubOverlay,
-    combinedTracks,
+    // Scrub decoding must use the same proxy/source URLs as the renderer.
+    // Feeding unresolved project tracks here silently made the worker decode
+    // full-resolution originals while the composition rendered proxies.
+    combinedTracks: fastScrubScaledTracks,
     fastScrubBoundaryFrames,
     fastScrubBoundarySources,
     playbackTransitionOverlayWindows,

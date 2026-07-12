@@ -122,6 +122,16 @@ export interface ItemRenderContext {
     toleranceSeconds?: number,
     maxWaitMs?: number,
   ) => Promise<ImageBitmap | null>
+  isActivePreviewTargetSuperseded?: (
+    src: string,
+    timestamp: number,
+    toleranceSeconds?: number,
+  ) => boolean
+  isActivePreviewFrameSuperseded?: (frame: number) => boolean
+  isActivePreviewFrameCurrent?: (frame: number) => boolean
+  isActivePreviewFrameDecodeReady?: (frame: number) => boolean
+  markActivePreviewFramePending?: () => void
+  previewRootTimelineFrame?: number
   reverseVideoFrameCache?: ReverseVideoFrameCache
 
   // Image / GIF state

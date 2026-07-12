@@ -99,7 +99,24 @@ export const PreviewPerfPanel = memo(function PreviewPerfPanel({
         <div style={{ color: '#a1a1aa' }}>
           Preseek {snapshot.preseekCacheHits + snapshot.preseekInflightReuses}/
           {snapshot.preseekRequests} hit post {snapshot.preseekWorkerSuccesses}/
-          {snapshot.preseekWorkerPosts} cache {snapshot.preseekCachedBitmaps}
+          {snapshot.preseekWorkerPosts} cache {snapshot.preseekCachedBitmaps}/
+          {snapshot.preseekCachedSources}src
+          {snapshot.activePreseekRequests > 0 && (
+            <span>
+              {' '}
+              active {snapshot.activePreseekWorkerPosts}/{snapshot.activePreseekRequests} cancel{' '}
+              {snapshot.activePreseekCancellations} supersede {snapshot.activePreseekSuperseded}{' '}
+              lookahead {snapshot.activePreseekLookaheadPosts} decoders{' '}
+              {snapshot.activePreseekExtractorCount}/{snapshot.activePreseekExtractorPeak}
+              {' '}ready {snapshot.activePreseekReadyNotifications}
+            </span>
+          )}
+          {snapshot.preseekCacheSourceEvictions > 0 && (
+            <span style={{ color: '#fbbf24' }}>
+              {' '}
+              evict {snapshot.preseekCacheSourceEvictions}
+            </span>
+          )}
           {snapshot.preseekWaitMatches > 0 && (
             <span>
               {' '}

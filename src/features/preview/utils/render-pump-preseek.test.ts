@@ -26,6 +26,7 @@ import {
   getVideoItemSourceTimeSeconds,
   mapTimelineFrameToSubCompositionFrame,
   resolvePausedVariableSpeedPrewarmPlan,
+  resolveActivePreviewLookaheadTimestamps,
   shouldRunJumpPreseek,
 } from './render-pump-preseek'
 
@@ -406,6 +407,44 @@ describe('shouldRunJumpPreseek', () => {
     expect(
       shouldRunJumpPreseek({ prevFrame: 180, nextFrame: 151, fps: 60, isPlaying: false }),
     ).toBe(false)
+  })
+})
+
+describe('active preview lookahead', () => {
+  it('keeps an adjacent frame on both sides for fine scrubbing', () => {
+    expect(
+      resolveActivePreviewLookaheadTimestamps({
+        sourceTime: 10,
+        previousSourceTime: 9.99,
+        elapsedMs: 100,
+        sourceFps: 30,
+        fallbackDirection: 1,
+      }),
+    ).toEqual([10 + 1 / 30, 10 - 1 / 30])
+  })
+
+  it('spreads directional lookahead when scrub velocity is high', () => {
+    expect(
+      resolveActivePreviewLookaheadTimestamps({
+        sourceTime: 20,
+        previousSourceTime: 10,
+        elapsedMs: 50,
+        sourceFps: 30,
+        fallbackDirection: 1,
+      }),
+    ).toEqual([20 + 1 / 30, 20 + 120 / 30, 20 - 1 / 30])
+  })
+
+  it('clamps backward lookahead to the start of the source', () => {
+    expect(
+      resolveActivePreviewLookaheadTimestamps({
+        sourceTime: 0,
+        previousSourceTime: 1,
+        elapsedMs: 16,
+        sourceFps: 30,
+        fallbackDirection: -1,
+      }),
+    ).toEqual([1 / 30])
   })
 })
 

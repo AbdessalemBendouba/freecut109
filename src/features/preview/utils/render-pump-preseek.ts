@@ -384,3 +384,59 @@ export function shouldRunJumpPreseek(input: {
   const thresholdFrames = Math.max(1, Math.round(input.fps * thresholdSeconds))
   return Math.abs(deltaFrames) >= thresholdFrames
 }
+
+export interface ActivePreviewLookaheadInput {
+  sourceTime: number
+  previousSourceTime: number | null
+  elapsedMs: number
+  sourceFps: number
+  fallbackDirection: -1 | 0 | 1
+}
+
+/**
+ * Build a tiny source-time ring around the exact scrub target. Faster drags
+ * spread the forward sample farther out instead of decoding every skipped
+ * frame, while always retaining one adjacent frame in both directions for
+ * fine tuning after the pointer slows down.
+ */
+export function resolveActivePreviewLookaheadTimestamps({
+  sourceTime,
+  previousSourceTime,
+  elapsedMs,
+  sourceFps,
+  fallbackDirection,
+}: ActivePreviewLookaheadInput): number[] {
+  const normalizedFps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30
+  const frameDuration = 1 / normalizedFps
+  const sourceDelta = previousSourceTime === null ? 0 : sourceTime - previousSourceTime
+  const direction: -1 | 0 | 1 =
+    Math.abs(sourceDelta) > frameDuration / 4
+      ? sourceDelta > 0
+        ? 1
+        : -1
+      : fallbackDirection
+  if (direction === 0) return []
+
+  const safeElapsedMs = Number.isFinite(elapsedMs) && elapsedMs > 0 ? elapsedMs : 1000
+  const velocityFramesPerSecond =
+    previousSourceTime === null
+      ? 0
+      : (Math.abs(sourceDelta) * normalizedFps * 1000) / safeElapsedMs
+  const strideFrames =
+    velocityFramesPerSecond >= 36
+      ? Math.max(4, Math.min(120, Math.round(velocityFramesPerSecond * 0.05)))
+      : 1
+  const frameOffsets = [direction, direction * strideFrames, -direction]
+  const timestamps: number[] = []
+  const seen = new Set<number>()
+
+  for (const frameOffset of frameOffsets) {
+    const timestamp = Math.max(0, sourceTime + frameOffset * frameDuration)
+    const key = Math.round(timestamp * normalizedFps * 1_000)
+    if (Math.abs(timestamp - sourceTime) < 1e-7 || seen.has(key)) continue
+    seen.add(key)
+    timestamps.push(timestamp)
+  }
+
+  return timestamps
+}

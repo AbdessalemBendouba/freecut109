@@ -102,6 +102,7 @@ async function tryDrawWorkerPredecodedBitmap(
   sourceTime: number,
   toleranceSeconds: number,
 ): Promise<boolean> {
+  const previewRootFrame = rctx.previewRootTimelineFrame ?? timelineFrame
   const workerSource = rctx.getResolvedVideoSource?.(item) ?? item.src
   if (rctx.renderMode !== 'preview' || !workerSource) {
     return false
@@ -144,7 +145,9 @@ async function tryDrawWorkerPredecodedBitmap(
     workerSource,
     sourceTime,
     toleranceSeconds,
-    rctx.workerPredecodeWaitMs ?? WORKER_PRESEEK_WAIT_MS,
+    rctx.isActivePreviewFrameCurrent?.(previewRootFrame)
+      ? WORKER_PRESEEK_WAIT_MS
+      : (rctx.workerPredecodeWaitMs ?? WORKER_PRESEEK_WAIT_MS),
   )
   if (inflightBitmap && drawBitmap(inflightBitmap)) {
     recordPreviewVideoSource({
@@ -220,6 +223,10 @@ export async function renderVideoItem(
       ? (snappedSourceFrame + 1e-4) / sourceFps
       : rawSourceTime
   const tier2ToleranceSeconds = getTier2VideoFrameToleranceSeconds(sourceFps)
+  const previewRootFrame = rctx.previewRootTimelineFrame ?? frame
+  if (rctx.isActivePreviewFrameSuperseded?.(previewRootFrame)) {
+    return
+  }
   const domVideoElementProvider = rctx.domVideoElementProvider
   // During transitions, frame can lie outside item's natural span (the
   // participant's renderSpan is extended to cover the transition zone), and
@@ -438,6 +445,31 @@ export async function renderVideoItem(
       }
       return
     }
+  }
+
+  const resolvedWorkerSource = rctx.getResolvedVideoSource?.(item) ?? item.src
+  if (
+    rctx.isActivePreviewFrameSuperseded?.(previewRootFrame) ||
+    (resolvedWorkerSource &&
+      rctx.isActivePreviewTargetSuperseded?.(
+        resolvedWorkerSource,
+        sourceTime,
+        tier2ToleranceSeconds,
+      ))
+  ) {
+    // The pointer has already moved and the active worker cancelled this exact
+    // frame. Do not replace that cancellation with a blocking main-thread
+    // MediaBunny seek; the render pump will immediately pick up the latest
+    // target and stale-frame presentation guards keep this canvas hidden.
+    return
+  }
+
+  if (rctx.isActivePreviewFrameCurrent?.(previewRootFrame)) {
+    // Keep the last valid preview visible while the isolated worker finishes
+    // this exact target. The worker-ready subscription wakes the render pump;
+    // avoiding MediaBunny here keeps pointer input and cancellation responsive.
+    rctx.markActivePreviewFramePending?.()
+    return
   }
 
   // === TRY MEDIABUNNY FIRST (fast, precise frame access) ===

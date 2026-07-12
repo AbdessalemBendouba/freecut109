@@ -13,10 +13,16 @@ import { useGizmoStore } from '../stores/gizmo-store'
 import { useCornerPinStore } from '../stores/corner-pin-store'
 import { useMaskEditorStore } from '../stores/mask-editor-store'
 import {
+  activePreviewPreseek,
   backgroundPreseek as workerBackgroundPreseek,
   backgroundBatchPreseek as workerBackgroundBatchPreseek,
+  setActivePreviewRenderTarget,
+  replaceActivePreviewSourceTargets,
+  settleActivePreviewRenderTarget,
+  subscribeActivePreviewReady,
 } from '../utils/decoder-prewarm'
 import { getDirectionalPrewarmOffsets } from '../utils/fast-scrub-prewarm'
+import { resolveProxyUrl } from '../utils/media-resolver'
 import { shouldShowFastScrubOverlay } from '../utils/fast-scrub-overlay-guard'
 import {
   hasPendingPreviewInput,
@@ -51,6 +57,7 @@ import {
   collectPlaybackStartVariableSpeedPrewarmItemIds,
   collectVisibleTrackVideoSourceTimesBySrc,
   getVideoItemSourceTimeSeconds,
+  resolveActivePreviewLookaheadTimestamps,
   resolvePausedVariableSpeedPrewarmPlan,
   shouldRunJumpPreseek,
 } from '../utils/render-pump-preseek'
@@ -70,6 +77,7 @@ import {
   resolveBoundarySourcePrewarmCacheUpdate,
   resolvePrewarmFrameQueueAfterEnqueue,
   resolveScrubPrewarmIdleDelayMs,
+  shouldUseCompositionScrubPrewarm,
 } from '../utils/render-pump-prewarm-plan'
 import { drawSourceToPreviewDisplayCanvas } from '../utils/preview-display-canvas'
 import type { TransitionPreviewSessionTrace } from './use-preview-transition-session-controller'
@@ -338,6 +346,14 @@ export function usePreviewRenderPump({
       drawSourceToPreviewDisplayCanvas(displayCtx, displayCanvas, source)
       setDisplayedFrame(renderedFrame)
       recordPreviewScrubPresented(renderedFrame)
+      const playbackState = usePlaybackStore.getState()
+      if (
+        !playbackState.isPlaying &&
+        playbackState.previewFrame === null &&
+        playbackState.currentFrame === renderedFrame
+      ) {
+        settleActivePreviewRenderTarget(renderedFrame)
+      }
       resolvePlaybackColdStartVisibleFrame(renderedFrame, 'rendered_overlay')
     }
 
@@ -494,6 +510,8 @@ export function usePreviewRenderPump({
     let scrubPrewarmIdleTimeoutId: ReturnType<typeof setTimeout> | null = null
     let lastScrubTargetAtMs = 0
     let scrubPrewarmIdleDelayMs = 40
+    let lastActivePreviewTargetAtMs = 0
+    let lastActivePreviewSourceTimes = new Map<string, number>()
 
     const cancelScrubPrewarmIdleRestart = () => {
       if (scrubPrewarmIdleTimeoutId === null) return
@@ -763,6 +781,13 @@ export function usePreviewRenderPump({
             const renderStartMs = performance.now()
             recordPreviewScrubRenderStarted(frameToRender)
             await renderer.renderFrame(frameToRender)
+            if (
+              'wasLastRenderAborted' in renderer &&
+              renderer.wasLastRenderAborted?.()
+            ) {
+              recordPreviewScrubRenderCompleted(frameToRender)
+              continue
+            }
             // Don't check isStale() here — the priority frame is fully rendered
             // and should always be displayed. Discarding it wastes the decode work
             // and reduces scrub hit rate.
@@ -955,11 +980,19 @@ export function usePreviewRenderPump({
             }
             if (
               !shouldShowPlaybackTransitionOverlay &&
-              !suppressScrubBackgroundPrewarmRef.current
+              !suppressScrubBackgroundPrewarmRef.current &&
+              shouldUseCompositionScrubPrewarm(scrubPrewarmIdleDelayMs)
             ) {
               enqueueDirectionalPrewarm(frameToRender)
               enqueueBoundaryPrewarm(frameToRender)
               enqueueBoundarySourcePrewarm(frameToRender)
+            } else if (!shouldUseCompositionScrubPrewarm(scrubPrewarmIdleDelayMs)) {
+              // Overview/high-velocity drags are served by the cancellable
+              // worker bitmap ring. Main-renderer prewarm can spend hundreds
+              // of milliseconds inside MediaBunny and cannot be interrupted,
+              // so retaining it here would block the next drag behind stale
+              // speculative work.
+              clearPrewarmQueue()
             }
             if (deferredPlaybackTransitionPrepareFrameRef.current !== null) {
               scheduleOpportunisticTransitionPrepare()
@@ -1173,14 +1206,18 @@ export function usePreviewRenderPump({
       return comp ? { fps: comp.fps, items: comp.items } : null
     }
     const resolvePreseekItemSrc = (item: VideoItem) => {
+      const proxyUrl = item.mediaId ? resolveProxyUrl(item.mediaId) : null
       const liveUrl = item.mediaId ? blobUrlManager.get(item.mediaId) : null
-      return liveUrl ?? (item.src || null)
+      return proxyUrl ?? liveUrl ?? (item.src || null)
     }
 
     // Direction-aware preseek: small forward jumps ride mediabunny sequential
     // advance (~1ms/frame), but large forward jumps and most backward jumps
     // need an off-thread keyframe seek (300-600ms) - see shouldRunJumpPreseek.
     const handleLargeJumpPreseek = (state: PlaybackStoreSnapshot, prev: PlaybackStoreSnapshot) => {
+      // Held scrubs use the isolated active-preview lane below. Keep this
+      // general-pool path for atomic paused jumps and keyboard stepping.
+      if (state.previewFrame !== null) return
       const targetFrame = state.previewFrame ?? state.currentFrame
       const previousTargetFrame = prev.previewFrame ?? prev.currentFrame
       if (
@@ -1201,6 +1238,95 @@ export function usePreviewRenderPump({
         })
       recordPreviewPreseekPlan(targetFrame, bySource)
       runBatchPreseek(bySource)
+    }
+
+    const scheduleActiveScrubPreseek = (
+      targetFrame: number,
+      direction: -1 | 0 | 1,
+      nowMs: number,
+    ) => {
+      const bySource = collectVisibleTrackVideoSourceTimesBySrc(combinedTracks, targetFrame, fps, {
+        requireExplicitSourceFps: true,
+        resolveComposition: resolvePreseekComposition,
+        resolveItemSrc: resolvePreseekItemSrc,
+      })
+      if (bySource.size === 0) return
+
+      recordPreviewPreseekPlan(targetFrame, bySource)
+      const elapsedMs =
+        lastActivePreviewTargetAtMs === 0
+          ? Number.POSITIVE_INFINITY
+          : nowMs - lastActivePreviewTargetAtMs
+      lastActivePreviewTargetAtMs = nowMs
+      const nextSourceTimes = new Map<string, number>()
+      let usedDedicatedLane = false
+
+      for (const [src, timestamps] of bySource) {
+        const exactTimestamp = timestamps[0]
+        if (exactTimestamp === undefined) continue
+        nextSourceTimes.set(src, exactTimestamp)
+
+        if (!usedDedicatedLane) {
+          usedDedicatedLane = true
+          void activePreviewPreseek({
+            src,
+            timestamp: exactTimestamp,
+            lookaheadTimestamps: resolveActivePreviewLookaheadTimestamps({
+              sourceTime: exactTimestamp,
+              previousSourceTime: lastActivePreviewSourceTimes.get(src) ?? null,
+              elapsedMs,
+              sourceFps: fps,
+              fallbackDirection: direction,
+            }),
+          })
+          if (timestamps.length > 1) {
+            for (const timestamp of timestamps.slice(1)) {
+              void workerBackgroundPreseek(src, timestamp)
+            }
+          }
+          continue
+        }
+
+        // Stacked secondary sources retain the existing bounded pool. The
+        // top active source always owns the isolated latency-critical lane.
+        for (const timestamp of timestamps) {
+          void workerBackgroundPreseek(src, timestamp)
+        }
+      }
+
+      replaceActivePreviewSourceTargets(bySource)
+      lastActivePreviewSourceTimes = nextSourceTimes
+    }
+
+    const primeActivePreviewDecoderAtFrame = (targetFrame: number) => {
+      const bySource = collectVisibleTrackVideoSourceTimesBySrc(combinedTracks, targetFrame, fps, {
+        requireExplicitSourceFps: true,
+        resolveComposition: resolvePreseekComposition,
+        resolveItemSrc: resolvePreseekItemSrc,
+      })
+      const primarySource = bySource.entries().next().value as
+        | [string, number[]]
+        | undefined
+      if (!primarySource) return
+
+      const [src, timestamps] = primarySource
+      const exactTimestamp = timestamps[0]
+      if (exactTimestamp === undefined) return
+
+      // The worker itself can be warm while its media extractor is still
+      // cold. Prime the latency-critical lane while the preview is paused so
+      // the first held drag does not pay source registration + demux startup.
+      void activePreviewPreseek({
+        src,
+        timestamp: exactTimestamp,
+        lookaheadTimestamps: resolveActivePreviewLookaheadTimestamps({
+          sourceTime: exactTimestamp,
+          previousSourceTime: null,
+          elapsedMs: Number.POSITIVE_INFINITY,
+          sourceFps: fps,
+          fallbackDirection: 0,
+        }),
+      })
     }
 
     const handlePlaybackLifecycleUpdate = (
@@ -1273,6 +1399,7 @@ export function usePreviewRenderPump({
         clearTransitionPlaybackSession()
 
         schedulePausedPlaybackLookahead(state.currentFrame, 'post_pause')
+        primeActivePreviewDecoderAtFrame(state.currentFrame)
       }
     }
 
@@ -1531,6 +1658,9 @@ export function usePreviewRenderPump({
     }
 
     const handleScrubTargetUpdate = (state: PlaybackStoreSnapshot, prev: PlaybackStoreSnapshot) => {
+      const settlingReleasedScrubFrame =
+        state.previewFrame === null && prev.previewFrame !== null ? state.currentFrame : null
+      setActivePreviewRenderTarget(state.previewFrame ?? settlingReleasedScrubFrame)
       if (shouldPreferPlayerForPreview(state.previewFrame)) {
         resetScrubLoopState()
         hideAllOverlays()
@@ -1598,7 +1728,17 @@ export function usePreviewRenderPump({
       const playStateChanged = state.isPlaying !== prev.isPlaying
       const isAtomicScrubTarget = isAtomicPreviewTarget(state)
 
-      if (targetFrame === prevTargetFrame && !playStateChanged) return
+      // Pointer release keeps the same numerical target, but it is still a
+      // first-class committed request. Let it refresh the latest-target
+      // decoder lane and performance timestamp instead of returning as if
+      // no interaction state changed.
+      if (
+        targetFrame === prevTargetFrame &&
+        !playStateChanged &&
+        settlingReleasedScrubFrame === null
+      ) {
+        return
+      }
       if (
         shouldReusePreparedLookaheadOnPlay({
           state,
@@ -1625,11 +1765,12 @@ export function usePreviewRenderPump({
       scrubDirectionRef.current = scrubDirectionPlan.direction
       previewPerfRef.current.scrubUpdates += scrubDirectionPlan.scrubUpdates
       previewPerfRef.current.scrubDroppedFrames += scrubDirectionPlan.scrubDroppedFrames
-      if (targetFrame !== null && state.previewFrame !== null) {
+      const activeScrubTargetFrame = state.previewFrame ?? settlingReleasedScrubFrame
+      if (activeScrubTargetFrame !== null) {
         const nowMs = performance.now()
         scrubPrewarmIdleDelayMs = resolveScrubPrewarmIdleDelayMs({
           frameDelta:
-            prevTargetFrame === null ? 0 : Math.abs(targetFrame - prevTargetFrame),
+            prevTargetFrame === null ? 0 : Math.abs(activeScrubTargetFrame - prevTargetFrame),
           elapsedMs: lastScrubTargetAtMs === 0 ? Number.POSITIVE_INFINITY : nowMs - lastScrubTargetAtMs,
           fps,
         })
@@ -1637,9 +1778,10 @@ export function usePreviewRenderPump({
         cancelScrubPrewarmIdleRestart()
         recordPreviewScrubRequest(
           useEditorStore.getState().workspace,
-          targetFrame,
+          activeScrubTargetFrame,
           scrubDirectionRef.current,
         )
+        scheduleActiveScrubPreseek(activeScrubTargetFrame, scrubDirectionRef.current, nowMs)
       }
 
       if (
@@ -1716,6 +1858,10 @@ export function usePreviewRenderPump({
           const requiresRenderedPath =
             forceFastScrubOverlay || shouldPreserveHighFidelityBackwardPreview(state.currentFrame)
           if (showFastScrubOverlayRef.current) {
+            if (settlingReleasedScrubFrame !== null && requiresRenderedPath) {
+              scrubRequestedFrameRef.current = state.currentFrame
+              void pumpRenderLoop()
+            }
             if (roundedFrame !== state.currentFrame) {
               trackPlayerSeek(state.currentFrame)
               playerRef.current?.seekTo(state.currentFrame)
@@ -1802,6 +1948,15 @@ export function usePreviewRenderPump({
       handlePausedVariableSpeedPrewarm(state, prev)
       handlePausedTransitionPrewarm(state, prev)
       handleScrubTargetUpdate(state, prev)
+    })
+    const unsubscribeActivePreviewReady = subscribeActivePreviewReady(() => {
+      const playbackState = usePlaybackStore.getState()
+      const targetFrame = playbackState.previewFrame ?? playbackState.currentFrame
+      if (!scrubMountedRef.current || playbackState.isPlaying) return
+      scrubRequestedFrameRef.current = targetFrame
+      if (!scrubRenderInFlightRef.current) {
+        void pumpRenderLoop()
+      }
     })
     // During gizmo drags or live preview changes, trigger re-renders even when
     // the frame is unchanged so the fast-scrub overlay does not reuse a stale
@@ -2022,6 +2177,7 @@ export function usePreviewRenderPump({
       scrubRequestedFrameRef.current = initialFrame
       void pumpRenderLoop()
       if (!playbackState.isPlaying && playbackState.previewFrame === null) {
+        primeActivePreviewDecoderAtFrame(initialFrame)
         schedulePausedPlaybackLookahead(initialFrame, 'initial_load', true)
       }
       // Start rAF pump if already playing
@@ -2110,6 +2266,7 @@ export function usePreviewRenderPump({
       renderPumpRestartTimeoutId = null
       resumeScrubLoopRef.current = () => {}
       unsubscribe()
+      unsubscribeActivePreviewReady()
       unsubscribeGizmo()
       unsubscribeCornerPin()
       unsubscribeMaskEditor()

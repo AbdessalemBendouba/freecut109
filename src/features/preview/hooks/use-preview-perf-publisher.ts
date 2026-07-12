@@ -4,6 +4,7 @@ import { usePlaybackStore } from '@/shared/state/playback'
 import { useTimelineStore } from '@/features/preview/deps/timeline-store'
 import { createLogger } from '@/shared/logging/logger'
 import { getDecoderPrewarmMetricsSnapshot } from '../utils/decoder-prewarm'
+import { recordPreviewDecoderMetrics } from '@/shared/logging/preview-scrub-performance'
 import { getEffectivePreviewQuality, getFrameBudgetMs } from '../utils/adaptive-preview-quality'
 import {
   PREVIEW_PERF_PUBLISH_INTERVAL_MS,
@@ -129,6 +130,7 @@ export function usePreviewPerfPublisher({
         ? Math.max(0, seekNow - pendingSeekLatencyRef.current.startedAtMs)
         : 0
       const preseekMetrics = getDecoderPrewarmMetricsSnapshot()
+      recordPreviewDecoderMetrics(preseekMetrics)
       const snapshot: PreviewPerfSnapshot = {
         ts: Date.now(),
         unresolvedQueue: getUnresolvedQueueSize(),
@@ -175,6 +177,16 @@ export function usePreviewPerfPublisher({
         preseekWaitResolved: preseekMetrics.waitResolved,
         preseekWaitTimeouts: preseekMetrics.waitTimeouts,
         preseekCachedBitmaps: preseekMetrics.cacheBitmaps,
+        preseekCachedSources: preseekMetrics.cacheSources,
+        preseekCacheSourceEvictions: preseekMetrics.cacheSourceEvictions,
+        activePreseekRequests: preseekMetrics.activeRequests,
+        activePreseekWorkerPosts: preseekMetrics.activeWorkerPosts,
+        activePreseekCancellations: preseekMetrics.activeCancellations,
+        activePreseekSuperseded: preseekMetrics.activeSupersededRequests,
+        activePreseekLookaheadPosts: preseekMetrics.activeLookaheadPosts,
+        activePreseekExtractorCount: preseekMetrics.activeExtractorCount,
+        activePreseekExtractorPeak: preseekMetrics.activeExtractorPeak,
+        activePreseekReadyNotifications: preseekMetrics.activeReadyNotifications,
         staleScrubOverlayDrops: stats.staleScrubOverlayDrops,
         scrubDroppedFrames: stats.scrubDroppedFrames,
         scrubUpdates: stats.scrubUpdates,

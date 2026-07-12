@@ -10,7 +10,7 @@ export interface PreviewScrubRequestSample {
 
 export interface PreviewCompositionRenderSample {
   frame: number
-  path: 'cache-hit' | 'direct' | 'full'
+  path: 'cache-hit' | 'direct' | 'full' | 'aborted'
   ms: number
   planMs?: number
   taskMs?: number
@@ -19,6 +19,11 @@ export interface PreviewCompositionRenderSample {
   finalizeMs?: number
   taskCount?: number
   transitionCount?: number
+  slowTasks?: Array<{
+    id: string
+    kind: string
+    ms: number
+  }>
 }
 
 export interface PreviewScrubPresentedSample {
@@ -60,6 +65,27 @@ export interface PreviewCanvasPoolSample {
   temporaryAllocations: number
 }
 
+export interface PreviewDecoderMetricsSample {
+  requests: number
+  cacheHits: number
+  workerPosts: number
+  workerSuccesses: number
+  workerFailures: number
+  supersededRequests: number
+  cacheSources: number
+  cacheBitmaps: number
+  cacheSourceEvictions: number
+  activeRequests: number
+  activeCacheHits: number
+  activeWorkerPosts: number
+  activeCancellations: number
+  activeSupersededRequests: number
+  activeLookaheadPosts: number
+  activeExtractorCount: number
+  activeExtractorPeak: number
+  activeReadyNotifications: number
+}
+
 export interface PreviewScrubPerformanceState {
   version: 1
   requests: PreviewScrubRequestSample[]
@@ -68,6 +94,7 @@ export interface PreviewScrubPerformanceState {
   videoSources: PreviewVideoSourceSample[]
   preseeks: PreviewPreseekPlanSample[]
   canvasPools: PreviewCanvasPoolSample[]
+  decoder: PreviewDecoderMetricsSample | null
   reset: () => void
 }
 
@@ -131,6 +158,7 @@ function scheduleDomSnapshot(state: PreviewScrubPerformanceState): void {
       videoSources: state.videoSources,
       preseeks: state.preseeks,
       canvasPools: state.canvasPools,
+      decoder: state.decoder,
     })
   }, PERF_SNAPSHOT_DEBOUNCE_MS)
 }
@@ -144,6 +172,7 @@ function createPerformanceState(): PreviewScrubPerformanceState {
     videoSources: [],
     preseeks: [],
     canvasPools: [],
+    decoder: null,
     reset: () => {
       state.requests.length = 0
       state.renders.length = 0
@@ -151,6 +180,7 @@ function createPerformanceState(): PreviewScrubPerformanceState {
       state.videoSources.length = 0
       state.preseeks.length = 0
       state.canvasPools.length = 0
+      state.decoder = null
       resetInternalState()
       scheduleDomSnapshot(state)
     },
@@ -282,6 +312,13 @@ export function recordPreviewCanvasPool(sample: PreviewCanvasPoolSample): void {
     sample.temporaryAllocations,
   )
   pushBounded(state.canvasPools, sample)
+  scheduleDomSnapshot(state)
+}
+
+export function recordPreviewDecoderMetrics(sample: PreviewDecoderMetricsSample): void {
+  const state = getPerformanceState()
+  if (!state) return
+  state.decoder = { ...sample }
   scheduleDomSnapshot(state)
 }
 

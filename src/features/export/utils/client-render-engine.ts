@@ -204,7 +204,7 @@ export function resolveRenderedFrameCacheMode({
 //   — or record a Performance profile and look for `scrub.renderFrame.*`.
 interface ScrubPerfSample {
   f: number
-  path: 'cache-hit' | 'direct' | 'full'
+  path: 'cache-hit' | 'direct' | 'full' | 'aborted'
   ms: number
   planMs?: number
   taskMs?: number
@@ -213,6 +213,7 @@ interface ScrubPerfSample {
   finalizeMs?: number
   taskCount?: number
   transitionCount?: number
+  slowTasks?: Array<{ id: string; kind: string; ms: number }>
 }
 type ScrubPerfGlobal = {
   __SCRUB_PERF__?: boolean
@@ -358,6 +359,8 @@ export async function createCompositionRenderer(
   const FRAME_CACHE_ENABLED = renderMode === 'preview'
   const scrubbingCache = FRAME_CACHE_ENABLED ? new ScrubbingCache() : null
   let lastRenderedFrame: number | null = null
+  let lastRenderAborted = false
+  let activePreviewFramePending = false
   let liveDomVideoPlaybackActive = Boolean(domVideoElementProvider)
   let scrubbingFrameCacheActive = shouldUseScrubbingFrameCache(
     Boolean(scrubbingCache),
@@ -766,6 +769,9 @@ export async function createCompositionRenderer(
     },
     domVideoElementProvider,
   }
+  itemRenderContext.markActivePreviewFramePending = () => {
+    activePreviewFramePending = true
+  }
 
   // Track the SubComposition identity we last built each entry from so we only
   // rebuild when the Zustand store produced a new reference (effects added,
@@ -922,14 +928,29 @@ export async function createCompositionRenderer(
   itemRenderContext.ensureVideoItemReady = ensureVideoItemReady
 
   // Wire up pre-decoded bitmap cache from the decoder prewarm worker.
-  // Import eagerly so it's available before the first render.
+  // Resolve the adapter before returning the preview renderer. The first held
+  // scrub may call renderFrame immediately; a fire-and-forget import lets that
+  // first frame enter blocking MediaBunny before cancellation is wired.
   if (renderMode === 'preview') {
-    void import('@/features/export/deps/preview-contract')
-      .then(({ getCachedPredecodedBitmap, waitForInflightPredecodedBitmap }) => {
-        itemRenderContext.getCachedPredecodedBitmap = getCachedPredecodedBitmap
-        itemRenderContext.waitForInflightPredecodedBitmap = waitForInflightPredecodedBitmap
-      })
-      .catch(() => {})
+    try {
+      const {
+        getCachedPredecodedBitmap,
+        isActivePreviewFrameCurrent,
+        isActivePreviewFrameDecodeReady,
+        isActivePreviewFrameSuperseded,
+        isActivePreviewTargetSuperseded,
+        waitForInflightPredecodedBitmap,
+      } = await import('@/features/export/deps/preview-contract')
+      itemRenderContext.getCachedPredecodedBitmap = getCachedPredecodedBitmap
+      itemRenderContext.isActivePreviewFrameCurrent = isActivePreviewFrameCurrent
+      itemRenderContext.isActivePreviewFrameDecodeReady = isActivePreviewFrameDecodeReady
+      itemRenderContext.isActivePreviewFrameSuperseded = isActivePreviewFrameSuperseded
+      itemRenderContext.waitForInflightPredecodedBitmap = waitForInflightPredecodedBitmap
+      itemRenderContext.isActivePreviewTargetSuperseded = isActivePreviewTargetSuperseded
+    } catch {
+      // Preview can still fall back to its ordinary media path if the optional
+      // worker adapter is unavailable in a constrained runtime.
+    }
   }
 
   const reportPreviewDecodeCoverage = (expectedReadyItemIds: Iterable<string>) => {
@@ -1533,6 +1554,29 @@ export async function createCompositionRenderer(
 
     async renderFrame(frame: number) {
       const scrubPerfStartMs = scrubPerfStart()
+      lastRenderAborted = false
+      activePreviewFramePending = false
+      itemRenderContext.previewRootTimelineFrame = frame
+      const isSupersededActivePreviewFrame = () =>
+        renderMode === 'preview' &&
+        itemRenderContext.isActivePreviewFrameSuperseded?.(frame) === true
+      const abortActivePreviewRender = () => {
+        if (!lastRenderAborted) {
+          recordScrubPerf(frame, 'aborted', scrubPerfStartMs)
+        }
+        lastRenderAborted = true
+      }
+      if (isSupersededActivePreviewFrame()) {
+        abortActivePreviewRender()
+        return
+      }
+      if (
+        itemRenderContext.isActivePreviewFrameCurrent?.(frame) &&
+        itemRenderContext.isActivePreviewFrameDecodeReady?.(frame) === false
+      ) {
+        abortActivePreviewRender()
+        return
+      }
       // 3-tier cache lookup (preview only)
       // Tier 1 (GPU texture) → Tier 3 (RAM ImageBitmap) → miss → full render
       if (scrubbingCache && scrubbingFrameCacheActive) {
@@ -1571,6 +1615,10 @@ export async function createCompositionRenderer(
       // hot path — the await only runs the frame after an override edit.
       if (renderMode === 'preview' && lottieItems.length > 0 && lottieOverridesAreStale()) {
         await ensureLottieOverridesFresh()
+        if (isSupersededActivePreviewFrame()) {
+          abortActivePreviewRender()
+          return
+        }
       }
 
       // Clear canvas
@@ -1685,6 +1733,10 @@ export async function createCompositionRenderer(
             itemRenderContext.gpuMaskCombinePipeline = gpu.maskCombine
           }
         }
+      }
+      if (isSupersededActivePreviewFrame()) {
+        abortActivePreviewRender()
+        return
       }
 
       /**
@@ -1845,6 +1897,10 @@ export async function createCompositionRenderer(
       }
 
       if (shouldDirectRenderSingleTask) {
+        if (isSupersededActivePreviewFrame()) {
+          abortActivePreviewRender()
+          return
+        }
         const directTask = renderTasks[0]
         if (directTask?.type === 'item') {
           const blendMode = getEffectiveBlendMode(getCurrentItem(directTask.item))
@@ -1859,6 +1915,11 @@ export async function createCompositionRenderer(
               ctx.globalCompositeOperation = 'source-over'
             }
           }
+        }
+
+        if (isSupersededActivePreviewFrame() || activePreviewFramePending) {
+          abortActivePreviewRender()
+          return
         }
 
         cacheRenderedFrame(frame)
@@ -1881,6 +1942,7 @@ export async function createCompositionRenderer(
       // Parallelize item rendering (video decode is the bottleneck).
       // Collect all renderable items in z-order, fire all renders concurrently,
       // then composite results in z-order.
+      const scrubSlowTasks: Array<{ id: string; kind: string; ms: number }> = []
       {
         if (occlusionCutoffOrder !== null) {
           skippedTracks = sortedTracks.filter(
@@ -1915,62 +1977,114 @@ export async function createCompositionRenderer(
         const renderTask = async (
           task: (typeof renderTasks)[number],
         ): Promise<RenderedTaskResult | null> => {
-          if (task.type === 'item') {
-            const item = getCurrentItem(task.item)
-            const canSeparateMasks =
-              useGpuCompositor && gpu.texturePool && !hasCornerPin(item.cornerPin)
-            return renderItemWithEffects(
-              task.item,
-              task.trackOrder,
-              true,
-              contentCtx,
-              !canSeparateMasks,
-              false,
-            )
-          }
-          const transitionMasks = activeMasks.filter((mask) =>
-            doesMaskAffectTrack(mask.trackOrder, task.trackOrder),
-          )
-          if (
-            useGpuCompositor &&
-            gpu.texturePool &&
-            transitionMasks.length === 0 &&
-            itemRenderContext.gpuTransitionPipeline
-          ) {
-            const transitionTexture = gpu.texturePool.acquire(
-              canvasSettings.width,
-              canvasSettings.height,
-            )
-            const renderedToTexture = await renderTransitionToGpuTexture(
-              transitionTexture,
-              task.transition,
-              frame,
-              itemRenderContext,
-              task.trackOrder,
-              gpu.texturePool,
-            )
-            if (renderedToTexture) {
-              return {
-                gpuTexture: transitionTexture,
-                poolCanvases: [],
-              } satisfies RenderedTaskResult
+          const taskStartMs = scrubPerfStartMs >= 0 ? performance.now() : -1
+          try {
+            if (isSupersededActivePreviewFrame()) return null
+            if (task.type === 'item') {
+              const item = getCurrentItem(task.item)
+              const canSeparateMasks =
+                useGpuCompositor && gpu.texturePool && !hasCornerPin(item.cornerPin)
+              return renderItemWithEffects(
+                task.item,
+                task.trackOrder,
+                true,
+                contentCtx,
+                !canSeparateMasks,
+                false,
+              )
             }
-            gpu.texturePool.release(transitionTexture)
+            const transitionMasks = activeMasks.filter((mask) =>
+              doesMaskAffectTrack(mask.trackOrder, task.trackOrder),
+            )
+            if (
+              useGpuCompositor &&
+              gpu.texturePool &&
+              transitionMasks.length === 0 &&
+              itemRenderContext.gpuTransitionPipeline
+            ) {
+              const transitionTexture = gpu.texturePool.acquire(
+                canvasSettings.width,
+                canvasSettings.height,
+              )
+              const renderedToTexture = await renderTransitionToGpuTexture(
+                transitionTexture,
+                task.transition,
+                frame,
+                itemRenderContext,
+                task.trackOrder,
+                gpu.texturePool,
+              )
+              if (renderedToTexture) {
+                return {
+                  gpuTexture: transitionTexture,
+                  poolCanvases: [],
+                } satisfies RenderedTaskResult
+              }
+              gpu.texturePool.release(transitionTexture)
+            }
+            // Transitions: render to a dedicated canvas
+            return renderTransitionFallbackCanvas(task)
+          } finally {
+            if (taskStartMs >= 0) {
+              const taskMs = performance.now() - taskStartMs
+              if (taskMs >= 8) {
+                const currentItem = task.type === 'item' ? getCurrentItem(task.item) : null
+                scrubSlowTasks.push({
+                  id:
+                    currentItem?.id ??
+                    (task.type === 'transition' ? task.transition.transition.id : 'unknown'),
+                  kind: currentItem?.type ?? task.type,
+                  ms: Number(taskMs.toFixed(2)),
+                })
+              }
+            }
           }
-          // Transitions: render to a dedicated canvas
-          return renderTransitionFallbackCanvas(task)
+        }
+
+        const renderTasksWithInteractionLimit = async () => {
+          const results: Array<RenderedTaskResult | null> = Array(renderTasks.length).fill(null)
+          const concurrency = renderMode === 'preview'
+            ? Math.min(1, renderTasks.length)
+            : renderTasks.length
+          let nextTaskIndex = 0
+          const worker = async () => {
+            while (nextTaskIndex < renderTasks.length) {
+              if (isSupersededActivePreviewFrame()) return
+              const taskIndex = nextTaskIndex++
+              results[taskIndex] = await renderTask(renderTasks[taskIndex]!)
+            }
+          }
+          await Promise.all(Array.from({ length: concurrency }, () => worker()))
+          return results
         }
 
         let results: Array<RenderedTaskResult | null>
         try {
-          // Fire all item renders in parallel (video decodes run concurrently).
-          results = await Promise.all(renderTasks.map((task) => renderTask(task)))
+          // Ordinary playback/export retains full parallelism. Active scrubs
+          // cap item-level concurrency so a complex frame cannot exhaust the
+          // canvas pool while its exact worker bitmaps are still arriving.
+          results = await renderTasksWithInteractionLimit()
           scrubPerfTaskEndMs = scrubPerfStartMs >= 0 ? performance.now() : -1
         } finally {
           // End GPU pool mode before compositing, even if one task fails.
           if (shouldUseDeferredGpuBatch && itemRenderContext.gpuPipeline) {
             itemRenderContext.gpuPipeline.endBatch()
           }
+        }
+
+        if (isSupersededActivePreviewFrame() || activePreviewFramePending) {
+          for (const result of results) {
+            if (!result) continue
+            for (const pooledCanvas of result.poolCanvases) {
+              canvasPool.release(pooledCanvas)
+            }
+            if (result.gpuTexture) {
+              gpu.texturePool?.release(result.gpuTexture)
+            }
+          }
+          canvasPool.release(contentCanvas)
+          abortActivePreviewRender()
+          return
         }
 
         // Consume pooled WebGPU canvases synchronously below. Awaiting the queue
@@ -2023,8 +2137,13 @@ export async function createCompositionRenderer(
           finalizeMs: Number((scrubPerfEndMs - scrubPerfCompositeEndMs).toFixed(2)),
           taskCount: renderTasks.length,
           transitionCount: activeTransitions.length,
+          slowTasks: scrubSlowTasks.length > 0 ? scrubSlowTasks : undefined,
         })
       }
+    },
+
+    wasLastRenderAborted() {
+      return lastRenderAborted
     },
 
     async prewarmFrame(frame: number) {

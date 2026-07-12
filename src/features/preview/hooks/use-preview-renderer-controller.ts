@@ -207,7 +207,6 @@ export function usePreviewRendererController({
   setCaptureCanvasSource,
   setDisplayedFrame,
 }: UsePreviewRendererControllerParams) {
-  const useProxy = usePlaybackStore((state) => state.useProxy)
   const previousVisualStateRef = useRef<{
     tracks: CompositionInputProps['tracks']
     keyframes: CompositionInputProps['keyframes']
@@ -380,7 +379,7 @@ export function usePreviewRendererController({
           offscreenCtx,
           {
             mode: 'preview',
-            useProxyMedia: useProxy,
+            useProxyMedia: true,
             getPreviewTransformOverride,
             getPreviewEffectsOverride,
             getPreviewCornerPinOverride,
@@ -422,7 +421,6 @@ export function usePreviewRendererController({
     isResolving,
     renderSize.height,
     renderSize.width,
-    useProxy,
   ])
 
   const ensureBgTransitionRenderer =
@@ -446,7 +444,7 @@ export function usePreviewRendererController({
           const { createCompositionRenderer } = await importCompositionRenderer()
           const renderer = await createCompositionRenderer(fastScrubInputProps, canvas, ctx, {
             mode: 'preview',
-            useProxyMedia: useProxy,
+            useProxyMedia: true,
             getPreviewTransformOverride,
             getPreviewEffectsOverride,
             getPreviewCornerPinOverride,
@@ -481,10 +479,9 @@ export function usePreviewRendererController({
       getPreviewPathVerticesOverride,
       getPreviewTransformOverride,
       isResolving,
-      renderSize.height,
-      renderSize.width,
-      useProxy,
-    ])
+        renderSize.height,
+        renderSize.width,
+      ])
 
   const ensureFastScrubRenderer =
     useCallback(async (): Promise<PreviewCompositionRenderer | null> => {
@@ -524,7 +521,7 @@ export function usePreviewRendererController({
             offscreenCtx,
             {
               mode: 'preview',
-              useProxyMedia: useProxy,
+              useProxyMedia: true,
               getPreviewTransformOverride,
               getPreviewEffectsOverride,
               getPreviewCornerPinOverride,
@@ -637,11 +634,10 @@ export function usePreviewRendererController({
       scrubOffscreenCtxRef,
       scrubOffscreenRenderedFrameRef,
       scrubPreloadPromiseRef,
-      scrubRendererRef,
-      scrubRendererStructureKeyRef,
-      scrubRequestedFrameRef,
-      useProxy,
-    ])
+        scrubRendererRef,
+        scrubRendererStructureKeyRef,
+        scrubRequestedFrameRef,
+      ])
   ensureFastScrubRendererRef.current = ensureFastScrubRenderer
 
   // Captures share the offscreen canvas (and renderer) with the render pump.

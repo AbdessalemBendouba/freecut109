@@ -56,6 +56,10 @@ export function resolveScrubPrewarmIdleDelayMs({
   return 40
 }
 
+export function shouldUseCompositionScrubPrewarm(idleDelayMs: number): boolean {
+  return idleDelayMs < 120
+}
+
 export function resolvePrewarmFrameQueueAfterEnqueue({
   frame,
   queue,
