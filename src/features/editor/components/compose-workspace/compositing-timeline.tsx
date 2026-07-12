@@ -1,4 +1,13 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { toast } from 'sonner'
@@ -151,51 +160,103 @@ interface RenameTarget {
   id: string
 }
 
-interface MotionPlayheadProps {
-  frame: number
-  totalFrames: number
-  handle?: 'flag' | 'none'
-  testId?: string
-}
-
-const MotionPlayhead = memo(function MotionPlayhead({
-  frame,
-  totalFrames,
-  handle = 'none',
-  testId,
-}: MotionPlayheadProps) {
-  return (
-    <div
-      data-testid={testId}
-      className="pointer-events-none absolute inset-y-0 z-20"
-      style={{ left: `${framePercent(frame, totalFrames)}%` }}
-    >
-      <PlayheadMarks
-        handle={handle}
-        bleedBottom
-      />
-    </div>
-  )
-})
-
 const MotionPlayheadOverlay = memo(function MotionPlayheadOverlay({
   timeViewport,
 }: {
   timeViewport: MotionTimeViewport
 }) {
-  const currentFrame = usePlaybackStore((state) => state.currentFrame)
-  const previewFrame = usePlaybackStore((state) => state.previewFrame)
-  const visibleFrameRange = Math.max(1, timeViewport.endFrame - timeViewport.startFrame)
-  const displayFrame = previewFrame ?? currentFrame
+  const playheadRef = useRef<HTMLDivElement>(null)
+  const viewportRef = useRef(timeViewport)
+  viewportRef.current = timeViewport
 
-  if (displayFrame < timeViewport.startFrame || displayFrame > timeViewport.endFrame) return null
+  const updatePosition = useCallback(() => {
+    const element = playheadRef.current
+    if (!element) return
+    const viewport = viewportRef.current
+    const playback = usePlaybackStore.getState()
+    const displayFrame = playback.previewFrame ?? playback.currentFrame
+    if (displayFrame < viewport.startFrame || displayFrame > viewport.endFrame) {
+      element.hidden = true
+      return
+    }
+    element.hidden = false
+    const width = element.parentElement?.clientWidth ?? 0
+    const visibleFrameRange = Math.max(1, viewport.endFrame - viewport.startFrame)
+    const x = ((displayFrame - viewport.startFrame) / visibleFrameRange) * width
+    element.style.transform = `translate3d(${x}px, 0, 0)`
+  }, [])
+
+  useLayoutEffect(updatePosition, [timeViewport, updatePosition])
+  useEffect(
+    () =>
+      usePlaybackStore.subscribe((state, previous) => {
+        if (
+          state.currentFrame !== previous.currentFrame ||
+          state.previewFrame !== previous.previewFrame
+        ) {
+          updatePosition()
+        }
+      }),
+    [updatePosition],
+  )
 
   return (
-    <MotionPlayhead
-      frame={displayFrame - timeViewport.startFrame}
-      totalFrames={visibleFrameRange}
-      handle="flag"
-      testId="motion-playhead"
+    <div
+      ref={playheadRef}
+      data-testid="motion-playhead"
+      className="pointer-events-none absolute inset-y-0 left-0 z-20 will-change-transform"
+    >
+      <PlayheadMarks handle="flag" bleedBottom />
+    </div>
+  )
+})
+
+/**
+ * Property editors need the frame while paused/scrubbing, but feeding every
+ * playback tick through React makes every expanded dopesheet rerender. During
+ * playback the selector collapses to a stable sentinel; pausing publishes the
+ * latest frame once so inputs and keyframe controls catch up immediately.
+ */
+function useSettledMotionFrame(): number {
+  const [settledFrame, setSettledFrame] = useState(
+    () => usePlaybackStore.getState().previewFrame ?? usePlaybackStore.getState().currentFrame,
+  )
+  const settledFrameRef = useRef(settledFrame)
+
+  useEffect(
+    () =>
+      usePlaybackStore.subscribe((state) => {
+        if (state.isPlaying || state.previewFrame !== null) return
+        const nextFrame = state.currentFrame
+        if (nextFrame === settledFrameRef.current) return
+        settledFrameRef.current = nextFrame
+        setSettledFrame(nextFrame)
+      }),
+    [],
+  )
+
+  return settledFrame
+}
+
+const MotionCompactNavigator = memo(function MotionCompactNavigator({
+  viewport,
+  contentFrameMax,
+  minVisibleFrames,
+  onViewportChange,
+}: {
+  viewport: MotionTimeViewport
+  contentFrameMax: number
+  minVisibleFrames: number
+  onViewportChange: (viewport: MotionTimeViewport) => void
+}) {
+  const currentFrame = useSettledMotionFrame()
+  return (
+    <CompactNavigator
+      viewport={viewport}
+      currentFrame={currentFrame}
+      contentFrameMax={contentFrameMax}
+      minVisibleFrames={minVisibleFrames}
+      onViewportChange={onViewportChange}
     />
   )
 })
@@ -274,7 +335,6 @@ interface MotionDopesheetLanesProps {
   item: TimelineItem
   properties: AnimatableProperty[]
   compositionDurationInFrames: number
-  currentFrame: number
   fps: number
   canvas: { width: number; height: number }
   propertyFilter: 'all' | 'keyframed'
@@ -290,7 +350,6 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   item,
   properties,
   compositionDurationInFrames,
-  currentFrame,
   fps,
   canvas,
   propertyFilter,
@@ -301,6 +360,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   onScrub,
   onTimeViewportChange,
 }: MotionDopesheetLanesProps) {
+  const currentFrame = useSettledMotionFrame()
   const rootRef = useRef<HTMLDivElement>(null)
   const dragSnapshotRef = useRef<ReturnType<typeof captureSnapshot> | null>(null)
   const [width, setWidth] = useState(0)
@@ -609,11 +669,6 @@ function getBasePropertyValue(
   }
 }
 
-function framePercent(frame: number, totalFrames: number): number {
-  if (totalFrames <= 0) return 0
-  return Math.max(0, Math.min(100, (frame / totalFrames) * 100))
-}
-
 function normalizeMotionTimeViewport(
   viewport: MotionTimeViewport,
   totalFrames: number,
@@ -754,7 +809,6 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const { items, tracks } = useItemsStore(
     useShallow((state) => ({ items: state.items, tracks: state.tracks })),
   )
-  const currentFrame = usePlaybackStore((state) => state.currentFrame)
   const setScrubFrame = usePlaybackStore((state) => state.setScrubFrame)
   const setPreviewFrame = usePlaybackStore((state) => state.setPreviewFrame)
   const pause = usePlaybackStore((state) => state.pause)
@@ -995,10 +1049,12 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       const itemIdSet = new Set(itemIds)
       const copiedItems = items.filter((item) => itemIdSet.has(item.id))
       if (copiedItems.length === 0) return
-      useClipboardStore.getState().copyItems(copiedItems, currentFrame, 'copy')
+      useClipboardStore
+        .getState()
+        .copyItems(copiedItems, usePlaybackStore.getState().currentFrame, 'copy')
       toast.success(copiedItems.length === 1 ? 'Copied layer' : `Copied ${copiedItems.length} layers`)
     },
-    [currentFrame, items],
+    [items],
   )
 
   const duplicateLayers = useCallback(
@@ -1062,6 +1118,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       const clipboard = useClipboardStore.getState().itemsClipboard
       if (!clipboard || clipboard.items.length === 0) return
 
+      const pasteFrame = usePlaybackStore.getState().currentFrame
       const maxOrder = Math.max(-1, ...tracks.map((track) => track.order))
       const newTracks: TimelineTrack[] = []
       const newItems: TimelineItem[] = []
@@ -1105,7 +1162,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           id: itemId,
           originId: itemId,
           trackId,
-          from: Math.max(0, currentFrame + itemData.from),
+          from: Math.max(0, pasteFrame + itemData.from),
           linkedGroupId: undefined,
         } as TimelineItem)
       }
@@ -1114,7 +1171,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       selectItems(newItems.map((item) => item.id))
       toast.success(newItems.length === 1 ? 'Pasted layer' : `Pasted ${newItems.length} layers`)
     },
-    [activeCompositionId, compositionById, currentFrame, selectItems, trackById, tracks],
+    [activeCompositionId, compositionById, selectItems, trackById, tracks],
   )
 
   const deleteLayers = useCallback(
@@ -1431,7 +1488,10 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       clearMediaDragData()
       if (!payload || typeof payload !== 'object') return
 
-      const dropFrame = Math.max(0, Math.min(durationInFrames - 1, currentFrame))
+      const dropFrame = Math.max(
+        0,
+        Math.min(durationInFrames - 1, usePlaybackStore.getState().currentFrame),
+      )
       const candidate = payload as { type?: unknown; compositionId?: unknown }
       if (candidate.type === 'composition' && typeof candidate.compositionId === 'string') {
         insertCompositionLayer(candidate.compositionId, dropFrame)
@@ -1523,7 +1583,6 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     },
     [
       composition,
-      currentFrame,
       durationInFrames,
       fps,
       insertCompositionLayer,
@@ -2436,7 +2495,6 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                       item={item}
                       properties={properties}
                       compositionDurationInFrames={durationInFrames}
-                      currentFrame={currentFrame}
                       fps={fps}
                       canvas={composition}
                       propertyFilter={propertyFilter}
@@ -2483,9 +2541,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           data-start-frame={timeViewport.startFrame}
           data-end-frame={timeViewport.endFrame}
         >
-          <CompactNavigator
+          <MotionCompactNavigator
             viewport={timeViewport}
-            currentFrame={currentFrame}
             contentFrameMax={durationInFrames}
             minVisibleFrames={Math.min(10, durationInFrames)}
             onViewportChange={updateTimeViewport}

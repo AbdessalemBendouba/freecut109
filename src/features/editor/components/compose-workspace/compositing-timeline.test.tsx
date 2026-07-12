@@ -175,6 +175,45 @@ describe('CompositingTimeline', () => {
     animationFrameSpy.mockRestore()
   })
 
+  it('keeps expanded property editors render-idle until a scrub settles', () => {
+    useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 0, 100)
+    useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 60, 300)
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+    const input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
+    const ruler = screen.getByText('0.0s').parentElement!.parentElement!
+    vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 28,
+      width: 300,
+      height: 28,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(ruler, { pointerId: 3, button: 0, clientX: 0 })
+    fireEvent.pointerMove(ruler, { pointerId: 3, buttons: 1, clientX: 150 })
+    act(() => frameCallbacks.shift()?.(performance.now()))
+
+    expect(usePlaybackStore.getState().previewFrame).toBe(60)
+    expect(input).toHaveValue(100)
+
+    fireEvent.pointerUp(ruler, { pointerId: 3, clientX: 150 })
+    expect(input).toHaveValue(300)
+    animationFrameSpy.mockRestore()
+  })
+
   it('keeps ctrl-wheel zoom while leaving ordinary wheel input to vertical scrolling', () => {
     render(<CompositingTimeline />)
     const scrollArea = screen.getByTestId('motion-layer-scroll-area')
@@ -422,6 +461,25 @@ describe('CompositingTimeline', () => {
     fireEvent.blur(input)
 
     expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
+  })
+
+  it('keeps expanded property editors off the playback-frame render path', () => {
+    useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 0, 100)
+    useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 60, 300)
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    const input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
+    expect(input).toHaveValue(100)
+
+    act(() => {
+      usePlaybackStore.getState().play()
+      usePlaybackStore.getState().setCurrentFrame(60)
+    })
+    expect(input).toHaveValue(100)
+
+    act(() => usePlaybackStore.getState().pause())
+    expect(input).toHaveValue(300)
   })
 
   it('edits a selected keyframe before creating one at the playhead', () => {
