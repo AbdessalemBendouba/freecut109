@@ -248,7 +248,14 @@ describe('CompositingTimeline', () => {
       toJSON: () => ({}),
     })
 
-    expect(screen.getByTestId('motion-time-navigator')).toBeInTheDocument()
+    expect(screen.getByTestId('motion-time-navigator')).toHaveAttribute(
+      'data-start-frame',
+      '0',
+    )
+    expect(screen.getByTestId('motion-time-navigator')).toHaveAttribute(
+      'data-end-frame',
+      '120',
+    )
     expect(screen.getByText('0.0s')).toBeInTheDocument()
     expect(screen.getByText('4.0s')).toBeInTheDocument()
 
@@ -635,6 +642,21 @@ describe('CompositingTimeline', () => {
     },
     10_000,
   )
+
+  it('hides the expanded child area when no properties are animated', async () => {
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+    expect(screen.getByText('X Position')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('combobox', { name: 'Property filter' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Animated properties' }))
+
+    expect(screen.queryByText('X Position')).not.toBeInTheDocument()
+    expect(screen.queryByText('No parameters match the current view')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Collapse layer properties' }),
+    ).not.toBeInTheDocument()
+  })
 
   it('exposes layer actions in the context menu and renames inline', async () => {
     render(<CompositingTimeline />)

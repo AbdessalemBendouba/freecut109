@@ -2459,10 +2459,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         ? (showGraphPane || selectedCurveVisibleExternally) && selectedProperty === row.property
         : graphVisibleProperties.has(row.property);
       const rowLabel = getKeyframePropertyLabel(t, row.property);
-      const showLeftClusterAtRest =
-        (autoKeyEnabledByProperty[row.property] ?? false) ||
-        rowLocked ||
-        curveVisible;
 
       return (
         <div
@@ -2472,7 +2468,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             // faint vertical spine so the column reads as a tree.
             options?.indented &&
               "relative pl-6 before:absolute before:inset-y-0 before:left-3 before:w-px before:bg-border/40 before:content-['']",
-            row.controls.hasKeyframeAtCurrentFrame && "bg-primary/10",
+            row.controls.hasKeyframeAtCurrentFrame &&
+              (presentation === "lanes" ? "bg-accent/70" : "bg-primary/10"),
             showGraphPane &&
               graphVisibleProperties.has(row.property) &&
               "bg-accent/40",
@@ -2486,11 +2483,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           }
         >
           <div
-            className={cn(
-              "flex items-center gap-px self-stretch",
-              !showLeftClusterAtRest &&
-                "opacity-0 transition-opacity duration-100 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto",
-            )}
+            className="flex items-center gap-px self-stretch"
           >
             <Button
               type="button"
@@ -2711,7 +2704,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground opacity-0 transition-opacity duration-100 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto"
+                className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
                 onClick={() =>
                   handleRowNavigate(row.property, row.controls.prevKeyframe)
                 }
@@ -2813,7 +2806,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground opacity-0 transition-opacity duration-100 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto"
+                className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
                 onClick={() =>
                   handleRowNavigate(row.property, row.controls.nextKeyframe)
                 }
@@ -2838,7 +2831,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground opacity-0 transition-opacity duration-100 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto"
+              className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
               onClick={(event) => {
                 event.stopPropagation();
                 handleClearProperty(row.property);
@@ -2879,6 +2872,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onCurveVisibilityChange,
       onPropertyValueCommit,
       propertyValues,
+      presentation,
       selectedProperty,
       selectedCurveVisibleExternally,
       t,

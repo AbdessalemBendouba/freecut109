@@ -531,6 +531,13 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     [item.durationInFrames, item.from],
   )
 
+  // In Motion's embedded lane view, an animated-only filter with no keyed
+  // properties should consume no vertical space beneath the layer header.
+  // The full graph editor keeps its empty guidance because it owns the pane.
+  if (paneMode === 'lanes' && propertyFilter === 'keyframed' && visiblePropertyCount === 0) {
+    return null
+  }
+
   return (
     <div
       ref={rootRef}
@@ -843,6 +850,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const { items, tracks } = useItemsStore(
     useShallow((state) => ({ items: state.items, tracks: state.tracks })),
   )
+  const keyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
   const setScrubFrame = usePlaybackStore((state) => state.setScrubFrame)
   const setPreviewFrame = usePlaybackStore((state) => state.setPreviewFrame)
   const pause = usePlaybackStore((state) => state.pause)
@@ -871,7 +879,10 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     ...items.map((item) => item.from + item.durationInFrames),
   )
   const fps = composition?.fps ?? 30
-  useEffect(() => {
+  // Fit the entire composition before paint whenever Motion opens or switches
+  // compositions. Subsequent duration changes only clamp the user's viewport,
+  // so manual zoom/pan remains stable while editing.
+  useLayoutEffect(() => {
     if (viewportCompositionIdRef.current !== activeCompositionId) {
       viewportCompositionIdRef.current = activeCompositionId
       setTimeViewport({ startFrame: 0, endFrame: durationInFrames })
@@ -2092,7 +2103,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           <div
             className={cn(
               'flex bg-panel-header/65 transition-colors',
-              groupSelected && 'bg-primary/10',
+              groupSelected && 'bg-accent/70',
             )}
             style={{ height: LAYER_ROW_HEIGHT }}
             data-testid={`motion-group-${row.track.id}`}
@@ -2418,6 +2429,13 @@ export const CompositingTimeline = memo(function CompositingTimeline({
               const expanded = expandedLayerIdSet.has(item.id)
               const selected = selectedItemIdSet.has(item.id)
               const properties = getItemProperties(item)
+              const hasVisibleChildProperties =
+                propertyFilter === 'all' ||
+                properties.some((property) =>
+                  keyframesByItemId[item.id]?.properties.some(
+                    (entry) => entry.property === property && entry.keyframes.length > 0,
+                  ),
+                )
               const isDragging = rowReorderDrag?.sourceTrackId === track?.id
               const isDropTarget = reorderDropTargetTrackId === track?.id && !isDragging
               return (
@@ -2457,7 +2475,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                     <div
                       className={cn(
                         'flex transition-colors',
-                        selected ? 'bg-primary/10' : 'hover:bg-accent/35',
+                        selected ? 'bg-accent/70' : 'hover:bg-accent/35',
                       )}
                       style={{ height: LAYER_ROW_HEIGHT }}
                     >
@@ -2480,22 +2498,26 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                           <EllipsisVertical className="h-4 w-4" />
                         </button>
                       )}
-                      <button
-                        type="button"
-                        onClick={() => toggleLayerExpanded(activeCompositionId, item.id)}
-                        className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        aria-label={
-                          expanded
-                            ? t('editor.compose.collapseLayerProperties')
-                            : t('editor.compose.expandLayerProperties')
-                        }
-                      >
-                        {expanded ? (
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        ) : (
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        )}
-                      </button>
+                      {hasVisibleChildProperties ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleLayerExpanded(activeCompositionId, item.id)}
+                          className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                          aria-label={
+                            expanded
+                              ? t('editor.compose.collapseLayerProperties')
+                              : t('editor.compose.expandLayerProperties')
+                          }
+                        >
+                          {expanded ? (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+                      ) : (
+                        <span className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                      )}
                       <button
                         type="button"
                         onClick={() =>
