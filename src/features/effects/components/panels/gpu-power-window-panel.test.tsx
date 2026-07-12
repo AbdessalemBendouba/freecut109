@@ -61,4 +61,15 @@ describe('GpuPowerWindowPanel', () => {
     expect(props.onParamChange).toHaveBeenCalledWith('fx-window', 'showMask', true)
     expect(props.onParamChange).toHaveBeenCalledWith('fx-window', 'invertMask', true)
   })
+
+  it('collapses its controls from the effect header', () => {
+    render(<GpuPowerWindowPanel {...makeProps()} />)
+
+    const disclosure = screen.getByRole('button', { name: 'Power Window' })
+    fireEvent.click(disclosure)
+
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: 'Ellipse' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /remove effect/i })).toBeInTheDocument()
+  })
 })

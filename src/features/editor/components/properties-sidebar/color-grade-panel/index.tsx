@@ -25,6 +25,8 @@ const LazyEffectsSection = lazy(() =>
  * regular clip panel while the Color workspace is active.
  */
 const COLOR_PANEL_EFFECT_TYPES = ['gpu-color-wheels', 'gpu-curves'] as const
+const COLOR_KEYFRAME_VISIBLE_GROUPS = ['effects'] as const
+const COLOR_KEYFRAME_PROPERTY_COLUMN_WIDTH = 336
 
 interface ColorGradePanelProps {
   layout?: 'sidebar' | 'dock'
@@ -101,6 +103,8 @@ export const ColorGradePanel = memo(function ColorGradePanel({
               placement="side"
               showCloseButton={false}
               onClose={handleKeepKeyframesOpen}
+              initialVisibleGroupIds={COLOR_KEYFRAME_VISIBLE_GROUPS}
+              propertyColumnWidth={COLOR_KEYFRAME_PROPERTY_COLUMN_WIDTH}
             />
           </div>
         </Suspense>

@@ -467,8 +467,12 @@ describe('DopesheetEditor property groups', () => {
       onRemoveKeyframes,
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /clear x position keyframes/i }))
-    fireEvent.click(screen.getByRole('button', { name: /clear all transform keyframes/i }))
+    fireEvent.click(
+      screen.getByRole('button', { name: /reset x position animation to its base value/i }),
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: /reset all transform animations to their base values/i }),
+    )
 
     expect(onRemoveKeyframes).toHaveBeenNthCalledWith(1, [
       { itemId: 'item-1', property: 'x', keyframeId: 'kx-1' },
@@ -477,6 +481,32 @@ describe('DopesheetEditor property groups', () => {
       { itemId: 'item-1', property: 'x', keyframeId: 'kx-1' },
       { itemId: 'item-1', property: 'y', keyframeId: 'ky-1' },
     ])
+  })
+
+  it('resets effect rows or their effect header to definition defaults', () => {
+    const property = 'effect:gpu-color-wheels:wheels-1:exposure' as const
+    const onResetPropertiesToDefault = vi.fn()
+    renderEditor({
+      keyframesByProperty: {
+        [property]: [{ id: 'effect-kf', frame: 8, value: 1, easing: 'linear' }],
+      },
+      propertyValues: { [property]: 1 },
+      onResetPropertiesToDefault,
+    })
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: /reset color wheels: exposure \(ev\) to its default value/i,
+      }),
+    )
+    expect(onResetPropertiesToDefault).toHaveBeenLastCalledWith([property])
+
+    const groupReset = screen.getByRole('button', {
+      name: /reset all color wheels properties to their default values/i,
+    })
+    expect(groupReset).not.toHaveClass('opacity-0')
+    fireEvent.click(groupReset)
+    expect(onResetPropertiesToDefault).toHaveBeenLastCalledWith([property])
   })
 
   it('navigates group keyframes with the header arrows', () => {

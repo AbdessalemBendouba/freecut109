@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -56,6 +56,7 @@ export const GpuGradientMapPanel = memo(function GpuGradientMapPanel({
   canMoveDown,
 }: GpuKeyframePanelProps) {
   const { t } = useTranslation()
+  const [collapsed, setCollapsed] = useState(false)
 
   const preset = typeof gpuEffect.params.preset === 'string' ? gpuEffect.params.preset : 'inferno'
   const mix = typeof gpuEffect.params.mix === 'number' ? gpuEffect.params.mix : 1
@@ -110,103 +111,109 @@ export const GpuGradientMapPanel = memo(function GpuGradientMapPanel({
         onMove={onMove}
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((value) => !value)}
       />
 
-      <PropertyRow
-        label={getEffectParamLabel(t, definition, 'preset')}
-        className={!enabled ? 'opacity-50' : undefined}
-      >
-        <Select
-          value={preset}
-          onValueChange={(v) => onParamChange(effect.id, 'preset', v)}
-          disabled={!enabled}
-        >
-          <SelectTrigger className="h-6 text-xs flex-1 min-w-0">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {presetOptions.map((opt) => (
-              <SelectItem key={opt.value} value={opt.value}>
-                {getEffectOptionLabel(t, definition, 'preset', opt)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </PropertyRow>
-
-      <div className="px-2 pb-1">
-        <div
-          className="h-3 w-full rounded-sm border border-border"
-          style={{ background: `linear-gradient(to right, ${previewHexes.join(', ')})` }}
-        />
-      </div>
-
-      {isCustom && (
-        <>
-          {stops.map((hex, index) => (
-            <PropertyRow
-              key={index}
-              label={`${getEffectParamLabel(t, definition, 'customStops')} ${index + 1}`}
-              className={!enabled ? 'opacity-50' : undefined}
-            >
-              <div className="flex items-center gap-1 min-w-0 w-full">
-                <ColorPicker
-                  color={hex}
-                  onChange={(v) => setStop(index, v, false)}
-                  onLiveChange={(v) => setStop(index, v, true)}
-                  disabled={!enabled}
-                />
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 w-6 p-0 flex-shrink-0"
-                  onClick={() => removeStop(index)}
-                  disabled={!enabled || stops.length <= 2}
-                  title={t('effects.gradientMap.removeStop', { defaultValue: 'Remove stop' })}
-                >
-                  <X className="w-3 h-3" />
-                </Button>
-              </div>
-            </PropertyRow>
-          ))}
-          <div className="px-2 py-1">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 w-full justify-center gap-1.5 text-xs"
-              onClick={addStop}
+      {collapsed ? null : (
+        <div className="space-y-0">
+          <PropertyRow
+            label={getEffectParamLabel(t, definition, 'preset')}
+            className={!enabled ? 'opacity-50' : undefined}
+          >
+            <Select
+              value={preset}
+              onValueChange={(v) => onParamChange(effect.id, 'preset', v)}
               disabled={!enabled}
             >
-              <Plus className="w-3 h-3" />
-              {t('effects.gradientMap.addStop', { defaultValue: 'Add Stop' })}
-            </Button>
-          </div>
-        </>
-      )}
+              <SelectTrigger className="h-6 text-xs flex-1 min-w-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {presetOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>
+                    {getEffectOptionLabel(t, definition, 'preset', opt)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </PropertyRow>
 
-      <PropertyRow
-        label={getEffectParamLabel(t, definition, 'mix')}
-        className={!enabled ? 'opacity-50' : undefined}
-      >
-        <SliderInput
-          value={mix}
-          onChange={(v) => onParamChange(effect.id, 'mix', v)}
-          onLiveChange={(v) => onParamLiveChange(effect.id, 'mix', v)}
-          min={0}
-          max={1}
-          step={0.01}
-          disabled={!enabled}
-          className="flex-1 min-w-0"
-        />
-        {mixKeyframe ? (
-          <KeyframeToggle
-            itemIds={itemIds}
-            property={mixKeyframe}
-            currentValue={mix}
-            disabled={!enabled}
-          />
-        ) : null}
-      </PropertyRow>
+          <div className="px-2 pb-1">
+            <div
+              className="h-3 w-full rounded-sm border border-border"
+              style={{ background: `linear-gradient(to right, ${previewHexes.join(', ')})` }}
+            />
+          </div>
+
+          {isCustom && (
+            <>
+              {stops.map((hex, index) => (
+                <PropertyRow
+                  key={index}
+                  label={`${getEffectParamLabel(t, definition, 'customStops')} ${index + 1}`}
+                  className={!enabled ? 'opacity-50' : undefined}
+                >
+                  <div className="flex items-center gap-1 min-w-0 w-full">
+                    <ColorPicker
+                      color={hex}
+                      onChange={(v) => setStop(index, v, false)}
+                      onLiveChange={(v) => setStop(index, v, true)}
+                      disabled={!enabled}
+                    />
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 w-6 p-0 flex-shrink-0"
+                      onClick={() => removeStop(index)}
+                      disabled={!enabled || stops.length <= 2}
+                      title={t('effects.gradientMap.removeStop', { defaultValue: 'Remove stop' })}
+                    >
+                      <X className="w-3 h-3" />
+                    </Button>
+                  </div>
+                </PropertyRow>
+              ))}
+              <div className="px-2 py-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 w-full justify-center gap-1.5 text-xs"
+                  onClick={addStop}
+                  disabled={!enabled}
+                >
+                  <Plus className="w-3 h-3" />
+                  {t('effects.gradientMap.addStop', { defaultValue: 'Add Stop' })}
+                </Button>
+              </div>
+            </>
+          )}
+
+          <PropertyRow
+            label={getEffectParamLabel(t, definition, 'mix')}
+            className={!enabled ? 'opacity-50' : undefined}
+          >
+            <SliderInput
+              value={mix}
+              onChange={(v) => onParamChange(effect.id, 'mix', v)}
+              onLiveChange={(v) => onParamLiveChange(effect.id, 'mix', v)}
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!enabled}
+              className="flex-1 min-w-0"
+            />
+            {mixKeyframe ? (
+              <KeyframeToggle
+                itemIds={itemIds}
+                property={mixKeyframe}
+                currentValue={mix}
+                disabled={!enabled}
+              />
+            ) : null}
+          </PropertyRow>
+        </div>
+      )}
     </div>
   )
 })

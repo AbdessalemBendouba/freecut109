@@ -45,6 +45,7 @@ export const GpuLutPanel = memo(function GpuLutPanel({
 }: GpuLutPanelProps) {
   const { t } = useTranslation()
   const [importError, setImportError] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState(false)
 
   const lutName = typeof gpuEffect.params.lutName === 'string' ? gpuEffect.params.lutName : ''
   const hasLut = typeof gpuEffect.params.lutData === 'string' && gpuEffect.params.lutData.length > 0
@@ -105,53 +106,61 @@ export const GpuLutPanel = memo(function GpuLutPanel({
         onMove={onMove}
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((value) => !value)}
       />
 
-      <PropertyRow
-        label={t('effects.lut.file')}
-        className={!effect.enabled ? 'opacity-50' : undefined}
-      >
-        <div className="flex items-center gap-1 min-w-0 w-full">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 flex-1 min-w-0 justify-start gap-1.5 text-xs"
-            onClick={() => void handleImport()}
-            disabled={!effect.enabled}
-            title={t('effects.lut.importTooltip')}
+      {collapsed ? null : (
+        <div className="space-y-0">
+          <PropertyRow
+            label={t('effects.lut.file')}
+            className={!effect.enabled ? 'opacity-50' : undefined}
           >
-            <FileUp className="w-3 h-3 flex-shrink-0" />
-            <span className="truncate">
-              {hasLut && lutName ? lutName : t('effects.lut.import')}
-            </span>
-          </Button>
-        </div>
-      </PropertyRow>
-      {importError && <div className="px-2 pb-1 text-[11px] text-destructive">{importError}</div>}
+            <div className="flex items-center gap-1 min-w-0 w-full">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 flex-1 min-w-0 justify-start gap-1.5 text-xs"
+                onClick={() => void handleImport()}
+                disabled={!effect.enabled}
+                title={t('effects.lut.importTooltip')}
+              >
+                <FileUp className="w-3 h-3 flex-shrink-0" />
+                <span className="truncate">
+                  {hasLut && lutName ? lutName : t('effects.lut.import')}
+                </span>
+              </Button>
+            </div>
+          </PropertyRow>
+          {importError && (
+            <div className="px-2 pb-1 text-[11px] text-destructive">{importError}</div>
+          )}
 
-      <PropertyRow
-        label={t('effects.lut.intensity')}
-        className={!effect.enabled ? 'opacity-50' : undefined}
-      >
-        <SliderInput
-          value={intensity}
-          onChange={(v) => onParamChange(effect.id, 'intensity', v)}
-          onLiveChange={(v) => onParamLiveChange(effect.id, 'intensity', v)}
-          min={0}
-          max={1}
-          step={0.01}
-          disabled={!effect.enabled}
-          className="flex-1 min-w-0"
-        />
-        {keyframeProperty ? (
-          <KeyframeToggle
-            itemIds={itemIds}
-            property={keyframeProperty}
-            currentValue={intensity}
-            disabled={!effect.enabled}
-          />
-        ) : null}
-      </PropertyRow>
+          <PropertyRow
+            label={t('effects.lut.intensity')}
+            className={!effect.enabled ? 'opacity-50' : undefined}
+          >
+            <SliderInput
+              value={intensity}
+              onChange={(v) => onParamChange(effect.id, 'intensity', v)}
+              onLiveChange={(v) => onParamLiveChange(effect.id, 'intensity', v)}
+              min={0}
+              max={1}
+              step={0.01}
+              disabled={!effect.enabled}
+              className="flex-1 min-w-0"
+            />
+            {keyframeProperty ? (
+              <KeyframeToggle
+                itemIds={itemIds}
+                property={keyframeProperty}
+                currentValue={intensity}
+                disabled={!effect.enabled}
+              />
+            ) : null}
+          </PropertyRow>
+        </div>
+      )}
     </div>
   )
 })

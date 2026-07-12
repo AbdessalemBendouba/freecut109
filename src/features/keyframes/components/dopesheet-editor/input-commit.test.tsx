@@ -78,4 +78,37 @@ describe('DopesheetEditor value input commits', () => {
 
     expect(onPropertyValueCommit).not.toHaveBeenCalled()
   })
+
+  it('scrubs the input horizontally with fine-control modifiers and one drag bracket', () => {
+    const onPropertyValuePreview = vi.fn()
+    const onPropertyValueCommit = vi.fn()
+    const onDragStart = vi.fn()
+    const onDragEnd = vi.fn()
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        propertyValues={{ x: 100 }}
+        currentFrame={12}
+        width={640}
+        height={240}
+        onPropertyValueCommit={onPropertyValueCommit}
+        onPropertyValuePreview={onPropertyValuePreview}
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+      />,
+    )
+    const input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
+
+    fireEvent.focus(input)
+    fireEvent.pointerDown(input, { pointerId: 1, button: 0, clientX: 100 })
+    fireEvent.pointerMove(input, { pointerId: 1, clientX: 110, shiftKey: true })
+    fireEvent.pointerUp(input, { pointerId: 1, clientX: 110, shiftKey: true })
+    fireEvent.blur(input)
+
+    expect(onDragStart).toHaveBeenCalledTimes(1)
+    expect(onPropertyValuePreview).toHaveBeenLastCalledWith('x', 101)
+    expect(onDragEnd).toHaveBeenCalledTimes(1)
+    expect(onPropertyValueCommit).not.toHaveBeenCalled()
+  })
 })

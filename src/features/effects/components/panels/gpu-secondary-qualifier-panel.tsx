@@ -183,6 +183,7 @@ export const GpuSecondaryQualifierPanel = memo(function GpuSecondaryQualifierPan
   canMoveDown,
 }: GpuKeyframePanelProps) {
   const { t } = useTranslation()
+  const [collapsed, setCollapsed] = useState(false)
   const paramEntries = Object.entries(definition.params)
   const isDefault = paramEntries.every(([key, param]) => gpuEffect.params[key] === param.default)
   const enabled = effect.enabled
@@ -270,36 +271,42 @@ export const GpuSecondaryQualifierPanel = memo(function GpuSecondaryQualifierPan
         onMove={onMove}
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((value) => !value)}
       />
 
-      <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {t('effects.qualifier.key')}
-      </div>
-      <div className={cn('px-2 pb-1', !enabled && 'opacity-50')}>
-        <HueBandControl
-          center={hueCenter}
-          width={hueWidth}
-          softness={hueSoftness}
-          disabled={!enabled}
-          onLiveChange={(value) => onParamLiveChange(effect.id, 'hueCenter', value)}
-          onCommit={(value) => onParamChange(effect.id, 'hueCenter', value)}
-        />
-      </div>
-      {HUE_KEYS.map(renderNumberRow)}
+      {collapsed ? null : (
+        <div className="space-y-0">
+          <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t('effects.qualifier.key')}
+          </div>
+          <div className={cn('px-2 pb-1', !enabled && 'opacity-50')}>
+            <HueBandControl
+              center={hueCenter}
+              width={hueWidth}
+              softness={hueSoftness}
+              disabled={!enabled}
+              onLiveChange={(value) => onParamLiveChange(effect.id, 'hueCenter', value)}
+              onCommit={(value) => onParamChange(effect.id, 'hueCenter', value)}
+            />
+          </div>
+          {HUE_KEYS.map(renderNumberRow)}
 
-      <div className="px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {t('effects.qualifier.matte')}
-      </div>
-      <div className="px-2 pb-1 flex gap-1">
-        {renderBooleanToggle('showMask')}
-        {renderBooleanToggle('invertMask')}
-      </div>
-      {MATTE_KEYS.map(renderNumberRow)}
+          <div className="px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t('effects.qualifier.matte')}
+          </div>
+          <div className="px-2 pb-1 flex gap-1">
+            {renderBooleanToggle('showMask')}
+            {renderBooleanToggle('invertMask')}
+          </div>
+          {MATTE_KEYS.map(renderNumberRow)}
 
-      <div className="px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {t('effects.qualifier.correction')}
-      </div>
-      {CORRECTION_KEYS.map(renderNumberRow)}
+          <div className="px-2 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            {t('effects.qualifier.correction')}
+          </div>
+          {CORRECTION_KEYS.map(renderNumberRow)}
+        </div>
+      )}
     </div>
   )
 })
