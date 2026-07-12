@@ -292,6 +292,80 @@ describe('TimelineContent playback selection behavior', () => {
     animationFrameSpy.mockRestore()
   })
 
+  it('preserves the mouse pivot when wheel-zooming immediately after zoom to fit', () => {
+    let zoomToFit: (() => void) | undefined
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const { container, unmount } = render(
+      <TimelineContent
+        duration={100}
+        tracks={[VIDEO_TRACK]}
+        onZoomHandlersReady={(handlers) => {
+          zoomToFit = handlers.handleZoomToFit
+        }}
+      />,
+    )
+    const scrollContainer = container.querySelector('[data-timeline-scroll-container]')
+    if (!(scrollContainer instanceof HTMLDivElement) || !zoomToFit) {
+      throw new Error('Expected timeline scroll container and zoom handlers')
+    }
+    Object.defineProperty(scrollContainer, 'clientWidth', { configurable: true, value: 400 })
+    Object.defineProperty(scrollContainer, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        left: 0,
+        top: 0,
+        right: 400,
+        bottom: 200,
+        width: 400,
+        height: 200,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    })
+
+    act(() => window.dispatchEvent(new Event('resize')))
+    act(() => zoomToFit?.())
+    expect(useZoomStore.getState().level).toBeCloseTo(0.35)
+    expect(scrollContainer.scrollLeft).toBe(0)
+
+    fireEvent.wheel(scrollContainer, {
+      clientX: 300,
+      clientY: 100,
+      ctrlKey: true,
+      deltaY: -120,
+    })
+    act(() => {
+      frameCallbacks.shift()?.(performance.now())
+    })
+
+    expect(useZoomStore.getState().level).toBeCloseTo(0.4025)
+    expect(scrollContainer.scrollLeft).toBeCloseTo(45)
+
+    fireEvent.wheel(scrollContainer, {
+      clientX: 300,
+      clientY: 100,
+      ctrlKey: true,
+      deltaY: -120,
+    })
+    act(() => {
+      frameCallbacks.shift()?.(performance.now())
+      frameCallbacks.shift()?.(performance.now())
+    })
+
+    expect(useZoomStore.getState().level).toBeCloseTo(0.463)
+    expect(scrollContainer.scrollLeft).toBeCloseTo(96.75)
+
+    unmount()
+    animationFrameSpy.mockRestore()
+  })
+
   it('does not update the hover scrub preview while the transcription dialog is open', async () => {
     const { container } = render(<TimelineContent duration={10} tracks={[VIDEO_TRACK]} />)
     const scrollContainer = container.querySelector('[data-timeline-scroll-container]')

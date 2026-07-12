@@ -47,6 +47,7 @@ import {
   buildDroppedCompositionTimelineItems,
   buildDroppedMediaTimelineItems,
   captureSnapshot,
+  CompactNavigator,
   createTimelineTemplateItem,
   createDefaultShapeItem,
   createTextTemplateItem,
@@ -91,6 +92,15 @@ const RULER_HEIGHT = 28
 const LAYER_ROW_HEIGHT = 34
 const RULER_DIVISIONS = 10
 const EMPTY_LAYER_IDS: string[] = []
+interface MotionTimeViewport {
+  startFrame: number
+  endFrame: number
+}
+
+interface MotionMiddlePanState {
+  startClientY: number
+  startScrollTop: number
+}
 const MOTION_INLINE_PROPERTY_GROUP_IDS = [
   'transform',
   'crop',
@@ -160,8 +170,33 @@ const MotionPlayhead = memo(function MotionPlayhead({
       className="pointer-events-none absolute inset-y-0 z-20"
       style={{ left: `${framePercent(frame, totalFrames)}%` }}
     >
-      <PlayheadMarks handle={handle} bleedBottom />
+      <PlayheadMarks
+        handle={handle}
+        bleedBottom
+      />
     </div>
+  )
+})
+
+const MotionPlayheadOverlay = memo(function MotionPlayheadOverlay({
+  timeViewport,
+}: {
+  timeViewport: MotionTimeViewport
+}) {
+  const currentFrame = usePlaybackStore((state) => state.currentFrame)
+  const previewFrame = usePlaybackStore((state) => state.previewFrame)
+  const visibleFrameRange = Math.max(1, timeViewport.endFrame - timeViewport.startFrame)
+  const displayFrame = previewFrame ?? currentFrame
+
+  if (displayFrame < timeViewport.startFrame || displayFrame > timeViewport.endFrame) return null
+
+  return (
+    <MotionPlayhead
+      frame={displayFrame - timeViewport.startFrame}
+      totalFrames={visibleFrameRange}
+      handle="flag"
+      testId="motion-playhead"
+    />
   )
 })
 
@@ -243,10 +278,12 @@ interface MotionDopesheetLanesProps {
   fps: number
   canvas: { width: number; height: number }
   propertyFilter: 'all' | 'keyframed'
+  timeViewport: MotionTimeViewport
   inlineCurveProperty: AnimatableProperty | null
   onSelectItem: (itemId: string) => void
   onInlineCurveChange: (property: AnimatableProperty | null) => void
   onScrub: (frame: number) => void
+  onTimeViewportChange: (viewport: MotionTimeViewport) => void
 }
 
 const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
@@ -257,10 +294,12 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   fps,
   canvas,
   propertyFilter,
+  timeViewport,
   inlineCurveProperty,
   onSelectItem,
   onInlineCurveChange,
   onScrub,
+  onTimeViewportChange,
 }: MotionDopesheetLanesProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const dragSnapshotRef = useRef<ReturnType<typeof captureSnapshot> | null>(null)
@@ -318,22 +357,43 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     0,
     Math.min(item.durationInFrames - 1, currentFrame - item.from),
   )
+  const selectedKeyframeValueByProperty = useMemo(() => {
+    const values: Partial<Record<AnimatableProperty, number>> = {}
+    for (let index = selectedKeyframes.length - 1; index >= 0; index -= 1) {
+      const reference = selectedKeyframes[index]!
+      if (reference.itemId !== item.id || values[reference.property] !== undefined) continue
+      const keyframe = (originalKeyframesByProperty[reference.property] ?? []).find(
+        (candidate) => candidate.id === reference.keyframeId,
+      )
+      if (keyframe) values[reference.property] = keyframe.value
+    }
+    return values
+  }, [item.id, originalKeyframesByProperty, selectedKeyframes])
   const propertyValues = useMemo(
     () =>
       Object.fromEntries(
         properties.map((property) => {
           const baseValue = getBasePropertyValue(item, property, canvas)
+          const selectedValue = selectedKeyframeValueByProperty[property]
           return [
             property,
-            interpolatePropertyValue(
-              originalKeyframesByProperty[property] ?? [],
-              relativeFrame,
-              baseValue,
-            ),
+            selectedValue ??
+              interpolatePropertyValue(
+                originalKeyframesByProperty[property] ?? [],
+                relativeFrame,
+                baseValue,
+              ),
           ]
         }),
       ),
-    [canvas, item, originalKeyframesByProperty, properties, relativeFrame],
+    [
+      canvas,
+      item,
+      originalKeyframesByProperty,
+      properties,
+      relativeFrame,
+      selectedKeyframeValueByProperty,
+    ],
   )
   const selectedKeyframeIds = useMemo(
     () =>
@@ -343,10 +403,6 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           .map((reference) => reference.keyframeId),
       ),
     [item.id, selectedKeyframes],
-  )
-  const frameViewport = useMemo(
-    () => ({ startFrame: 0, endFrame: compositionDurationInFrames }),
-    [compositionDurationInFrames],
   )
   const visiblePropertyCount =
     propertyFilter === 'keyframed'
@@ -418,7 +474,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           fps={fps}
           width={width}
           height={Math.max(30, visiblePropertyCount * 30)}
-          frameViewport={frameViewport}
+          frameViewport={timeViewport}
+          onFrameViewportChange={onTimeViewportChange}
           onSelectionChange={handleSelectionChange}
           onKeyframeMove={(reference, nextFrame, nextValue) => {
             _updateKeyframe(reference.itemId, reference.property, reference.keyframeId, {
@@ -557,6 +614,26 @@ function framePercent(frame: number, totalFrames: number): number {
   return Math.max(0, Math.min(100, (frame / totalFrames) * 100))
 }
 
+function normalizeMotionTimeViewport(
+  viewport: MotionTimeViewport,
+  totalFrames: number,
+  roundToFrames = true,
+): MotionTimeViewport {
+  const contentEnd = Math.max(1, Math.round(totalFrames))
+  const requestedVisibleFrames = viewport.endFrame - viewport.startFrame
+  const visibleFrames = Math.max(
+    Math.min(1, contentEnd),
+    Math.min(
+      contentEnd,
+      roundToFrames ? Math.round(requestedVisibleFrames) : requestedVisibleFrames,
+    ),
+  )
+  const maxStart = Math.max(0, contentEnd - visibleFrames)
+  const requestedStartFrame = roundToFrames ? Math.round(viewport.startFrame) : viewport.startFrame
+  const startFrame = Math.max(0, Math.min(maxStart, requestedStartFrame))
+  return { startFrame, endFrame: startFrame + visibleFrames }
+}
+
 function formatFrameTime(frame: number, fps: number): string {
   const seconds = frame / Math.max(1, fps)
   if (seconds < 10) return `${seconds.toFixed(1)}s`
@@ -652,8 +729,18 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const [renameDraft, setRenameDraft] = useState('')
   const [spanDrag, setSpanDrag] = useState<SpanDragState | null>(null)
   const spanDragRef = useRef<SpanDragState | null>(null)
+  const motionScrollAreaRef = useRef<HTMLDivElement>(null)
   const [rowReorderDrag, setRowReorderDrag] = useState<RowReorderDragState | null>(null)
   const rowReorderDragRef = useRef<RowReorderDragState | null>(null)
+  const [timeViewport, setTimeViewport] = useState<MotionTimeViewport>({
+    startFrame: 0,
+    endFrame: 1,
+  })
+  const middlePanRef = useRef<MotionMiddlePanState | null>(null)
+  const pendingScrubFrameRef = useRef<number | null>(null)
+  const latestScrubFrameRef = useRef<number | null>(null)
+  const scrubAnimationFrameRef = useRef<number | null>(null)
+  const viewportCompositionIdRef = useRef<string | null>(null)
   const activeCompositionId = useCompositionNavigationStore((state) => state.activeCompositionId)
   const compositions = useCompositionsStore((state) => state.compositions)
   const compositionById = useCompositionsStore((state) => state.compositionById)
@@ -668,7 +755,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     useShallow((state) => ({ items: state.items, tracks: state.tracks })),
   )
   const currentFrame = usePlaybackStore((state) => state.currentFrame)
-  const setCurrentFrame = usePlaybackStore((state) => state.setCurrentFrame)
+  const setScrubFrame = usePlaybackStore((state) => state.setScrubFrame)
+  const setPreviewFrame = usePlaybackStore((state) => state.setPreviewFrame)
   const pause = usePlaybackStore((state) => state.pause)
   const selectedItemIds = useSelectionStore((state) => state.selectedItemIds)
   const selectItems = useSelectionStore((state) => state.selectItems)
@@ -695,6 +783,24 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     ...items.map((item) => item.from + item.durationInFrames),
   )
   const fps = composition?.fps ?? 30
+  useEffect(() => {
+    if (viewportCompositionIdRef.current !== activeCompositionId) {
+      viewportCompositionIdRef.current = activeCompositionId
+      setTimeViewport({ startFrame: 0, endFrame: durationInFrames })
+      return
+    }
+    setTimeViewport((current) => normalizeMotionTimeViewport(current, durationInFrames))
+  }, [activeCompositionId, durationInFrames])
+  const updateTimeViewport = useCallback(
+    (viewport: MotionTimeViewport) =>
+      setTimeViewport(normalizeMotionTimeViewport(viewport, durationInFrames)),
+    [durationInFrames],
+  )
+  const visibleFrameRange = Math.max(1, timeViewport.endFrame - timeViewport.startFrame)
+  const frameToMotionPercent = useCallback(
+    (frame: number) => ((frame - timeViewport.startFrame) / visibleFrameRange) * 100,
+    [timeViewport.startFrame, visibleFrameRange],
+  )
   const compositeCompositions = useMemo(
     () => compositions.filter((candidate) => candidate.editorKind === 'composite-2d'),
     [compositions],
@@ -1444,47 +1550,220 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     setDropActive(false)
   }, [])
 
-  const seekFromPointer = useCallback(
+  const frameFromPointer = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const rect = event.currentTarget.getBoundingClientRect()
-      if (rect.width <= 0) return
-      pause()
-      setCurrentFrame(
-        Math.max(
-          0,
-          Math.min(
-            durationInFrames - 1,
-            Math.round(((event.clientX - rect.left) / rect.width) * durationInFrames),
+      if (rect.width <= 0) return null
+      return Math.max(
+        0,
+        Math.min(
+          durationInFrames - 1,
+          Math.round(
+            timeViewport.startFrame +
+              ((event.clientX - rect.left) / rect.width) * visibleFrameRange,
           ),
         ),
       )
     },
-    [durationInFrames, pause, setCurrentFrame],
+    [durationInFrames, timeViewport.startFrame, visibleFrameRange],
   )
+
+  const handleMotionTimelineWheel = useCallback(
+    (event: WheelEvent) => {
+      // Ordinary wheel input belongs to the native vertical layer/property
+      // scroller. Ctrl/Cmd zoom and Shift-pan are owned by the time viewport.
+      const isZoomGesture = event.ctrlKey || event.metaKey
+      const isHorizontalPanGesture = event.shiftKey && !isZoomGesture
+      if (!isZoomGesture && !isHorizontalPanGesture) return
+      const scrollArea = motionScrollAreaRef.current
+      if (!scrollArea) return
+      const rect = scrollArea.getBoundingClientRect()
+      const timelineLeft = rect.left + LAYER_COLUMN_WIDTH
+      if (event.clientX < timelineLeft) return
+      // The right pane owns wheel navigation. Consume it during capture so the
+      // vertically scrollable row container and nested dope sheets cannot also
+      // react to the same gesture.
+      event.preventDefault()
+      event.stopPropagation()
+      const timelineWidth = Math.max(1, rect.right - timelineLeft)
+
+      if (isHorizontalPanGesture) {
+        // Shift+wheel conventionally supplies its motion through deltaY. Only
+        // fall back to deltaX for devices/browsers that remap it themselves;
+        // this prevents small cross-axis noise from reversing the gesture.
+        const panDelta = event.deltaY !== 0 ? event.deltaY : event.deltaX
+        if (panDelta === 0) return
+        setTimeViewport((current) => {
+          const currentRange = Math.max(1, current.endFrame - current.startFrame)
+          const deltaFrames = (panDelta / timelineWidth) * currentRange
+          return normalizeMotionTimeViewport(
+            {
+              startFrame: current.startFrame + deltaFrames,
+              endFrame: current.endFrame + deltaFrames,
+            },
+            durationInFrames,
+            false,
+          )
+        })
+        return
+      }
+
+      if (event.deltaY === 0) return
+      const pivotRatio = Math.max(0, Math.min(1, (event.clientX - timelineLeft) / timelineWidth))
+      setTimeViewport((current) => {
+        const currentRange = Math.max(1, current.endFrame - current.startFrame)
+        const pivotFrame = current.startFrame + pivotRatio * currentRange
+        const nextRange = Math.max(
+          1,
+          Math.min(
+            durationInFrames,
+            Math.round(currentRange * (event.deltaY > 0 ? 1.25 : 0.8)),
+          ),
+        )
+        return normalizeMotionTimeViewport(
+          {
+            startFrame: pivotFrame - pivotRatio * nextRange,
+            endFrame: pivotFrame + (1 - pivotRatio) * nextRange,
+          },
+          durationInFrames,
+        )
+      })
+    },
+    [durationInFrames],
+  )
+
+  useEffect(() => {
+    const scrollArea = motionScrollAreaRef.current
+    if (!scrollArea) return
+    scrollArea.addEventListener('wheel', handleMotionTimelineWheel, {
+      capture: true,
+      passive: false,
+    })
+    return () => {
+      scrollArea.removeEventListener('wheel', handleMotionTimelineWheel, { capture: true })
+    }
+  }, [handleMotionTimelineWheel])
+
+  useEffect(() => {
+    const scrollArea = motionScrollAreaRef.current
+    if (!scrollArea) return
+
+    const finishMiddlePan = () => {
+      if (!middlePanRef.current) return
+      middlePanRef.current = null
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    const beginMiddlePan = (event: MouseEvent | PointerEvent) => {
+      if (event.button !== 1) return
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      if (middlePanRef.current) return
+      middlePanRef.current = {
+        startClientY: event.clientY,
+        startScrollTop: scrollArea.scrollTop,
+      }
+      document.body.style.cursor = 'grabbing'
+      document.body.style.userSelect = 'none'
+    }
+
+    const moveMiddlePan = (event: MouseEvent | PointerEvent) => {
+      const pan = middlePanRef.current
+      if (!pan) return
+      event.preventDefault()
+      event.stopPropagation()
+      scrollArea.scrollTop = pan.startScrollTop + (event.clientY - pan.startClientY)
+    }
+
+    const preventMiddleAuxClick = (event: MouseEvent) => {
+      if (event.button !== 1) return
+      event.preventDefault()
+      event.stopPropagation()
+    }
+
+    scrollArea.addEventListener('pointerdown', beginMiddlePan, { capture: true })
+    scrollArea.addEventListener('mousedown', beginMiddlePan, { capture: true })
+    scrollArea.addEventListener('auxclick', preventMiddleAuxClick, { capture: true })
+    window.addEventListener('pointermove', moveMiddlePan, { capture: true })
+    window.addEventListener('mousemove', moveMiddlePan, { capture: true })
+    window.addEventListener('pointerup', finishMiddlePan, { capture: true })
+    window.addEventListener('pointercancel', finishMiddlePan, { capture: true })
+    window.addEventListener('mouseup', finishMiddlePan, { capture: true })
+    return () => {
+      finishMiddlePan()
+      scrollArea.removeEventListener('pointerdown', beginMiddlePan, { capture: true })
+      scrollArea.removeEventListener('mousedown', beginMiddlePan, { capture: true })
+      scrollArea.removeEventListener('auxclick', preventMiddleAuxClick, { capture: true })
+      window.removeEventListener('pointermove', moveMiddlePan, { capture: true })
+      window.removeEventListener('mousemove', moveMiddlePan, { capture: true })
+      window.removeEventListener('pointerup', finishMiddlePan, { capture: true })
+      window.removeEventListener('pointercancel', finishMiddlePan, { capture: true })
+      window.removeEventListener('mouseup', finishMiddlePan, { capture: true })
+    }
+  }, [])
 
   const beginPlayheadScrub = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return
       event.currentTarget.setPointerCapture?.(event.pointerId)
-      seekFromPointer(event)
+      pause()
+      const frame = frameFromPointer(event)
+      if (frame !== null) {
+        latestScrubFrameRef.current = frame
+        setPreviewFrame(frame)
+      }
     },
-    [seekFromPointer],
+    [frameFromPointer, pause, setPreviewFrame],
   )
 
   const movePlayheadScrub = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       const captured = event.currentTarget.hasPointerCapture?.(event.pointerId) ?? false
       if (!captured && event.buttons !== 1) return
-      seekFromPointer(event)
+      const frame = frameFromPointer(event)
+      if (frame === null) return
+      latestScrubFrameRef.current = frame
+      pendingScrubFrameRef.current = frame
+      if (scrubAnimationFrameRef.current !== null) return
+      scrubAnimationFrameRef.current = requestAnimationFrame(() => {
+        scrubAnimationFrameRef.current = null
+        const pendingFrame = pendingScrubFrameRef.current
+        pendingScrubFrameRef.current = null
+        if (pendingFrame !== null) setPreviewFrame(pendingFrame)
+      })
     },
-    [seekFromPointer],
+    [frameFromPointer, setPreviewFrame],
   )
 
-  const endPlayheadScrub = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
-      event.currentTarget.releasePointerCapture?.(event.pointerId)
-    }
-  }, [])
+  const endPlayheadScrub = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (scrubAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(scrubAnimationFrameRef.current)
+        scrubAnimationFrameRef.current = null
+      }
+      const finalFrame = latestScrubFrameRef.current
+      pendingScrubFrameRef.current = null
+      latestScrubFrameRef.current = null
+      if (finalFrame !== null) setScrubFrame(finalFrame)
+      setPreviewFrame(null)
+      if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+        event.currentTarget.releasePointerCapture?.(event.pointerId)
+      }
+    },
+    [setPreviewFrame, setScrubFrame],
+  )
+
+  useEffect(
+    () => () => {
+      if (scrubAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(scrubAnimationFrameRef.current)
+      }
+      setPreviewFrame(null)
+    },
+    [setPreviewFrame],
+  )
 
   if (!isComposite || !composition || !activeCompositionId) {
     return (
@@ -1704,7 +1983,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
             </button>
             </div>
             <div
-            className="relative min-w-0 flex-1 touch-none"
+            className="relative min-w-0 flex-1 touch-none overflow-hidden"
             onPointerDown={beginPlayheadScrub}
             onPointerMove={movePlayheadScrub}
             onPointerUp={endPlayheadScrub}
@@ -1732,8 +2011,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                     : 'cursor-grab active:cursor-grabbing',
                 )}
                 style={{
-                  left: `${framePercent(groupFrom, durationInFrames)}%`,
-                  width: `${Math.max(0.6, framePercent(groupEnd - groupFrom, durationInFrames))}%`,
+                  left: `${frameToMotionPercent(groupFrom)}%`,
+                  width: `${Math.max(0.6, ((groupEnd - groupFrom) / visibleFrameRange) * 100)}%`,
                 }}
               >
                 <span className="block truncate">{row.track.name}</span>
@@ -1809,24 +2088,27 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 overflow-auto [content-visibility:auto]">
-        <div className="relative min-w-[820px] flex-1">
-          <div className="pointer-events-none sticky top-0 z-30 h-0">
-            <div
-              className="absolute top-0 right-0 h-[100vh] overflow-hidden"
-              style={{
-                left: TIMELINE_CONTENT_LEFT + KEYFRAME_EDGE_INSET,
-                right: KEYFRAME_EDGE_INSET,
-              }}
-            >
-              <MotionPlayhead
-                frame={currentFrame}
-                totalFrames={durationInFrames}
-                handle="flag"
-                testId="motion-playhead"
-              />
-            </div>
+      <div className="relative min-h-0 flex-1">
+        <div
+          className="pointer-events-none absolute inset-0 z-30 overflow-visible"
+          data-testid="motion-playhead-overlay"
+        >
+          <div
+            className="absolute inset-y-0 right-0 overflow-visible"
+            style={{
+              left: TIMELINE_CONTENT_LEFT + KEYFRAME_EDGE_INSET,
+              right: KEYFRAME_EDGE_INSET,
+            }}
+          >
+            <MotionPlayheadOverlay timeViewport={timeViewport} />
           </div>
+        </div>
+        <div
+          ref={motionScrollAreaRef}
+          data-testid="motion-layer-scroll-area"
+          className="h-full overflow-x-hidden overflow-y-auto [content-visibility:auto]"
+        >
+          <div className="relative min-h-full w-full min-w-0">
           <div className="sticky top-0 z-20 flex border-b border-border bg-panel-header">
             <div
               className="flex shrink-0 items-center justify-between gap-3 border-r border-border px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
@@ -1857,7 +2139,9 @@ export const CompositingTimeline = memo(function CompositingTimeline({
               onPointerCancel={endPlayheadScrub}
             >
               {Array.from({ length: RULER_DIVISIONS + 1 }, (_, index) => {
-                const frame = Math.round((index / RULER_DIVISIONS) * durationInFrames)
+                const frame = Math.round(
+                  timeViewport.startFrame + (index / RULER_DIVISIONS) * visibleFrameRange,
+                )
                 return (
                   <div
                     key={index}
@@ -2095,7 +2379,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                       </select>
                       </div>
                       <div
-                      className="relative min-w-0 flex-1 cursor-default"
+                      className="relative min-w-0 flex-1 cursor-default overflow-hidden"
                       onPointerDown={beginPlayheadScrub}
                       onPointerMove={movePlayheadScrub}
                       onPointerUp={endPlayheadScrub}
@@ -2136,8 +2420,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                             : 'border-timeline-motion-segment/80 bg-timeline-motion-segment/70 text-foreground hover:bg-timeline-motion-segment/85',
                         )}
                         style={{
-                          left: `${framePercent(getPreviewFrom(item), durationInFrames)}%`,
-                          width: `${Math.max(0.6, framePercent(item.durationInFrames, durationInFrames))}%`,
+                          left: `${frameToMotionPercent(getPreviewFrom(item))}%`,
+                          width: `${Math.max(0.6, (item.durationInFrames / visibleFrameRange) * 100)}%`,
                         }}
                         title={`${item.from}–${item.from + item.durationInFrames - 1}`}
                       >
@@ -2156,6 +2440,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                       fps={fps}
                       canvas={composition}
                       propertyFilter={propertyFilter}
+                      timeViewport={timeViewport}
                       inlineCurveProperty={
                         activeInlineCurve?.itemId === item.id
                           ? activeInlineCurve.property
@@ -2175,14 +2460,36 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                       }}
                       onScrub={(frame) => {
                         pause()
-                        setCurrentFrame(frame)
+                        setScrubFrame(frame)
                       }}
+                      onTimeViewportChange={updateTimeViewport}
                     />
                   ) : null}
                 </div>
               )
             })
           )}
+          </div>
+        </div>
+      </div>
+      <div className="flex h-5 shrink-0 bg-background/80">
+        <div
+          className="shrink-0 border-r border-t border-border"
+          style={{ width: LAYER_COLUMN_WIDTH }}
+        />
+        <div
+          className="min-w-0 flex-1"
+          data-testid="motion-time-navigator"
+          data-start-frame={timeViewport.startFrame}
+          data-end-frame={timeViewport.endFrame}
+        >
+          <CompactNavigator
+            viewport={timeViewport}
+            currentFrame={currentFrame}
+            contentFrameMax={durationInFrames}
+            minVisibleFrames={Math.min(10, durationInFrames)}
+            onViewportChange={updateTimeViewport}
+          />
         </div>
       </div>
     </div>

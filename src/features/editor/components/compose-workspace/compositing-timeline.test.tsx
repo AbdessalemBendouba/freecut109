@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { MediaMetadata } from '@/types/storage'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useSelectionStore } from '@/shared/state/selection'
@@ -103,7 +103,20 @@ describe('CompositingTimeline', () => {
     const playhead = screen.getByTestId('motion-playhead')
     expect(screen.getAllByTestId('motion-playhead')).toHaveLength(1)
     expect(playhead.querySelectorAll('span')).toHaveLength(2)
+    expect(playhead.querySelector('[data-playhead-mark="handle"]')).not.toHaveClass('sticky')
     expect(playhead.parentElement).toHaveStyle({ left: '510px', right: '9px' })
+    expect(playhead.parentElement).toHaveClass('overflow-visible')
+    expect(playhead.parentElement).toHaveClass('inset-y-0')
+    expect(playhead.parentElement).not.toHaveClass('h-[100vh]')
+    expect(playhead.parentElement?.parentElement).toHaveClass('absolute', 'inset-0')
+    expect(playhead.parentElement?.parentElement?.parentElement).toHaveClass(
+      'relative',
+      'min-h-0',
+      'flex-1',
+    )
+    expect(screen.getByTestId(`motion-layer-span-${shape.id}`).parentElement).toHaveClass(
+      'overflow-hidden',
+    )
 
     const ruler = screen.getByText('0.0s').parentElement!.parentElement!
     vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
@@ -122,6 +135,266 @@ describe('CompositingTimeline', () => {
     fireEvent.pointerUp(ruler, { pointerId: 1, clientX: 150 })
 
     expect(usePlaybackStore.getState().currentFrame).toBe(60)
+  })
+
+  it('batches ruler scrub movement to the latest pointer position per animation frame', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    render(<CompositingTimeline />)
+    const ruler = screen.getByText('0.0s').parentElement!.parentElement!
+    vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 28,
+      width: 300,
+      height: 28,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(ruler, { pointerId: 2, button: 0, clientX: 0 })
+    fireEvent.pointerMove(ruler, { pointerId: 2, buttons: 1, clientX: 75 })
+    fireEvent.pointerMove(ruler, { pointerId: 2, buttons: 1, clientX: 150 })
+
+    expect(frameCallbacks).toHaveLength(1)
+    expect(usePlaybackStore.getState().currentFrame).toBe(0)
+    act(() => frameCallbacks.shift()?.(performance.now()))
+    expect(usePlaybackStore.getState().currentFrame).toBe(0)
+    expect(usePlaybackStore.getState().previewFrame).toBe(60)
+
+    fireEvent.pointerUp(ruler, { pointerId: 2, clientX: 150 })
+    expect(usePlaybackStore.getState().currentFrame).toBe(60)
+    expect(usePlaybackStore.getState().previewFrame).toBeNull()
+    animationFrameSpy.mockRestore()
+  })
+
+  it('keeps ctrl-wheel zoom while leaving ordinary wheel input to vertical scrolling', () => {
+    render(<CompositingTimeline />)
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+
+    expect(screen.getByTestId('motion-time-navigator')).toBeInTheDocument()
+    expect(screen.getByText('0.0s')).toBeInTheDocument()
+    expect(screen.getByText('4.0s')).toBeInTheDocument()
+
+    fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
+
+    expect(screen.getByText('0.4s')).toBeInTheDocument()
+    expect(screen.getByText('3.6s')).toBeInTheDocument()
+    expect(screen.queryByText('4.0s')).not.toBeInTheDocument()
+
+    const panEvent = createEvent.wheel(scrollArea, {
+      clientX: 750,
+      deltaY: 100,
+      cancelable: true,
+    })
+    fireEvent(scrollArea, panEvent)
+
+    expect(panEvent.defaultPrevented).toBe(false)
+    expect(screen.getByText('0.4s')).toBeInTheDocument()
+    expect(screen.getByText('3.6s')).toBeInTheDocument()
+    expect(scrollArea).toHaveClass('overflow-y-auto')
+  })
+
+  it('does not pan the time viewport for ordinary mixed-axis wheel input', () => {
+    render(<CompositingTimeline />)
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+    const navigator = screen.getByTestId('motion-time-navigator')
+
+    fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
+    expect(navigator).toHaveAttribute('data-start-frame', '12')
+    expect(navigator).toHaveAttribute('data-end-frame', '108')
+
+    const wheelEvent = createEvent.wheel(scrollArea, {
+      clientX: 750,
+      deltaX: -1,
+      deltaY: 25,
+      cancelable: true,
+    })
+    fireEvent(scrollArea, wheelEvent)
+
+    expect(wheelEvent.defaultPrevented).toBe(false)
+    expect(navigator).toHaveAttribute('data-start-frame', '12')
+    expect(navigator).toHaveAttribute('data-end-frame', '108')
+  })
+
+  it('accumulates shift-wheel horizontal panning without cross-axis reversal or frame jumps', () => {
+    render(<CompositingTimeline />)
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+    const navigator = screen.getByTestId('motion-time-navigator')
+
+    fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
+    const firstPan = createEvent.wheel(scrollArea, {
+      shiftKey: true,
+      clientX: 750,
+      deltaX: -1,
+      deltaY: 1,
+      cancelable: true,
+    })
+    fireEvent(scrollArea, firstPan)
+    fireEvent.wheel(scrollArea, { shiftKey: true, clientX: 750, deltaX: -1, deltaY: 1 })
+
+    expect(firstPan.defaultPrevented).toBe(true)
+    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(12.384)
+    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(108.384)
+
+    fireEvent.wheel(scrollArea, { shiftKey: true, clientX: 750, deltaX: -100, deltaY: 10 })
+    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(14.304)
+    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(110.304)
+  })
+
+  it('accumulates rapid mouse-wheel zoom around the cursor without treating horizontal input as zoom', () => {
+    render(<CompositingTimeline />)
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+    const navigator = screen.getByTestId('motion-time-navigator')
+
+    act(() => {
+      scrollArea.dispatchEvent(
+        createEvent.wheel(scrollArea, {
+          ctrlKey: true,
+          clientX: 750,
+          deltaY: -100,
+          cancelable: true,
+        }),
+      )
+      scrollArea.dispatchEvent(
+        createEvent.wheel(scrollArea, {
+          ctrlKey: true,
+          clientX: 750,
+          deltaY: -100,
+          cancelable: true,
+        }),
+      )
+    })
+
+    expect(navigator).toHaveAttribute('data-start-frame', '22')
+    expect(navigator).toHaveAttribute('data-end-frame', '99')
+
+    const horizontalEvent = createEvent.wheel(scrollArea, {
+      ctrlKey: true,
+      clientX: 750,
+      deltaX: 100,
+      deltaY: 0,
+      cancelable: true,
+    })
+    fireEvent(scrollArea, horizontalEvent)
+
+    expect(horizontalEvent.defaultPrevented).toBe(true)
+    expect(navigator).toHaveAttribute('data-start-frame', '22')
+    expect(navigator).toHaveAttribute('data-end-frame', '99')
+  })
+
+  it('handles ctrl-wheel zoom after the app-level browser zoom guard prevents the event', () => {
+    render(<CompositingTimeline />)
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+    const navigator = screen.getByTestId('motion-time-navigator')
+    const guardedEvent = createEvent.wheel(scrollArea, {
+      ctrlKey: true,
+      clientX: 750,
+      deltaY: -100,
+      cancelable: true,
+    })
+
+    // App.tsx prevents native browser zoom during document capture before the
+    // Motion timeline receives this same event.
+    guardedEvent.preventDefault()
+    fireEvent(scrollArea, guardedEvent)
+
+    expect(guardedEvent.defaultPrevented).toBe(true)
+    expect(navigator).toHaveAttribute('data-start-frame', '12')
+    expect(navigator).toHaveAttribute('data-end-frame', '108')
+  })
+
+  it('uses middle-mouse drag to move the layer list vertically without changing selection', () => {
+    render(<CompositingTimeline />)
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+    useSelectionStore.getState().clearSelection()
+    scrollArea.scrollTop = 100
+
+    const span = screen.getByTestId(`motion-layer-span-${shape.id}`)
+    fireEvent.pointerDown(span, { button: 1, buttons: 4, pointerId: 7, clientX: 800, clientY: 200 })
+    fireEvent.pointerMove(window, { buttons: 4, pointerId: 7, clientX: 700, clientY: 300 })
+
+    expect(useSelectionStore.getState().selectedItemIds).toEqual([])
+    expect(useKeyframeSelectionStore.getState().selectedKeyframes).toEqual([])
+    expect(scrollArea.scrollTop).toBe(200)
+    expect(screen.getByText('0.0s')).toBeInTheDocument()
+    expect(screen.getByText('4.0s')).toBeInTheDocument()
+
+    fireEvent.pointerUp(window, { button: 1, pointerId: 7, clientX: 700, clientY: 300 })
+    expect(document.body.style.cursor).toBe('')
   })
 
   it('adds an undoable property keyframe at the shared playhead', () => {
@@ -160,21 +433,27 @@ describe('CompositingTimeline', () => {
 
     const firstKeyframe = useKeyframesStore.getState().keyframesByItemId[shape.id]!
       .properties[0]!.keyframes[0]!
+    useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 60, 300)
     useKeyframeSelectionStore.getState().selectKeyframes([
       { itemId: shape.id, property: 'x', keyframeId: firstKeyframe.id },
     ])
     act(() => usePlaybackStore.getState().setCurrentFrame(60))
 
     let input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
+    expect(input).toHaveValue(100)
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: '180' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
     let keyframes = useKeyframesStore.getState().keyframesByItemId[shape.id]!.properties[0]!
       .keyframes
-    expect(keyframes).toEqual([expect.objectContaining({ frame: 0, value: 180 })])
+    expect(keyframes).toEqual([
+      expect.objectContaining({ frame: 0, value: 180 }),
+      expect.objectContaining({ frame: 60, value: 300 }),
+    ])
 
     useKeyframeSelectionStore.getState().clearSelection()
+    act(() => usePlaybackStore.getState().setCurrentFrame(90))
     input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: '220' } })
@@ -183,7 +462,8 @@ describe('CompositingTimeline', () => {
     keyframes = useKeyframesStore.getState().keyframesByItemId[shape.id]!.properties[0]!.keyframes
     expect(keyframes).toEqual([
       expect.objectContaining({ frame: 0, value: 180 }),
-      expect.objectContaining({ frame: 60, value: 220 }),
+      expect.objectContaining({ frame: 60, value: 300 }),
+      expect.objectContaining({ frame: 90, value: 220 }),
     ])
   })
 
@@ -219,6 +499,10 @@ describe('CompositingTimeline', () => {
 
     const rowBefore = screen.getByText('X Position').closest('.group')
     expect(rowBefore).not.toHaveClass('pl-6')
+    expect(screen.getByTestId('motion-layer-scroll-area')).toHaveClass(
+      'overflow-x-hidden',
+      'overflow-y-auto',
+    )
     expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toHaveClass(
       'w-[80px]',
     )

@@ -4,6 +4,7 @@
 
 export {
   DopesheetEditor,
+  CompactNavigator,
   KEYFRAME_EDGE_INSET,
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,

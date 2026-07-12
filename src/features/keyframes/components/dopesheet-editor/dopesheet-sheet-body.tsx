@@ -33,7 +33,7 @@ export function DopesheetSheetBody({
   return (
     <div
       ref={scrollAreaRef}
-      className="overflow-auto"
+      className={subtractRulerHeight ? 'overflow-auto' : 'overflow-hidden'}
       style={{ height: subtractRulerHeight ? `calc(100% - ${RULER_HEIGHT}px)` : '100%' }}
     >
       {!hasRows ? (

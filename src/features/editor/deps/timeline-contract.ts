@@ -43,6 +43,7 @@ export {
   createOverlayLayerTrack,
   createTextTemplateItem,
   DopesheetEditor,
+  CompactNavigator,
   duplicateItemsWithTrackChanges,
   executeTimelineCommand,
   findCompatibleTrackForItemType,

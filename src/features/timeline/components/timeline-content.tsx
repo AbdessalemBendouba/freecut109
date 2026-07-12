@@ -1427,9 +1427,9 @@ export const TimelineContent = memo(function TimelineContent({
           }
 
           useZoomStore.getState().setZoomLevelImmediate(queuedZoomLevel)
-          // Width and cursor-anchor scroll must land in the same frame. Splitting
-          // them across RAFs makes direction reversals visibly snap because the
-          // browser paints one frame in the new scale at the old scroll offset.
+          // Live geometry subscribers update the scrollable width synchronously.
+          // Apply the matching anchor offset in the same frame so direction
+          // changes cannot paint at the previous scroll position.
           const container = containerRef.current
           if (container) {
             container.scrollLeft = queuedScrollLeft
@@ -1548,8 +1548,11 @@ export const TimelineContent = memo(function TimelineContent({
 
     const newZoomLevel = getZoomToFitLevel(effectiveContainerWidth, contentDuration)
 
-    // Apply zoom and reset scroll to start
-    pendingScrollRef.current = 0
+    // Apply zoom and reset scroll to start. This scroll is applied immediately,
+    // so do not leave a pending value behind: TimelineContent intentionally does
+    // not re-render for live wheel zoom and the stale zero would override the
+    // real anchored position on the next wheel event.
+    pendingScrollRef.current = null
     scrollLeftRef.current = 0
     useZoomStore.getState().setZoomLevelSynchronized(newZoomLevel)
     container.scrollLeft = 0

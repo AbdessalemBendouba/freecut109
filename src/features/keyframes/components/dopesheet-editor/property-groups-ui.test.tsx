@@ -51,6 +51,24 @@ describe('DopesheetEditor property groups', () => {
     ).toBeTruthy()
   })
 
+  it('keeps connectors when one endpoint is outside the zoomed viewport', () => {
+    renderEditor({
+      keyframesByProperty: {
+        x: [
+          { id: 'kx-offscreen', frame: 0, value: 100, easing: 'linear' },
+          { id: 'kx-visible', frame: 75, value: 200, easing: 'linear' },
+        ],
+      },
+      propertyValues: { x: 200 },
+      totalFrames: 100,
+      frameViewport: { startFrame: 50, endFrame: 100 },
+    })
+
+    expect(screen.getAllByTestId('keyframe-connector')).toHaveLength(2)
+    expect(screen.queryByTestId('row-keyframe-x-kx-offscreen')).toBeNull()
+    expect(screen.getByTestId('row-keyframe-x-kx-visible')).toBeTruthy()
+  })
+
   it('filters parameter groups from the menu', () => {
     renderEditor()
 

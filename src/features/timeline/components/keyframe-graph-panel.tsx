@@ -1242,16 +1242,22 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     const values: Partial<Record<AnimatableProperty, number>> = {};
     for (const property of availableProperties) {
       const propKeyframes = keyframesByProperty[property] ?? [];
+      let selectedValue: number | undefined;
+      for (let index = selectedEditorKeyframes.length - 1; index >= 0; index -= 1) {
+        const selected = selectedEditorKeyframes[index]!;
+        if (selected.ref.property === property) {
+          selectedValue = selected.keyframe.value;
+          break;
+        }
+      }
       const baseValue = getBaseKeyframeValue(
         selectedItemForEditor,
         property,
         canvas,
       );
-      values[property] = interpolatePropertyValue(
-        propKeyframes,
-        relativeFrame,
-        baseValue,
-      );
+      values[property] =
+        selectedValue ??
+        interpolatePropertyValue(propKeyframes, relativeFrame, baseValue);
     }
     return values;
   }, [
@@ -1259,6 +1265,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     canvas,
     keyframesByProperty,
     relativeFrame,
+    selectedEditorKeyframes,
     selectedItemForEditor,
   ]);
 
