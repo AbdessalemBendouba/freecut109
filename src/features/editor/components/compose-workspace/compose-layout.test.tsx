@@ -10,6 +10,7 @@ import {
   useCompositionNavigationStore,
   useCompositionsStore,
   useItemsStore,
+  useTimelineSettingsStore,
 } from '@/features/editor/deps/timeline-motion'
 import { useEditorStore } from '@/shared/state/editor'
 import type { TimelineItem } from '@/types/timeline'
@@ -65,6 +66,7 @@ describe('Motion workspace composition session', () => {
       motionReturnTabId: null,
     })
     useEditorStore.getState().setWorkspace('edit')
+    useTimelineSettingsStore.getState().setTimelineLoading(false)
   })
 
   afterEach(() => {
@@ -107,6 +109,42 @@ describe('Motion workspace composition session', () => {
     useEditorStore.getState().setWorkspace('edit')
     view.unmount()
     expect(useCompositionNavigationStore.getState().activeCompositionId).toBeNull()
+  })
+
+  it('does not mount or open Motion against Main while an F5 hydration is in progress', async () => {
+    const editorialItem = {
+      id: 'main-item',
+      type: 'video',
+      trackId: 'track-v1',
+      from: 0,
+      durationInFrames: 120,
+      label: 'Main timeline clip',
+      mediaId: 'main-media',
+      src: 'blob:main',
+    } as TimelineItem
+    addMotionComposition('motion-a', 'Motion composition')
+    useComposeUiStore.getState().setLastOpenedCompositionId('motion-a')
+    useTimelineSettingsStore.getState().setTimelineLoading(true)
+    useEditorStore.getState().setWorkspace('motion')
+
+    render(<MotionTimelineDock project={{ width: 1280, height: 720, fps: 30 }} />)
+
+    // Simulate the async project loader hydrating Main after Motion mounted.
+    useItemsStore.getState().setItems([editorialItem])
+    expect(useCompositionNavigationStore.getState().activeCompositionId).toBeNull()
+    expect(screen.getByTestId('motion-timeline-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('compositing-timeline')).not.toBeInTheDocument()
+
+    useTimelineSettingsStore.getState().setTimelineLoading(false)
+
+    await waitFor(() =>
+      expect(useCompositionNavigationStore.getState().activeCompositionId).toBe('motion-a'),
+    )
+    expect(screen.getByTestId('compositing-timeline')).toBeInTheDocument()
+    expect(useItemsStore.getState().items).toEqual([])
+    expect(
+      useCompositionsStore.getState().compositionById['motion-a']?.items,
+    ).toEqual([])
   })
 
   it('repairs a Motion composition that already absorbed Main timeline items', async () => {

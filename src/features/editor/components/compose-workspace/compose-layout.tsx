@@ -9,6 +9,7 @@ import {
   repairCompositeCompositionEditorialLeak,
   useCompositionNavigationStore,
   useCompositionsStore,
+  useTimelineSettingsStore,
 } from '@/features/editor/deps/timeline-store'
 import { useEditorStore } from '@/shared/state/editor'
 import { PreviewArea } from '../preview-area'
@@ -124,6 +125,7 @@ export const MotionTimelineDock = memo(function MotionTimelineDock({
     activeCompositionId ? state.compositionById[activeCompositionId] : undefined,
   )
   const mainHolder = useCompositionNavigationStore((state) => state.mainHolder)
+  const isTimelineLoading = useTimelineSettingsStore((state) => state.isTimelineLoading)
   const compositions = useCompositionsStore((state) => state.compositions)
   const motionCompositions = useMemo(
     () => compositions.filter((composition) => composition.editorKind === 'composite-2d'),
@@ -174,6 +176,11 @@ export const MotionTimelineDock = memo(function MotionTimelineDock({
   }, [activeComposition, activeCompositionId, mainHolder, setLastOpenedCompositionId])
 
   useEffect(() => {
+    // On refresh the persisted workspace can mount Motion before Main has
+    // finished hydrating. Opening a composition during that window lets the
+    // root loader write editorial items into the composition's live stores.
+    // Wait until hydration is fully complete before restoring the last comp.
+    if (isTimelineLoading) return
     if (useEditorStore.getState().workspace !== 'motion') return
     if (activeComposition?.editorKind === 'composite-2d') return
     const target =
@@ -182,7 +189,14 @@ export const MotionTimelineDock = memo(function MotionTimelineDock({
     if (target) {
       useCompositionNavigationStore.getState().switchToSequence(target.id)
     }
-  }, [activeComposition, lastOpenedCompositionId, motionCompositions])
+  }, [activeComposition, isTimelineLoading, lastOpenedCompositionId, motionCompositions])
+
+  // Never mount the Motion timeline against root/editorial stores. During an
+  // F5 it intentionally stays empty for a frame, then mounts only after the
+  // hydrated Motion composition has become the active runtime context.
+  if (isTimelineLoading || activeComposition?.editorKind !== 'composite-2d') {
+    return <div className="h-full bg-background" data-testid="motion-timeline-empty" />
+  }
 
   return (
     <ErrorBoundary level="feature">

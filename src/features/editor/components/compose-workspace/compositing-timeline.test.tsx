@@ -655,6 +655,32 @@ describe('CompositingTimeline', () => {
     expect(useItemsStore.getState().itemById[shape.id]?.label).toBe('Renamed rectangle')
   })
 
+  it('preserves a multi-selection when grouping from a selected layer context menu', async () => {
+    const secondTrack = makeTimelineTrack({
+      id: 'layer-track-2',
+      name: 'Circle',
+      kind: 'video',
+      order: 1,
+    })
+    const secondShape: ShapeItem = {
+      ...shape,
+      id: 'shape-2',
+      trackId: secondTrack.id,
+      label: 'Circle',
+    }
+    useItemsStore.getState().setTracks([track, secondTrack])
+    useItemsStore.getState().setItems([shape, secondShape])
+    useSelectionStore.getState().selectItems([shape.id, secondShape.id])
+    render(<CompositingTimeline />)
+
+    fireEvent.contextMenu(screen.getByRole('button', { name: /2circle/i }))
+
+    expect(useSelectionStore.getState().selectedItemIds).toEqual([shape.id, secondShape.id])
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Group selected layers' }))
+
+    expect(useItemsStore.getState().tracks.filter((candidate) => candidate.isGroup)).toHaveLength(1)
+  })
+
   it('creates a dedicated backing track when adding a generated layer', () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByTitle('Add text layer'))

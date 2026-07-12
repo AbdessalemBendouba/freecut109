@@ -1045,6 +1045,23 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     [selectItems, selectedItemIdSet, selectedItemIds, visibleLayerIds],
   )
 
+  const prepareLayerContextMenu = useCallback(
+    (itemId: string) => {
+      if (selectedItemIdSet.has(itemId)) return
+      selectionAnchorIdRef.current = itemId
+      selectItems([itemId])
+    },
+    [selectItems, selectedItemIdSet],
+  )
+
+  const prepareGroupContextMenu = useCallback(
+    (itemIds: string[]) => {
+      if (itemIds.length > 0 && itemIds.every((itemId) => selectedItemIdSet.has(itemId))) return
+      selectItems(itemIds)
+    },
+    [selectItems, selectedItemIdSet],
+  )
+
   const createGroupFromSelection = useCallback(() => {
     const selectedTrackIds = Array.from(
       new Set(
@@ -2062,7 +2079,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       >
         <MotionRowContextMenu
           canPaste={canPasteLayers}
-          onOpen={() => selectItems(groupItemIds)}
+          onOpen={() => prepareGroupContextMenu(groupItemIds)}
           onRename={() => beginRename({ kind: 'group', id: row.track.id }, row.track.name)}
           onUngroup={() => ungroupTracks(row.track.id)}
           onDuplicate={() => duplicateLayers(groupItemIds, row.track)}
@@ -2424,7 +2441,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                   <MotionRowContextMenu
                     canGroup={canGroupSelectedLayers}
                     canPaste={canPasteLayers}
-                    onOpen={() => selectItems([item.id])}
+                    onOpen={() => prepareLayerContextMenu(item.id)}
                     onRename={() =>
                       beginRename(
                         { kind: 'layer', id: item.id },
