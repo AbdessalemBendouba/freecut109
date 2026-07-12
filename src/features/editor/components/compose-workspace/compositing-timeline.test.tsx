@@ -54,6 +54,9 @@ const shape: ShapeItem = {
 
 describe('CompositingTimeline', () => {
   beforeEach(() => {
+    if (!HTMLElement.prototype.scrollIntoView) {
+      HTMLElement.prototype.scrollIntoView = () => {}
+    }
     resetTimelineCompositionTestState()
     useCompositionNavigationStore.getState().resetToRoot()
     setDefaultRootTimelineTracks()
@@ -73,7 +76,12 @@ describe('CompositingTimeline', () => {
     })
     useCompositionNavigationStore.getState().switchToSequence('comp-1')
     useMediaLibraryStore.setState({ mediaItems: [], mediaById: {} })
-    useComposeUiStore.setState({ expandedLayerIdsByComposition: {} })
+    useComposeUiStore.setState({
+      expandedLayerIdsByComposition: {},
+      lastOpenedCompositionId: null,
+      motionReturnTabCaptured: false,
+      motionReturnTabId: null,
+    })
     useClipboardStore.setState({ itemsClipboard: null, transitionClipboard: null })
     useEditorStore.getState().setKeyframeEditorShortcutScopeActive(false)
     useKeyframeSelectionStore.getState().clearSelection()
@@ -96,6 +104,16 @@ describe('CompositingTimeline', () => {
     expect(
       screen.getByRole('spinbutton', { name: /x position value at playhead/i }),
     ).toBeInTheDocument()
+  })
+
+  it('uses a light border and readable text for the selected segment', () => {
+    useSelectionStore.getState().selectItems([shape.id])
+    render(<CompositingTimeline />)
+
+    expect(screen.getByTestId(`motion-layer-span-${shape.id}`)).toHaveClass(
+      'border-foreground/80',
+      'text-foreground',
+    )
   })
 
   it('uses one shared flag-and-line playhead and supports continuous ruler scrubbing', () => {
@@ -600,9 +618,8 @@ describe('CompositingTimeline', () => {
       fireEvent.click(easingTrigger)
       expect(await screen.findByText('Cubic Easing')).toBeInTheDocument()
 
-      fireEvent.change(screen.getByRole('combobox', { name: 'Property filter' }), {
-        target: { value: 'keyframed' },
-      })
+      fireEvent.click(screen.getByRole('combobox', { name: 'Property filter' }))
+      fireEvent.click(await screen.findByRole('option', { name: 'Animated properties' }))
       expect(screen.getByText('X Position')).toBeInTheDocument()
       expect(screen.queryByText('Y Position')).not.toBeInTheDocument()
     },
@@ -635,12 +652,14 @@ describe('CompositingTimeline', () => {
     const state = useItemsStore.getState()
     const textLayer = state.items.find((item) => item.type === 'text')
     expect(textLayer).toBeDefined()
-    expect(state.tracks.some((candidate) => candidate.id === textLayer?.trackId)).toBe(true)
+    expect(state.tracks.find((candidate) => candidate.id === textLayer?.trackId)?.name).toBe(
+      textLayer?.label,
+    )
   })
 
   it('drags a layer span in time and commits one undoable move', () => {
-    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 60 }])
     render(<CompositingTimeline />)
+    usePlaybackStore.setState({ currentFrame: 40, previewFrame: null })
     const span = screen.getByTestId(`motion-layer-span-${shape.id}`)
     vi.spyOn(span.parentElement!, 'getBoundingClientRect').mockReturnValue({
       x: 0,
@@ -655,12 +674,56 @@ describe('CompositingTimeline', () => {
     })
 
     fireEvent.pointerDown(span, { pointerId: 1, button: 0, clientX: 0 })
-    fireEvent.pointerMove(span, { pointerId: 1, clientX: 30 })
+    fireEvent.pointerMove(span, { pointerId: 1, buttons: 1, clientX: 30 })
     fireEvent.pointerUp(span, { pointerId: 1, clientX: 30 })
 
     expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(12)
+    expect(usePlaybackStore.getState().currentFrame).toBe(40)
+    expect(usePlaybackStore.getState().previewFrame).toBeNull()
     useTimelineCommandStore.getState().undo()
     expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(0)
+  })
+
+  it('trims a layer span from either edge and keeps each drag undoable', () => {
+    useItemsStore.getState().setItems([{ ...shape, from: 10, durationInFrames: 60 }])
+    render(<CompositingTimeline />)
+    const startHandle = screen.getByTestId(`motion-trim-start-${shape.id}`)
+    const endHandle = screen.getByTestId(`motion-trim-end-${shape.id}`)
+    const lane = screen.getByTestId(`motion-layer-span-${shape.id}`).parentElement!
+    vi.spyOn(lane, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 34,
+      width: 300,
+      height: 34,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(endHandle, { pointerId: 4, button: 0, clientX: 200 })
+    fireEvent.pointerMove(endHandle, { pointerId: 4, clientX: 170 })
+    fireEvent.pointerUp(endHandle, { pointerId: 4, clientX: 170 })
+
+    expect(useItemsStore.getState().itemById[shape.id]).toMatchObject({
+      from: 10,
+      durationInFrames: 48,
+    })
+
+    fireEvent.pointerDown(startHandle, { pointerId: 5, button: 0, clientX: 25 })
+    fireEvent.pointerMove(startHandle, { pointerId: 5, clientX: 40 })
+    fireEvent.pointerUp(startHandle, { pointerId: 5, clientX: 40 })
+
+    expect(useItemsStore.getState().itemById[shape.id]).toMatchObject({
+      from: 16,
+      durationInFrames: 42,
+    })
+    useTimelineCommandStore.getState().undo()
+    expect(useItemsStore.getState().itemById[shape.id]).toMatchObject({
+      from: 10,
+      durationInFrames: 48,
+    })
   })
 
   it('reorders layers from the three-dot handle in one undo step', () => {

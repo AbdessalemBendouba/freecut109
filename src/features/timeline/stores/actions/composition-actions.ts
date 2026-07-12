@@ -1143,6 +1143,34 @@ function nextCompositeCompositionName(): string {
   return candidate
 }
 
+function openCompositeCompositionInMotionWorkspace(compositionId: string): void {
+  const switchComposition = () => {
+    const composition = useCompositionsStore.getState().getComposition(compositionId)
+    if (
+      composition?.editorKind !== 'composite-2d' ||
+      useEditorStore.getState().workspace !== 'motion'
+    ) {
+      return
+    }
+    useCompositionNavigationStore.getState().switchToSequence(compositionId)
+  }
+
+  const editor = useEditorStore.getState()
+  if (editor.workspace === 'motion') {
+    switchComposition()
+    return
+  }
+
+  editor.setWorkspace('motion')
+  // Let the Motion shell mount and capture the outgoing editorial timeline
+  // before the live timeline stores are swapped to the Motion composition.
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(switchComposition)
+  } else {
+    switchComposition()
+  }
+}
+
 /**
  * Create an empty layer-based 2D composition and open it as the active root.
  *
@@ -1202,7 +1230,7 @@ export function createCompositeComposition(
     { compositionId: id, editorKind: composition.editorKind },
   )
   useTimelineSettingsStore.getState().markDirty()
-  useCompositionNavigationStore.getState().switchToSequence(id)
+  openCompositeCompositionInMotionWorkspace(id)
   return id
 }
 
@@ -1214,7 +1242,7 @@ export function createCompositeComposition(
 export function openComposition(compositionId: string, label?: string, entryItemId?: string): void {
   const composition = useCompositionsStore.getState().getComposition(compositionId)
   if (composition?.editorKind === 'composite-2d') {
-    useCompositionNavigationStore.getState().switchToSequence(compositionId)
+    openCompositeCompositionInMotionWorkspace(compositionId)
     return
   }
   if (useSequencesStore.getState().isTopLevelSequence(compositionId)) {

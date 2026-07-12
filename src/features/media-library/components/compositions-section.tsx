@@ -111,16 +111,6 @@ export function CompositionsSection() {
   }, [editValue])
 
   const handleEnter = useCallback((comp: SubComposition) => {
-    if (comp.editorKind === 'composite-2d') {
-      const editor = useEditorStore.getState()
-      if (editor.workspace !== 'motion') {
-        editor.setWorkspace('motion')
-        // Let Motion mount and capture the outgoing editorial tab before the
-        // shared runtime stores swap to the selected composition.
-        requestAnimationFrame(() => openComposition(comp.id, comp.name))
-        return
-      }
-    }
     openComposition(comp.id, comp.name)
   }, [])
 

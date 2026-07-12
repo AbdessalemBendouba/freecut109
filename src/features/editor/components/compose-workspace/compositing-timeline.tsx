@@ -40,6 +40,13 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { createLogger } from '@/shared/logging/logger'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useSelectionStore } from '@/shared/state/selection'
@@ -74,6 +81,8 @@ import {
   removeItems,
   resolveDroppedMediaEntriesFromPayload,
   setTracks,
+  trimItemEnd,
+  trimItemStart,
   updateItem,
   updateKeyframe,
   updateKeyframes,
@@ -136,6 +145,17 @@ interface SpanDragState {
   laneWidth: number
   deltaFrames: number
   items: Array<{ id: string; from: number; durationInFrames: number }>
+}
+
+interface SpanTrimState {
+  pointerId: number
+  itemId: string
+  handle: 'start' | 'end'
+  startX: number
+  laneWidth: number
+  deltaFrames: number
+  from: number
+  durationInFrames: number
 }
 
 interface RowReorderDragState {
@@ -784,6 +804,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const [renameDraft, setRenameDraft] = useState('')
   const [spanDrag, setSpanDrag] = useState<SpanDragState | null>(null)
   const spanDragRef = useRef<SpanDragState | null>(null)
+  const [spanTrim, setSpanTrim] = useState<SpanTrimState | null>(null)
+  const spanTrimRef = useRef<SpanTrimState | null>(null)
   const motionScrollAreaRef = useRef<HTMLDivElement>(null)
   const [rowReorderDrag, setRowReorderDrag] = useState<RowReorderDragState | null>(null)
   const rowReorderDragRef = useRef<RowReorderDragState | null>(null)
@@ -795,6 +817,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const pendingScrubFrameRef = useRef<number | null>(null)
   const latestScrubFrameRef = useRef<number | null>(null)
   const scrubAnimationFrameRef = useRef<number | null>(null)
+  const playheadScrubPointerIdRef = useRef<number | null>(null)
   const viewportCompositionIdRef = useRef<string | null>(null)
   const activeCompositionId = useCompositionNavigationStore((state) => state.activeCompositionId)
   const compositions = useCompositionsStore((state) => state.compositions)
@@ -1036,13 +1059,15 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     if (name) {
       if (renameTarget.kind === 'layer') {
         updateItem(renameTarget.id, { label: name })
+        const item = items.find((candidate) => candidate.id === renameTarget.id)
+        if (item) updateLayerTrack(item.trackId, { name })
       } else {
         updateLayerTrack(renameTarget.id, { name })
       }
     }
     setRenameTarget(null)
     setRenameDraft('')
-  }, [renameDraft, renameTarget, updateLayerTrack])
+  }, [items, renameDraft, renameTarget, updateLayerTrack])
 
   const copyLayers = useCallback(
     (itemIds: string[]) => {
@@ -1094,7 +1119,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
             items: [],
           }),
           id: newTrackId,
-          name: `${sourceTrack?.name ?? item.label ?? item.type} copy`,
+          name: `${item.label ?? sourceTrack?.name ?? item.type} copy`,
           order: maxOrder + newTracks.length + index + 1,
           parentTrackId: duplicatedGroupId ?? sourceTrack?.parentTrackId,
           isGroup: false,
@@ -1226,11 +1251,11 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       const drag = spanDragRef.current
       if (!drag || drag.pointerId !== event.pointerId) return
       const rawDelta = Math.round(
-        ((event.clientX - drag.startX) / drag.laneWidth) * durationInFrames,
+        ((event.clientX - drag.startX) / drag.laneWidth) * visibleFrameRange,
       )
       const minDelta = -Math.min(...drag.items.map((item) => item.from))
       const maxDelta = Math.min(
-        ...drag.items.map((item) => durationInFrames - (item.from + item.durationInFrames)),
+        ...drag.items.map((item) => durationInFrames - item.from - 1),
       )
       const deltaFrames = Math.max(minDelta, Math.min(maxDelta, rawDelta))
       if (deltaFrames === drag.deltaFrames) return
@@ -1238,7 +1263,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       spanDragRef.current = next
       setSpanDrag(next)
     },
-    [durationInFrames],
+    [durationInFrames, visibleFrameRange],
   )
 
   const endSpanDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
@@ -1255,13 +1280,96 @@ export const CompositingTimeline = memo(function CompositingTimeline({
 
   const getPreviewFrom = useCallback(
     (item: TimelineItem) => {
+      if (spanTrim?.itemId === item.id && spanTrim.handle === 'start') {
+        return spanTrim.from + spanTrim.deltaFrames
+      }
       if (!spanDrag) return item.from
       return spanDrag.items.some((candidate) => candidate.id === item.id)
         ? item.from + spanDrag.deltaFrames
         : item.from
     },
-    [spanDrag],
+    [spanDrag, spanTrim],
   )
+
+  const getPreviewDuration = useCallback(
+    (item: TimelineItem) => {
+      if (spanTrim?.itemId !== item.id) return item.durationInFrames
+      return spanTrim.handle === 'start'
+        ? spanTrim.durationInFrames - spanTrim.deltaFrames
+        : spanTrim.durationInFrames + spanTrim.deltaFrames
+    },
+    [spanTrim],
+  )
+
+  const beginSpanTrim = useCallback(
+    (
+      event: React.PointerEvent<HTMLSpanElement>,
+      item: TimelineItem,
+      handle: 'start' | 'end',
+    ) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      const lane = event.currentTarget.closest<HTMLElement>('[data-motion-timeline-lane]')
+      const laneWidth = lane?.getBoundingClientRect().width ?? 0
+      if (laneWidth <= 0) return
+      pause()
+      selectItems([item.id])
+      const next: SpanTrimState = {
+        pointerId: event.pointerId,
+        itemId: item.id,
+        handle,
+        startX: event.clientX,
+        laneWidth,
+        deltaFrames: 0,
+        from: item.from,
+        durationInFrames: item.durationInFrames,
+      }
+      spanTrimRef.current = next
+      setSpanTrim(next)
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+    },
+    [pause, selectItems],
+  )
+
+  const moveSpanTrim = useCallback(
+    (event: React.PointerEvent<HTMLSpanElement>) => {
+      const trim = spanTrimRef.current
+      if (!trim || trim.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      const rawDelta = Math.round(
+        ((event.clientX - trim.startX) / trim.laneWidth) * visibleFrameRange,
+      )
+      const minDelta =
+        trim.handle === 'start' ? -trim.from : -(trim.durationInFrames - 1)
+      const maxDelta =
+        trim.handle === 'start'
+          ? trim.durationInFrames - 1
+          : durationInFrames - (trim.from + trim.durationInFrames)
+      const deltaFrames = Math.max(minDelta, Math.min(maxDelta, rawDelta))
+      if (deltaFrames === trim.deltaFrames) return
+      const next = { ...trim, deltaFrames }
+      spanTrimRef.current = next
+      setSpanTrim(next)
+    },
+    [durationInFrames, visibleFrameRange],
+  )
+
+  const endSpanTrim = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
+    const trim = spanTrimRef.current
+    if (!trim || trim.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    spanTrimRef.current = null
+    setSpanTrim(null)
+    if (trim.deltaFrames === 0) return
+    if (trim.handle === 'start') {
+      trimItemStart(trim.itemId, trim.deltaFrames)
+    } else {
+      trimItemEnd(trim.itemId, trim.deltaFrames)
+    }
+  }, [])
 
   const beginRowReorder = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>, track: TimelineTrack) => {
@@ -1388,19 +1496,6 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       if (!composition || composition.editorKind !== 'composite-2d') return
       const trackId = crypto.randomUUID()
       const order = tracks.reduce((max, track) => Math.max(max, track.order), -1) + 1
-      const track: TimelineTrack = {
-        id: trackId,
-        name: kind === 'text' ? 'Text' : 'Shape',
-        kind: 'video',
-        height: LAYER_ROW_HEIGHT,
-        locked: false,
-        syncLock: true,
-        visible: true,
-        muted: false,
-        solo: false,
-        order,
-        items: [],
-      }
       const placement = {
         trackId,
         from: 0,
@@ -1413,6 +1508,19 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         kind === 'text'
           ? createTextTemplateItem({ placement, text: 'Text layer', label: 'Text layer' })
           : createDefaultShapeItem({ ...placement, shapeType: 'rectangle' })
+      const track: TimelineTrack = {
+        id: trackId,
+        name: item.label || (kind === 'text' ? 'Text layer' : 'Rectangle'),
+        kind: 'video',
+        height: LAYER_ROW_HEIGHT,
+        locked: false,
+        syncLock: true,
+        visible: true,
+        muted: false,
+        solo: false,
+        order,
+        items: [],
+      }
       addItemOnNewTrack(item, [...tracks, track])
       selectItems([item.id])
     },
@@ -1766,6 +1874,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const beginPlayheadScrub = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return
+      playheadScrubPointerIdRef.current = event.pointerId
       event.currentTarget.setPointerCapture?.(event.pointerId)
       pause()
       const frame = frameFromPointer(event)
@@ -1779,8 +1888,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
 
   const movePlayheadScrub = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      const captured = event.currentTarget.hasPointerCapture?.(event.pointerId) ?? false
-      if (!captured && event.buttons !== 1) return
+      if (playheadScrubPointerIdRef.current !== event.pointerId) return
       const frame = frameFromPointer(event)
       if (frame === null) return
       latestScrubFrameRef.current = frame
@@ -1798,6 +1906,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
 
   const endPlayheadScrub = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
+      if (playheadScrubPointerIdRef.current !== event.pointerId) return
+      playheadScrubPointerIdRef.current = null
       if (scrubAnimationFrameRef.current !== null) {
         cancelAnimationFrame(scrubAnimationFrameRef.current)
         scrubAnimationFrameRef.current = null
@@ -2087,21 +2197,27 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const layerSheet = (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-timeline-bg">
       <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border bg-panel-header px-2">
-        <select
+        <Select
           value={composition.id}
-          onChange={(event) => {
-            const next = compositionById[event.target.value]
+          onValueChange={(value) => {
+            const next = compositionById[value]
             if (next) openComposition(next.id, next.name)
           }}
-          aria-label={t('editor.compose.compositionPicker')}
-          className="h-6 min-w-0 max-w-52 rounded border border-input bg-background px-1.5 text-[10px] font-semibold text-foreground outline-none focus:border-primary/60"
         >
-          {compositeCompositions.map((candidate) => (
-            <option key={candidate.id} value={candidate.id}>
-              {candidate.name}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger
+            aria-label={t('editor.compose.compositionPicker')}
+            className="h-6 min-w-0 max-w-52 gap-1.5 bg-background px-2 text-[10px] font-semibold text-foreground"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {compositeCompositions.map((candidate) => (
+              <SelectItem key={candidate.id} value={candidate.id} className="text-[10px]">
+                {candidate.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <button
           type="button"
           onClick={() => setCreateDialogOpen(true)}
@@ -2177,17 +2293,25 @@ export const CompositingTimeline = memo(function CompositingTimeline({
               }}
             >
               <span>{t('editor.compose.layers')}</span>
-              <select
+              <Select
                 value={propertyFilter}
-                onChange={(event) =>
-                  setPropertyFilter(event.target.value as 'all' | 'keyframed')
-                }
-                aria-label="Property filter"
-                className="h-5 w-32 rounded border border-input bg-background px-1.5 text-[9px] font-normal normal-case tracking-normal text-muted-foreground outline-none focus:border-primary/60"
+                onValueChange={(value) => setPropertyFilter(value as 'all' | 'keyframed')}
               >
-                <option value="all">All properties</option>
-                <option value="keyframed">Animated properties</option>
-              </select>
+                <SelectTrigger
+                  aria-label="Property filter"
+                  className="h-5 w-32 gap-1 bg-background px-2 text-[9px] font-normal normal-case tracking-normal text-muted-foreground"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-[10px]">
+                    All properties
+                  </SelectItem>
+                  <SelectItem value="keyframed" className="text-[10px]">
+                    Animated properties
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div
               className="relative min-w-0 flex-1 touch-none cursor-ew-resize"
@@ -2422,22 +2546,29 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                           })
                         }
                       />
-                      <select
+                      <Select
                         value={item.blendMode ?? 'normal'}
-                        onChange={(event) =>
-                          updateItem(item.id, { blendMode: event.target.value as BlendMode })
+                        onValueChange={(value) =>
+                          updateItem(item.id, { blendMode: value as BlendMode })
                         }
-                        className="h-5 w-24 rounded border border-input bg-background px-1.5 text-[9px] text-muted-foreground outline-none focus:border-primary/60"
-                        aria-label={t('editor.compose.blendMode')}
                       >
-                        {ALL_BLEND_MODES.map((mode) => (
-                          <option key={mode} value={mode}>
-                            {BLEND_MODE_LABELS[mode]}
-                          </option>
-                        ))}
-                      </select>
+                        <SelectTrigger
+                          className="h-5 w-24 gap-1 bg-background px-2 text-[9px] text-muted-foreground"
+                          aria-label={t('editor.compose.blendMode')}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="max-h-72">
+                          {ALL_BLEND_MODES.map((mode) => (
+                            <SelectItem key={mode} value={mode} className="text-[10px]">
+                              {BLEND_MODE_LABELS[mode]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       </div>
                       <div
+                      data-motion-timeline-lane
                       className="relative min-w-0 flex-1 cursor-default overflow-hidden"
                       onPointerDown={beginPlayheadScrub}
                       onPointerMove={movePlayheadScrub}
@@ -2475,16 +2606,50 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                             ? 'cursor-not-allowed opacity-55'
                             : 'cursor-grab active:cursor-grabbing',
                           selected
-                            ? 'border-primary/80 bg-timeline-motion-segment/90 text-primary-foreground'
+                            ? 'border-foreground/80 bg-timeline-motion-segment/90 text-foreground'
                             : 'border-timeline-motion-segment/80 bg-timeline-motion-segment/70 text-foreground hover:bg-timeline-motion-segment/85',
                         )}
                         style={{
                           left: `${frameToMotionPercent(getPreviewFrom(item))}%`,
-                          width: `${Math.max(0.6, (item.durationInFrames / visibleFrameRange) * 100)}%`,
+                          width: `${Math.max(0.6, (getPreviewDuration(item) / visibleFrameRange) * 100)}%`,
                         }}
                         title={`${item.from}–${item.from + item.durationInFrames - 1}`}
                       >
-                        <span className="block truncate">{item.label || item.type}</span>
+                        {!track?.locked ? (
+                          <>
+                            <span
+                              role="slider"
+                              aria-label={`Trim ${item.label || item.type} start`}
+                              aria-valuemin={0}
+                              aria-valuemax={item.from + item.durationInFrames - 1}
+                              aria-valuenow={getPreviewFrom(item)}
+                              tabIndex={-1}
+                              data-testid={`motion-trim-start-${item.id}`}
+                              onPointerDown={(event) => beginSpanTrim(event, item, 'start')}
+                              onPointerMove={moveSpanTrim}
+                              onPointerUp={endSpanTrim}
+                              onPointerCancel={endSpanTrim}
+                              className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
+                            />
+                            <span
+                              role="slider"
+                              aria-label={`Trim ${item.label || item.type} end`}
+                              aria-valuemin={item.from + 1}
+                              aria-valuemax={durationInFrames}
+                              aria-valuenow={getPreviewFrom(item) + getPreviewDuration(item)}
+                              tabIndex={-1}
+                              data-testid={`motion-trim-end-${item.id}`}
+                              onPointerDown={(event) => beginSpanTrim(event, item, 'end')}
+                              onPointerMove={moveSpanTrim}
+                              onPointerUp={endSpanTrim}
+                              onPointerCancel={endSpanTrim}
+                              className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
+                            />
+                          </>
+                        ) : null}
+                        <span className="pointer-events-none block truncate px-1.5">
+                          {item.label || item.type}
+                        </span>
                       </button>
                       </div>
                     </div>

@@ -22,6 +22,8 @@ export {
   duplicateItemsWithTrackChanges,
   moveItems,
   removeItems,
+  trimItemEnd,
+  trimItemStart,
   updateItem,
 } from '@/features/timeline/stores/actions/item-actions'
 export {

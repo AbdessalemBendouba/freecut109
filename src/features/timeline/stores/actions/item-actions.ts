@@ -68,6 +68,45 @@ function copyInternalTransitionsForDuplicatedItems(
   }
 }
 
+function copyKeyframesForDuplicatedItems(itemIds: string[], newItems: TimelineItem[]): void {
+  if (newItems.length === 0) return
+
+  const keyframesState = useKeyframesStore.getState()
+  const copiedKeyframes = itemIds.flatMap((itemId, index) => {
+    const newItem = newItems[index]
+    const source = keyframesState.keyframesByItemId[itemId]
+    if (!newItem || !source) return []
+
+    return [
+      {
+        itemId: newItem.id,
+        properties: source.properties.map((property) => ({
+          property: property.property,
+          keyframes: property.keyframes.map((keyframe) => ({
+            ...keyframe,
+            id: crypto.randomUUID(),
+            easingConfig: keyframe.easingConfig
+              ? {
+                  ...keyframe.easingConfig,
+                  ...(keyframe.easingConfig.bezier && {
+                    bezier: { ...keyframe.easingConfig.bezier },
+                  }),
+                  ...(keyframe.easingConfig.spring && {
+                    spring: { ...keyframe.easingConfig.spring },
+                  }),
+                }
+              : undefined,
+          })),
+        })),
+      },
+    ]
+  })
+
+  if (copiedKeyframes.length > 0) {
+    keyframesState.setKeyframes([...keyframesState.keyframes, ...copiedKeyframes])
+  }
+}
+
 export function addItem(item: TimelineItem): void {
   const [placedItem] = placeItemsWithoutTimelineOverlap([item])
   if (!placedItem) return
@@ -754,6 +793,7 @@ export function duplicateItems(
     () => {
       const newItems = useItemsStore.getState()._duplicateItems(itemIds, positions)
       copyInternalTransitionsForDuplicatedItems(itemIds, newItems)
+      copyKeyframesForDuplicatedItems(itemIds, newItems)
       useTimelineSettingsStore.getState().markDirty()
       return newItems
     },
@@ -774,6 +814,7 @@ export function duplicateItemsWithTrackChanges(
       useItemsStore.getState().setTracks(tracks)
       const newItems = useItemsStore.getState()._duplicateItems(itemIds, positions)
       copyInternalTransitionsForDuplicatedItems(itemIds, newItems)
+      copyKeyframesForDuplicatedItems(itemIds, newItems)
       useTimelineSettingsStore.getState().markDirty()
       return newItems
     },

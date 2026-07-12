@@ -321,7 +321,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
   perfMarkRender('TimelineMarkers')
   const editorDensity = useSettingsStore((s) => s.editorDensity)
   const editorLayout = getEditorLayout(editorDensity)
-  const { timeToPixels, pixelsPerSecond } = useTimelineCommittedZoomContext()
+  const { timeToPixels, frameToPixels, pixelsPerSecond } = useTimelineCommittedZoomContext()
   const fps = useTimelineStore((s) => s.fps)
   const inPoint = useTimelineStore((s) => s.inPoint)
   const outPoint = useTimelineStore((s) => s.outPoint)
@@ -812,6 +812,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       if (startIn === null || startOut === null) return
 
       const startTimelineX = getTimelineXFromClientX(e.clientX)
+      const rangeTop = e.currentTarget.getBoundingClientRect().top
       const originalCursor = document.body.style.cursor
       let lastIn = startIn
       let lastOut = startOut
@@ -828,14 +829,37 @@ export const TimelineMarkers = memo(function TimelineMarkers({
           const nextIn = Math.max(0, Math.min(startIn + deltaFrames, maxIn))
           const nextOut = nextIn + span
           const label = `${formatTimecodeCompact(nextIn, fpsRef.current)} → ${formatTimecodeCompact(nextOut, fpsRef.current)}`
+          const scrollContainer = containerRef.current?.closest(
+            '.timeline-container',
+          ) as HTMLDivElement | null
+          const coordinateBox = scrollContainer ?? containerRef.current
+          const coordinateRect = coordinateBox?.getBoundingClientRect()
+          const scrollLeft = scrollContainer?.scrollLeft ?? 0
+          const rangeLeft =
+            (coordinateRect?.left ?? 0) + frameToPixels(nextIn) - scrollLeft
+          const rangeRight =
+            (coordinateRect?.left ?? 0) + frameToPixels(nextOut) - scrollLeft
+          const visibleLeft = coordinateRect
+            ? Math.max(coordinateRect.left, Math.min(coordinateRect.right, rangeLeft))
+            : rangeLeft
+          const visibleRight = coordinateRect
+            ? Math.max(coordinateRect.left, Math.min(coordinateRect.right, rangeRight))
+            : rangeRight
+          const readout = {
+            label,
+            x: (visibleLeft + visibleRight) / 2,
+            // The global readout places its bottom 16px above this coordinate;
+            // offset by the lane height so it sits just above the body.
+            y: rangeTop + IO_LANE_HEIGHT,
+          }
           // Skip redundant writes while dragging (still update the readout).
-          if (nextIn === lastIn && nextOut === lastOut) return label
+          if (nextIn === lastIn && nextOut === lastOut) return readout
           setInOutPointsWithoutHistory(nextIn, nextOut)
           // Skim the preview to the range's leading (in) edge as it slides.
           setPreviewFrameRef.current(nextIn)
           lastIn = nextIn
           lastOut = nextOut
-          return label
+          return readout
         },
         () => {
           document.body.style.cursor = originalCursor
@@ -854,7 +878,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       setIsRangeDragging(true)
       rangeDragCleanupRef.current = cleanup
     },
-    [getTimelineXFromClientX],
+    [frameToPixels, getTimelineXFromClientX],
   )
 
   // Scrubbing handlers
@@ -994,11 +1018,12 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       {/* Draggable in/out strip — its own lane at the top of the ruler */}
       {safeInPoint !== null && safeOutPoint !== null && (
         <IoRangeStrip
-          left={`calc(${safeInPoint} * var(--timeline-px-per-frame, 0px))`}
-          width={`calc(${safeOutPoint - safeInPoint} * var(--timeline-px-per-frame, 0px))`}
+          left={`${frameToPixels(safeInPoint)}px`}
+          width={`${frameToPixels(safeOutPoint) - frameToPixels(safeInPoint)}px`}
           height={IO_LANE_HEIGHT}
           className="cursor-move active:cursor-move"
           onDragStart={handleRangeMouseDown}
+          testId="edit-timeline-io-strip"
         />
       )}
 
