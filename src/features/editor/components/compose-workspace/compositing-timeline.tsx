@@ -806,6 +806,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const spanDragRef = useRef<SpanDragState | null>(null)
   const [spanTrim, setSpanTrim] = useState<SpanTrimState | null>(null)
   const spanTrimRef = useRef<SpanTrimState | null>(null)
+  const selectionAnchorIdRef = useRef<string | null>(null)
   const motionScrollAreaRef = useRef<HTMLDivElement>(null)
   const [rowReorderDrag, setRowReorderDrag] = useState<RowReorderDragState | null>(null)
   const rowReorderDragRef = useRef<RowReorderDragState | null>(null)
@@ -960,6 +961,13 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     }
     return rows
   }, [layerEntries, tracks])
+  const visibleLayerIds = useMemo(
+    () =>
+      motionRows.flatMap((row) =>
+        row.kind === 'layer' ? [row.item.id] : [],
+      ),
+    [motionRows],
+  )
 
   useEffect(() => {
     if (!activeCompositionId) return
@@ -985,8 +993,29 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   )
 
   const selectLayer = useCallback(
-    (itemId: string, additive = false) => {
-      if (!additive) {
+    (itemId: string, modifiers: { toggle?: boolean; range?: boolean } = {}) => {
+      if (modifiers.range) {
+        const anchorId =
+          selectionAnchorIdRef.current ?? selectedItemIds.at(-1) ?? null
+        const anchorIndex = anchorId ? visibleLayerIds.indexOf(anchorId) : -1
+        const itemIndex = visibleLayerIds.indexOf(itemId)
+        if (anchorIndex >= 0 && itemIndex >= 0) {
+          const rangeStart = Math.min(anchorIndex, itemIndex)
+          const rangeEnd = Math.max(anchorIndex, itemIndex)
+          selectItems(
+            Array.from(
+              new Set([
+                ...selectedItemIds,
+                ...visibleLayerIds.slice(rangeStart, rangeEnd + 1),
+              ]),
+            ),
+          )
+          return
+        }
+      }
+
+      selectionAnchorIdRef.current = itemId
+      if (!modifiers.toggle) {
         selectItems([itemId])
         return
       }
@@ -996,7 +1025,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           : [...selectedItemIds, itemId],
       )
     },
-    [selectItems, selectedItemIdSet, selectedItemIds],
+    [selectItems, selectedItemIdSet, selectedItemIds, visibleLayerIds],
   )
 
   const createGroupFromSelection = useCallback(() => {
@@ -1228,7 +1257,10 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       if (dragItems.length === 0) return
       pause()
       if (itemIds.length === 1) {
-        selectLayer(itemIds[0]!, event.metaKey || event.ctrlKey || event.shiftKey)
+        selectLayer(itemIds[0]!, {
+          toggle: event.metaKey || event.ctrlKey,
+          range: event.shiftKey,
+        })
       } else {
         selectItems(itemIds)
       }
@@ -2501,7 +2533,10 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                         <button
                           type="button"
                           onClick={(event) =>
-                            selectLayer(item.id, event.metaKey || event.ctrlKey || event.shiftKey)
+                            selectLayer(item.id, {
+                              toggle: event.metaKey || event.ctrlKey,
+                              range: event.shiftKey,
+                            })
                           }
                           onDoubleClick={() =>
                             beginRename(

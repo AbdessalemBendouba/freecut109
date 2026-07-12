@@ -9,8 +9,10 @@ import {
   openComposition,
   useCompositionNavigationStore,
   useCompositionsStore,
+  useItemsStore,
 } from '@/features/editor/deps/timeline-motion'
 import { useEditorStore } from '@/shared/state/editor'
+import type { TimelineItem } from '@/types/timeline'
 import { useComposeUiStore } from './compose-ui-store'
 import { MotionPreviewArea, MotionTimelineDock } from './compose-layout'
 
@@ -31,12 +33,17 @@ vi.mock('./new-composition-dialog', () => ({
     open ? <div data-testid="new-composition-dialog" /> : null,
 }))
 
-function addMotionComposition(id: string, name: string, width = 1920) {
+function addMotionComposition(
+  id: string,
+  name: string,
+  width = 1920,
+  items: TimelineItem[] = [],
+) {
   useCompositionsStore.getState().addComposition({
     id,
     name,
     editorKind: 'composite-2d',
-    items: [],
+    items,
     tracks: [],
     transitions: [],
     keyframes: [],
@@ -112,7 +119,30 @@ describe('Motion workspace composition session', () => {
   })
 
   it('keeps the original Edit return target when the Motion dock remounts', async () => {
-    addMotionComposition('motion-a', 'Motion composition')
+    const editItem = {
+      id: 'edit-item',
+      type: 'video',
+      trackId: 'track-v1',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Edit clip',
+      mediaId: 'edit-media',
+      src: 'blob:edit',
+    } as TimelineItem
+    const motionItem = {
+      id: 'motion-item',
+      type: 'shape',
+      trackId: 'motion-track',
+      from: 0,
+      durationInFrames: 90,
+      label: 'Motion layer',
+      shapeType: 'rectangle',
+      fillColor: '#ffffff',
+      strokeWidth: 0,
+      transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1 },
+    } as TimelineItem
+    useItemsStore.getState().setItems([editItem])
+    addMotionComposition('motion-a', 'Motion composition', 1920, [motionItem])
     useEditorStore.getState().setWorkspace('motion')
 
     const firstMount = render(
@@ -121,6 +151,7 @@ describe('Motion workspace composition session', () => {
     await waitFor(() =>
       expect(useCompositionNavigationStore.getState().activeCompositionId).toBe('motion-a'),
     )
+    expect(useItemsStore.getState().items.map((item) => item.id)).toEqual(['motion-item'])
 
     firstMount.unmount()
     expect(useCompositionNavigationStore.getState().activeCompositionId).toBe('motion-a')
@@ -129,9 +160,29 @@ describe('Motion workspace composition session', () => {
       <MotionTimelineDock project={{ width: 1280, height: 720, fps: 30 }} />,
     )
     useEditorStore.getState().setWorkspace('edit')
+
+    // Restoration is synchronous with the workspace transition: the Edit
+    // timeline can never render a frame backed by Motion's live layer stores.
+    expect(useCompositionNavigationStore.getState().activeCompositionId).toBeNull()
+    expect(useItemsStore.getState().items.map((item) => item.id)).toEqual(['edit-item'])
+    expect(useComposeUiStore.getState().motionReturnTabCaptured).toBe(false)
     secondMount.unmount()
+  })
+
+  it('never captures an already-active Motion composition as an Edit return target', () => {
+    addMotionComposition('motion-a', 'Persisted Motion composition')
+    useCompositionNavigationStore.getState().switchToSequence('motion-a')
+    useEditorStore.getState().setWorkspace('motion')
+
+    const view = render(
+      <MotionTimelineDock project={{ width: 1280, height: 720, fps: 30 }} />,
+    )
+    expect(useCompositionNavigationStore.getState().activeCompositionId).toBe('motion-a')
+
+    useEditorStore.getState().setWorkspace('edit')
 
     expect(useCompositionNavigationStore.getState().activeCompositionId).toBeNull()
-    expect(useComposeUiStore.getState().motionReturnTabCaptured).toBe(false)
+    expect(useCompositionNavigationStore.getState().breadcrumbs[0]?.compositionId).toBeNull()
+    view.unmount()
   })
 })

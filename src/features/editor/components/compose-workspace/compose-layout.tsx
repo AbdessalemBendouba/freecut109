@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Spline } from 'lucide-react'
 import { ErrorBoundary } from '@/app/error-boundary'
@@ -19,6 +19,27 @@ interface MotionWorkspaceProject {
   width: number
   height: number
   fps: number
+}
+
+function restoreMotionReturnTimeline(): void {
+  const composeUi = useComposeUiStore.getState()
+  if (!composeUi.motionReturnTabCaptured) return
+  const returnTabId = composeUi.motionReturnTabId
+  // Clear first so navigation-triggered store updates cannot re-enter this path.
+  composeUi.clearMotionReturnTab()
+  useCompositionNavigationStore.getState().switchToSequence(returnTabId)
+}
+
+function getMotionReturnTabAtMount(): string | null {
+  const navigation = useCompositionNavigationStore.getState()
+  const activeComposition = navigation.activeCompositionId
+    ? useCompositionsStore.getState().compositionById[navigation.activeCompositionId]
+    : undefined
+  // On refresh/HMR the ephemeral Motion session state may be gone while the
+  // persisted navigation is still inside Motion. Never capture that Motion id
+  // as an Edit return target; Main is the safe editorial fallback.
+  if (activeComposition?.editorKind === 'composite-2d') return null
+  return getActiveTabId(navigation.breadcrumbs)
 }
 
 /**
@@ -96,9 +117,7 @@ export const MotionTimelineDock = memo(function MotionTimelineDock({
 }: {
   project: MotionWorkspaceProject
 }) {
-  const returnTabIdRef = useRef(
-    getActiveTabId(useCompositionNavigationStore.getState().breadcrumbs),
-  )
+  const returnTabIdRef = useRef(getMotionReturnTabAtMount())
   const activeCompositionId = useCompositionNavigationStore((state) => state.activeCompositionId)
   const activeComposition = useCompositionsStore((state) =>
     activeCompositionId ? state.compositionById[activeCompositionId] : undefined,
@@ -113,15 +132,21 @@ export const MotionTimelineDock = memo(function MotionTimelineDock({
     (state) => state.setLastOpenedCompositionId,
   )
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     useComposeUiStore.getState().captureMotionReturnTab(returnTabIdRef.current)
+    const unsubscribeWorkspace = useEditorStore.subscribe((state, previousState) => {
+      if (previousState.workspace === 'motion' && state.workspace !== 'motion') {
+        // Zustand subscriptions run synchronously. Restore the editorial stores
+        // before React renders the destination workspace's classic timeline.
+        restoreMotionReturnTimeline()
+      }
+    })
     return () => {
-      if (useEditorStore.getState().workspace === 'motion') return
-      const composeUi = useComposeUiStore.getState()
-      if (!composeUi.motionReturnTabCaptured) return
-      const returnTabId = composeUi.motionReturnTabId
-      composeUi.clearMotionReturnTab()
-      useCompositionNavigationStore.getState().switchToSequence(returnTabId)
+      unsubscribeWorkspace()
+      // Fallback for teardown paths that bypass the normal workspace setter.
+      if (useEditorStore.getState().workspace !== 'motion') {
+        restoreMotionReturnTimeline()
+      }
     }
   }, [])
 

@@ -657,6 +657,56 @@ describe('CompositingTimeline', () => {
     )
   })
 
+  it('uses Ctrl to toggle layers and Shift to add a visible layer range', () => {
+    const secondTrack = makeTimelineTrack({
+      id: 'layer-track-2',
+      name: 'Circle',
+      kind: 'video',
+      order: 1,
+    })
+    const thirdTrack = makeTimelineTrack({
+      id: 'layer-track-3',
+      name: 'Triangle',
+      kind: 'video',
+      order: 2,
+    })
+    const secondShape: ShapeItem = {
+      ...shape,
+      id: 'shape-2',
+      trackId: secondTrack.id,
+      label: 'Circle',
+    }
+    const thirdShape: ShapeItem = {
+      ...shape,
+      id: 'shape-3',
+      trackId: thirdTrack.id,
+      label: 'Triangle',
+    }
+    useItemsStore.getState().setTracks([track, secondTrack, thirdTrack])
+    useItemsStore.getState().setItems([shape, secondShape, thirdShape])
+    render(<CompositingTimeline />)
+
+    const first = screen.getByRole('button', { name: /1hero rectangle/i })
+    const second = screen.getByRole('button', { name: /2circle/i })
+    const third = screen.getByRole('button', { name: /3triangle/i })
+
+    fireEvent.click(first)
+    fireEvent.click(third, { ctrlKey: true })
+    expect(useSelectionStore.getState().selectedItemIds).toEqual([shape.id, thirdShape.id])
+
+    fireEvent.click(third, { ctrlKey: true })
+    expect(useSelectionStore.getState().selectedItemIds).toEqual([shape.id])
+
+    fireEvent.click(first)
+    fireEvent.click(third, { shiftKey: true })
+    expect(useSelectionStore.getState().selectedItemIds).toEqual([
+      shape.id,
+      secondShape.id,
+      thirdShape.id,
+    ])
+    expect(second).toBeInTheDocument()
+  })
+
   it('drags a layer span in time and commits one undoable move', () => {
     render(<CompositingTimeline />)
     usePlaybackStore.setState({ currentFrame: 40, previewFrame: null })
