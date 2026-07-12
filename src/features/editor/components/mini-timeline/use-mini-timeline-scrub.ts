@@ -4,8 +4,6 @@ import {
   shouldCommitScrubFrame,
 } from '@/features/editor/deps/timeline-utils'
 import { usePlaybackStore } from '@/shared/state/playback'
-import { usePreviewBridgeStore } from '@/shared/state/preview-bridge'
-import { shouldWaitForMiniTimelinePreview } from './scrub-backpressure'
 
 export interface MiniTimelineScrubHandlers {
   onPointerDown: (event: PointerEvent<HTMLDivElement>) => void
@@ -41,8 +39,6 @@ export function useMiniTimelineScrub({
   const scrubThrottleRef = useRef(createScrubThrottleState())
   const pendingClientXRef = useRef<number | null>(null)
   const scrubRafRef = useRef<number | null>(null)
-  const lastRequestedFrameRef = useRef<number | null>(null)
-  const lastRequestAtMsRef = useRef(0)
   // Latest geometry in refs so the rAF loop / handlers read fresh values
   // without being recreated on every frame-count change.
   const maxFrameRef = useRef(maxFrame)
@@ -92,13 +88,7 @@ export function useMiniTimelineScrub({
       const safeFps = fpsRef.current > 0 ? fpsRef.current : 30
       const pixelsPerSecond = (timelineWidth * safeFps) / Math.max(1, maxFrameRef.current)
       const nowMs = performance.now()
-      const waitForPreview = shouldWaitForMiniTimelinePreview({
-        lastRequestedFrame: lastRequestedFrameRef.current,
-        displayedFrame: usePreviewBridgeStore.getState().displayedFrame,
-        elapsedMs: nowMs - lastRequestAtMsRef.current,
-      })
       if (
-        !waitForPreview &&
         shouldCommitScrubFrame({
           state: scrubThrottleRef.current,
           pointerX: clientX - rect.left - labelWidth,
@@ -108,8 +98,6 @@ export function useMiniTimelineScrub({
           overview: true,
         })
       ) {
-        lastRequestedFrameRef.current = frame
-        lastRequestAtMsRef.current = nowMs
         setPreviewFrame(frame, null)
       }
     }
@@ -132,8 +120,6 @@ export function useMiniTimelineScrub({
         frame,
         nowMs: performance.now(),
       })
-      lastRequestedFrameRef.current = frame
-      lastRequestAtMsRef.current = performance.now()
       setPreviewFrame(frame, null)
       if (scrubRafRef.current === null) {
         scrubRafRef.current = requestAnimationFrame(runScrubLoop)
@@ -158,7 +144,6 @@ export function useMiniTimelineScrub({
     (event: PointerEvent<HTMLDivElement>) => {
       if (!isScrubbingRef.current) return
       cancelScrubRaf()
-      lastRequestedFrameRef.current = null
       const frame = clientXToFrame(event.clientX)
       if (frame !== null) finishScrub(frame)
       isScrubbingRef.current = false
@@ -184,7 +169,6 @@ export function useMiniTimelineScrub({
     (event: PointerEvent<HTMLDivElement>) => {
       if (!isScrubbingRef.current) return
       cancelScrubRaf()
-      lastRequestedFrameRef.current = null
       isScrubbingRef.current = false
       scrubRectRef.current = null
       if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {

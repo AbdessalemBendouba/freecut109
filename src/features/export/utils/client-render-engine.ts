@@ -34,6 +34,8 @@ import { createLogger } from '@/shared/logging/logger'
 import { blobUrlManager } from '@/infrastructure/browser/blob-url-manager'
 import { resolveMediaUrl } from '@/features/export/deps/media-library'
 import { VideoSourcePool } from '@/features/export/deps/player-contract'
+import { recordPreviewCompositionRender } from '@/shared/logging/preview-scrub-performance'
+import { recordPreviewCanvasPool } from '@/shared/logging/preview-scrub-performance'
 
 // Import subsystems
 import { buildKeyframesMap } from './canvas-keyframes'
@@ -218,7 +220,11 @@ type ScrubPerfGlobal = {
 }
 
 function scrubPerfStart(): number {
-  return (globalThis as ScrubPerfGlobal).__SCRUB_PERF__ ? performance.now() : -1
+  return (globalThis as ScrubPerfGlobal).__SCRUB_PERF__ ||
+    import.meta.env.DEV ||
+    import.meta.env.MODE === 'perf'
+    ? performance.now()
+    : -1
 }
 
 function recordScrubPerf(
@@ -230,6 +236,7 @@ function recordScrubPerf(
   if (startMs < 0) return
   const w = globalThis as ScrubPerfGlobal
   const ms = Number((performance.now() - startMs).toFixed(2))
+  recordPreviewCompositionRender({ frame, path, ms, ...details })
   const buffer = (w.__scrubPerf ??= [])
   buffer.push({ f: frame, path, ms, ...details })
   if (buffer.length > 3000) buffer.shift()
@@ -328,8 +335,17 @@ export async function createCompositionRenderer(
 
   // === PERFORMANCE OPTIMIZATION: Canvas Pool ===
   // Pre-allocate reusable canvases instead of creating new ones per frame
-  // Initial size: 10 (1 content + ~5 items + 2 effects + 2 transitions)
-  const canvasPool = new CanvasPool(canvas.width, canvas.height, 10, 20)
+  // Initial size: 10 (1 content + ~5 items + 2 effects + 2 transitions).
+  // Complex stacked preview frames reached 22 concurrent surfaces in the real
+  // project, so retain a small bounded headroom instead of reallocating two
+  // throwaway full-resolution canvases on every such frame.
+  const canvasPool = new CanvasPool(
+    canvas.width,
+    canvas.height,
+    10,
+    24,
+    renderMode === 'preview' ? recordPreviewCanvasPool : undefined,
+  )
 
   // === PERFORMANCE OPTIMIZATION: Text Measurement Cache ===
   const textMeasureCache = new TextMeasurementCache()
@@ -687,6 +703,7 @@ export async function createCompositionRenderer(
     }
   }
   const PREWARM_DECODE_MAX_ITEMS = 6
+  const ISOLATED_SEEK_WORKER_WAIT_MS = 900
   let prewarmCanvas: OffscreenCanvas | HTMLCanvasElement | null = null
   let prewarmCtx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null
   let prewarmAttempted = false
@@ -711,6 +728,11 @@ export async function createCompositionRenderer(
     useMediabunny,
     mediabunnyDisabledItems,
     mediabunnyFailureCountByItem,
+    getResolvedVideoSource: (item) =>
+      (item.mediaId ? blobUrlManager.get(item.mediaId) : null) ??
+      videoSourceByItemId.get(item.id) ??
+      item.src ??
+      null,
     reverseVideoFrameCache,
     imageElements,
     gifFramesMap,
@@ -1522,6 +1544,17 @@ export async function createCompositionRenderer(
           return
         }
       }
+
+      const renderedFrameCacheMode = resolveRenderedFrameCacheMode({
+        previousFrame: lastRenderedFrame,
+        frame,
+        fps,
+      })
+      itemRenderContext.captureDecodedVideoFrames =
+        Boolean(scrubbingCache && scrubbingFrameCacheActive) &&
+        renderedFrameCacheMode !== 'skip'
+      itemRenderContext.workerPredecodeWaitMs =
+        renderedFrameCacheMode === 'skip' ? ISOLATED_SEEK_WORKER_WAIT_MS : undefined
 
       // Refresh sub-comp render data so edits inside compound clips (effects,
       // items, keyframes) show up during playback. Reference-equality keeps

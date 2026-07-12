@@ -3,6 +3,7 @@ import { getBestDomVideoElementForItem } from '@/features/preview/deps/compositi
 import type { PlayerRef } from '@/features/preview/deps/player-core'
 import { getGlobalVideoSourcePool } from '@/features/preview/deps/player-pool'
 import { usePlaybackStore } from '@/shared/state/playback'
+import { useEditorStore } from '@/shared/state/editor'
 import { usePreviewBridgeStore } from '@/shared/state/preview-bridge'
 import { useCompositionsStore } from '@/features/preview/deps/timeline-store'
 import { blobUrlManager } from '@/infrastructure/browser/blob-url-manager'
@@ -68,11 +69,20 @@ import {
 import {
   resolveBoundarySourcePrewarmCacheUpdate,
   resolvePrewarmFrameQueueAfterEnqueue,
+  resolveScrubPrewarmIdleDelayMs,
 } from '../utils/render-pump-prewarm-plan'
 import { drawSourceToPreviewDisplayCanvas } from '../utils/preview-display-canvas'
 import type { TransitionPreviewSessionTrace } from './use-preview-transition-session-controller'
 import { createLogger } from '@/shared/logging/logger'
 import { isPreviewTraceEnabled, recordPumpTrace } from '@/shared/logging/preview-trace'
+import {
+  recordPreviewScrubPresented,
+  recordPreviewPreseekPlan,
+  recordPreviewScrubRenderCompleted,
+  recordPreviewScrubRenderDequeued,
+  recordPreviewScrubRenderStarted,
+  recordPreviewScrubRequest,
+} from '@/shared/logging/preview-scrub-performance'
 import type { CompositionRendererInstance } from '@/features/preview/deps/export'
 
 const logger = createLogger('VideoPreview')
@@ -327,6 +337,7 @@ export function usePreviewRenderPump({
       if (!displayCtx) return
       drawSourceToPreviewDisplayCanvas(displayCtx, displayCanvas, source)
       setDisplayedFrame(renderedFrame)
+      recordPreviewScrubPresented(renderedFrame)
       resolvePlaybackColdStartVisibleFrame(renderedFrame, 'rendered_overlay')
     }
 
@@ -480,6 +491,34 @@ export function usePreviewRenderPump({
     }
 
     let renderPumpRestartTimeoutId: ReturnType<typeof setTimeout> | null = null
+    let scrubPrewarmIdleTimeoutId: ReturnType<typeof setTimeout> | null = null
+    let lastScrubTargetAtMs = 0
+    let scrubPrewarmIdleDelayMs = 40
+
+    const cancelScrubPrewarmIdleRestart = () => {
+      if (scrubPrewarmIdleTimeoutId === null) return
+      clearTimeout(scrubPrewarmIdleTimeoutId)
+      scrubPrewarmIdleTimeoutId = null
+    }
+
+    const scheduleScrubPrewarmIdleRestart = (minimumDelayMs = 0) => {
+      cancelScrubPrewarmIdleRestart()
+      const elapsedSinceInput = performance.now() - lastScrubTargetAtMs
+      const remainingDelay = Math.max(
+        minimumDelayMs,
+        scrubPrewarmIdleDelayMs - elapsedSinceInput,
+      )
+      scrubPrewarmIdleTimeoutId = setTimeout(() => {
+        scrubPrewarmIdleTimeoutId = null
+        if (!scrubMountedRef.current || scrubPrewarmQueueRef.current.length === 0) return
+        if (scrubRequestedFrameRef.current !== null || scrubRenderInFlightRef.current) {
+          scheduleScrubPrewarmIdleRestart(16)
+          return
+        }
+        void pumpRenderLoop()
+      }, remainingDelay)
+    }
+
     const scheduleRenderPumpRestart = () => {
       if (renderPumpRestartTimeoutId !== null || !scrubMountedRef.current) return
       renderPumpRestartTimeoutId = setTimeout(() => {
@@ -601,7 +640,8 @@ export function usePreviewRenderPump({
 
         let prewarmBudgetStart = 0
         while (scrubMountedRef.current) {
-          if (hasPendingPreviewInput(usePlaybackStore.getState().isPlaying)) {
+          const inputState = usePlaybackStore.getState()
+          if (hasPendingPreviewInput(inputState.isPlaying || inputState.previewFrame !== null)) {
             await yieldToPendingPreviewInput()
           }
           if (shouldPreferPlayerForPreview(usePlaybackStore.getState().previewFrame)) {
@@ -627,6 +667,7 @@ export function usePreviewRenderPump({
 
           if (isPriorityFrame) {
             scrubRequestedFrameRef.current = null
+            recordPreviewScrubRenderDequeued(frameToRender)
             prewarmBudgetStart = 0 // Reset budget for prewarm after this priority frame
           } else {
             scrubPrewarmQueuedSetRef.current.delete(frameToRender)
@@ -720,11 +761,13 @@ export function usePreviewRenderPump({
           if (isPriorityFrame) {
             // Visible scrub targets still use full composition rendering.
             const renderStartMs = performance.now()
+            recordPreviewScrubRenderStarted(frameToRender)
             await renderer.renderFrame(frameToRender)
             // Don't check isStale() here — the priority frame is fully rendered
             // and should always be displayed. Discarding it wastes the decode work
             // and reduces scrub hit rate.
             const renderMs = performance.now() - renderStartMs
+            recordPreviewScrubRenderCompleted(frameToRender)
             scrubOffscreenRenderedFrameRef.current = frameToRender
             // Dev: capture ALL frame times to window global for jitter debugging
             if (import.meta.env.DEV) {
@@ -922,6 +965,17 @@ export function usePreviewRenderPump({
               scheduleOpportunisticTransitionPrepare()
             }
             prewarmBudgetStart = performance.now()
+            if (
+              playbackState.previewFrame !== null &&
+              scrubPrewarmQueueRef.current.length > 0
+            ) {
+              // Directional decode lookahead shares the same renderer lane as
+              // the visible target. Do not enter an uninterruptible prewarm
+              // await while pointer input is active; restart after an adaptive
+              // input-idle window instead.
+              scheduleScrubPrewarmIdleRestart()
+              break
+            }
           } else {
             markPrewarmed(frameToRender)
           }
@@ -1127,10 +1181,12 @@ export function usePreviewRenderPump({
     // advance (~1ms/frame), but large forward jumps and most backward jumps
     // need an off-thread keyframe seek (300-600ms) - see shouldRunJumpPreseek.
     const handleLargeJumpPreseek = (state: PlaybackStoreSnapshot, prev: PlaybackStoreSnapshot) => {
+      const targetFrame = state.previewFrame ?? state.currentFrame
+      const previousTargetFrame = prev.previewFrame ?? prev.currentFrame
       if (
         !shouldRunJumpPreseek({
-          prevFrame: prev.currentFrame,
-          nextFrame: state.currentFrame,
+          prevFrame: previousTargetFrame,
+          nextFrame: targetFrame,
           fps,
           isPlaying: state.isPlaying,
         })
@@ -1138,13 +1194,13 @@ export function usePreviewRenderPump({
         return
       }
 
-      runBatchPreseek(
-        collectVisibleTrackVideoSourceTimesBySrc(combinedTracks, state.currentFrame, fps, {
+      const bySource = collectVisibleTrackVideoSourceTimesBySrc(combinedTracks, targetFrame, fps, {
           requireExplicitSourceFps: true,
           resolveComposition: resolvePreseekComposition,
           resolveItemSrc: resolvePreseekItemSrc,
-        }),
-      )
+        })
+      recordPreviewPreseekPlan(targetFrame, bySource)
+      runBatchPreseek(bySource)
     }
 
     const handlePlaybackLifecycleUpdate = (
@@ -1569,6 +1625,22 @@ export function usePreviewRenderPump({
       scrubDirectionRef.current = scrubDirectionPlan.direction
       previewPerfRef.current.scrubUpdates += scrubDirectionPlan.scrubUpdates
       previewPerfRef.current.scrubDroppedFrames += scrubDirectionPlan.scrubDroppedFrames
+      if (targetFrame !== null && state.previewFrame !== null) {
+        const nowMs = performance.now()
+        scrubPrewarmIdleDelayMs = resolveScrubPrewarmIdleDelayMs({
+          frameDelta:
+            prevTargetFrame === null ? 0 : Math.abs(targetFrame - prevTargetFrame),
+          elapsedMs: lastScrubTargetAtMs === 0 ? Number.POSITIVE_INFINITY : nowMs - lastScrubTargetAtMs,
+          fps,
+        })
+        lastScrubTargetAtMs = nowMs
+        cancelScrubPrewarmIdleRestart()
+        recordPreviewScrubRequest(
+          useEditorStore.getState().workspace,
+          targetFrame,
+          scrubDirectionRef.current,
+        )
+      }
 
       if (
         playStateChanged &&
@@ -2032,6 +2104,7 @@ export function usePreviewRenderPump({
       if (renderPumpRestartTimeoutId !== null) {
         clearTimeout(renderPumpRestartTimeoutId)
       }
+      cancelScrubPrewarmIdleRestart()
       initialLookaheadIdleIdRef.current = null
       initialLookaheadTimeoutIdRef.current = null
       renderPumpRestartTimeoutId = null

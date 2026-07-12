@@ -26,6 +26,7 @@ import type { GpuMediaRect, GpuMediaRenderParams } from '@/infrastructure/gpu-me
 import { MAX_GPU_SHAPE_PATH_VERTICES } from '@/infrastructure/gpu-shapes'
 import { doesMaskAffectTrack } from '@/shared/utils/mask-scope'
 import { isTextMotionActive } from '@/shared/typography/text-motion'
+import { recordPreviewVideoSource } from '@/shared/logging/preview-scrub-performance'
 import { getAnimatedTransform } from '../canvas-keyframes'
 import { combineEffects, getAdjustmentLayerEffects, getGpuEffectInstances } from '../canvas-effects'
 import {
@@ -399,6 +400,7 @@ export function renderPreviewVideoGpuEffectsToCanvas(
       videoTime: video.currentTime,
       sourceTime,
     })
+    recordPreviewVideoSource({ frame, itemId: item.id, path: 'dom-video', sourceTime })
     frameCache.set(item.id, { canvas, frame })
     return canvas
   } catch {

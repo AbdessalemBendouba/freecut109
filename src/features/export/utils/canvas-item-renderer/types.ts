@@ -93,6 +93,11 @@ export interface ItemRenderContext {
   renderMode: 'export' | 'preview'
   renderItem: RenderItemDelegate
   scrubbingCache?: ScrubbingCache | null
+  /** Skip the expensive full-resolution per-video ImageBitmap copy on isolated seeks. */
+  captureDecodedVideoFrames?: boolean
+  /** Maximum wait for an existing worker decode; undefined uses the short opportunistic wait. */
+  workerPredecodeWaitMs?: number
+  getResolvedVideoSource?: (item: VideoItem) => string | null
   getCurrentItemSnapshot?: <TItem extends TimelineItem>(item: TItem) => TItem
   getLiveItemSnapshotById?: (itemId: string) => TimelineItem | undefined
   getCurrentKeyframes?: (itemId: string) => ItemKeyframes | undefined

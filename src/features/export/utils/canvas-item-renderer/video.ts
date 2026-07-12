@@ -17,6 +17,7 @@ import {
   shouldAllowPreviewVideoElementFallback,
   shouldTryPreviewWorkerBitmap,
   shouldUsePreviewStrictWaitingFallback,
+  waitForPreviewDomVideoDrawDecision,
 } from '../frame-source-policy'
 import type { CanvasPool } from '../canvas-pool'
 import type { CanvasSettings, ItemRenderContext, ItemTransform } from './types'
@@ -34,6 +35,7 @@ import {
   hasCropFeather,
 } from './media-draw'
 import { isPreviewTraceEnabled, recordRenderTrace } from '@/shared/logging/preview-trace'
+import { recordPreviewVideoSource } from '@/shared/logging/preview-scrub-performance'
 
 function getTier2VideoFrameToleranceSeconds(sourceFps: number): number {
   const normalizedSourceFps = Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : 30
@@ -96,10 +98,12 @@ async function tryDrawWorkerPredecodedBitmap(
   transform: ItemTransform,
   canvasSettings: CanvasSettings,
   rctx: ItemRenderContext,
+  timelineFrame: number,
   sourceTime: number,
   toleranceSeconds: number,
 ): Promise<boolean> {
-  if (rctx.renderMode !== 'preview' || !item.src) {
+  const workerSource = rctx.getResolvedVideoSource?.(item) ?? item.src
+  if (rctx.renderMode !== 'preview' || !workerSource) {
     return false
   }
 
@@ -117,8 +121,18 @@ async function tryDrawWorkerPredecodedBitmap(
     )
   }
 
-  const cachedBitmap = rctx.getCachedPredecodedBitmap?.(item.src, sourceTime, toleranceSeconds)
+  const cachedBitmap = rctx.getCachedPredecodedBitmap?.(
+    workerSource,
+    sourceTime,
+    toleranceSeconds,
+  )
   if (cachedBitmap && drawBitmap(cachedBitmap)) {
+    recordPreviewVideoSource({
+      frame: timelineFrame,
+      itemId: item.id,
+      path: 'worker-bitmap',
+      sourceTime,
+    })
     return true
   }
 
@@ -127,12 +141,18 @@ async function tryDrawWorkerPredecodedBitmap(
   }
 
   const inflightBitmap = await rctx.waitForInflightPredecodedBitmap(
-    item.src,
+    workerSource,
     sourceTime,
     toleranceSeconds,
-    WORKER_PRESEEK_WAIT_MS,
+    rctx.workerPredecodeWaitMs ?? WORKER_PRESEEK_WAIT_MS,
   )
   if (inflightBitmap && drawBitmap(inflightBitmap)) {
+    recordPreviewVideoSource({
+      frame: timelineFrame,
+      itemId: item.id,
+      path: 'worker-bitmap',
+      sourceTime,
+    })
     return true
   }
 
@@ -222,12 +242,16 @@ export async function renderVideoItem(
     !hasActiveRamp &&
     isFrameInsideItemTimelineSpan(effectiveRenderSpan, frame)
   const domVideo = canUseDomVideoElement ? domVideoElementProvider(item.id) : null
-  const domVideoDecision = resolvePreviewDomVideoDrawDecision({
+  const domVideoDecisionOptions = {
     domVideo,
     sourceTime,
     speed,
     isRenderingTransition: !!rctx.isRenderingTransition,
-  })
+  }
+  let domVideoDecision = resolvePreviewDomVideoDrawDecision(domVideoDecisionOptions)
+  if (domVideoDecision.hasReadyDomVideo && !domVideoDecision.shouldDraw) {
+    domVideoDecision = await waitForPreviewDomVideoDrawDecision(domVideoDecisionOptions)
+  }
   const hasDomVideo = domVideoDecision.hasReadyDomVideo
 
   // DEV diagnostics: record which transition participants the renderer actually
@@ -256,6 +280,7 @@ export async function renderVideoItem(
   // keyframe seek (400ms+) is worse than DOM video's timing drift. Only skip DOM
   // video for 1x speed clips when mediabunny is available (frame-accurate, fast).
   if (domVideo && domVideoDecision.shouldDraw) {
+    recordPreviewVideoSource({ frame, itemId: item.id, path: 'dom-video', sourceTime })
     // Variable-speed clips naturally drift from their DOM video element
     // because the browser plays at 1x while sourceTime advances at speed.
     // Use a wider threshold proportional to speed to avoid falling back
@@ -349,6 +374,7 @@ export async function renderVideoItem(
         transform,
         canvasSettings,
         rctx,
+        frame,
         sourceTime,
         tier2ToleranceSeconds,
       )
@@ -402,6 +428,7 @@ export async function renderVideoItem(
       transform,
       canvasSettings,
       rctx,
+      frame,
       sourceTime,
       tier2ToleranceSeconds,
     )
@@ -494,7 +521,7 @@ export async function renderVideoItem(
     const drawExtractorFrame = async (
       targetCtx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
     ) =>
-      isPreviewMode && scrubbingCache
+      isPreviewMode && scrubbingCache && rctx.captureDecodedVideoFrames !== false
         ? await extractor.drawFrameWithCapture(
             targetCtx,
             clampedTime,
@@ -551,6 +578,16 @@ export async function renderVideoItem(
     }
 
     if (success) {
+      recordPreviewVideoSource({
+        frame,
+        itemId: item.id,
+        path: 'mediabunny',
+        sourceTime: clampedTime,
+        canUseDom: canUseDomVideoElement,
+        domAvailable: Boolean(domVideo),
+        domReady: domVideoDecision.hasReadyDomVideo,
+        domDrift: domVideoDecision.drift,
+      })
       mediabunnyFailureCountByItem.set(item.id, 0)
       if (scrubbingCache && capturedFrame) {
         scrubbingCache.putVideoFrame(item.id, capturedFrame, capturedSourceTime ?? clampedTime)

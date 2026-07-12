@@ -10,6 +10,7 @@ import {
   shouldAllowPreviewVideoElementFallback,
   shouldTryPreviewWorkerBitmap,
   shouldUsePreviewStrictWaitingFallback,
+  waitForPreviewDomVideoDrawDecision,
 } from './frame-source-policy'
 
 function makeDomVideo(overrides: Partial<HTMLVideoElement> = {}): HTMLVideoElement {
@@ -24,6 +25,27 @@ function makeDomVideo(overrides: Partial<HTMLVideoElement> = {}): HTMLVideoEleme
 }
 
 describe('frame-source-policy', () => {
+  it('uses a DOM video that becomes seek-ready inside the bounded wait', async () => {
+    const target = new EventTarget()
+    const mutableVideo = Object.assign(target, {
+      currentTime: 10,
+      readyState: 1,
+      videoWidth: 1920,
+      videoHeight: 1080,
+      dataset: {},
+    })
+    const video = mutableVideo as unknown as HTMLVideoElement
+
+    const waiting = waitForPreviewDomVideoDrawDecision(
+      { domVideo: video, sourceTime: 10, speed: 1, isRenderingTransition: false },
+      50,
+    )
+    mutableVideo.readyState = 4
+    video.dispatchEvent(new Event('seeked'))
+
+    await expect(waiting).resolves.toMatchObject({ hasReadyDomVideo: true, shouldDraw: true })
+  })
+
   it('accepts a ready DOM video when drift is within threshold', () => {
     const decision = resolvePreviewDomVideoDrawDecision({
       domVideo: makeDomVideo({ currentTime: 10.12 }),

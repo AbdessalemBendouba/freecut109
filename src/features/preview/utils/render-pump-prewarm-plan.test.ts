@@ -2,9 +2,16 @@ import { describe, expect, it } from 'vite-plus/test'
 import {
   resolveBoundarySourcePrewarmCacheUpdate,
   resolvePrewarmFrameQueueAfterEnqueue,
+  resolveScrubPrewarmIdleDelayMs,
 } from './render-pump-prewarm-plan'
 
 describe('render pump prewarm planner helpers', () => {
+  it('gives high-velocity overview scrubs a longer idle runway than fine trims', () => {
+    expect(resolveScrubPrewarmIdleDelayMs({ frameDelta: 3, elapsedMs: 16, fps: 30 })).toBe(72)
+    expect(resolveScrubPrewarmIdleDelayMs({ frameDelta: 1, elapsedMs: 16, fps: 30 })).toBe(40)
+    expect(resolveScrubPrewarmIdleDelayMs({ frameDelta: 3000, elapsedMs: 16, fps: 30 })).toBe(120)
+  })
+
   it('enqueues eligible prewarm frames and evicts oldest queued frames at the cap', () => {
     const next = resolvePrewarmFrameQueueAfterEnqueue({
       frame: 14,

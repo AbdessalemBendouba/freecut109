@@ -12,6 +12,8 @@ export interface PreviewDomVideoDrawDecision {
   driftThreshold: number | null
 }
 
+export const PREVIEW_DOM_VIDEO_SEEK_WAIT_MS = 48
+
 export interface ResolvePreviewDomVideoDrawDecisionOptions {
   domVideo: HTMLVideoElement | null
   sourceTime: number
@@ -94,6 +96,56 @@ export function resolvePreviewDomVideoDrawDecision(
     drift,
     driftThreshold,
   }
+}
+
+/**
+ * Give an already-seeking DOM video one short presentation window before
+ * launching a much more expensive random-access MediaBunny decode. The caller
+ * still re-runs the exact drift/readiness policy after the wait.
+ */
+export async function waitForPreviewDomVideoDrawDecision(
+  options: ResolvePreviewDomVideoDrawDecisionOptions,
+  maxWaitMs = PREVIEW_DOM_VIDEO_SEEK_WAIT_MS,
+): Promise<PreviewDomVideoDrawDecision> {
+  const initial = resolvePreviewDomVideoDrawDecision(options)
+  const video = options.domVideo
+  if (initial.shouldDraw || !video || maxWaitMs <= 0) return initial
+
+  return new Promise((resolve) => {
+    let settled = false
+    let videoFrameCallbackId: number | null = null
+    const events = ['seeked', 'loadeddata', 'canplay', 'timeupdate'] as const
+
+    const cleanup = () => {
+      for (const eventName of events) video.removeEventListener(eventName, check)
+      if (videoFrameCallbackId !== null && 'cancelVideoFrameCallback' in video) {
+        video.cancelVideoFrameCallback(videoFrameCallbackId)
+      }
+      clearTimeout(timeoutId)
+    }
+    const finish = (decision: PreviewDomVideoDrawDecision) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(decision)
+    }
+    const check = () => {
+      const decision = resolvePreviewDomVideoDrawDecision(options)
+      if (decision.shouldDraw) finish(decision)
+    }
+
+    for (const eventName of events) video.addEventListener(eventName, check)
+    if ('requestVideoFrameCallback' in video) {
+      videoFrameCallbackId = video.requestVideoFrameCallback(() => check())
+    }
+    const timeoutId = setTimeout(
+      () => finish(resolvePreviewDomVideoDrawDecision(options)),
+      maxWaitMs,
+    )
+    // Avoid missing readiness that changed between the initial check and
+    // listener registration.
+    check()
+  })
 }
 
 /**
