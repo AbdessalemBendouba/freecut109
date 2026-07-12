@@ -126,36 +126,73 @@ const NativePreviewVideo: React.FC<{
   const pool = useVideoSourcePool()
   const elementRef = useRef<HTMLVideoElement | null>(null)
   const preWarmTimerRef = useRef<number | null>(null)
-  const preWarmGenRef = useRef(0)
+  const preWarmInFlightRef = useRef(false)
+  const itemIdRef = useRef(itemId)
+  itemIdRef.current = itemId
 
   // Brief muted play/pause that fills the decode buffer and re-acquires the
   // browser's media pipeline, so a subsequent play() starts in ~2 frames
-  // instead of stalling 200-300ms on pipeline re-init. Debounced; superseded
-  // or play-interrupted warms are invalidated via preWarmGenRef.
+  // instead of stalling 200-300ms on pipeline re-init. Debounced so repeated
+  // warm-up signals collapse into one play/pause cycle.
   const schedulePreWarm = useCallback(() => {
+    // play() itself can emit canplay. Ignore that re-entrant warm request or
+    // it can supersede the cycle that owns the pause and position reset.
+    if (preWarmInFlightRef.current) return
     if (preWarmTimerRef.current !== null) {
       clearTimeout(preWarmTimerRef.current)
     }
-    preWarmGenRef.current += 1
-    const gen = preWarmGenRef.current
     preWarmTimerRef.current = window.setTimeout(() => {
       preWarmTimerRef.current = null
       const v = elementRef.current
       if (v && v.paused && v.readyState >= 2 && !usePlaybackStore.getState().isPlaying) {
+        const style = window.getComputedStyle(v)
+        const isVisiblyPresented =
+          v.isConnected &&
+          v.getClientRects().length > 0 &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden' &&
+          style.opacity !== '0'
+        // A play/pause warm can present decoded-ahead frames even when its
+        // source time is restored afterward. Never warm the visible paused
+        // program-monitor element; hidden pool/transition lanes can still use
+        // the latency optimization without changing what the user sees.
+        if (isVisiblyPresented) return
+
         const wasMuted = v.muted
+        const warmStartTime = v.currentTime
+        const warmStartItemId = itemIdRef.current
+        const warmStartPlayback = usePlaybackStore.getState()
+        const warmStartFrame = warmStartPlayback.currentFrame
+        const warmStartPreviewFrame = warmStartPlayback.previewFrame
         v.muted = true
+        preWarmInFlightRef.current = true
         v.play()
-          .then(() => {
-            // Only pause if this pre-warm is still current and playback hasn't started
-            if (gen === preWarmGenRef.current && !usePlaybackStore.getState().isPlaying) {
-              v.pause()
-            }
-            // Always unmute — if playback started or another scrub superseded
-            // this pre-warm, leaving muted=true causes silent playback.
-            v.muted = wasMuted
-          })
           .catch(() => {
+            // Best-effort decoder warm-up.
+          })
+          .finally(() => {
+            const playback = usePlaybackStore.getState()
+            if (!playback.isPlaying) {
+              v.pause()
+              // Warm-up is allowed to decode ahead, but a paused preview must
+              // still show its requested source time. Avoid restoring a stale
+              // position if the playhead or mounted item changed meanwhile.
+              if (
+                elementRef.current === v &&
+                itemIdRef.current === warmStartItemId &&
+                playback.currentFrame === warmStartFrame &&
+                playback.previewFrame === warmStartPreviewFrame &&
+                Math.abs(v.currentTime - warmStartTime) > 0.001
+              ) {
+                try {
+                  v.currentTime = warmStartTime
+                } catch {
+                  // The pooled element may be settling or have been released.
+                }
+              }
+            }
             v.muted = wasMuted
+            preWarmInFlightRef.current = false
           })
       }
     }, 50)
@@ -171,12 +208,10 @@ const NativePreviewVideo: React.FC<{
   const lastFrameRef = useRef<number>(-1)
   const registeredElementRef = useRef<HTMLVideoElement | null>(null)
   const registeredItemIdRef = useRef<string | null>(null)
-  const itemIdRef = useRef(itemId)
   const forceCssCompositeRef = useRef(forceCssComposite)
   audioVolumeRef.current = audioVolume
   audioEqStagesRef.current = audioEqStages
   onErrorRef.current = onError
-  itemIdRef.current = itemId
   forceCssCompositeRef.current = forceCssComposite
 
   // Clock instance for imperative access in rVFC callback
@@ -526,6 +561,7 @@ const NativePreviewVideo: React.FC<{
         clearTimeout(preWarmTimerRef.current)
         preWarmTimerRef.current = null
       }
+      preWarmInFlightRef.current = false
       if (stallTimerId !== null) {
         clearTimeout(stallTimerId)
         stallTimerId = null
@@ -736,9 +772,6 @@ const NativePreviewVideo: React.FC<{
         clearTimeout(preWarmTimerRef.current)
         preWarmTimerRef.current = null
       }
-      // Invalidate any in-flight pre-warm promise so its .then()/.catch() no-ops
-      preWarmGenRef.current += 1
-
       // Initial sync on first play after mount/seek.
       // Skip the seek if element is already at the target (avoids readyState
       // drop from redundant seeks, which delays play start by 100-300ms).
