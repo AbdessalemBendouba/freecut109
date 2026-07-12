@@ -1,7 +1,30 @@
 import { describe, expect, it } from 'vite-plus/test'
 import type { TimelineItem } from '@/types/timeline'
 import type { SubCompRenderData } from './canvas-item-renderer'
-import { subCompositionRenderDataHasGpuEffects } from './client-render-engine'
+import {
+  resolveRenderedFrameCacheMode,
+  subCompositionRenderDataHasGpuEffects,
+} from './client-render-engine'
+
+describe('resolveRenderedFrameCacheMode', () => {
+  it('seeds the cache, keeps nearby scrub frames, and skips isolated overview seeks', () => {
+    expect(resolveRenderedFrameCacheMode({ previousFrame: null, frame: 9000, fps: 30 })).toBe(
+      'full',
+    )
+    expect(resolveRenderedFrameCacheMode({ previousFrame: 9000, frame: 8992, fps: 30 })).toBe(
+      'full',
+    )
+    expect(resolveRenderedFrameCacheMode({ previousFrame: 9000, frame: 12000, fps: 30 })).toBe(
+      'skip',
+    )
+  })
+
+  it('uses only the GPU tier for sequential forward frames', () => {
+    expect(resolveRenderedFrameCacheMode({ previousFrame: 100, frame: 101, fps: 30 })).toBe(
+      'gpu-only',
+    )
+  })
+})
 
 function makeSubCompData(items: TimelineItem[]): SubCompRenderData {
   return {

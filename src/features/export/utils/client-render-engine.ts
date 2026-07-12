@@ -133,6 +133,30 @@ function getPrewarmVideoSourceTimeSeconds(item: VideoItem, frame: number, fps: n
 // re-exported so existing import sites (and its test) keep working.
 export { subCompositionRenderDataHasGpuEffects }
 
+export type RenderedFrameCacheMode = 'full' | 'gpu-only' | 'skip'
+
+/**
+ * Avoid retaining isolated frames from large random seeks. They have almost no
+ * reuse value (especially on an overview timeline), while each full-resolution
+ * cache entry creates both a GPU texture and a deep ImageBitmap copy.
+ */
+export function resolveRenderedFrameCacheMode({
+  previousFrame,
+  frame,
+  fps,
+}: {
+  previousFrame: number | null
+  frame: number
+  fps: number
+}): RenderedFrameCacheMode {
+  if (previousFrame === null) return 'full'
+  const delta = frame - previousFrame
+  if (delta > 0 && delta <= 3) return 'gpu-only'
+  const wideSeekThreshold = Math.max(12, Math.round(Math.max(1, fps)))
+  if (Math.abs(delta) > wideSeekThreshold) return 'skip'
+  return 'full'
+}
+
 // WebP frame extraction is handled by gifFrameCache.getWebpFrames() —
 // the cache service uses the ImageDecoder API and provides the same
 // CachedGifFrames structure used for GIF.
@@ -289,7 +313,7 @@ export async function createCompositionRenderer(
   // When all tiers are warm, scrubbing doesn't decode at all.
   const FRAME_CACHE_ENABLED = renderMode === 'preview'
   const scrubbingCache = FRAME_CACHE_ENABLED ? new ScrubbingCache() : null
-  let lastRenderedFrame = -1
+  let lastRenderedFrame: number | null = null
   let liveDomVideoPlaybackActive = Boolean(domVideoElementProvider)
   let scrubbingFrameCacheActive = shouldUseScrubbingFrameCache(
     Boolean(scrubbingCache),
@@ -305,13 +329,21 @@ export async function createCompositionRenderer(
       return
     }
 
-    const delta = frame - lastRenderedFrame
-    const isSequentialForward = delta > 0 && delta <= 3
+    const cacheMode = resolveRenderedFrameCacheMode({
+      previousFrame: lastRenderedFrame,
+      frame,
+      fps,
+    })
     lastRenderedFrame = frame
+    // Overview timelines can move tens of thousands of frames per pointer
+    // pixel. Caching those isolated frames only creates GPU textures and deep
+    // ImageBitmaps that are almost never revisited, adding allocation/GC churn
+    // to the latency-sensitive render path.
+    if (cacheMode === 'skip') return
     if (gpu.effects) {
       scrubbingCache.setGpuDevice(gpu.effects.getDevice(), canvas.width, canvas.height)
     }
-    scrubbingCache.cacheFrame(frame, canvas, isSequentialForward)
+    scrubbingCache.cacheFrame(frame, canvas, cacheMode === 'gpu-only')
   }
 
   // === GPU pipeline cluster ===
