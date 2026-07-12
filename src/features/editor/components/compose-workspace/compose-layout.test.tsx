@@ -93,6 +93,7 @@ describe('Motion workspace composition session', () => {
     addMotionComposition('motion-a', 'First')
     addMotionComposition('motion-b', 'Last used')
     useComposeUiStore.getState().setLastOpenedCompositionId('motion-b')
+    useEditorStore.getState().setWorkspace('motion')
 
     const view = render(
       <MotionTimelineDock project={{ width: 1280, height: 720, fps: 30 }} />,
@@ -103,8 +104,69 @@ describe('Motion workspace composition session', () => {
     )
     expect(useComposeUiStore.getState().lastOpenedCompositionId).toBe('motion-b')
 
+    useEditorStore.getState().setWorkspace('edit')
     view.unmount()
     expect(useCompositionNavigationStore.getState().activeCompositionId).toBeNull()
+  })
+
+  it('repairs a Motion composition that already absorbed Main timeline items', async () => {
+    const editItem = {
+      id: 'edit-item',
+      type: 'video',
+      trackId: 'track-v1',
+      from: 0,
+      durationInFrames: 1200,
+      label: 'Editorial clip',
+      mediaId: 'edit-media',
+      src: 'blob:edit',
+    } as TimelineItem
+    const wrapper = {
+      id: 'motion-wrapper',
+      type: 'composition',
+      trackId: 'track-v1',
+      from: 0,
+      durationInFrames: 300,
+      sourceDuration: 300,
+      label: 'Motion composition',
+      compositionId: 'motion-a',
+      compositionWidth: 1920,
+      compositionHeight: 1080,
+      transform: { x: 0, y: 0, rotation: 0, opacity: 1 },
+    } as TimelineItem
+    const motionItem = {
+      id: 'motion-item',
+      type: 'shape',
+      trackId: 'motion-track',
+      from: 0,
+      durationInFrames: 300,
+      label: 'Motion layer',
+      shapeType: 'rectangle',
+      fillColor: '#ffffff',
+      strokeWidth: 0,
+      transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1 },
+    } as TimelineItem
+    useItemsStore.getState().setItems([editItem, wrapper])
+    addMotionComposition('motion-a', 'Motion composition', 1920, [
+      editItem,
+      wrapper,
+      motionItem,
+    ])
+    useCompositionsStore.getState().updateComposition('motion-a', {
+      durationInFrames: 1200,
+    })
+    useEditorStore.getState().setWorkspace('motion')
+
+    render(<MotionTimelineDock project={{ width: 1280, height: 720, fps: 30 }} />)
+
+    await waitFor(() =>
+      expect(useItemsStore.getState().items.map((item) => item.id)).toEqual(['motion-item']),
+    )
+    expect(
+      useCompositionsStore.getState().compositionById['motion-a']?.items.map((item) => item.id),
+    ).toEqual(['motion-item'])
+    expect(
+      useCompositionsStore.getState().compositionById['motion-a']?.durationInFrames,
+    ).toBe(300)
   })
 
   it('routes an opened Motion composition out of Edit and into Motion', async () => {

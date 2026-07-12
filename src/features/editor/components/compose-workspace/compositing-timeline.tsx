@@ -360,6 +360,7 @@ interface MotionDopesheetLanesProps {
   propertyFilter: 'all' | 'keyframed'
   timeViewport: MotionTimeViewport
   inlineCurveProperty: AnimatableProperty | null
+  paneMode?: 'lanes' | 'graph'
   onSelectItem: (itemId: string) => void
   onInlineCurveChange: (property: AnimatableProperty | null) => void
   onScrub: (frame: number) => void
@@ -375,6 +376,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   propertyFilter,
   timeViewport,
   inlineCurveProperty,
+  paneMode = 'lanes',
   onSelectItem,
   onInlineCurveChange,
   onScrub,
@@ -383,7 +385,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   const currentFrame = useSettledMotionFrame()
   const rootRef = useRef<HTMLDivElement>(null)
   const dragSnapshotRef = useRef<ReturnType<typeof captureSnapshot> | null>(null)
-  const [width, setWidth] = useState(0)
+  const [paneSize, setPaneSize] = useState({ width: 0, height: 0 })
   const itemKeyframes = useKeyframesStore(
     useCallback((state) => state.keyframesByItemId[item.id], [item.id]),
   )
@@ -398,9 +400,12 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   useEffect(() => {
     const root = rootRef.current
     if (!root) return
-    const updateWidth = () => setWidth(root.getBoundingClientRect().width || 820)
-    updateWidth()
-    const observer = new ResizeObserver(updateWidth)
+    const updateSize = () => {
+      const rect = root.getBoundingClientRect()
+      setPaneSize({ width: rect.width || 820, height: rect.height })
+    }
+    updateSize()
+    const observer = new ResizeObserver(updateSize)
     observer.observe(root)
     return () => observer.disconnect()
   }, [])
@@ -529,7 +534,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   return (
     <div
       ref={rootRef}
-      className="w-full bg-background/35"
+      className={cn('w-full bg-background/35', paneMode === 'graph' && 'h-full')}
       onPointerEnter={() => setKeyframeEditorShortcutScopeActive(true)}
       onPointerLeave={() => setKeyframeEditorShortcutScopeActive(false)}
       onFocusCapture={() => setKeyframeEditorShortcutScopeActive(true)}
@@ -540,7 +545,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         }
       }}
     >
-      {width > 0 ? (
+      {paneSize.width > 0 ? (
         <DopesheetEditor
           itemId={item.id}
           keyframesByProperty={keyframesByProperty}
@@ -552,8 +557,12 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           itemFrom={0}
           totalFrames={compositionDurationInFrames}
           fps={fps}
-          width={width}
-          height={Math.max(30, visiblePropertyCount * 30)}
+          width={paneSize.width}
+          height={
+            paneMode === 'graph'
+              ? Math.max(120, paneSize.height)
+              : Math.max(30, visiblePropertyCount * 30)
+          }
           frameViewport={timeViewport}
           onFrameViewportChange={onTimeViewportChange}
           onSelectionChange={handleSelectionChange}
@@ -643,10 +652,11 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
             onSelectItem(item.id)
             onInlineCurveChange(visible ? property : null)
           }}
-          visualizationMode={inlineCurveProperty ? 'graph' : 'dopesheet'}
+          visualizationMode={paneMode === 'graph' ? 'graph' : 'dopesheet'}
           presentation="lanes"
-          propertyColumnWidth={LAYER_COLUMN_WIDTH}
+          propertyColumnWidth={paneMode === 'graph' ? 0 : LAYER_COLUMN_WIDTH}
           singleCurveMode
+          selectedCurveVisibleExternally={paneMode === 'lanes' && inlineCurveProperty !== null}
           propertyFilter={propertyFilter}
           showPlayhead={false}
           inlinePropertyGroupIds={MOTION_INLINE_PROPERTY_GROUP_IDS}
@@ -906,6 +916,13 @@ export const CompositingTimeline = memo(function CompositingTimeline({
             a.item.id.localeCompare(b.item.id),
         ),
     [items, trackById],
+  )
+  const activeCurveItem = activeInlineCurve
+    ? (items.find((item) => item.id === activeInlineCurve.itemId) ?? null)
+    : null
+  const activeCurveProperties = useMemo(
+    () => (activeCurveItem ? getItemProperties(activeCurveItem) : []),
+    [activeCurveItem],
   )
   const canGroupSelectedLayers = useMemo(
     () =>
@@ -2197,7 +2214,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                 style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
               />
             ))}
-            {row.items.length > 0 && (
+            {!activeInlineCurve && row.items.length > 0 && (
               <button
                 type="button"
                 data-testid={`motion-group-span-${row.track.id}`}
@@ -2617,6 +2634,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                           style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
                         />
                       ))}
+                      {!activeInlineCurve ? (
                       <button
                         type="button"
                         data-testid={`motion-layer-span-${item.id}`}
@@ -2686,6 +2704,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                           {item.label || item.type}
                         </span>
                       </button>
+                      ) : null}
                       </div>
                     </div>
                   </MotionRowContextMenu>
@@ -2729,6 +2748,42 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           )}
           </div>
         </div>
+        {activeInlineCurve && activeCurveItem ? (
+          <div
+            data-testid="motion-graph-pane"
+            className="absolute bottom-0 right-0 z-25 overflow-hidden border-l border-border bg-background"
+            style={{ left: TIMELINE_CONTENT_LEFT, top: RULER_HEIGHT }}
+          >
+            <MotionDopesheetLanes
+              item={activeCurveItem}
+              properties={activeCurveProperties}
+              compositionDurationInFrames={durationInFrames}
+              fps={fps}
+              canvas={composition}
+              propertyFilter={propertyFilter}
+              timeViewport={timeViewport}
+              inlineCurveProperty={activeInlineCurve.property}
+              paneMode="graph"
+              onSelectItem={(itemId) => selectItems([itemId])}
+              onInlineCurveChange={(property) => {
+                setInlineCurve(
+                  property
+                    ? {
+                        compositionId: activeCompositionId,
+                        itemId: activeCurveItem.id,
+                        property,
+                      }
+                    : null,
+                )
+              }}
+              onScrub={(frame) => {
+                pause()
+                setScrubFrame(frame)
+              }}
+              onTimeViewportChange={updateTimeViewport}
+            />
+          </div>
+        ) : null}
       </div>
       <div className="flex h-5 shrink-0 bg-background/80">
         <div

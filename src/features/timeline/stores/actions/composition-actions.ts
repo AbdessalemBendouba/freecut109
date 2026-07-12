@@ -1254,6 +1254,68 @@ export function openComposition(compositionId: string, label?: string, entryItem
   useCompositionNavigationStore.getState().enterComposition(compositionId, name, entryItemId)
 }
 
+export function repairCompositeCompositionEditorialLeak(params: {
+  compositionId: string
+  editorialItemIds: readonly string[]
+  suggestedDurationInFrames?: number
+}): number {
+  const composition = useCompositionsStore.getState().getComposition(params.compositionId)
+  if (composition?.editorKind !== 'composite-2d') return 0
+
+  const editorialItemIdSet = new Set(params.editorialItemIds)
+  const leakedItemIds = new Set(
+    composition.items
+      .filter((item) => editorialItemIdSet.has(item.id))
+      .map((item) => item.id),
+  )
+  if (leakedItemIds.size === 0) return 0
+
+  const items = composition.items.filter((item) => !leakedItemIds.has(item.id))
+  const trackById = new Map(composition.tracks.map((track) => [track.id, track]))
+  const retainedTrackIds = new Set(items.map((item) => item.trackId))
+  for (const trackId of [...retainedTrackIds]) {
+    let parentTrackId = trackById.get(trackId)?.parentTrackId
+    while (parentTrackId && !retainedTrackIds.has(parentTrackId)) {
+      retainedTrackIds.add(parentTrackId)
+      parentTrackId = trackById.get(parentTrackId)?.parentTrackId
+    }
+  }
+  const tracks = composition.tracks.filter((track) => retainedTrackIds.has(track.id))
+  const transitions = composition.transitions.filter(
+    (transition) =>
+      !leakedItemIds.has(transition.leftClipId) && !leakedItemIds.has(transition.rightClipId),
+  )
+  const keyframes = composition.keyframes.filter(
+    (entry) => !leakedItemIds.has(entry.itemId),
+  )
+  const contentEnd = items.reduce(
+    (maximum, item) => Math.max(maximum, item.from + item.durationInFrames),
+    1,
+  )
+  const suggestedDuration = params.suggestedDurationInFrames
+  const durationInFrames =
+    typeof suggestedDuration === 'number' && Number.isFinite(suggestedDuration)
+      ? Math.max(contentEnd, Math.round(suggestedDuration), 1)
+      : composition.durationInFrames
+
+  useCompositionsStore.getState().updateComposition(params.compositionId, {
+    items,
+    tracks,
+    transitions,
+    keyframes,
+    durationInFrames,
+  })
+
+  if (useCompositionNavigationStore.getState().activeCompositionId === params.compositionId) {
+    useItemsStore.getState().setItems(items)
+    useItemsStore.getState().setTracks(tracks)
+    useTransitionsStore.getState().setTransitions(transitions)
+    useKeyframesStore.getState().setKeyframes(keyframes)
+  }
+  useTimelineSettingsStore.getState().markDirty()
+  return leakedItemIds.size
+}
+
 /** Promote an existing composition (compound clip) to a standalone tab and open it. */
 export function openCompositionAsTab(compositionId: string): void {
   const composition = useCompositionsStore.getState().getComposition(compositionId)

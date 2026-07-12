@@ -82,6 +82,7 @@ describe('CompositingTimeline', () => {
       motionReturnTabCaptured: false,
       motionReturnTabId: null,
     })
+    useEditorStore.getState().setWorkspace('motion')
     useClipboardStore.setState({ itemsClipboard: null, transitionClipboard: null })
     useEditorStore.getState().setKeyframeEditorShortcutScopeActive(false)
     useKeyframeSelectionStore.getState().clearSelection()
@@ -569,9 +570,10 @@ describe('CompositingTimeline', () => {
     expect(useItemsStore.getState().itemById[shape.id]).toBeDefined()
   })
 
-  it('swaps the dope-sheet lanes for the selected property curve inline', () => {
+  it('switches the whole right timeline pane to the selected property graph', () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+    expect(screen.getByTestId(`motion-layer-span-${shape.id}`)).toBeInTheDocument()
 
     const rowBefore = screen.getByText('X Position').closest('.group')
     expect(rowBefore).not.toHaveClass('pl-6')
@@ -588,6 +590,12 @@ describe('CompositingTimeline', () => {
     fireEvent.click(curveButton)
 
     expect(screen.getByTestId('dopesheet-graph-pane')).toBeInTheDocument()
+    expect(screen.getByTestId('motion-graph-pane')).toHaveStyle({
+      left: '501px',
+      top: '28px',
+    })
+    expect(screen.getByTestId('motion-graph-pane')).toHaveClass('bottom-0', 'right-0')
+    expect(screen.queryByTestId(`motion-layer-span-${shape.id}`)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /show x position curve/i })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -599,6 +607,8 @@ describe('CompositingTimeline', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /show x position curve/i }))
     expect(screen.queryByTestId('dopesheet-graph-pane')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('motion-graph-pane')).not.toBeInTheDocument()
+    expect(screen.getByTestId(`motion-layer-span-${shape.id}`)).toBeInTheDocument()
   })
 
   it(

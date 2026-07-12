@@ -255,6 +255,9 @@ interface DopesheetEditorProps {
   propertyColumnWidth?: number;
   /** Show one selected property curve at a time instead of layered graph curves. */
   singleCurveMode?: boolean;
+  /** Keep the selected curve toggle visually active when its graph is rendered
+   *  by an external pane rather than this editor's own right side. */
+  selectedCurveVisibleExternally?: boolean;
   /** Optional controlled property filter for embedded lane presentations. */
   propertyFilter?: "all" | "keyframed";
   /** Render the playhead. Disable it when the parent owns one shared overlay. */
@@ -335,6 +338,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   presentation = "editor",
   propertyColumnWidth,
   singleCurveMode = false,
+  selectedCurveVisibleExternally = false,
   propertyFilter,
   showPlayhead = true,
   shortcutsEnabled = false,
@@ -2452,7 +2456,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     (row: DopesheetPropertyRow, options?: { indented?: boolean }) => {
       const rowLocked = isPropertyLocked(row.property);
       const curveVisible = singleCurveMode
-        ? showGraphPane && selectedProperty === row.property
+        ? (showGraphPane || selectedCurveVisibleExternally) && selectedProperty === row.property
         : graphVisibleProperties.has(row.property);
       const rowLabel = getKeyframePropertyLabel(t, row.property);
       const showLeftClusterAtRest =
@@ -2876,6 +2880,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onPropertyValueCommit,
       propertyValues,
       selectedProperty,
+      selectedCurveVisibleExternally,
       t,
       togglePropertyCurve,
       toggleLockedProperty,

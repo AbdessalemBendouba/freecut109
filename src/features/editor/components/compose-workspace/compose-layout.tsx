@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { usePlaybackStore } from '@/shared/state/playback'
 import {
   getActiveTabId,
+  repairCompositeCompositionEditorialLeak,
   useCompositionNavigationStore,
   useCompositionsStore,
 } from '@/features/editor/deps/timeline-store'
@@ -122,6 +123,7 @@ export const MotionTimelineDock = memo(function MotionTimelineDock({
   const activeComposition = useCompositionsStore((state) =>
     activeCompositionId ? state.compositionById[activeCompositionId] : undefined,
   )
+  const mainHolder = useCompositionNavigationStore((state) => state.mainHolder)
   const compositions = useCompositionsStore((state) => state.compositions)
   const motionCompositions = useMemo(
     () => compositions.filter((composition) => composition.editorKind === 'composite-2d'),
@@ -156,10 +158,23 @@ export const MotionTimelineDock = memo(function MotionTimelineDock({
 
   useEffect(() => {
     if (activeComposition?.editorKind !== 'composite-2d' || !activeCompositionId) return
+    if (mainHolder) {
+      const wrapper = mainHolder.items.find(
+        (item) => item.compositionId === activeCompositionId,
+      )
+      repairCompositeCompositionEditorialLeak({
+        compositionId: activeCompositionId,
+        editorialItemIds: mainHolder.items.map((item) => item.id),
+        suggestedDurationInFrames: wrapper
+          ? (wrapper.sourceDuration ?? wrapper.durationInFrames)
+          : undefined,
+      })
+    }
     setLastOpenedCompositionId(activeCompositionId)
-  }, [activeComposition, activeCompositionId, setLastOpenedCompositionId])
+  }, [activeComposition, activeCompositionId, mainHolder, setLastOpenedCompositionId])
 
   useEffect(() => {
+    if (useEditorStore.getState().workspace !== 'motion') return
     if (activeComposition?.editorKind === 'composite-2d') return
     const target =
       motionCompositions.find((composition) => composition.id === lastOpenedCompositionId) ??

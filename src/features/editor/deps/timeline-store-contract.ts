@@ -20,6 +20,7 @@ export { useTimelineCommandStore } from '@/features/timeline/stores/timeline-com
 export { execute as executeTimelineCommand } from '@/features/timeline/stores/actions/shared'
 export { captureSnapshot } from '@/features/timeline/stores/commands/snapshot'
 export { rateStretchItemWithoutHistory } from '@/features/timeline/stores/actions/item-edit-actions'
+export { repairCompositeCompositionEditorialLeak } from '@/features/timeline/stores/actions/composition-actions'
 export { setInOutPointsWithoutHistory } from '@/features/timeline/stores/actions/marker-actions'
 export { applyAnimationPreset } from '@/features/timeline/stores/actions/preset-actions'
 export {

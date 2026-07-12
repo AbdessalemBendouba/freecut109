@@ -138,9 +138,11 @@ export function DopesheetGraphPane({
       className="flex min-h-0"
       style={subtractRulerHeight ? panelStyle : { height: '100%' }}
     >
-      <div className="flex-shrink-0 overflow-auto" style={{ width: propertyColumnWidth }}>
-        {propertyColumnElements}
-      </div>
+      {propertyColumnWidth > 0 ? (
+        <div className="flex-shrink-0 overflow-auto" style={{ width: propertyColumnWidth }}>
+          {propertyColumnElements}
+        </div>
+      ) : null}
       <div
         ref={graphPaneRef}
         data-testid="dopesheet-graph-pane"
