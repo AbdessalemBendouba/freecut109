@@ -361,6 +361,7 @@ export async function createCompositionRenderer(
   let lastRenderedFrame: number | null = null
   let lastRenderAborted = false
   let activePreviewFramePending = false
+  let activePreviewFallbackUsed = false
   let liveDomVideoPlaybackActive = Boolean(domVideoElementProvider)
   let scrubbingFrameCacheActive = shouldUseScrubbingFrameCache(
     Boolean(scrubbingCache),
@@ -732,10 +733,15 @@ export async function createCompositionRenderer(
     mediabunnyDisabledItems,
     mediabunnyFailureCountByItem,
     getResolvedVideoSource: (item) =>
-      (item.mediaId ? blobUrlManager.get(item.mediaId) : null) ??
-      videoSourceByItemId.get(item.id) ??
-      item.src ??
-      null,
+      renderMode === 'preview'
+        ? (item.src ??
+          videoSourceByItemId.get(item.id) ??
+          (item.mediaId ? blobUrlManager.get(item.mediaId) : null) ??
+          null)
+        : ((item.mediaId ? blobUrlManager.get(item.mediaId) : null) ??
+          videoSourceByItemId.get(item.id) ??
+          item.src ??
+          null),
     reverseVideoFrameCache,
     imageElements,
     gifFramesMap,
@@ -771,6 +777,9 @@ export async function createCompositionRenderer(
   }
   itemRenderContext.markActivePreviewFramePending = () => {
     activePreviewFramePending = true
+  }
+  itemRenderContext.markActivePreviewFallbackUsed = () => {
+    activePreviewFallbackUsed = true
   }
 
   // Track the SubComposition identity we last built each entry from so we only
@@ -935,6 +944,7 @@ export async function createCompositionRenderer(
     try {
       const {
         getCachedPredecodedBitmap,
+        getCachedActivePreviewFallbackBitmap,
         isActivePreviewFrameCurrent,
         isActivePreviewFrameDecodeReady,
         isActivePreviewFrameSuperseded,
@@ -942,6 +952,8 @@ export async function createCompositionRenderer(
         waitForInflightPredecodedBitmap,
       } = await import('@/features/export/deps/preview-contract')
       itemRenderContext.getCachedPredecodedBitmap = getCachedPredecodedBitmap
+      itemRenderContext.getCachedActivePreviewFallbackBitmap =
+        getCachedActivePreviewFallbackBitmap
       itemRenderContext.isActivePreviewFrameCurrent = isActivePreviewFrameCurrent
       itemRenderContext.isActivePreviewFrameDecodeReady = isActivePreviewFrameDecodeReady
       itemRenderContext.isActivePreviewFrameSuperseded = isActivePreviewFrameSuperseded
@@ -1556,6 +1568,7 @@ export async function createCompositionRenderer(
       const scrubPerfStartMs = scrubPerfStart()
       lastRenderAborted = false
       activePreviewFramePending = false
+      activePreviewFallbackUsed = false
       itemRenderContext.previewRootTimelineFrame = frame
       const isSupersededActivePreviewFrame = () =>
         renderMode === 'preview' &&
@@ -2144,6 +2157,10 @@ export async function createCompositionRenderer(
 
     wasLastRenderAborted() {
       return lastRenderAborted
+    },
+
+    wasLastRenderFallback() {
+      return activePreviewFallbackUsed
     },
 
     async prewarmFrame(frame: number) {

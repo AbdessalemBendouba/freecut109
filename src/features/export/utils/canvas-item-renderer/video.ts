@@ -137,6 +137,24 @@ async function tryDrawWorkerPredecodedBitmap(
     return true
   }
 
+  if (rctx.isActivePreviewFrameCurrent?.(previewRootFrame)) {
+    const fallbackBitmap = rctx.getCachedActivePreviewFallbackBitmap?.(
+      workerSource,
+      sourceTime,
+      toleranceSeconds,
+    )
+    if (fallbackBitmap && drawBitmap(fallbackBitmap)) {
+      rctx.markActivePreviewFallbackUsed?.()
+      recordPreviewVideoSource({
+        frame: timelineFrame,
+        itemId: item.id,
+        path: 'proxy-fallback',
+        sourceTime,
+      })
+      return true
+    }
+  }
+
   if (!rctx.waitForInflightPredecodedBitmap) {
     return false
   }
@@ -226,6 +244,23 @@ export async function renderVideoItem(
   const previewRootFrame = rctx.previewRootTimelineFrame ?? frame
   if (rctx.isActivePreviewFrameSuperseded?.(previewRootFrame)) {
     return
+  }
+  if (isPreviewMode && rctx.isActivePreviewFrameCurrent?.(previewRootFrame)) {
+    // Held scrubs already have a dedicated exact/fallback bitmap scheduler.
+    // Consult it before waiting for a DOM video seek; otherwise the native
+    // element can occupy the render pump long enough that the sub-100ms proxy
+    // frame is ready but never becomes visible.
+    const drewActiveBitmap = await tryDrawWorkerPredecodedBitmap(
+      ctx,
+      item,
+      transform,
+      canvasSettings,
+      rctx,
+      frame,
+      sourceTime,
+      tier2ToleranceSeconds,
+    )
+    if (drewActiveBitmap) return
   }
   const domVideoElementProvider = rctx.domVideoElementProvider
   // During transitions, frame can lie outside item's natural span (the

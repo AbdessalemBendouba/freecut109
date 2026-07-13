@@ -4,11 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import {
   activePreviewPreseek,
   backgroundPreseek,
+  cacheActivePreviewFallbackBitmap,
   disposePrewarmWorker,
+  getCachedActivePreviewFallbackBitmap,
   getDecoderPrewarmMetricsSnapshot,
+  isActivePreviewFrameCurrent,
   isActivePreviewFrameDecodeReady,
   replaceActivePreviewSourceTargets,
   setActivePreviewRenderTarget,
+  settleActivePreviewRenderTarget,
   warmDecoderPrewarmWorkerPool,
 } from './decoder-prewarm'
 import {
@@ -263,6 +267,41 @@ describe('decoder prewarm', () => {
       cacheBitmaps: 4,
       cacheSourceEvictions: 2,
     })
+  })
+
+  it('presents a bounded fallback first and replaces it with the exact decoded frame', async () => {
+    const fallbackBitmap = { close: vi.fn() } as unknown as ImageBitmap
+    registerObjectUrl('blob:fallback', new Blob(['fallback']))
+    setActivePreviewRenderTarget(44)
+    replaceActivePreviewSourceTargets(new Map([['blob:fallback', [2]]]))
+
+    cacheActivePreviewFallbackBitmap('blob:fallback', 2, 2.2, fallbackBitmap)
+    expect(isActivePreviewFrameDecodeReady(44)).toBe(true)
+    expect(getCachedActivePreviewFallbackBitmap('blob:fallback', 2)).toBe(fallbackBitmap)
+
+    await activePreviewPreseek({ src: 'blob:fallback', timestamp: 2 })
+
+    expect(fallbackBitmap.close).toHaveBeenCalledOnce()
+    expect(getCachedActivePreviewFallbackBitmap('blob:fallback', 2)).toBeNull()
+    expect(getDecoderPrewarmMetricsSnapshot().exactFallbackReplacements).toBeGreaterThan(0)
+  })
+
+  it('keeps the active session alive after fallback presentation until exact settlement', async () => {
+    const fallbackBitmap = { close: vi.fn() } as unknown as ImageBitmap
+    registerObjectUrl('blob:settle', new Blob(['settle']))
+    setActivePreviewRenderTarget(45)
+    replaceActivePreviewSourceTargets(new Map([['blob:settle', [3]]]))
+    cacheActivePreviewFallbackBitmap('blob:settle', 3, 3, fallbackBitmap)
+
+    settleActivePreviewRenderTarget(45)
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    expect(isActivePreviewFrameCurrent(45)).toBe(true)
+
+    await activePreviewPreseek({ src: 'blob:settle', timestamp: 3 })
+    settleActivePreviewRenderTarget(45)
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    expect(isActivePreviewFrameCurrent(45)).toBe(false)
+    expect(getCachedActivePreviewFallbackBitmap('blob:settle', 3)).toBeNull()
   })
 
   it('gates an active composition until every exact source target is cached', async () => {

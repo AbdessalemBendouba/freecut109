@@ -116,6 +116,11 @@ export interface ItemRenderContext {
     timestamp: number,
     toleranceSeconds?: number,
   ) => ImageBitmap | null
+  getCachedActivePreviewFallbackBitmap?: (
+    src: string,
+    timestamp: number,
+    toleranceSeconds?: number,
+  ) => ImageBitmap | null
   waitForInflightPredecodedBitmap?: (
     src: string,
     timestamp: number,
@@ -131,6 +136,7 @@ export interface ItemRenderContext {
   isActivePreviewFrameCurrent?: (frame: number) => boolean
   isActivePreviewFrameDecodeReady?: (frame: number) => boolean
   markActivePreviewFramePending?: () => void
+  markActivePreviewFallbackUsed?: () => void
   previewRootTimelineFrame?: number
   reverseVideoFrameCache?: ReverseVideoFrameCache
 

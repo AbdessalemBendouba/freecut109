@@ -23,6 +23,7 @@ import {
 } from '../utils/decoder-prewarm'
 import { getDirectionalPrewarmOffsets } from '../utils/fast-scrub-prewarm'
 import { resolveProxyUrl } from '../utils/media-resolver'
+import { scheduleScrubProxyFallback } from '../utils/scrub-proxy-fallback'
 import { shouldShowFastScrubOverlay } from '../utils/fast-scrub-overlay-guard'
 import {
   hasPendingPreviewInput,
@@ -84,6 +85,7 @@ import type { TransitionPreviewSessionTrace } from './use-preview-transition-ses
 import { createLogger } from '@/shared/logging/logger'
 import { isPreviewTraceEnabled, recordPumpTrace } from '@/shared/logging/preview-trace'
 import {
+  recordPreviewScrubPresentationQuality,
   recordPreviewScrubPresented,
   recordPreviewPreseekPlan,
   recordPreviewScrubRenderCompleted,
@@ -338,6 +340,7 @@ export function usePreviewRenderPump({
     const drawSourceToDisplay = (
       source: OffscreenCanvas | HTMLCanvasElement,
       renderedFrame: number,
+      usedFallback = false,
     ) => {
       const displayCanvas = scrubCanvasRef.current
       if (!displayCanvas) return
@@ -345,6 +348,7 @@ export function usePreviewRenderPump({
       if (!displayCtx) return
       drawSourceToPreviewDisplayCanvas(displayCtx, displayCanvas, source)
       setDisplayedFrame(renderedFrame)
+      recordPreviewScrubPresentationQuality(renderedFrame, usedFallback)
       recordPreviewScrubPresented(renderedFrame)
       const playbackState = usePlaybackStore.getState()
       if (
@@ -357,10 +361,10 @@ export function usePreviewRenderPump({
       resolvePlaybackColdStartVisibleFrame(renderedFrame, 'rendered_overlay')
     }
 
-    const drawToDisplay = (renderedFrame: number) => {
+    const drawToDisplay = (renderedFrame: number, usedFallback = false) => {
       const offscreen = scrubOffscreenCanvasRef.current
       if (!offscreen) return
-      drawSourceToDisplay(offscreen, renderedFrame)
+      drawSourceToDisplay(offscreen, renderedFrame, usedFallback)
     }
 
     const getPlaybackTransitionStateForFrame = (frame: number) =>
@@ -776,6 +780,7 @@ export function usePreviewRenderPump({
             }
           }
 
+          let priorityRenderUsedFallback = false
           if (isPriorityFrame) {
             // Visible scrub targets still use full composition rendering.
             const renderStartMs = performance.now()
@@ -788,6 +793,9 @@ export function usePreviewRenderPump({
               recordPreviewScrubRenderCompleted(frameToRender)
               continue
             }
+            priorityRenderUsedFallback =
+              'wasLastRenderFallback' in renderer &&
+              renderer.wasLastRenderFallback?.() === true
             // Don't check isStale() here — the priority frame is fully rendered
             // and should always be displayed. Discarding it wastes the decode work
             // and reduces scrub hit rate.
@@ -944,7 +952,7 @@ export function usePreviewRenderPump({
                 playbackState.previewFrame === null
               ) {
                 if (frameToRender === playbackState.currentFrame) {
-                  drawToDisplay(frameToRender)
+                  drawToDisplay(frameToRender, priorityRenderUsedFallback)
                   showFastScrubOverlayForFrame()
                 }
                 continue
@@ -955,13 +963,13 @@ export function usePreviewRenderPump({
                 playbackState.previewFrame !== null
               ) {
                 if (frameToRender === playbackState.previewFrame) {
-                  drawToDisplay(frameToRender)
+                  drawToDisplay(frameToRender, priorityRenderUsedFallback)
                   showFastScrubOverlayForFrame()
                 }
                 continue
               }
               if (targetNeedsRenderedPath) {
-                drawToDisplay(frameToRender)
+                drawToDisplay(frameToRender, priorityRenderUsedFallback)
                 showFastScrubOverlayForFrame()
                 continue
               }
@@ -970,7 +978,7 @@ export function usePreviewRenderPump({
               continue
             }
 
-            drawToDisplay(frameToRender)
+            drawToDisplay(frameToRender, priorityRenderUsedFallback)
             if (shouldShowPlaybackTransitionOverlay) {
               tracePump('transition-overlay')
               showPlaybackTransitionOverlayForFrame()
@@ -1265,6 +1273,7 @@ export function usePreviewRenderPump({
         const exactTimestamp = timestamps[0]
         if (exactTimestamp === undefined) continue
         nextSourceTimes.set(src, exactTimestamp)
+        scheduleScrubProxyFallback(src, exactTimestamp)
 
         if (!usedDedicatedLane) {
           usedDedicatedLane = true

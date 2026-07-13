@@ -30,6 +30,8 @@ import {
 const log = createLogger('DecoderPrewarm')
 const MAX_CACHED_BITMAPS_PER_SOURCE = 6
 const MAX_CACHED_BITMAP_SOURCES = 4
+const MAX_FALLBACK_BITMAPS_PER_SOURCE = 2
+const MAX_FALLBACK_BITMAP_SOURCES = 4
 const MAX_INFLIGHT_PER_WORKER = 1
 const PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS = 1 / 240
 /** Min 3 (transition pair + spare), max 6 (memory cap ~12MB WASM) */
@@ -68,6 +70,14 @@ export interface DecoderPrewarmMetricsSnapshot {
   activeWorkerRestarts: number
   activeLastInitMs: number
   activeLastDecodeMs: number
+  fallbackRequests: number
+  fallbackCacheHits: number
+  fallbackBitmaps: number
+  fallbackSourceEvictions: number
+  fallbackReadyNotifications: number
+  exactFallbackReplacements: number
+  automaticProxyRequests: number
+  automaticProxyReadyHits: number
 }
 
 interface PoolWorker {
@@ -94,6 +104,8 @@ const pendingBatchRequests = new Map<
 /** Cache of pre-decoded bitmaps keyed by video source URL. Multiple entries per source. */
 type CachedBitmapEntry = { bitmap: ImageBitmap; timestamp: number }
 const bitmapCache = new Map<string, CachedBitmapEntry[]>()
+type CachedFallbackBitmapEntry = CachedBitmapEntry & { proxyTimestamp: number }
+const fallbackBitmapCache = new Map<string, CachedFallbackBitmapEntry[]>()
 const unavailableBlobUrls = new Set<string>()
 
 type InflightPreseek = {
@@ -160,6 +172,14 @@ const decoderPrewarmMetrics: DecoderPrewarmMetricsSnapshot = {
   activeWorkerRestarts: 0,
   activeLastInitMs: 0,
   activeLastDecodeMs: 0,
+  fallbackRequests: 0,
+  fallbackCacheHits: 0,
+  fallbackBitmaps: 0,
+  fallbackSourceEvictions: 0,
+  fallbackReadyNotifications: 0,
+  exactFallbackReplacements: 0,
+  automaticProxyRequests: 0,
+  automaticProxyReadyHits: 0,
 }
 
 /** In-flight preseek promises keyed by source URL — lets the render engine await
@@ -408,6 +428,26 @@ function cachePredecodedBitmap(src: string, timestamp: number, bitmap: ImageBitm
   }
   bitmapCache.delete(src)
   bitmapCache.set(src, entries)
+  const fallbackEntries = fallbackBitmapCache.get(src)
+  if (fallbackEntries) {
+    const retained: CachedFallbackBitmapEntry[] = []
+    for (const entry of fallbackEntries) {
+      if (
+        Math.abs(entry.timestamp - timestamp) <= PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS
+      ) {
+        entry.bitmap.close()
+        decoderPrewarmMetrics.exactFallbackReplacements += 1
+      } else {
+        retained.push(entry)
+      }
+    }
+    if (retained.length > 0) fallbackBitmapCache.set(src, retained)
+    else fallbackBitmapCache.delete(src)
+    decoderPrewarmMetrics.fallbackBitmaps = [...fallbackBitmapCache.values()].reduce(
+      (sum, sourceEntries) => sum + sourceEntries.length,
+      0,
+    )
+  }
   decoderPrewarmMetrics.cacheSources = bitmapCache.size
   decoderPrewarmMetrics.cacheBitmaps = [...bitmapCache.values()].reduce(
     (sum, sourceEntries) => sum + sourceEntries.length,
@@ -423,6 +463,76 @@ function cachePredecodedBitmap(src: string, timestamp: number, bitmap: ImageBitm
     decoderPrewarmMetrics.activeReadyNotifications += 1
     for (const listener of activePreviewReadyListeners) listener(src, timestamp)
   }
+}
+
+export function cacheActivePreviewFallbackBitmap(
+  src: string,
+  timestamp: number,
+  proxyTimestamp: number,
+  bitmap: ImageBitmap,
+): void {
+  decoderPrewarmMetrics.fallbackRequests += 1
+  if (!fallbackBitmapCache.has(src) && fallbackBitmapCache.size >= MAX_FALLBACK_BITMAP_SOURCES) {
+    const oldestSrc = fallbackBitmapCache.keys().next().value as string | undefined
+    if (oldestSrc) {
+      const oldestEntries = fallbackBitmapCache.get(oldestSrc)
+      fallbackBitmapCache.delete(oldestSrc)
+      for (const entry of oldestEntries ?? []) entry.bitmap.close()
+      decoderPrewarmMetrics.fallbackSourceEvictions += 1
+    }
+  }
+
+  const entries = fallbackBitmapCache.get(src) ?? []
+  const duplicateIndex = entries.findIndex(
+    (entry) => Math.abs(entry.timestamp - timestamp) <= PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS,
+  )
+  if (duplicateIndex >= 0) entries.splice(duplicateIndex, 1)[0]?.bitmap.close()
+  entries.push({ bitmap, timestamp, proxyTimestamp })
+  while (entries.length > MAX_FALLBACK_BITMAPS_PER_SOURCE) entries.shift()?.bitmap.close()
+  fallbackBitmapCache.delete(src)
+  fallbackBitmapCache.set(src, entries)
+  decoderPrewarmMetrics.fallbackBitmaps = [...fallbackBitmapCache.values()].reduce(
+    (sum, sourceEntries) => sum + sourceEntries.length,
+    0,
+  )
+
+  const activeTargets = latestActivePreviewTimestampsBySrc.get(src)
+  if (
+    activePreviewScrubSession &&
+    activeTargets?.some(
+      (target) => Math.abs(target - timestamp) <= PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS,
+    )
+  ) {
+    decoderPrewarmMetrics.fallbackReadyNotifications += 1
+    for (const listener of activePreviewReadyListeners) listener(src, timestamp)
+  }
+}
+
+export function getCachedActivePreviewFallbackBitmap(
+  src: string,
+  timestamp: number,
+  toleranceSeconds = PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS,
+): ImageBitmap | null {
+  const entries = fallbackBitmapCache.get(src)
+  if (!entries || entries.length === 0) return null
+  fallbackBitmapCache.delete(src)
+  fallbackBitmapCache.set(src, entries)
+  let best: CachedFallbackBitmapEntry | null = null
+  let bestDistance = Number.POSITIVE_INFINITY
+  for (const entry of entries) {
+    const distance = Math.abs(entry.timestamp - timestamp)
+    if (distance <= toleranceSeconds && distance < bestDistance) {
+      best = entry
+      bestDistance = distance
+    }
+  }
+  if (best) decoderPrewarmMetrics.fallbackCacheHits += 1
+  return best?.bitmap ?? null
+}
+
+export function noteAutomaticScrubProxyRequest(ready: boolean): void {
+  if (ready) decoderPrewarmMetrics.automaticProxyReadyHits += 1
+  else decoderPrewarmMetrics.automaticProxyRequests += 1
 }
 
 function addInflightPreseek(src: string, entry: InflightPreseek): void {
@@ -823,6 +933,7 @@ export function setActivePreviewRenderTarget(frame: number | null): void {
 
 export function settleActivePreviewRenderTarget(frame: number): void {
   if (!activePreviewScrubSession || latestActivePreviewTimelineFrame !== frame) return
+  if (!isActivePreviewFrameExactDecodeReady(frame)) return
   if (activePreviewSettleTimer !== null) clearTimeout(activePreviewSettleTimer)
   const requestVersion = activePreviewRequestVersion
   activePreviewSettleTimer = setTimeout(() => {
@@ -864,6 +975,30 @@ export function isActivePreviewFrameCurrent(frame: number): boolean {
 }
 
 export function isActivePreviewFrameDecodeReady(frame: number): boolean {
+  if (!isActivePreviewFrameCurrent(frame)) return true
+  if (latestActivePreviewTimestampsBySrc.size === 0) return true
+  for (const [src, timestamps] of latestActivePreviewTimestampsBySrc) {
+    for (const timestamp of timestamps) {
+      if (
+        !getCachedPredecodedBitmap(
+          src,
+          timestamp,
+          PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS,
+        ) &&
+        !getCachedActivePreviewFallbackBitmap(
+          src,
+          timestamp,
+          PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS,
+        )
+      ) {
+        return false
+      }
+    }
+  }
+  return true
+}
+
+export function isActivePreviewFrameExactDecodeReady(frame: number): boolean {
   if (!isActivePreviewFrameCurrent(frame)) return true
   if (latestActivePreviewTimestampsBySrc.size === 0) return true
   for (const [src, timestamps] of latestActivePreviewTimestampsBySrc) {
@@ -1222,6 +1357,9 @@ function clearPredecodedCache(src?: string): void {
       for (const entry of entries) entry.bitmap.close()
     }
     bitmapCache.delete(src)
+    const fallbackEntries = fallbackBitmapCache.get(src)
+    for (const entry of fallbackEntries ?? []) entry.bitmap.close()
+    fallbackBitmapCache.delete(src)
     blobByUrl.delete(src)
     unavailableBlobUrls.delete(src)
     keyframesSentForSrc.delete(src)
@@ -1230,12 +1368,20 @@ function clearPredecodedCache(src?: string): void {
       for (const entry of entries) entry.bitmap.close()
     }
     bitmapCache.clear()
+    for (const entries of fallbackBitmapCache.values()) {
+      for (const entry of entries) entry.bitmap.close()
+    }
+    fallbackBitmapCache.clear()
     blobByUrl.clear()
     unavailableBlobUrls.clear()
     keyframesSentForSrc.clear()
   }
   decoderPrewarmMetrics.cacheSources = bitmapCache.size
   decoderPrewarmMetrics.cacheBitmaps = [...bitmapCache.values()].reduce(
+    (sum, sourceEntries) => sum + sourceEntries.length,
+    0,
+  )
+  decoderPrewarmMetrics.fallbackBitmaps = [...fallbackBitmapCache.values()].reduce(
     (sum, sourceEntries) => sum + sourceEntries.length,
     0,
   )

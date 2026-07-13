@@ -255,4 +255,35 @@ describe('renderVideoItem', () => {
     expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
     expect(drawFrame).not.toHaveBeenCalled()
   })
+
+  it('draws a scrub-proxy fallback immediately while the exact worker frame settles', async () => {
+    const fallbackBitmap = { width: 480, height: 270 } as ImageBitmap
+    const waitForInflightPredecodedBitmap = vi.fn(async () => null)
+    const getCachedActivePreviewFallbackBitmap = vi.fn(() => fallbackBitmap)
+    const ctx = createCanvasContext()
+    const renderContext = createRenderContext({
+      getCachedPredecodedBitmap: vi.fn(() => null),
+      getCachedActivePreviewFallbackBitmap,
+      getResolvedVideoSource: vi.fn(() => 'blob:resolved-proxy'),
+      waitForInflightPredecodedBitmap,
+      isActivePreviewFrameCurrent: vi.fn(() => true),
+      isActivePreviewFrameSuperseded: vi.fn(() => false),
+    })
+
+    await renderVideoItem(ctx, item, transform, 12, renderContext)
+
+    expect(ctx.drawImage).toHaveBeenCalledWith(
+      fallbackBitmap,
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number),
+    )
+    expect(waitForInflightPredecodedBitmap).not.toHaveBeenCalled()
+    expect(getCachedActivePreviewFallbackBitmap).toHaveBeenCalledWith(
+      'blob:resolved-proxy',
+      expect.any(Number),
+      expect.any(Number),
+    )
+  })
 })

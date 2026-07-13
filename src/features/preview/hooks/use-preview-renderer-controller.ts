@@ -42,6 +42,10 @@ import {
 } from '../utils/preview-display-canvas'
 import { setActivePreviewScrubbingCache } from '../utils/preview-scrubbing-cache-bridge'
 import { warmDecoderPrewarmWorkerPool } from '../utils/decoder-prewarm'
+import {
+  disposeScrubProxyFallback,
+  warmScrubProxyFallback,
+} from '../utils/scrub-proxy-fallback'
 import { collectVisualInvalidationRanges } from '../utils/preview-frame-invalidation'
 import { resolvePreviewCaptureFrame } from '../utils/preview-capture-frame'
 import {
@@ -1570,6 +1574,7 @@ export function usePreviewRendererController({
       // ensureFastScrubRenderer() is already in flight before this idle
       // callback fires, and the pool must still warm.
       warmDecoderPrewarmWorkerPool()
+      warmScrubProxyFallback()
       if (scrubRendererRef.current || scrubInitPromiseRef.current) return
       void ensureFastScrubRenderer()
     }
@@ -1604,6 +1609,7 @@ export function usePreviewRendererController({
     return () => {
       scrubMountedRef.current = false
       resetResolveRetryState()
+      disposeScrubProxyFallback()
       disposeFastScrubRenderer()
     }
   }, [disposeFastScrubRenderer, resetResolveRetryState, scrubMountedRef])

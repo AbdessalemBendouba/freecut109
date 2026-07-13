@@ -39,10 +39,24 @@ export interface PreviewScrubPresentedSample {
   supersededByRequests: number
 }
 
+export interface PreviewScrubFallbackSample {
+  seq: number
+  workspace: PreviewScrubWorkspace
+  frame: number
+  firstVisibleMs: number
+  exactReplacementMs: number | null
+}
+
 export interface PreviewVideoSourceSample {
   frame: number
   itemId: string
-  path: 'dom-video' | 'worker-bitmap' | 'tier2-cache' | 'mediabunny' | 'video-fallback'
+  path:
+    | 'dom-video'
+    | 'worker-bitmap'
+    | 'proxy-fallback'
+    | 'tier2-cache'
+    | 'mediabunny'
+    | 'video-fallback'
   sourceTime: number
   domAvailable?: boolean
   domReady?: boolean
@@ -84,6 +98,14 @@ export interface PreviewDecoderMetricsSample {
   activeExtractorCount: number
   activeExtractorPeak: number
   activeReadyNotifications: number
+  fallbackRequests: number
+  fallbackCacheHits: number
+  fallbackBitmaps: number
+  fallbackSourceEvictions: number
+  fallbackReadyNotifications: number
+  exactFallbackReplacements: number
+  automaticProxyRequests: number
+  automaticProxyReadyHits: number
 }
 
 export interface PreviewScrubPerformanceState {
@@ -91,6 +113,7 @@ export interface PreviewScrubPerformanceState {
   requests: PreviewScrubRequestSample[]
   renders: PreviewCompositionRenderSample[]
   presented: PreviewScrubPresentedSample[]
+  fallbacks: PreviewScrubFallbackSample[]
   videoSources: PreviewVideoSourceSample[]
   preseeks: PreviewPreseekPlanSample[]
   canvasPools: PreviewCanvasPoolSample[]
@@ -120,6 +143,10 @@ let requestSequence = 0
 let latestRequest: PendingRequest | null = null
 const pendingRequestsByFrame = new Map<number, PendingRequest>()
 const completedRendersByFrame = new Map<number, CompletedRender>()
+const fallbackPresentationByFrame = new Map<
+  number,
+  { sample: PreviewScrubFallbackSample; presentedAtMs: number }
+>()
 let snapshotTimer: ReturnType<typeof setTimeout> | null = null
 let maxCanvasPoolPeak = 0
 let maxCanvasPoolTemporaryAllocations = 0
@@ -134,6 +161,7 @@ function resetInternalState(): void {
   latestRequest = null
   pendingRequestsByFrame.clear()
   completedRendersByFrame.clear()
+  fallbackPresentationByFrame.clear()
   maxCanvasPoolPeak = 0
   maxCanvasPoolTemporaryAllocations = 0
 }
@@ -155,6 +183,7 @@ function scheduleDomSnapshot(state: PreviewScrubPerformanceState): void {
       requests: state.requests,
       renders: state.renders,
       presented: state.presented,
+      fallbacks: state.fallbacks,
       videoSources: state.videoSources,
       preseeks: state.preseeks,
       canvasPools: state.canvasPools,
@@ -169,6 +198,7 @@ function createPerformanceState(): PreviewScrubPerformanceState {
     requests: [],
     renders: [],
     presented: [],
+    fallbacks: [],
     videoSources: [],
     preseeks: [],
     canvasPools: [],
@@ -177,6 +207,7 @@ function createPerformanceState(): PreviewScrubPerformanceState {
       state.requests.length = 0
       state.renders.length = 0
       state.presented.length = 0
+      state.fallbacks.length = 0
       state.videoSources.length = 0
       state.preseeks.length = 0
       state.canvasPools.length = 0
@@ -210,6 +241,13 @@ export function recordPreviewScrubRequest(
 ): void {
   const state = getPerformanceState()
   if (!state) return
+
+  // A new pointer target supersedes every outstanding fallback handoff. Exact
+  // frames that arrive for an older target must not be attributed to this
+  // request, including when the user later revisits the same frame.
+  for (const pendingFrame of fallbackPresentationByFrame.keys()) {
+    if (pendingFrame !== frame) fallbackPresentationByFrame.delete(pendingFrame)
+  }
 
   const request: PendingRequest = {
     seq: ++requestSequence,
@@ -268,6 +306,38 @@ export function recordPreviewScrubPresented(frame: number): void {
   if (pendingRequestsByFrame.get(frame)?.seq === render.request.seq) {
     pendingRequestsByFrame.delete(frame)
   }
+  scheduleDomSnapshot(state)
+}
+
+export function recordPreviewScrubPresentationQuality(
+  frame: number,
+  usedFallback: boolean,
+): void {
+  const state = getPerformanceState()
+  if (!state) return
+  const now = performance.now()
+  if (usedFallback) {
+    const request = pendingRequestsByFrame.get(frame)
+    if (!request || fallbackPresentationByFrame.has(frame)) return
+    const sample: PreviewScrubFallbackSample = {
+      seq: request.seq,
+      workspace: request.workspace,
+      frame,
+      firstVisibleMs: Number((now - request.atMs).toFixed(2)),
+      exactReplacementMs: null,
+    }
+    fallbackPresentationByFrame.set(frame, { sample, presentedAtMs: now })
+    pushBounded(state.fallbacks, sample)
+    scheduleDomSnapshot(state)
+    return
+  }
+
+  const pendingFallback = fallbackPresentationByFrame.get(frame)
+  if (!pendingFallback) return
+  pendingFallback.sample.exactReplacementMs = Number(
+    (now - pendingFallback.presentedAtMs).toFixed(2),
+  )
+  fallbackPresentationByFrame.delete(frame)
   scheduleDomSnapshot(state)
 }
 

@@ -126,6 +126,14 @@ export type PreviewPerfSnapshot = {
     activePreseekExtractorCount: number
     activePreseekExtractorPeak: number
     activePreseekReadyNotifications: number
+    scrubProxyFallbackRequests: number
+    scrubProxyFallbackHits: number
+    scrubProxyFallbackBitmaps: number
+    scrubProxyFallbackEvictions: number
+    scrubProxyFallbackReady: number
+    scrubProxyExactReplacements: number
+    automaticScrubProxyRequests: number
+    automaticScrubProxyReadyHits: number
     staleScrubOverlayDrops: number
     scrubDroppedFrames: number
     scrubUpdates: number

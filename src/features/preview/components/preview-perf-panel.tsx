@@ -129,6 +129,17 @@ export const PreviewPerfPanel = memo(function PreviewPerfPanel({
           {snapshot.preseekWaitTimeouts > 0 && (
             <span style={{ color: '#fbbf24' }}> {snapshot.preseekWaitTimeouts} timeout</span>
           )}
+          {(snapshot.scrubProxyFallbackRequests > 0 ||
+            snapshot.automaticScrubProxyRequests > 0) && (
+            <span>
+              {' '}
+              proxy fallback {snapshot.scrubProxyFallbackHits}/
+              {snapshot.scrubProxyFallbackRequests} cache {snapshot.scrubProxyFallbackBitmaps}
+              {' '}ready {snapshot.scrubProxyFallbackReady} exact{' '}
+              {snapshot.scrubProxyExactReplacements} auto{' '}
+              {snapshot.automaticScrubProxyReadyHits}/{snapshot.automaticScrubProxyRequests}
+            </span>
+          )}
         </div>
       )}
 
