@@ -513,6 +513,8 @@ export function usePreviewRenderPump({
 
     let renderPumpRestartTimeoutId: ReturnType<typeof setTimeout> | null = null
     let scrubPrewarmIdleTimeoutId: ReturnType<typeof setTimeout> | null = null
+    let onRenderOwnerDrained: (() => void) | null = null
+    let playbackPrewarmInFlight = false
     let lastScrubTargetAtMs = 0
     let scrubPrewarmIdleDelayMs = 40
     let lastActivePreviewTargetAtMs = 0
@@ -1027,24 +1029,28 @@ export function usePreviewRenderPump({
         hideAllOverlays()
         disposeFastScrubRenderer()
       } finally {
-        if (scrubRenderGenerationRef.current === generation) {
-          // Current generation — this pump owns the lock. Release normally.
-          scrubRenderInFlightRef.current = false
+        const isCurrentGeneration = scrubRenderGenerationRef.current === generation
+        // A lifecycle change invalidates this request, but never transfers
+        // ownership while renderFrame is still touching the shared canvas.
+        scrubRenderInFlightRef.current = false
+        if (scrubRequestedFrameRef.current === scrubOffscreenRenderedFrameRef.current) {
+          scrubRequestedFrameRef.current = null
+        }
+        if (isCurrentGeneration) {
           const deferredPrepareFrame = deferredPlaybackTransitionPrepareFrameRef.current
           if (deferredPrepareFrame !== null) {
             scheduleOpportunisticTransitionPrepare()
           }
-          if (scrubRequestedFrameRef.current !== null) {
-            // Break the promise-recursion chain. Under synchronous test
-            // doubles (and occasionally a run of cache hits in browsers), an
-            // immediate restart can recurse until the stack overflows.
-            scheduleRenderPumpRestart()
-          }
         }
-        // Stale generation — a newer seek/play bumped the generation while
-        // we were in-flight. DON'T release the lock here; the playback-start
-        // force-clear or the new pump's finally handles it. Releasing would
-        // allow a concurrent pump to start and share mutable canvas state.
+        const ownerDrained = onRenderOwnerDrained
+        onRenderOwnerDrained = null
+        ownerDrained?.()
+        if (scrubRequestedFrameRef.current !== null && !playbackPrewarmInFlight) {
+          // Break the promise-recursion chain. Under synchronous test doubles
+          // (and occasionally a run of cache hits in browsers), an immediate
+          // restart can recurse until the stack overflows.
+          scheduleRenderPumpRestart()
+        }
       }
     }
 
@@ -1118,7 +1124,6 @@ export function usePreviewRenderPump({
     // Playback start can wait on variable-speed decoder prewarm. While that
     // work is pending, subscription updates can retarget state but must not
     // start a competing async pump ahead of the rAF handoff.
-    let playbackPrewarmInFlight = false
     const pausePrewarmedItemIds = new Set<string>()
 
     let lastRafPresentedFrame = -1
@@ -1132,10 +1137,11 @@ export function usePreviewRenderPump({
       const playbackState = usePlaybackStore.getState()
       if (!playbackState.isPlaying || !forceFastScrubOverlay) return
       const currentFrame = playbackState.currentFrame
+      const renderOwnerActive = scrubRenderInFlightRef.current
 
       if (currentFrame !== lastRafRenderedFrame) {
         lastRafRenderedFrame = currentFrame
-        if (scrubOffscreenRenderedFrameRef.current === currentFrame) {
+        if (!renderOwnerActive && scrubOffscreenRenderedFrameRef.current === currentFrame) {
           drawToDisplay(currentFrame)
           lastRafPresentedFrame = currentFrame
         } else {
@@ -1159,7 +1165,7 @@ export function usePreviewRenderPump({
               scrubRequestedFrameRef.current = nextFrame
               void pumpRenderLoop()
             }
-          } else {
+          } else if (!renderOwnerActive) {
             scrubRequestedFrameRef.current = currentFrame
             if (!scrubRenderInFlightRef.current) {
               void pumpRenderLoop()
@@ -1167,6 +1173,7 @@ export function usePreviewRenderPump({
           }
         }
       } else if (
+        !renderOwnerActive &&
         lastRafPresentedFrame !== currentFrame &&
         scrubOffscreenRenderedFrameRef.current === currentFrame
       ) {
@@ -1355,11 +1362,10 @@ export function usePreviewRenderPump({
         const frame = state.currentFrame
         const hasPreparedLookahead = scrubOffscreenRenderedFrameRef.current === frame + 1
         lastRafRenderedFrame = hasPreparedLookahead ? frame : -1
-        // Render-pump invariant: playback takeover is the one path allowed to
-        // force-clear the lock. It bumps generation first so any stale pump
-        // finishing later cannot release the new owner's lock.
+        // Invalidate the prior request, but keep its mutex until renderFrame
+        // has completely stopped touching the shared offscreen canvas.
+        const renderOwnerActive = scrubRenderInFlightRef.current
         scrubRenderGenerationRef.current += 1
-        scrubRenderInFlightRef.current = false
         clearPrewarmQueue()
 
         markPlaybackColdStart({
@@ -1378,7 +1384,15 @@ export function usePreviewRenderPump({
           ),
         )
 
-        if (prewarmItemIds.length > 0) {
+        const startPlaybackPump = () => {
+          if (!scrubMountedRef.current || !usePlaybackStore.getState().isPlaying) return
+          if (prewarmItemIds.length === 0) {
+            if (playbackRafId === null) {
+              playbackRafId = requestAnimationFrame(playbackRafPump)
+            }
+            return
+          }
+
           markPlaybackColdStart({ variable_speed_items: prewarmItemIds.length })
           playbackPrewarmInFlight = true
           void (async () => {
@@ -1399,10 +1413,28 @@ export function usePreviewRenderPump({
               playbackRafId = requestAnimationFrame(playbackRafPump)
             }
           })()
-          return
         }
 
-        playbackRafId = requestAnimationFrame(playbackRafPump)
+        if (renderOwnerActive) {
+          onRenderOwnerDrained = startPlaybackPump
+          const waitForRenderOwnerDrain = () => {
+            if (
+              onRenderOwnerDrained !== startPlaybackPump ||
+              !usePlaybackStore.getState().isPlaying
+            ) {
+              return
+            }
+            if (scrubRenderInFlightRef.current) {
+              requestAnimationFrame(waitForRenderOwnerDrain)
+              return
+            }
+            onRenderOwnerDrained = null
+            startPlaybackPump()
+          }
+          requestAnimationFrame(waitForRenderOwnerDrain)
+          return
+        }
+        startPlaybackPump()
         return
       }
 
@@ -1413,6 +1445,10 @@ export function usePreviewRenderPump({
         }
         lastPlayingPrearmTargetRef.current = null
         clearTransitionPlaybackSession()
+        onRenderOwnerDrained = null
+        // Any async playback render may finish offscreen, but it must not
+        // present after pause. The new generation owns visible presentation.
+        scrubRenderGenerationRef.current += 1
 
         // The playback clock can be ahead of the last frame the rendered
         // overlay actually presented. Pausing on the clock frame makes the

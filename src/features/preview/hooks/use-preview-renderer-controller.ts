@@ -170,7 +170,6 @@ export function usePreviewRendererController({
   scrubOffscreenCtxRef,
   scrubRendererStructureKeyRef,
   scrubRenderInFlightRef,
-  scrubRenderGenerationRef,
   scrubRequestedFrameRef,
   bgTransitionRendererRef,
   bgTransitionInitPromiseRef,
@@ -649,8 +648,8 @@ export function usePreviewRendererController({
   // scopes, and a second concurrent renderFrame call interleaves with the
   // pump's (single-mutex invariant — see render-loop concurrency notes in
   // CLAUDE.md). This helper briefly waits for the pump to go idle, runs `fn`
-  // while holding the pump's mutex, and releases it with the same generation
-  // discipline the pump uses; on timeout it returns null rather than race.
+  // while holding the pump's mutex through completion; on timeout it returns
+  // null rather than racing the visible render path.
   const withScrubRenderLock = useCallback(
     async <T>(fn: () => Promise<T | null> | T | null): Promise<T | null> => {
       const deadline = performance.now() + CAPTURE_RENDER_LOCK_WAIT_MS
@@ -661,23 +660,21 @@ export function usePreviewRendererController({
       // The idle check and acquisition run in the same synchronous step, so
       // no pump iteration can grab the lock in between.
       scrubRenderInFlightRef.current = true
-      const generation = scrubRenderGenerationRef.current
       try {
         return await fn()
       } finally {
-        if (scrubRenderGenerationRef.current === generation) {
-          scrubRenderInFlightRef.current = false
-          // A pump kick that arrived while we held the lock returned early —
-          // resume it so the overlay never sticks on a stale frame.
-          if (scrubRequestedFrameRef.current !== null) {
-            resumeScrubLoopRef.current()
-          }
+        // Playback invalidation never transfers this mutex early. The capture
+        // remains the sole owner until `fn` completes, even across a play or
+        // pause transition, so releasing here cannot race a second renderer.
+        scrubRenderInFlightRef.current = false
+        // A pump kick that arrived while we held the lock returned early —
+        // resume it so the overlay never sticks on a stale frame.
+        if (scrubRequestedFrameRef.current !== null) {
+          resumeScrubLoopRef.current()
         }
-        // Stale generation: a playback-start force-clear re-owned the lock;
-        // leave it for the new owner (mirrors the pump's release rules).
       }
     },
-    [resumeScrubLoopRef, scrubRenderGenerationRef, scrubRenderInFlightRef, scrubRequestedFrameRef],
+    [resumeScrubLoopRef, scrubRenderInFlightRef, scrubRequestedFrameRef],
   )
 
   const renderOffscreenFrame = useCallback(

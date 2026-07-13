@@ -2144,6 +2144,119 @@ describe('VideoPreview sync behavior', () => {
     })
   })
 
+  it('drains an in-flight pause lookahead before resume can reuse the shared canvas', async () => {
+    setSingleVideoTrack()
+    useItemsStore.getState().setItems([
+      {
+        id: 'item-effected-resume-owner',
+        type: 'video',
+        trackId: 'track-video',
+        from: 0,
+        durationInFrames: 120,
+        src: 'blob:mock-video',
+        effects: [
+          {
+            id: 'effect-resume-owner',
+            enabled: true,
+            effect: {
+              type: 'gpu-effect',
+              gpuEffectType: 'gpu-sepia',
+              params: { amount: 0.8 },
+            },
+          },
+        ],
+      } as unknown as TimelineItem,
+    ])
+    act(() => {
+      usePlaybackStore.getState().setCurrentFrame(24)
+    })
+
+    const { renderer, scrubCanvas } = await renderReadySingleRendererPreview(24)
+
+    act(() => {
+      usePlaybackStore.getState().play()
+      usePlaybackStore.getState().setCurrentFrame(25)
+    })
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(25)
+    })
+
+    renderer.renderFrame.mockClear()
+    let resolveFrame30: (() => void) | null = null
+    let resolveFrame26: (() => void) | null = null
+    let activeRenderCount = 0
+    let maxActiveRenderCount = 0
+    renderer.renderFrame.mockImplementation(async (frame: number) => {
+      activeRenderCount += 1
+      maxActiveRenderCount = Math.max(maxActiveRenderCount, activeRenderCount)
+      if (frame === 30) {
+        await new Promise<void>((resolve) => {
+          resolveFrame30 = resolve
+        })
+      }
+      if (frame === 26) {
+        await new Promise<void>((resolve) => {
+          resolveFrame26 = resolve
+        })
+      }
+      activeRenderCount -= 1
+    })
+
+    act(() => {
+      // Let playback get ahead while frame 25 remains the front buffer.
+      usePlaybackStore.getState().setCurrentFrame(30)
+    })
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(30)
+    })
+
+    act(() => {
+      usePlaybackStore.getState().pause()
+    })
+    await waitFor(() => {
+      expect(usePlaybackStore.getState().currentFrame).toBe(25)
+      expect(getDisplayedFrame()).toBe(25)
+    })
+
+    await act(async () => {
+      resolveFrame30?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(26)
+      // The stale playback render completed offscreen after pause and must
+      // never replace the front buffer.
+      expect(getDisplayedFrame()).toBe(25)
+    })
+
+    act(() => {
+      usePlaybackStore.getState().play()
+      usePlaybackStore.getState().setCurrentFrame(26)
+    })
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40))
+    })
+
+    expect(renderer.renderFrame.mock.calls.filter(([frame]) => frame === 26)).toHaveLength(1)
+    expect(maxActiveRenderCount).toBe(1)
+    expect(getDisplayedFrame()).toBe(25)
+    expect(scrubCanvas.style.visibility).toBe('visible')
+
+    await act(async () => {
+      resolveFrame26?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(26)
+    })
+    expect(renderer.renderFrame.mock.calls.filter(([frame]) => frame === 26)).toHaveLength(1)
+    expect(maxActiveRenderCount).toBe(1)
+  })
+
   it('switches a paused ruler seek onto the fast-scrub overlay when landing on a gpu-effect clip', async () => {
     setSingleVideoTrack()
     useItemsStore.getState().setItems([
