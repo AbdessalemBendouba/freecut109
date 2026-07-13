@@ -1406,15 +1406,41 @@ export function usePreviewRenderPump({
         return
       }
 
-      if (!state.isPlaying && playbackRafId !== null) {
-        cancelAnimationFrame(playbackRafId)
-        playbackRafId = null
+      if (!state.isPlaying && prev.isPlaying) {
+        if (playbackRafId !== null) {
+          cancelAnimationFrame(playbackRafId)
+          playbackRafId = null
+        }
         lastPlayingPrearmTargetRef.current = null
         clearTransitionPlaybackSession()
 
-        schedulePausedPlaybackLookahead(state.currentFrame, 'post_pause')
-        primeActivePreviewDecoderAtFrame(state.currentFrame)
+        // The playback clock can be ahead of the last frame the rendered
+        // overlay actually presented. Pausing on the clock frame makes the
+        // visible canvas jump forward while the exact paused render settles.
+        // Re-anchor the authoritative playhead to the frame the user really
+        // saw, then prepare the following frame offscreen for resume.
+        const displayedFrame =
+          forceFastScrubOverlay && showFastScrubOverlayRef.current
+            ? usePreviewBridgeStore.getState().displayedFrame
+            : null
+        const pausedFrame =
+          displayedFrame !== null && Number.isFinite(displayedFrame)
+            ? Math.max(0, Math.round(displayedFrame))
+            : state.currentFrame
+
+        schedulePausedPlaybackLookahead(pausedFrame, 'post_pause')
+        primeActivePreviewDecoderAtFrame(pausedFrame)
+
+        if (pausedFrame !== state.currentFrame) {
+          const latestPlayback = usePlaybackStore.getState()
+          if (!latestPlayback.isPlaying && latestPlayback.currentFrame === state.currentFrame) {
+            latestPlayback.setCurrentFrame(pausedFrame)
+            return true
+          }
+        }
       }
+
+      return false
     }
 
     const handleActivePlaybackTransitionMaintenance = (state: PlaybackStoreSnapshot) => {
@@ -1973,7 +1999,7 @@ export function usePreviewRenderPump({
     const unsubscribe = usePlaybackStore.subscribe((state, prev) => {
       trackPlaybackColdStartLifecycle(state, prev)
       handleLargeJumpPreseek(state, prev)
-      handlePlaybackLifecycleUpdate(state, prev)
+      if (handlePlaybackLifecycleUpdate(state, prev)) return
       handleActivePlaybackTransitionMaintenance(state)
       handlePausedVariableSpeedPrewarm(state, prev)
       handlePausedTransitionPrewarm(state, prev)

@@ -2061,6 +2061,89 @@ describe('VideoPreview sync behavior', () => {
     })
   })
 
+  it('anchors pause and resume to the last frame actually presented by the gpu overlay', async () => {
+    setSingleVideoTrack()
+    useItemsStore.getState().setItems([
+      {
+        id: 'item-effected-pause-anchor',
+        type: 'video',
+        trackId: 'track-video',
+        from: 0,
+        durationInFrames: 120,
+        src: 'blob:mock-video',
+        effects: [
+          {
+            id: 'effect-pause-anchor',
+            enabled: true,
+            effect: {
+              type: 'gpu-effect',
+              gpuEffectType: 'gpu-sepia',
+              params: { amount: 0.8 },
+            },
+          },
+        ],
+      } as unknown as TimelineItem,
+    ])
+    act(() => {
+      usePlaybackStore.getState().setCurrentFrame(24)
+    })
+
+    const { renderer, scrubCanvas } = await renderReadySingleRendererPreview(24)
+
+    act(() => {
+      usePlaybackStore.getState().play()
+      usePlaybackStore.getState().setCurrentFrame(25)
+    })
+
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(25)
+      expect(scrubCanvas.style.visibility).toBe('visible')
+    })
+
+    renderer.renderFrame.mockClear()
+    seekToMock.mockClear()
+
+    act(() => {
+      // Simulate a busy render pump: the clock advances while frame 25 is
+      // still the last canvas frame the user has actually seen.
+      usePlaybackStore.getState().setCurrentFrame(30)
+      usePlaybackStore.getState().pause()
+    })
+
+    await waitFor(() => {
+      const playback = usePlaybackStore.getState()
+      expect(playback.isPlaying).toBe(false)
+      expect(playback.currentFrame).toBe(25)
+      expect(getDisplayedFrame()).toBe(25)
+      expect(seekToMock).toHaveBeenCalledWith(25)
+    })
+
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(26)
+      // Resume lookahead must remain offscreen; the paused image cannot move.
+      expect(getDisplayedFrame()).toBe(25)
+    })
+
+    act(() => {
+      usePlaybackStore.getState().play()
+    })
+
+    await waitFor(() => {
+      const playback = usePlaybackStore.getState()
+      expect(playback.isPlaying).toBe(true)
+      expect(playback.currentFrame).toBe(25)
+      expect(getDisplayedFrame()).toBe(25)
+    })
+
+    act(() => {
+      usePlaybackStore.getState().setCurrentFrame(26)
+    })
+
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(26)
+    })
+  })
+
   it('switches a paused ruler seek onto the fast-scrub overlay when landing on a gpu-effect clip', async () => {
     setSingleVideoTrack()
     useItemsStore.getState().setItems([
