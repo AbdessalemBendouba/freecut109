@@ -19,6 +19,7 @@ export interface ResolvePreviewDomVideoDrawDecisionOptions {
   sourceTime: number
   speed: number
   isRenderingTransition: boolean
+  maxDriftSeconds?: number
 }
 
 export interface ResolvePreviewMediabunnyInitActionOptions {
@@ -73,7 +74,7 @@ export function getPreviewDomVideoDriftThreshold(speed: number, isInTransition: 
 export function resolvePreviewDomVideoDrawDecision(
   options: ResolvePreviewDomVideoDrawDecisionOptions,
 ): PreviewDomVideoDrawDecision {
-  const { domVideo, sourceTime, speed, isRenderingTransition } = options
+  const { domVideo, sourceTime, speed, isRenderingTransition, maxDriftSeconds } = options
 
   if (!domVideo || domVideo.readyState < 2 || domVideo.videoWidth <= 0) {
     return {
@@ -85,10 +86,12 @@ export function resolvePreviewDomVideoDrawDecision(
   }
 
   const drift = Math.abs(domVideo.currentTime - sourceTime)
-  const driftThreshold = getPreviewDomVideoDriftThreshold(
-    speed,
-    isRenderingTransition || domVideo.dataset.transitionHold === '1',
-  )
+  const driftThreshold =
+    maxDriftSeconds ??
+    getPreviewDomVideoDriftThreshold(
+      speed,
+      isRenderingTransition || domVideo.dataset.transitionHold === '1',
+    )
 
   return {
     hasReadyDomVideo: true,

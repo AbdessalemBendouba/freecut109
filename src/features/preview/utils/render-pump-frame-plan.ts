@@ -38,6 +38,14 @@ interface ResolveActivePreviewPresentationTargetParams {
   forceFastScrubOverlay: boolean
 }
 
+interface ShouldRejectBlankTransportHandoffParams {
+  isTransportSettling: boolean
+  renderedFrame: number
+  displayedFrame: number | null
+  renderedFrameBlank: boolean
+  displayedFrameBlank: boolean
+}
+
 /**
  * Keeps the last valid rendered surface pinned while an exact replacement is
  * prepared. Scrubs always own this lane; continuous-overlay playback also
@@ -54,6 +62,27 @@ export function resolveActivePreviewPresentationTarget({
     state.previewFrame ??
     settlingReleasedScrubFrame ??
     (forceFastScrubOverlay && state.isPlaying !== prev.isPlaying ? state.currentFrame : null)
+  )
+}
+
+/**
+ * A play/pause handoff for the frame already on screen must be visually
+ * idempotent. If the shared render target was cleared while a nested source
+ * was settling, keep the known-good front buffer instead of presenting black.
+ */
+export function shouldRejectBlankTransportHandoff({
+  isTransportSettling,
+  renderedFrame,
+  displayedFrame,
+  renderedFrameBlank,
+  displayedFrameBlank,
+}: ShouldRejectBlankTransportHandoffParams): boolean {
+  return (
+    isTransportSettling &&
+    displayedFrame !== null &&
+    Math.abs(renderedFrame - displayedFrame) <= 1 &&
+    renderedFrameBlank &&
+    !displayedFrameBlank
   )
 }
 

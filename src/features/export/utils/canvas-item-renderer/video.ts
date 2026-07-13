@@ -290,6 +290,9 @@ export async function renderVideoItem(
     sourceTime,
     speed,
     isRenderingTransition: !!rctx.isRenderingTransition,
+    maxDriftSeconds: rctx.isActivePreviewFrameCurrent?.(previewRootFrame)
+      ? 0.5 / sourceFps
+      : undefined,
   }
   let domVideoDecision = resolvePreviewDomVideoDrawDecision(domVideoDecisionOptions)
   if (domVideoDecision.hasReadyDomVideo && !domVideoDecision.shouldDraw) {
@@ -457,6 +460,14 @@ export async function renderVideoItem(
 
     const pendingWorkerSource =
       rctx.getResolvedVideoSource?.(item, sourceTime, tier2ToleranceSeconds) ?? item.src
+    if (domVideo) {
+      // A nested/compound DOM video can briefly fall below drawable readiness
+      // while rapid Play/Pause seeks it. This happens on both pause and resume;
+      // the element is still the authoritative source, so committing the
+      // freshly-cleared composition canvas would replace the front buffer with black.
+      rctx.markActivePreviewFramePending?.()
+      return
+    }
     if (
       pendingWorkerSource &&
       rctx.isActivePreviewSourceTarget?.(

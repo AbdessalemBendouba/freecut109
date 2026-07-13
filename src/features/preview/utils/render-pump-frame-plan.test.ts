@@ -10,6 +10,7 @@ import {
   resolveScrubDirectionPlan,
   selectBoundaryPrewarmFrames,
   selectBoundarySourcePrewarmSources,
+  shouldRejectBlankTransportHandoff,
   type RenderPumpFrameState,
 } from './render-pump-frame-plan'
 
@@ -24,6 +25,45 @@ function makeState(overrides: Partial<RenderPumpFrameState> = {}): RenderPumpFra
 }
 
 describe('render pump frame plan', () => {
+  it('keeps a nonblank front buffer when a same-frame transport handoff renders blank', () => {
+    expect(
+      shouldRejectBlankTransportHandoff({
+        isTransportSettling: true,
+        renderedFrame: 100,
+        displayedFrame: 100,
+        renderedFrameBlank: true,
+        displayedFrameBlank: false,
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldRejectBlankTransportHandoff({
+        isTransportSettling: true,
+        renderedFrame: 101,
+        displayedFrame: 100,
+        renderedFrameBlank: true,
+        displayedFrameBlank: false,
+      }),
+    ).toBe(true)
+  })
+
+  it('does not reject ordinary, different-frame, or intentionally blank renders', () => {
+    const base = {
+      isTransportSettling: true,
+      renderedFrame: 100,
+      displayedFrame: 100,
+      renderedFrameBlank: true,
+      displayedFrameBlank: false,
+    }
+
+    expect(
+      shouldRejectBlankTransportHandoff({ ...base, isTransportSettling: false }),
+    ).toBe(false)
+    expect(shouldRejectBlankTransportHandoff({ ...base, displayedFrame: 98 })).toBe(false)
+    expect(shouldRejectBlankTransportHandoff({ ...base, renderedFrameBlank: false })).toBe(false)
+    expect(shouldRejectBlankTransportHandoff({ ...base, displayedFrameBlank: true })).toBe(false)
+  })
+
   it('pins the current rendered frame across forced-overlay play and pause handoffs', () => {
     expect(
       resolveActivePreviewPresentationTarget({

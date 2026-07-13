@@ -310,6 +310,30 @@ describe('renderVideoItem', () => {
     expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
   })
 
+  it('holds the previous frame while a nested DOM video is temporarily not drawable on resume', async () => {
+    const markActivePreviewFramePending = vi.fn()
+    const settlingVideo = {
+      readyState: 1,
+      videoWidth: 1920,
+      videoHeight: 1080,
+      currentTime: 0,
+    } as HTMLVideoElement
+    const renderContext = createRenderContext({
+      domVideoElementProvider: vi.fn(() => settlingVideo),
+      getCachedPredecodedBitmap: vi.fn(() => null),
+      getCachedActivePreviewFallbackBitmap: vi.fn(() => null),
+      waitForInflightPredecodedBitmap: vi.fn(async () => null),
+      isActivePreviewFrameCurrent: vi.fn(() => false),
+      isActivePreviewFrameSuperseded: vi.fn(() => false),
+      isActivePreviewSourceTarget: vi.fn(() => false),
+      markActivePreviewFramePending,
+    })
+
+    await renderVideoItem(createCanvasContext(), item, transform, 12, renderContext)
+
+    expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
+  })
+
   it('does not hold a legitimate empty gap with no scheduled source target', async () => {
     const markActivePreviewFramePending = vi.fn()
     const renderContext = createRenderContext({

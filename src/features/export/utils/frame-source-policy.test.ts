@@ -59,6 +59,20 @@ describe('frame-source-policy', () => {
     expect(decision.driftThreshold).toBe(0.2)
   })
 
+  it('uses a frame-level drift limit while a transport frame is settling', () => {
+    const decision = resolvePreviewDomVideoDrawDecision({
+      domVideo: makeDomVideo({ currentTime: 10 + 1 / 30 }),
+      sourceTime: 10,
+      speed: 1,
+      isRenderingTransition: false,
+      maxDriftSeconds: 0.5 / 30,
+    })
+
+    expect(decision.hasReadyDomVideo).toBe(true)
+    expect(decision.shouldDraw).toBe(false)
+    expect(decision.driftThreshold).toBeCloseTo(0.5 / 30)
+  })
+
   it('holds the last GPU-effect frame across a transient metadata-only state', () => {
     expect(
       shouldHoldPreviewGpuEffectFrame({
