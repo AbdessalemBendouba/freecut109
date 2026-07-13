@@ -4,8 +4,43 @@ import type { SubCompRenderData } from './canvas-item-renderer'
 import {
   resolveRenderedFrameCacheMode,
   resolveVideoPreloadPlan,
+  selectPreviewVideoSource,
   subCompositionRenderDataHasGpuEffects,
 } from './client-render-engine'
+
+describe('selectPreviewVideoSource', () => {
+  it('selects the cached proxy when a compound item still carries its original source', () => {
+    const proxyBitmap = {} as ImageBitmap
+    expect(
+      selectPreviewVideoSource({
+        candidates: ['blob:stored-original', 'blob:scrub-proxy'],
+        sourceTime: 42,
+        toleranceSeconds: 0.01,
+        getCachedPredecodedBitmap: (src) =>
+          src === 'blob:scrub-proxy' ? proxyBitmap : null,
+      }),
+    ).toBe('blob:scrub-proxy')
+  })
+
+  it('preserves composition source order when no scrub bitmap is cached', () => {
+    expect(
+      selectPreviewVideoSource({
+        candidates: ['blob:composition-source', 'blob:registered-source'],
+      }),
+    ).toBe('blob:composition-source')
+  })
+
+  it('selects the scheduled compound proxy before its first bitmap arrives', () => {
+    expect(
+      selectPreviewVideoSource({
+        candidates: ['blob:stored-original', 'blob:scrub-proxy'],
+        sourceTime: 42,
+        toleranceSeconds: 0.01,
+        isActivePreviewSourceTarget: (src) => src === 'blob:scrub-proxy',
+      }),
+    ).toBe('blob:scrub-proxy')
+  })
+})
 
 describe('resolveVideoPreloadPlan', () => {
   it('defers every non-priority source in preview mode', () => {

@@ -124,7 +124,9 @@ function collectSubCompositionVideoSourceTimes(
   timelineFrame: number,
   timelineFps: number,
   options: RenderPumpSourceTimeOptions,
+  visitedCompositionIds: Set<string>,
 ): void {
+  if (visitedCompositionIds.has(item.compositionId)) return
   const subComp = options.resolveComposition?.(item.compositionId)
   if (!subComp || !Number.isFinite(subComp.fps) || subComp.fps <= 0) return
 
@@ -136,19 +138,35 @@ function collectSubCompositionVideoSourceTimes(
   )
   if (subCompFrame === null) return
 
-  for (const subItem of subComp.items) {
-    if (subItem.type !== 'video') continue
-    const src = resolvePreseekVideoSrc(subItem, options)
-    if (!src) continue
+  visitedCompositionIds.add(item.compositionId)
+  try {
+    for (const subItem of subComp.items) {
+      if (subItem.type === 'composition') {
+        collectSubCompositionVideoSourceTimes(
+          bySource,
+          subItem,
+          subCompFrame,
+          subComp.fps,
+          options,
+          visitedCompositionIds,
+        )
+        continue
+      }
+      if (subItem.type !== 'video') continue
+      const src = resolvePreseekVideoSrc(subItem, options)
+      if (!src) continue
 
-    const sourceTime = getVideoItemSourceTimeSeconds(
-      { ...subItem, src },
-      subCompFrame,
-      subComp.fps,
-      options,
-    )
-    if (sourceTime === null) continue
-    appendSourceTimeBySrc(bySource, src, sourceTime)
+      const sourceTime = getVideoItemSourceTimeSeconds(
+        { ...subItem, src },
+        subCompFrame,
+        subComp.fps,
+        options,
+      )
+      if (sourceTime === null) continue
+      appendSourceTimeBySrc(bySource, src, sourceTime)
+    }
+  } finally {
+    visitedCompositionIds.delete(item.compositionId)
   }
 }
 
@@ -165,7 +183,14 @@ export function collectVisibleTrackVideoSourceTimesBySrc(
   for (const track of tracks) {
     for (const item of track.items) {
       if (item.type === 'composition') {
-        collectSubCompositionVideoSourceTimes(bySource, item, timelineFrame, timelineFps, options)
+        collectSubCompositionVideoSourceTimes(
+          bySource,
+          item,
+          timelineFrame,
+          timelineFps,
+          options,
+          new Set(),
+        )
         continue
       }
       if (item.type !== 'video') continue

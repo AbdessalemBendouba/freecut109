@@ -32,7 +32,7 @@ import type { ItemEffect } from '@/types/effects'
 import type { ResolvedTransform } from '@/types/transform'
 import { createLogger } from '@/shared/logging/logger'
 import { blobUrlManager } from '@/infrastructure/browser/blob-url-manager'
-import { resolveMediaUrl } from '@/features/export/deps/media-library'
+import { resolveMediaUrl, resolveProxyUrl } from '@/features/export/deps/media-library'
 import { VideoSourcePool } from '@/features/export/deps/player-contract'
 import { recordPreviewCompositionRender } from '@/shared/logging/preview-scrub-performance'
 import { recordPreviewCanvasPool } from '@/shared/logging/preview-scrub-performance'
@@ -132,6 +132,46 @@ function getPrewarmVideoSourceTimeSeconds(item: VideoItem, frame: number, fps: n
     item.isReversed === true,
     reverseSourceEnd,
   )
+}
+
+export function selectPreviewVideoSource(options: {
+  candidates: Array<string | null | undefined>
+  sourceTime?: number
+  toleranceSeconds?: number
+  getCachedPredecodedBitmap?: ItemRenderContext['getCachedPredecodedBitmap']
+  getCachedActivePreviewFallbackBitmap?: ItemRenderContext['getCachedActivePreviewFallbackBitmap']
+  isActivePreviewSourceTarget?: ItemRenderContext['isActivePreviewSourceTarget']
+}): string | null {
+  const candidates = [...new Set(options.candidates.filter((src): src is string => !!src))]
+  if (options.sourceTime !== undefined) {
+    for (const src of candidates) {
+      if (
+        options.getCachedPredecodedBitmap?.(
+          src,
+          options.sourceTime,
+          options.toleranceSeconds,
+        ) ||
+        options.getCachedActivePreviewFallbackBitmap?.(
+          src,
+          options.sourceTime,
+          options.toleranceSeconds,
+        )
+      ) {
+        return src
+      }
+    }
+  }
+  if (options.sourceTime !== undefined) {
+    const activeTarget = candidates.find((src) =>
+      options.isActivePreviewSourceTarget?.(
+        src,
+        options.sourceTime!,
+        options.toleranceSeconds,
+      ),
+    )
+    if (activeTarget) return activeTarget
+  }
+  return candidates[0] ?? null
 }
 
 // Predicate helpers (GPU-effect / animated-image classifiers) live in
@@ -732,12 +772,22 @@ export async function createCompositionRenderer(
     useMediabunny,
     mediabunnyDisabledItems,
     mediabunnyFailureCountByItem,
-    getResolvedVideoSource: (item) =>
+    getResolvedVideoSource: (item, sourceTime, toleranceSeconds) =>
       renderMode === 'preview'
-        ? (item.src ??
-          videoSourceByItemId.get(item.id) ??
-          (item.mediaId ? blobUrlManager.get(item.mediaId) : null) ??
-          null)
+        ? selectPreviewVideoSource({
+            candidates: [
+              item.src,
+              item.mediaId ? resolveProxyUrl(item.mediaId) : null,
+              videoSourceByItemId.get(item.id),
+              item.mediaId ? blobUrlManager.get(item.mediaId) : null,
+            ],
+            sourceTime,
+            toleranceSeconds,
+            getCachedPredecodedBitmap: itemRenderContext.getCachedPredecodedBitmap,
+            getCachedActivePreviewFallbackBitmap:
+              itemRenderContext.getCachedActivePreviewFallbackBitmap,
+            isActivePreviewSourceTarget: itemRenderContext.isActivePreviewSourceTarget,
+          })
         : ((item.mediaId ? blobUrlManager.get(item.mediaId) : null) ??
           videoSourceByItemId.get(item.id) ??
           item.src ??
@@ -947,6 +997,7 @@ export async function createCompositionRenderer(
         getCachedActivePreviewFallbackBitmap,
         isActivePreviewFrameCurrent,
         isActivePreviewFrameDecodeReady,
+        isActivePreviewSourceTarget,
         isActivePreviewFrameSuperseded,
         isActivePreviewTargetSuperseded,
         waitForInflightPredecodedBitmap,
@@ -956,6 +1007,7 @@ export async function createCompositionRenderer(
         getCachedActivePreviewFallbackBitmap
       itemRenderContext.isActivePreviewFrameCurrent = isActivePreviewFrameCurrent
       itemRenderContext.isActivePreviewFrameDecodeReady = isActivePreviewFrameDecodeReady
+      itemRenderContext.isActivePreviewSourceTarget = isActivePreviewSourceTarget
       itemRenderContext.isActivePreviewFrameSuperseded = isActivePreviewFrameSuperseded
       itemRenderContext.waitForInflightPredecodedBitmap = waitForInflightPredecodedBitmap
       itemRenderContext.isActivePreviewTargetSuperseded = isActivePreviewTargetSuperseded
@@ -1267,7 +1319,9 @@ export async function createCompositionRenderer(
           if (subItem.type !== 'video' && subItem.type !== 'image' && subItem.type !== 'lottie')
             continue
           if (subItem.mediaId) {
-            const src = blobUrlManager.get(subItem.mediaId)
+            const src =
+              (renderMode === 'preview' ? resolveProxyUrl(subItem.mediaId) : null) ??
+              blobUrlManager.get(subItem.mediaId)
             if (src) {
               subCompMediaItems.push({ subItem, src })
             } else {

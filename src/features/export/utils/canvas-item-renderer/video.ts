@@ -103,7 +103,8 @@ async function tryDrawWorkerPredecodedBitmap(
   toleranceSeconds: number,
 ): Promise<boolean> {
   const previewRootFrame = rctx.previewRootTimelineFrame ?? timelineFrame
-  const workerSource = rctx.getResolvedVideoSource?.(item) ?? item.src
+  const workerSource =
+    rctx.getResolvedVideoSource?.(item, sourceTime, toleranceSeconds) ?? item.src
   if (rctx.renderMode !== 'preview' || !workerSource) {
     return false
   }
@@ -454,6 +455,21 @@ export async function renderVideoItem(
       }
     }
 
+    const pendingWorkerSource =
+      rctx.getResolvedVideoSource?.(item, sourceTime, tier2ToleranceSeconds) ?? item.src
+    if (
+      pendingWorkerSource &&
+      rctx.isActivePreviewSourceTarget?.(
+        pendingWorkerSource,
+        sourceTime,
+        tier2ToleranceSeconds,
+      )
+    ) {
+      // The nested proxy target is scheduled but not drawable yet. Abort the
+      // composition render so the existing preview remains visible instead of
+      // presenting the compound's freshly-cleared offscreen canvas as black.
+      rctx.markActivePreviewFramePending?.()
+    }
     return
   }
 
@@ -482,7 +498,8 @@ export async function renderVideoItem(
     }
   }
 
-  const resolvedWorkerSource = rctx.getResolvedVideoSource?.(item) ?? item.src
+  const resolvedWorkerSource =
+    rctx.getResolvedVideoSource?.(item, sourceTime, tier2ToleranceSeconds) ?? item.src
   if (
     rctx.isActivePreviewFrameSuperseded?.(previewRootFrame) ||
     (resolvedWorkerSource &&

@@ -97,7 +97,11 @@ export interface ItemRenderContext {
   captureDecodedVideoFrames?: boolean
   /** Maximum wait for an existing worker decode; undefined uses the short opportunistic wait. */
   workerPredecodeWaitMs?: number
-  getResolvedVideoSource?: (item: VideoItem) => string | null
+  getResolvedVideoSource?: (
+    item: VideoItem,
+    sourceTime?: number,
+    toleranceSeconds?: number,
+  ) => string | null
   getCurrentItemSnapshot?: <TItem extends TimelineItem>(item: TItem) => TItem
   getLiveItemSnapshotById?: (itemId: string) => TimelineItem | undefined
   getCurrentKeyframes?: (itemId: string) => ItemKeyframes | undefined
@@ -135,6 +139,11 @@ export interface ItemRenderContext {
   isActivePreviewFrameSuperseded?: (frame: number) => boolean
   isActivePreviewFrameCurrent?: (frame: number) => boolean
   isActivePreviewFrameDecodeReady?: (frame: number) => boolean
+  isActivePreviewSourceTarget?: (
+    src: string,
+    timestamp: number,
+    toleranceSeconds?: number,
+  ) => boolean
   markActivePreviewFramePending?: () => void
   markActivePreviewFallbackUsed?: () => void
   previewRootTimelineFrame?: number

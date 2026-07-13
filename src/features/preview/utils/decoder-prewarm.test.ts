@@ -10,6 +10,7 @@ import {
   getDecoderPrewarmMetricsSnapshot,
   isActivePreviewFrameCurrent,
   isActivePreviewFrameDecodeReady,
+  isActivePreviewSourceTarget,
   replaceActivePreviewSourceTargets,
   setActivePreviewRenderTarget,
   settleActivePreviewRenderTarget,
@@ -310,6 +311,8 @@ describe('decoder prewarm', () => {
     replaceActivePreviewSourceTargets(new Map([['blob:gate', [3]]]))
 
     expect(isActivePreviewFrameDecodeReady(100)).toBe(false)
+    expect(isActivePreviewSourceTarget('blob:gate', 3)).toBe(true)
+    expect(isActivePreviewSourceTarget('blob:gate', 4)).toBe(false)
     await activePreviewPreseek({ src: 'blob:gate', timestamp: 3 })
     expect(isActivePreviewFrameDecodeReady(100)).toBe(true)
     expect(isActivePreviewFrameDecodeReady(101)).toBe(true)

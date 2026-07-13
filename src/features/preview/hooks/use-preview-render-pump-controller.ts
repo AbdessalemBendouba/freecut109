@@ -1254,7 +1254,11 @@ export function usePreviewRenderPump({
       nowMs: number,
     ) => {
       const bySource = collectVisibleTrackVideoSourceTimesBySrc(combinedTracks, targetFrame, fps, {
-        requireExplicitSourceFps: true,
+        // Match renderVideoItem's sourceFps ?? compositionFps fallback. Older
+        // compound items may not persist sourceFps; excluding them here leaves
+        // held scrubs with no worker target and briefly exposes a cleared
+        // nested canvas.
+        requireExplicitSourceFps: false,
         resolveComposition: resolvePreseekComposition,
         resolveItemSrc: resolvePreseekItemSrc,
       })
@@ -1309,7 +1313,7 @@ export function usePreviewRenderPump({
 
     const primeActivePreviewDecoderAtFrame = (targetFrame: number) => {
       const bySource = collectVisibleTrackVideoSourceTimesBySrc(combinedTracks, targetFrame, fps, {
-        requireExplicitSourceFps: true,
+        requireExplicitSourceFps: false,
         resolveComposition: resolvePreseekComposition,
         resolveItemSrc: resolvePreseekItemSrc,
       })

@@ -513,6 +513,49 @@ describe('compound clip preseek recursion', () => {
     expect(result.get('blob:fresh')![0]).toBeCloseTo(1.0)
   })
 
+  it('collects video through two nested compound clips', () => {
+    const outer = makeCompositionItem({ compositionId: 'sub-outer' })
+    const nested = makeCompositionItem({
+      id: 'nested-comp',
+      compositionId: 'sub-inner',
+      from: 0,
+      durationInFrames: 300,
+    })
+    const tracks = [makeMixedTrack([outer])]
+    const result = collectVisibleTrackVideoSourceTimesBySrc(tracks, 190, 30, {
+      requireExplicitSourceFps: false,
+      resolveComposition: (id) => {
+        if (id === 'sub-outer') return { fps: 30, items: [nested] }
+        if (id === 'sub-inner') return { fps: 30, items: [makeSubVideoItem()] }
+        return null
+      },
+      resolveItemSrc: () => 'blob:nested-fresh',
+    })
+
+    expect(result.get('blob:nested-fresh')![0]).toBeCloseTo(1.0)
+  })
+
+  it('breaks cyclic compound references without recursing forever', () => {
+    const outer = makeCompositionItem({ compositionId: 'sub-cycle' })
+    const nestedCycle = makeCompositionItem({
+      id: 'nested-cycle',
+      compositionId: 'sub-cycle',
+      from: 0,
+      durationInFrames: 300,
+    })
+
+    const result = collectVisibleTrackVideoSourceTimesBySrc(
+      [makeMixedTrack([outer])],
+      190,
+      30,
+      {
+        resolveComposition: () => ({ fps: 30, items: [nestedCycle] }),
+      },
+    )
+
+    expect(result.size).toBe(0)
+  })
+
   it('skips composition items when no resolver is provided (old behavior)', () => {
     const tracks = [makeMixedTrack([makeCompositionItem()])]
     const result = collectVisibleTrackVideoSourceTimesBySrc(tracks, 190, 30, {
@@ -587,6 +630,18 @@ describe('compound clip preseek recursion', () => {
       resolveItemSrc: () => 'blob:fresh',
     })
     expect(result.size).toBe(0)
+  })
+
+  it('uses the compound fps for held scrubs when legacy sub-items omit sourceFps', () => {
+    const subItem = makeSubVideoItem({ sourceFps: undefined })
+    const tracks = [makeMixedTrack([makeCompositionItem()])]
+    const result = collectVisibleTrackVideoSourceTimesBySrc(tracks, 190, 30, {
+      requireExplicitSourceFps: false,
+      resolveComposition: resolveComposition([subItem]),
+      resolveItemSrc: () => 'blob:fresh',
+    })
+
+    expect(result.get('blob:fresh')![0]).toBeCloseTo(1.0)
   })
 
   it('resolves direct video items with empty stored src by mediaId', () => {

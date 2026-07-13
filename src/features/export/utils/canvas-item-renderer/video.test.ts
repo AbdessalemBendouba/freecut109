@@ -285,5 +285,46 @@ describe('renderVideoItem', () => {
       expect.any(Number),
       expect.any(Number),
     )
+    expect(renderContext.getResolvedVideoSource).toHaveBeenCalledWith(
+      item,
+      expect.any(Number),
+      expect.any(Number),
+    )
   })
+
+  it('holds the previous frame while a scheduled compound proxy target is pending', async () => {
+    const markActivePreviewFramePending = vi.fn()
+    const renderContext = createRenderContext({
+      getCachedPredecodedBitmap: vi.fn(() => null),
+      getCachedActivePreviewFallbackBitmap: vi.fn(() => null),
+      getResolvedVideoSource: vi.fn(() => 'blob:compound-proxy'),
+      waitForInflightPredecodedBitmap: vi.fn(async () => null),
+      isActivePreviewFrameCurrent: vi.fn(() => true),
+      isActivePreviewFrameSuperseded: vi.fn(() => false),
+      isActivePreviewSourceTarget: vi.fn(() => true),
+      markActivePreviewFramePending,
+    })
+
+    await renderVideoItem(createCanvasContext(), item, transform, 12, renderContext)
+
+    expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
+  })
+
+  it('does not hold a legitimate empty gap with no scheduled source target', async () => {
+    const markActivePreviewFramePending = vi.fn()
+    const renderContext = createRenderContext({
+      getCachedPredecodedBitmap: vi.fn(() => null),
+      getCachedActivePreviewFallbackBitmap: vi.fn(() => null),
+      waitForInflightPredecodedBitmap: vi.fn(async () => null),
+      isActivePreviewFrameCurrent: vi.fn(() => true),
+      isActivePreviewFrameSuperseded: vi.fn(() => false),
+      isActivePreviewSourceTarget: vi.fn(() => false),
+      markActivePreviewFramePending,
+    })
+
+    await renderVideoItem(createCanvasContext(), item, transform, 12, renderContext)
+
+    expect(markActivePreviewFramePending).not.toHaveBeenCalled()
+  })
+
 })

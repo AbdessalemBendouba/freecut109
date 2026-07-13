@@ -1017,6 +1017,18 @@ export function isActivePreviewFrameExactDecodeReady(frame: number): boolean {
   return true
 }
 
+export function isActivePreviewSourceTarget(
+  src: string,
+  timestamp: number,
+  toleranceSeconds = PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS,
+): boolean {
+  if (!activePreviewScrubSession) return false
+  const latestTimestamps = latestActivePreviewTimestampsBySrc.get(src)
+  return (
+    latestTimestamps?.some((target) => Math.abs(target - timestamp) <= toleranceSeconds) ?? false
+  )
+}
+
 export function subscribeActivePreviewReady(
   listener: (src: string, timestamp: number) => void,
 ): () => void {
@@ -1031,10 +1043,7 @@ export function isActivePreviewTargetSuperseded(
 ): boolean {
   if (!activePreviewScrubSession) return false
   const latestTimestamps = latestActivePreviewTimestampsBySrc.get(src)
-  return (
-    latestTimestamps !== undefined &&
-    !latestTimestamps.some((target) => Math.abs(target - timestamp) <= toleranceSeconds)
-  )
+  return latestTimestamps !== undefined && !isActivePreviewSourceTarget(src, timestamp, toleranceSeconds)
 }
 
 export function backgroundPreseek(src: string, timestamp: number): Promise<ImageBitmap | null> {
