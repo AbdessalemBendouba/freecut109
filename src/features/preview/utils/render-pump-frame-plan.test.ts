@@ -10,7 +10,10 @@ import {
   resolveScrubDirectionPlan,
   selectBoundaryPrewarmFrames,
   selectBoundarySourcePrewarmSources,
+  shouldDropStaleForcedPreviewRender,
+  shouldPreservePausedTransportPresentation,
   shouldRejectBlankTransportHandoff,
+  shouldRestoreCommittedPreviewSnapshot,
   type RenderPumpFrameState,
 } from './render-pump-frame-plan'
 
@@ -25,6 +28,81 @@ function makeState(overrides: Partial<RenderPumpFrameState> = {}): RenderPumpFra
 }
 
 describe('render pump frame plan', () => {
+  it('preserves the authoritative paused transport frame from delayed repaint', () => {
+    expect(
+      shouldPreservePausedTransportPresentation({
+        holdActive: true,
+        heldFrame: 100,
+        renderedFrame: 100,
+        displayedFrame: 100,
+        currentFrame: 100,
+        previewFrame: null,
+        isPlaying: false,
+      }),
+    ).toBe(true)
+
+    expect(
+      shouldPreservePausedTransportPresentation({
+        holdActive: true,
+        heldFrame: 100,
+        renderedFrame: 100,
+        displayedFrame: 100,
+        currentFrame: 100,
+        previewFrame: 101,
+        isPlaying: false,
+      }),
+    ).toBe(false)
+  })
+
+  it('drops superseded compound hover renders after the ruler target changes or clears', () => {
+    expect(
+      shouldDropStaleForcedPreviewRender({
+        forceFastScrubOverlay: true,
+        renderedFrame: 120,
+        currentFrame: 100,
+        previewFrame: null,
+        isPlaying: false,
+      }),
+    ).toBe(true)
+    expect(
+      shouldDropStaleForcedPreviewRender({
+        forceFastScrubOverlay: true,
+        renderedFrame: 120,
+        currentFrame: 100,
+        previewFrame: 121,
+        isPlaying: false,
+      }),
+    ).toBe(true)
+    expect(
+      shouldDropStaleForcedPreviewRender({
+        forceFastScrubOverlay: true,
+        renderedFrame: 121,
+        currentFrame: 100,
+        previewFrame: 121,
+        isPlaying: false,
+      }),
+    ).toBe(false)
+  })
+
+  it('restores the committed snapshot when hover skimming leaves the ruler', () => {
+    expect(
+      shouldRestoreCommittedPreviewSnapshot({
+        previewFrame: null,
+        previousPreviewFrame: 120,
+        currentFrame: 100,
+        snapshotFrame: 100,
+      }),
+    ).toBe(true)
+    expect(
+      shouldRestoreCommittedPreviewSnapshot({
+        previewFrame: null,
+        previousPreviewFrame: 120,
+        currentFrame: 100,
+        snapshotFrame: 99,
+      }),
+    ).toBe(false)
+  })
+
   it('keeps a nonblank front buffer when a same-frame transport handoff renders blank', () => {
     expect(
       shouldRejectBlankTransportHandoff({

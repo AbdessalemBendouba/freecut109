@@ -2837,6 +2837,69 @@ describe('VideoPreview sync behavior', () => {
     })
   })
 
+  it('drops an in-flight compound skim frame after the pointer leaves the ruler', async () => {
+    setSingleCompoundItemWithGpuEffectAtFrame(47)
+    const { scrubCanvas, renderer } = await renderReadySingleRendererPreview(47)
+
+    renderer.renderFrame.mockClear()
+    let resolveFrame48: (() => void) | null = null
+    renderer.renderFrame.mockImplementation(async (frame: number) => {
+      if (frame === 48) {
+        await new Promise<void>((resolve) => {
+          resolveFrame48 = resolve
+        })
+      }
+    })
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(48)
+    })
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(48)
+    })
+
+    act(() => {
+      // TimelineMarkers.handleRulerMouseLeave clears only the hover target;
+      // the committed playhead remains on the last visible frame.
+      usePlaybackStore.getState().setPreviewFrame(null)
+    })
+
+    await act(async () => {
+      resolveFrame48?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(47)
+      expect(getDisplayedFrame()).toBe(47)
+      expect(scrubCanvas.style.visibility).toBe('visible')
+    })
+  })
+
+  it('restores the committed compound frame immediately when leaving a black skim frame', async () => {
+    setSingleCompoundItemWithGpuEffectAtFrame(47)
+    const { scrubCanvas, renderer } = await renderReadySingleRendererPreview(47)
+
+    renderer.renderFrame.mockClear()
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(48)
+    })
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(48)
+    })
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(null)
+    })
+
+    // The pre-skim snapshot is synchronous; the slower exact compound render
+    // does not need to complete before frame 48 (or its black pixels) is gone.
+    expect(getDisplayedFrame()).toBe(47)
+    expect(scrubCanvas.style.visibility).toBe('visible')
+  })
+
   it('captures a fresh live frame for scopes instead of reusing an in-flight stale sample', async () => {
     setSingleVideoItemAtFrame({ id: 'item-live-scopes' })
     const { renderer } = await renderReadySingleRendererPreview(24, { expectVisible: false })

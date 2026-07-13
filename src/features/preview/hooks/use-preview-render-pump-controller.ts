@@ -51,7 +51,10 @@ import {
   resolveScrubDirectionPlan,
   selectBoundaryPrewarmFrames,
   selectBoundarySourcePrewarmSources,
+  shouldDropStaleForcedPreviewRender,
+  shouldPreservePausedTransportPresentation,
   shouldRejectBlankTransportHandoff,
+  shouldRestoreCommittedPreviewSnapshot,
 } from '../utils/render-pump-frame-plan'
 import {
   collectClipVideoSourceTimesBySrcForFrame,
@@ -340,7 +343,31 @@ export function usePreviewRenderPump({
     scrubMountedRef.current = true
 
     let transportSettlingUntilMs = 0
+    let pausedTransportHeldFrame: number | null = null
+    let pausedTransportHoldUntilMs = 0
     let blankProbeCanvas: OffscreenCanvas | null = null
+    let committedPreviewSnapshotCanvas: OffscreenCanvas | null = null
+    let committedPreviewSnapshotFrame: number | null = null
+
+    const captureCommittedPreviewSnapshot = (frame: number) => {
+      const displayCanvas = scrubCanvasRef.current
+      if (!displayCanvas || usePreviewBridgeStore.getState().displayedFrame !== frame) return
+      if (
+        !committedPreviewSnapshotCanvas ||
+        committedPreviewSnapshotCanvas.width !== displayCanvas.width ||
+        committedPreviewSnapshotCanvas.height !== displayCanvas.height
+      ) {
+        committedPreviewSnapshotCanvas = new OffscreenCanvas(
+          displayCanvas.width,
+          displayCanvas.height,
+        )
+      }
+      const context = committedPreviewSnapshotCanvas.getContext('2d')
+      if (!context) return
+      context.clearRect(0, 0, committedPreviewSnapshotCanvas.width, committedPreviewSnapshotCanvas.height)
+      context.drawImage(displayCanvas, 0, 0)
+      committedPreviewSnapshotFrame = frame
+    }
 
     const isEffectivelyBlankPreviewSource = (
       source: OffscreenCanvas | HTMLCanvasElement,
@@ -378,6 +405,20 @@ export function usePreviewRenderPump({
       const displayCtx = displayCanvas.getContext('2d')
       if (!displayCtx) return
       const displayedFrame = usePreviewBridgeStore.getState().displayedFrame
+      const playbackState = usePlaybackStore.getState()
+      if (
+        shouldPreservePausedTransportPresentation({
+          holdActive: performance.now() <= pausedTransportHoldUntilMs,
+          heldFrame: pausedTransportHeldFrame,
+          renderedFrame,
+          displayedFrame,
+          currentFrame: playbackState.currentFrame,
+          previewFrame: playbackState.previewFrame,
+          isPlaying: playbackState.isPlaying,
+        })
+      ) {
+        return
+      }
       if (
         performance.now() <= transportSettlingUntilMs &&
         displayedFrame !== null &&
@@ -399,12 +440,12 @@ export function usePreviewRenderPump({
       setDisplayedFrame(renderedFrame)
       recordPreviewScrubPresentationQuality(renderedFrame, usedFallback)
       recordPreviewScrubPresented(renderedFrame)
-      const playbackState = usePlaybackStore.getState()
       if (
         !playbackState.isPlaying &&
         playbackState.previewFrame === null &&
         playbackState.currentFrame === renderedFrame
       ) {
+        captureCommittedPreviewSnapshot(renderedFrame)
         settleActivePreviewRenderTarget(renderedFrame)
       }
       resolvePlaybackColdStartVisibleFrame(renderedFrame, 'rendered_overlay')
@@ -978,6 +1019,21 @@ export function usePreviewRenderPump({
               pausedPlaybackLookaheadOriginRef.current = null
               pausedPlaybackLookaheadStartedMsRef.current = null
             }
+            if (
+              shouldDropStaleForcedPreviewRender({
+                forceFastScrubOverlay,
+                renderedFrame: frameToRender,
+                currentFrame: playbackState.currentFrame,
+                previewFrame: playbackState.previewFrame,
+                isPlaying: playbackState.isPlaying,
+              })
+            ) {
+              // A ruler hover can clear or move while a nested composition is
+              // still rendering. Its pixels no longer own presentation and
+              // must not retain the shared offscreen frame tag.
+              scrubOffscreenRenderedFrameRef.current = null
+              continue
+            }
             const playbackTransitionState = getPlaybackTransitionStateForFrame(frameToRender)
             const shouldShowPlaybackTransitionOverlay =
               playbackState.isPlaying &&
@@ -1450,6 +1506,8 @@ export function usePreviewRenderPump({
     ) => {
       if (state.isPlaying && forceFastScrubOverlay && !prev.isPlaying) {
         transportSettlingUntilMs = performance.now() + 300
+        pausedTransportHeldFrame = null
+        pausedTransportHoldUntilMs = 0
         if (playbackRafId !== null) {
           return
         }
@@ -1559,6 +1617,10 @@ export function usePreviewRenderPump({
           displayedFrame !== null && Number.isFinite(displayedFrame)
             ? Math.max(0, Math.round(displayedFrame))
             : state.currentFrame
+
+        pausedTransportHeldFrame = pausedFrame
+        pausedTransportHoldUntilMs = performance.now() + 750
+        captureCommittedPreviewSnapshot(pausedFrame)
 
         schedulePausedPlaybackLookahead(pausedFrame, 'post_pause')
         primeActivePreviewDecoderAtFrame(pausedFrame)
@@ -1830,8 +1892,37 @@ export function usePreviewRenderPump({
     }
 
     const handleScrubTargetUpdate = (state: PlaybackStoreSnapshot, prev: PlaybackStoreSnapshot) => {
+      if (state.previewFrame !== null && prev.previewFrame === null) {
+        // Snapshot at gesture entry, not only when the committed render first
+        // completed. The preview controller can be rebuilt between those two
+        // moments (resize/workspace/layout changes), while the visible canvas
+        // remains the authoritative frame the hover must return to.
+        captureCommittedPreviewSnapshot(prev.currentFrame)
+      }
+      if (
+        state.isPlaying ||
+        state.previewFrame !== null ||
+        (pausedTransportHeldFrame !== null && state.currentFrame !== pausedTransportHeldFrame)
+      ) {
+        pausedTransportHeldFrame = null
+        pausedTransportHoldUntilMs = 0
+      }
       const settlingReleasedScrubFrame =
         state.previewFrame === null && prev.previewFrame !== null ? state.currentFrame : null
+      if (
+        committedPreviewSnapshotCanvas &&
+        shouldRestoreCommittedPreviewSnapshot({
+          previewFrame: state.previewFrame,
+          previousPreviewFrame: prev.previewFrame,
+          currentFrame: state.currentFrame,
+          snapshotFrame: committedPreviewSnapshotFrame,
+        })
+      ) {
+        // Hover skimming may end on a nested frame whose sources were still
+        // settling. Restore the last committed pixels synchronously instead
+        // of leaving that transient frame visible while currentFrame rerenders.
+        drawSourceToDisplay(committedPreviewSnapshotCanvas, state.currentFrame)
+      }
       const activePreviewPresentationTarget = resolveActivePreviewPresentationTarget({
         state,
         prev,

@@ -46,6 +46,31 @@ interface ShouldRejectBlankTransportHandoffParams {
   displayedFrameBlank: boolean
 }
 
+interface ShouldPreservePausedTransportPresentationParams {
+  holdActive: boolean
+  heldFrame: number | null
+  renderedFrame: number
+  displayedFrame: number | null
+  currentFrame: number
+  previewFrame: number | null
+  isPlaying: boolean
+}
+
+interface ShouldDropStaleForcedPreviewRenderParams {
+  forceFastScrubOverlay: boolean
+  renderedFrame: number
+  currentFrame: number
+  previewFrame: number | null
+  isPlaying: boolean
+}
+
+interface ShouldRestoreCommittedPreviewSnapshotParams {
+  previewFrame: number | null
+  previousPreviewFrame: number | null
+  currentFrame: number
+  snapshotFrame: number | null
+}
+
 /**
  * Keeps the last valid rendered surface pinned while an exact replacement is
  * prepared. Scrubs always own this lane; continuous-overlay playback also
@@ -83,6 +108,56 @@ export function shouldRejectBlankTransportHandoff({
     Math.abs(renderedFrame - displayedFrame) <= 1 &&
     renderedFrameBlank &&
     !displayedFrameBlank
+  )
+}
+
+/** Prevents a delayed quality/decoder pass from visibly replacing the frame
+ * that was on screen when transport paused. A new preview target or playback
+ * lifecycle releases the hold at the call site. */
+export function shouldPreservePausedTransportPresentation({
+  holdActive,
+  heldFrame,
+  renderedFrame,
+  displayedFrame,
+  currentFrame,
+  previewFrame,
+  isPlaying,
+}: ShouldPreservePausedTransportPresentationParams): boolean {
+  return (
+    holdActive &&
+    heldFrame !== null &&
+    !isPlaying &&
+    previewFrame === null &&
+    currentFrame === heldFrame &&
+    renderedFrame === heldFrame &&
+    displayedFrame === heldFrame
+  )
+}
+
+/** Compound/forced-overlay renders are serialized, but a hover target can be
+ * superseded while its render is in flight. Only the latest paused target may
+ * take ownership of the shared offscreen canvas. */
+export function shouldDropStaleForcedPreviewRender({
+  forceFastScrubOverlay,
+  renderedFrame,
+  currentFrame,
+  previewFrame,
+  isPlaying,
+}: ShouldDropStaleForcedPreviewRenderParams): boolean {
+  if (!forceFastScrubOverlay || isPlaying) return false
+  return renderedFrame !== (previewFrame ?? currentFrame)
+}
+
+export function shouldRestoreCommittedPreviewSnapshot({
+  previewFrame,
+  previousPreviewFrame,
+  currentFrame,
+  snapshotFrame,
+}: ShouldRestoreCommittedPreviewSnapshotParams): boolean {
+  return (
+    previewFrame === null &&
+    previousPreviewFrame !== null &&
+    snapshotFrame === currentFrame
   )
 }
 
