@@ -4,7 +4,6 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
   type KeyboardEvent,
   type MouseEventHandler,
   type PointerEventHandler,
@@ -19,7 +18,7 @@ import { usePlaybackStore } from '@/shared/state/playback'
 import { EDITOR_LAYOUT_CSS_VALUES } from '@/config/editor-layout'
 import { FAST_SCRUB_RENDERER_ENABLED } from '../utils/preview-constants'
 import { getPreviewDisplayCanvasStyle } from '../utils/preview-display-canvas'
-import { getPreviewPixelSnapOffset, ZERO_PIXEL_SNAP_OFFSET } from '../utils/preview-pixel-snap'
+import { getPreviewPixelSnapOffset } from '../utils/preview-pixel-snap'
 import type { ColorGradeComparisonMode } from '../stores/gizmo-store'
 import {
   isPlaybackColdStartPending,
@@ -96,10 +95,10 @@ export const PreviewStage = memo(function PreviewStage({
   const { t } = useTranslation()
   const useProxy = usePlaybackStore((s) => s.useProxy)
   const pixelSnapAnchorRef = useRef<HTMLDivElement | null>(null)
+  const pixelSnappedPlayerRef = useRef<HTMLDivElement | null>(null)
   const playerSurfaceRef = useRef<HTMLDivElement | null>(null)
   const renderedOverlayVisibleRef = useRef(isRenderedOverlayVisible)
   renderedOverlayVisibleRef.current = isRenderedOverlayVisible
-  const [pixelSnapOffset, setPixelSnapOffset] = useState(ZERO_PIXEL_SNAP_OFFSET)
 
   // Observe the browser's actual video presentation rather than treating a
   // Clock tick as visible output. The subscription is imperative so playback
@@ -245,9 +244,18 @@ export const PreviewStage = memo(function PreviewStage({
       rafId = null
       const rect = anchor.getBoundingClientRect()
       const nextOffset = getPreviewPixelSnapOffset(rect, window.devicePixelRatio)
-      setPixelSnapOffset((prev) =>
-        prev.x === nextOffset.x && prev.y === nextOffset.y ? prev : nextOffset,
-      )
+      const player = pixelSnappedPlayerRef.current
+      if (!player) return
+      const nextTransform =
+        nextOffset.x !== 0 || nextOffset.y !== 0
+          ? `translate3d(${nextOffset.x}px, ${nextOffset.y}px, 0)`
+          : ''
+      if (player.style.transform !== nextTransform) {
+        // ResizeObserver/rAF runs before paint. Write the transient correction
+        // directly so panel drags cannot spend one frame at stale geometry
+        // while waiting for a React state commit.
+        player.style.transform = nextTransform
+      }
     }
 
     const scheduleUpdate = () => {
@@ -274,10 +282,6 @@ export const PreviewStage = memo(function PreviewStage({
     }
   }, [playerSize.height, playerSize.width])
 
-  const pixelSnapTransform =
-    pixelSnapOffset.x !== 0 || pixelSnapOffset.y !== 0
-      ? `translate3d(${pixelSnapOffset.x}px, ${pixelSnapOffset.y}px, 0)`
-      : undefined
   const isTimelineEmpty = inputProps.tracks.every((track) => track.items.length === 0)
   const isSplitGradeComparison = colorGradeComparisonMode === 'split'
   const splitPosition = Math.max(0.05, Math.min(0.95, colorGradeSplitPosition))
@@ -353,11 +357,11 @@ export const PreviewStage = memo(function PreviewStage({
           }}
         >
           <div
+            ref={pixelSnappedPlayerRef}
             className="relative"
             style={{
               width: `${playerSize.width}px`,
               height: `${playerSize.height}px`,
-              transform: pixelSnapTransform,
             }}
           >
             <div
