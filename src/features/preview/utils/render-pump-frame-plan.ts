@@ -18,12 +18,43 @@ export type RenderPumpFrameState = Pick<
   'currentFrame' | 'currentFrameEpoch' | 'previewFrame' | 'previewFrameEpoch'
 >
 
+export type PreviewPresentationHandoffState = Pick<
+  PlaybackState,
+  'currentFrame' | 'previewFrame' | 'isPlaying'
+>
+
 type ScrubDirection = -1 | 0 | 1
 
 interface ResolveRenderPumpTargetFrameParams {
   state: RenderPumpFrameState
   forceFastScrubOverlay: boolean
   isPausedInsideTransition: boolean
+}
+
+interface ResolveActivePreviewPresentationTargetParams {
+  state: PreviewPresentationHandoffState
+  prev: PreviewPresentationHandoffState
+  settlingReleasedScrubFrame: number | null
+  forceFastScrubOverlay: boolean
+}
+
+/**
+ * Keeps the last valid rendered surface pinned while an exact replacement is
+ * prepared. Scrubs always own this lane; continuous-overlay playback also
+ * borrows it for the single play/pause handoff frame so nested composition
+ * canvases cannot expose their freshly-cleared backing surface.
+ */
+export function resolveActivePreviewPresentationTarget({
+  state,
+  prev,
+  settlingReleasedScrubFrame,
+  forceFastScrubOverlay,
+}: ResolveActivePreviewPresentationTargetParams): number | null {
+  return (
+    state.previewFrame ??
+    settlingReleasedScrubFrame ??
+    (forceFastScrubOverlay && state.isPlaying !== prev.isPlaying ? state.currentFrame : null)
+  )
 }
 
 interface ResolveScrubDirectionPlanParams {

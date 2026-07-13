@@ -223,6 +223,8 @@ vi.mock('@/infrastructure/browser/blob-url-manager', async () => {
   return {
     blobUrlManager: {
       get: (mediaId: string) => mockState.blobUrls.get(mediaId) ?? null,
+      getMediaIdByUrl: (url: string) =>
+        [...mockState.blobUrls.entries()].find(([, candidate]) => candidate === url)?.[0] ?? null,
       has: (mediaId: string) => mockState.blobUrls.has(mediaId),
       acquire: (mediaId: string) => {
         const existing = mockState.blobUrls.get(mediaId)
@@ -378,6 +380,16 @@ vi.mock('@/features/preview/deps/composition-runtime', () => ({
     return <div data-testid="mock-player-frame">{String(mockedPlayerFrame)}</div>
   },
   getBestDomVideoElementForItem: vi.fn(() => null),
+  getVideoTargetTimeSeconds: (
+    safeTrimBefore: number,
+    sourceFps: number,
+    sequenceLocalFrame: number,
+    playbackRate: number,
+    timelineFps: number,
+    sequenceFrameOffset = 0,
+  ) =>
+    safeTrimBefore / sourceFps +
+    ((sequenceLocalFrame - sequenceFrameOffset) * playbackRate) / timelineFps,
   getPreviewAudioContextState: vi.fn(() => null),
   ensureAudioContextResumed: vi.fn(),
   hasCornerPin: vi.fn(

@@ -44,6 +44,7 @@ import {
 } from '../utils/preview-constants'
 import {
   isAtomicPreviewTarget,
+  resolveActivePreviewPresentationTarget,
   resolveBackwardScrubFlags,
   resolveBackwardScrubFramePlan,
   resolveRenderPumpTargetFrame,
@@ -1673,7 +1674,13 @@ export function usePreviewRenderPump({
     const handleScrubTargetUpdate = (state: PlaybackStoreSnapshot, prev: PlaybackStoreSnapshot) => {
       const settlingReleasedScrubFrame =
         state.previewFrame === null && prev.previewFrame !== null ? state.currentFrame : null
-      setActivePreviewRenderTarget(state.previewFrame ?? settlingReleasedScrubFrame)
+      const activePreviewPresentationTarget = resolveActivePreviewPresentationTarget({
+        state,
+        prev,
+        settlingReleasedScrubFrame,
+        forceFastScrubOverlay,
+      })
+      setActivePreviewRenderTarget(activePreviewPresentationTarget)
       if (shouldPreferPlayerForPreview(state.previewFrame)) {
         resetScrubLoopState()
         hideAllOverlays()
@@ -1765,6 +1772,9 @@ export function usePreviewRenderPump({
         // prepared advancing frame intact instead of re-rendering the paused
         // start frame and overwriting it during the first display interval.
         scrubRequestedFrameRef.current = null
+        // The already-rendered lookahead is immediately drawable, so this
+        // play transition does not need the exact-source presentation gate.
+        setActivePreviewRenderTarget(null)
         markPlaybackColdStart({ play_start_reused_prepared_lookahead: true })
         return
       }
@@ -1778,23 +1788,30 @@ export function usePreviewRenderPump({
       scrubDirectionRef.current = scrubDirectionPlan.direction
       previewPerfRef.current.scrubUpdates += scrubDirectionPlan.scrubUpdates
       previewPerfRef.current.scrubDroppedFrames += scrubDirectionPlan.scrubDroppedFrames
-      const activeScrubTargetFrame = state.previewFrame ?? settlingReleasedScrubFrame
-      if (activeScrubTargetFrame !== null) {
+      if (activePreviewPresentationTarget !== null) {
         const nowMs = performance.now()
         scrubPrewarmIdleDelayMs = resolveScrubPrewarmIdleDelayMs({
           frameDelta:
-            prevTargetFrame === null ? 0 : Math.abs(activeScrubTargetFrame - prevTargetFrame),
+            prevTargetFrame === null
+              ? 0
+              : Math.abs(activePreviewPresentationTarget - prevTargetFrame),
           elapsedMs: lastScrubTargetAtMs === 0 ? Number.POSITIVE_INFINITY : nowMs - lastScrubTargetAtMs,
           fps,
         })
         lastScrubTargetAtMs = nowMs
         cancelScrubPrewarmIdleRestart()
-        recordPreviewScrubRequest(
-          useEditorStore.getState().workspace,
-          activeScrubTargetFrame,
+        if (state.previewFrame !== null || settlingReleasedScrubFrame !== null) {
+          recordPreviewScrubRequest(
+            useEditorStore.getState().workspace,
+            activePreviewPresentationTarget,
+            scrubDirectionRef.current,
+          )
+        }
+        scheduleActiveScrubPreseek(
+          activePreviewPresentationTarget,
           scrubDirectionRef.current,
+          nowMs,
         )
-        scheduleActiveScrubPreseek(activeScrubTargetFrame, scrubDirectionRef.current, nowMs)
       }
 
       if (

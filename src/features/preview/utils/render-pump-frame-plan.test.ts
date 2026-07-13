@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vite-plus/test'
 import {
   isAtomicPreviewTarget,
+  resolveActivePreviewPresentationTarget,
   resolveBackwardScrubFlags,
   resolveBackwardScrubFramePlan,
   resolveRenderPumpTargetFrame,
@@ -23,6 +24,66 @@ function makeState(overrides: Partial<RenderPumpFrameState> = {}): RenderPumpFra
 }
 
 describe('render pump frame plan', () => {
+  it('pins the current rendered frame across forced-overlay play and pause handoffs', () => {
+    expect(
+      resolveActivePreviewPresentationTarget({
+        state: { currentFrame: 100, previewFrame: null, isPlaying: true },
+        prev: { currentFrame: 100, previewFrame: null, isPlaying: false },
+        settlingReleasedScrubFrame: null,
+        forceFastScrubOverlay: true,
+      }),
+    ).toBe(100)
+
+    expect(
+      resolveActivePreviewPresentationTarget({
+        state: { currentFrame: 112, previewFrame: null, isPlaying: false },
+        prev: { currentFrame: 112, previewFrame: null, isPlaying: true },
+        settlingReleasedScrubFrame: null,
+        forceFastScrubOverlay: true,
+      }),
+    ).toBe(112)
+  })
+
+  it('does not pin ordinary playback ticks or player-only play state changes', () => {
+    expect(
+      resolveActivePreviewPresentationTarget({
+        state: { currentFrame: 101, previewFrame: null, isPlaying: true },
+        prev: { currentFrame: 100, previewFrame: null, isPlaying: true },
+        settlingReleasedScrubFrame: null,
+        forceFastScrubOverlay: true,
+      }),
+    ).toBeNull()
+
+    expect(
+      resolveActivePreviewPresentationTarget({
+        state: { currentFrame: 100, previewFrame: null, isPlaying: true },
+        prev: { currentFrame: 100, previewFrame: null, isPlaying: false },
+        settlingReleasedScrubFrame: null,
+        forceFastScrubOverlay: false,
+      }),
+    ).toBeNull()
+  })
+
+  it('keeps scrub and released-scrub targets ahead of play state handoffs', () => {
+    expect(
+      resolveActivePreviewPresentationTarget({
+        state: { currentFrame: 100, previewFrame: 124, isPlaying: false },
+        prev: { currentFrame: 99, previewFrame: 123, isPlaying: false },
+        settlingReleasedScrubFrame: null,
+        forceFastScrubOverlay: true,
+      }),
+    ).toBe(124)
+
+    expect(
+      resolveActivePreviewPresentationTarget({
+        state: { currentFrame: 125, previewFrame: null, isPlaying: false },
+        prev: { currentFrame: 124, previewFrame: 125, isPlaying: false },
+        settlingReleasedScrubFrame: 125,
+        forceFastScrubOverlay: true,
+      }),
+    ).toBe(125)
+  })
+
   it('prefers preview frame over current frame', () => {
     const target = resolveRenderPumpTargetFrame({
       state: makeState({ previewFrame: 124 }),
