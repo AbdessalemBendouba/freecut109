@@ -62,6 +62,7 @@ const overlayProps = {
 describe('PowerWindowOverlayContainer', () => {
   beforeEach(() => {
     mocks.selectionState.selectedItemIds = ['clip-1']
+    mocks.timelineState.setItemEffects.mockClear()
     usePowerWindowEditorStore.getState().stopEditing()
     useGizmoStore.getState().clearPreview()
   })
@@ -125,5 +126,36 @@ describe('PowerWindowOverlayContainer', () => {
       editingItemId: 'clip-1',
       editingEffectId: 'window-1',
     })
+  })
+
+  it('preserves the latest live correction settings when a gizmo drag begins', () => {
+    render(<PowerWindowOverlayContainer {...overlayProps} />)
+    act(() => usePowerWindowEditorStore.getState().startEditing('clip-1', 'window-1'))
+
+    act(() => {
+      const effect = mocks.timelineState.items[0]!.effects![0]!
+      useGizmoStore.getState().setEffectsPreviewNew({
+        'clip-1': [
+          {
+            ...effect,
+            effect: {
+              ...effect.effect,
+              params: { ...effect.effect.params, exposure: 1.25, saturation: 1.4 },
+            },
+          },
+        ],
+      })
+    })
+
+    const handle = screen.getByRole('button', { name: 'Move power window' })
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 480, clientY: 270 })
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 600, clientY: 320 })
+
+    const committedEffects = mocks.timelineState.setItemEffects.mock.calls[0]?.[0]?.[0]?.effects
+    expect(committedEffects?.[0]?.effect.params).toMatchObject({
+      exposure: 1.25,
+      saturation: 1.4,
+    })
+    expect(usePowerWindowEditorStore.getState().isEditing).toBe(true)
   })
 })

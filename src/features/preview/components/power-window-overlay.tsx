@@ -121,6 +121,7 @@ const PowerWindowOverlay = memo(function PowerWindowOverlay({
   playerSize,
 }: PowerWindowOverlayProps) {
   const dragRef = useRef<PowerWindowDragState | null>(null)
+  const dragEffectsRef = useRef<ItemEffect[] | null>(null)
   const setEffectsPreviewNew = useGizmoStore((s) => s.setEffectsPreviewNew)
   const clearPreviewForItems = useGizmoStore((s) => s.clearPreviewForItems)
   const previewEffect = useGizmoStore((s) =>
@@ -129,16 +130,27 @@ const PowerWindowOverlay = memo(function PowerWindowOverlay({
   const setItemEffects = useTimelineStore((s) => s.setItemEffects)
 
   const params = readPowerWindowParams(previewEffect ?? effect)
+  const currentEffects = useMemo(
+    () =>
+      (item.effects ?? []).map((entry) =>
+        entry.id === effect.id && previewEffect ? previewEffect : entry,
+      ),
+    [effect.id, item.effects, previewEffect],
+  )
   const canvasAspectRatio =
     coordParams.projectSize.width / Math.max(coordParams.projectSize.height, 1)
 
   const applyPreview = useCallback(
     (nextParams: PowerWindowParams) => {
       setEffectsPreviewNew({
-        [item.id]: buildPowerWindowEffects(item.effects ?? [], effect.id, nextParams),
+        [item.id]: buildPowerWindowEffects(
+          dragEffectsRef.current ?? currentEffects,
+          effect.id,
+          nextParams,
+        ),
       })
     },
-    [effect.id, item.effects, item.id, setEffectsPreviewNew],
+    [currentEffects, effect.id, item.id, setEffectsPreviewNew],
   )
 
   const commit = useCallback(
@@ -146,12 +158,16 @@ const PowerWindowOverlay = memo(function PowerWindowOverlay({
       setItemEffects([
         {
           itemId: item.id,
-          effects: buildPowerWindowEffects(item.effects ?? [], effect.id, nextParams),
+          effects: buildPowerWindowEffects(
+            dragEffectsRef.current ?? currentEffects,
+            effect.id,
+            nextParams,
+          ),
         },
       ])
       clearPreviewForItems([item.id])
     },
-    [clearPreviewForItems, effect.id, item.effects, item.id, setItemEffects],
+    [clearPreviewForItems, currentEffects, effect.id, item.id, setItemEffects],
   )
 
   const handlePointerDown = useCallback(
@@ -165,8 +181,9 @@ const PowerWindowOverlay = memo(function PowerWindowOverlay({
         startParams: params,
         startUv: pointerToCanvasUv(event, coordParams),
       }
+      dragEffectsRef.current = currentEffects
     },
-    [coordParams, params],
+    [coordParams, currentEffects, params],
   )
 
   const handlePointerMove = useCallback(
@@ -197,6 +214,7 @@ const PowerWindowOverlay = memo(function PowerWindowOverlay({
       })
       dragRef.current = null
       commit(nextParams)
+      dragEffectsRef.current = null
     },
     [canvasAspectRatio, commit, coordParams],
   )

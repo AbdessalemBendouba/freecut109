@@ -3,7 +3,11 @@ import { useTranslation } from 'react-i18next'
 import { Circle, Eye, EyeOff, Scan, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { KeyframeToggle } from '@/features/effects/deps/keyframes-contract'
-import { useGizmoStore, usePowerWindowEditorStore } from '@/features/effects/deps/preview-contract'
+import {
+  useGizmoStore,
+  usePowerWindowEditorStore,
+  useSpatialEffectEditorStore,
+} from '@/features/effects/deps/preview-contract'
 import { getEffectDefinitionName, getEffectParamLabel } from '@/features/effects/utils/effect-i18n'
 import { PropertyRow, SliderInput } from '@/shared/ui/property-controls'
 import { EffectPanelHeaderRow } from './effect-panel-header-actions'
@@ -46,6 +50,7 @@ export const GpuPowerWindowPanel = memo(function GpuPowerWindowPanel({
   const editingEffectId = usePowerWindowEditorStore((s) => s.editingEffectId)
   const startEditing = usePowerWindowEditorStore((s) => s.startEditing)
   const stopEditing = usePowerWindowEditorStore((s) => s.stopEditing)
+  const stopSpatialEditing = useSpatialEffectEditorStore((s) => s.stopEditing)
   const previewEffect = useGizmoStore(
     useCallback(
       (state) =>
@@ -83,9 +88,10 @@ export const GpuPowerWindowPanel = memo(function GpuPowerWindowPanel({
     if (isEditingOnCanvas) {
       stopEditing()
     } else if (editableItemId) {
+      stopSpatialEditing()
       startEditing(editableItemId, effect.id)
     }
-  }, [editableItemId, effect.id, isEditingOnCanvas, startEditing, stopEditing])
+  }, [editableItemId, effect.id, isEditingOnCanvas, startEditing, stopEditing, stopSpatialEditing])
 
   useEffect(() => {
     if (isEditingOnCanvas && (!enabled || !editableItemId)) {
@@ -105,11 +111,7 @@ export const GpuPowerWindowPanel = memo(function GpuPowerWindowPanel({
     const commitValue = (nextValue: number) => onParamChange(effect.id, key, nextValue)
     const previewValue = (nextValue: number) => onParamLiveChange(effect.id, key, nextValue)
     return (
-      <PropertyRow
-        key={key}
-        label={label}
-        className={!enabled ? 'opacity-50' : undefined}
-      >
+      <PropertyRow key={key} label={label} className={!enabled ? 'opacity-50' : undefined}>
         <div className="flex items-center gap-1 min-w-0 w-full">
           <SliderInput
             value={value}

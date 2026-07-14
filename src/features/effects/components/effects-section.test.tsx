@@ -21,12 +21,21 @@ const mocks = vi.hoisted(() => {
   const powerWindowEditorState = {
     startEditing: vi.fn(),
   }
+  const spatialEffectEditorState = {
+    stopEditing: vi.fn(),
+  }
   const presetsState = {
     presets: [],
     loadPresets: vi.fn(() => Promise.resolve()),
     removePreset: vi.fn(() => Promise.resolve()),
   }
-  return { timelineState, gizmoState, powerWindowEditorState, presetsState }
+  return {
+    timelineState,
+    gizmoState,
+    powerWindowEditorState,
+    spatialEffectEditorState,
+    presetsState,
+  }
 })
 
 vi.mock('@/features/effects/deps/timeline-contract', () => ({
@@ -39,6 +48,9 @@ vi.mock('@/features/effects/deps/preview-contract', () => ({
     selector(mocks.gizmoState),
   usePowerWindowEditorStore: (selector: (state: typeof mocks.powerWindowEditorState) => unknown) =>
     selector(mocks.powerWindowEditorState),
+  useSpatialEffectEditorStore: (
+    selector: (state: typeof mocks.spatialEffectEditorState) => unknown,
+  ) => selector(mocks.spatialEffectEditorState),
   useThrottledFrame: () => 24,
 }))
 

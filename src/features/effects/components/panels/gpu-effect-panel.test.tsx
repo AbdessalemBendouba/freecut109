@@ -1,9 +1,13 @@
 import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vite-plus/test'
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { getGpuEffect, getGpuEffectDefaultParams } from '@/infrastructure/gpu-effects'
 import type { GpuEffect, ItemEffect } from '@/types/effects'
 import type { AnimatableProperty } from '@/types/keyframe'
 import { GpuEffectPanel } from './gpu-effect-panel'
+import {
+  usePowerWindowEditorStore,
+  useSpatialEffectEditorStore,
+} from '@/features/effects/deps/preview-contract'
 
 vi.mock('@/features/effects/deps/keyframes-contract', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/effects/deps/keyframes-contract')>()),
@@ -42,6 +46,10 @@ function makeProps() {
 }
 
 describe('GpuEffectPanel parameter resets', () => {
+  beforeEach(() => {
+    usePowerWindowEditorStore.getState().stopEditing()
+    useSpatialEffectEditorStore.getState().stopEditing()
+  })
   it('keeps a reset control beside each visible parameter and restores its default', () => {
     const props = makeProps()
     render(<GpuEffectPanel {...props} />)
@@ -99,5 +107,37 @@ describe('GpuEffectPanel parameter resets', () => {
         name: 'Keyframe effect:gpu-fluted-glass:fluted-1:colorHighlight',
       }),
     ).toBeInTheDocument()
+  })
+
+  it('opens the shared point editor for supported spatial effects', () => {
+    const twirlDefinition = getGpuEffect('gpu-twirl')!
+    const gpuEffect: GpuEffect = {
+      type: 'gpu-effect',
+      gpuEffectType: twirlDefinition.id,
+      params: getGpuEffectDefaultParams(twirlDefinition.id),
+    }
+    const effect: ItemEffect = { id: 'twirl-1', effect: gpuEffect, enabled: true }
+    usePowerWindowEditorStore.getState().startEditing('clip-1', 'power-1')
+
+    render(
+      <GpuEffectPanel
+        {...makeProps()}
+        effect={effect}
+        gpuEffect={gpuEffect}
+        definition={twirlDefinition}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: /edit on canvas/i }))
+
+    expect(usePowerWindowEditorStore.getState().isEditing).toBe(false)
+    expect(useSpatialEffectEditorStore.getState()).toMatchObject({
+      isEditing: true,
+      editingItemId: 'clip-1',
+      editingEffectId: 'twirl-1',
+    })
+    expect(screen.getByRole('button', { name: /editing on canvas/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 })

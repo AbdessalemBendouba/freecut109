@@ -1,5 +1,6 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Scan } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -17,6 +18,12 @@ import {
   getEffectParamLabel,
 } from '@/features/effects/utils/effect-i18n'
 import { getGpuEffectKeyframeValue } from '@/features/effects/utils/effect-keyframes'
+import {
+  useGizmoStore,
+  usePowerWindowEditorStore,
+  useSpatialEffectEditorStore,
+} from '@/features/effects/deps/preview-contract'
+import { getSpatialPointEffectConfig } from '@/infrastructure/gpu-effects/spatial-point-editor'
 import { EffectPanelHeaderRow } from './effect-panel-header-actions'
 import { ParamResetButton } from './param-reset-button'
 import type { GpuKeyframePanelProps, GpuParamValue } from './panel-props'
@@ -108,9 +115,65 @@ export const GpuEffectPanel = memo(function GpuEffectPanel({
 }: GpuEffectPanelProps) {
   const { t } = useTranslation()
   const paramEntries = Object.entries(definition.params)
-  const isDefault = paramEntries.every(([key, param]) => gpuEffect.params[key] === param.default)
   const effectName = getEffectDefinitionName(definition)
   const [collapsed, setCollapsed] = useState(false)
+  const spatialConfig = getSpatialPointEffectConfig(definition.id)
+  const editableItemId = itemIds.length === 1 ? itemIds[0] : null
+  const editingItemId = useSpatialEffectEditorStore((s) => s.editingItemId)
+  const editingEffectId = useSpatialEffectEditorStore((s) => s.editingEffectId)
+  const startSpatialEditing = useSpatialEffectEditorStore((s) => s.startEditing)
+  const stopSpatialEditing = useSpatialEffectEditorStore((s) => s.stopEditing)
+  const stopPowerWindowEditing = usePowerWindowEditorStore((s) => s.stopEditing)
+  const previewEffect = useGizmoStore(
+    useCallback(
+      (state) =>
+        editableItemId
+          ? state.preview?.[editableItemId]?.effects?.find((entry) => entry.id === effect.id)
+          : undefined,
+      [editableItemId, effect.id],
+    ),
+  )
+  const displayGpuEffect = useMemo(() => {
+    if (previewEffect?.effect.type !== 'gpu-effect' || effect.effect.type !== 'gpu-effect') {
+      return gpuEffect
+    }
+    const liveParams: Record<string, number | boolean | string> = {}
+    for (const [key, value] of Object.entries(previewEffect.effect.params)) {
+      if (value !== effect.effect.params[key]) liveParams[key] = value
+    }
+    return Object.keys(liveParams).length > 0
+      ? { ...gpuEffect, params: { ...gpuEffect.params, ...liveParams } }
+      : gpuEffect
+  }, [effect.effect, gpuEffect, previewEffect])
+  const isDefault = paramEntries.every(
+    ([key, param]) => displayGpuEffect.params[key] === param.default,
+  )
+  const isEditingOnCanvas =
+    spatialConfig !== null &&
+    editableItemId !== null &&
+    editingItemId === editableItemId &&
+    editingEffectId === effect.id
+
+  const toggleCanvasEditor = useCallback(() => {
+    if (isEditingOnCanvas) {
+      stopSpatialEditing()
+    } else if (editableItemId && spatialConfig) {
+      stopPowerWindowEditing()
+      startSpatialEditing(editableItemId, effect.id)
+    }
+  }, [
+    editableItemId,
+    effect.id,
+    isEditingOnCanvas,
+    spatialConfig,
+    startSpatialEditing,
+    stopPowerWindowEditing,
+    stopSpatialEditing,
+  ])
+
+  useEffect(() => {
+    if (isEditingOnCanvas && (!effect.enabled || !editableItemId)) stopSpatialEditing()
+  }, [editableItemId, effect.enabled, isEditingOnCanvas, stopSpatialEditing])
 
   // Zero params: header-only row with action buttons
   if (paramEntries.length === 0) {
@@ -148,11 +211,29 @@ export const GpuEffectPanel = memo(function GpuEffectPanel({
         onToggleCollapsed={() => setCollapsed((value) => !value)}
       />
 
-      {collapsed
-        ? null
-        : paramEntries.map(([key, param]) => {
-            const currentValue = gpuEffect.params[key] ?? param.default
-            const paramVisible = param.visibleWhen?.(gpuEffect.params) ?? true
+      {collapsed ? null : (
+        <>
+          {spatialConfig ? (
+            <div className="px-2 pb-1 pt-1">
+              <Button
+                type="button"
+                variant={isEditingOnCanvas ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 w-full justify-center gap-1.5 text-xs"
+                disabled={!effect.enabled || !editableItemId}
+                aria-pressed={isEditingOnCanvas}
+                onClick={toggleCanvasEditor}
+              >
+                <Scan className="h-3.5 w-3.5" />
+                {isEditingOnCanvas
+                  ? t('effects.powerWindow.editingOnCanvas')
+                  : t('effects.powerWindow.editOnCanvas')}
+              </Button>
+            </div>
+          ) : null}
+          {paramEntries.map(([key, param]) => {
+            const currentValue = displayGpuEffect.params[key] ?? param.default
+            const paramVisible = param.visibleWhen?.(displayGpuEffect.params) ?? true
             if (!paramVisible) return null
             const paramEnabled = effect.enabled
             const paramLabel = getEffectParamLabel(t, definition, key)
@@ -316,6 +397,8 @@ export const GpuEffectPanel = memo(function GpuEffectPanel({
 
             return null
           })}
+        </>
+      )}
     </div>
   )
 })

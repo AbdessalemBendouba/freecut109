@@ -6,6 +6,7 @@ import { GizmoOverlay } from './gizmo-overlay'
 import { MaskEditorContainer } from './mask-editor-container'
 import { CornerPinContainer } from './corner-pin-container'
 import { PowerWindowOverlayContainer } from './power-window-overlay'
+import { SpatialEffectPointOverlayContainer } from './spatial-effect-point-overlay'
 import { PreviewPerfPanel } from './preview-perf-panel'
 import { PreviewStage } from './preview-stage'
 import { RollingEditOverlay } from './rolling-edit-overlay'
@@ -34,6 +35,7 @@ import { usePreviewViewModel } from '../hooks/use-preview-view-model'
 import { usePreviewTransitionSessionController } from '../hooks/use-preview-transition-session-controller'
 import { useGizmoStore } from '../stores/gizmo-store'
 import { usePowerWindowEditorStore } from '../stores/power-window-editor-store'
+import { useSpatialEffectEditorStore } from '../stores/spatial-effect-editor-store'
 import { FAST_SCRUB_RENDERER_ENABLED } from '../utils/preview-constants'
 import {
   drawSourceToPreviewDisplayCanvas,
@@ -166,6 +168,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     scrubFrameDirtyRef,
   )
   const isPowerWindowEditing = usePowerWindowEditorStore((s) => s.isEditing)
+  const isSpatialEffectEditing = useSpatialEffectEditorStore((s) => s.isEditing)
   const shouldPreferPlayerForPreview = useCallback(
     (previewFrame: number | null) => {
       return (
@@ -460,7 +463,8 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
   // Enter the composited path in the same render that activates the editor.
   // Waiting for the timeline-wide effect scan adds a reactive round trip that
   // makes the first neutral-EV drag look stuck until another parameter changes.
-  const forceFastScrubOverlay = showGpuEffectsOverlay || isPowerWindowEditing
+  const forceFastScrubOverlay =
+    showGpuEffectsOverlay || isPowerWindowEditing || isSpatialEffectEditing
 
   // The split comparison is the only render-time branch that needs playback
   // state. Keep the selected value stable for the normal (non-split) preview
@@ -687,6 +691,12 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
         zoom={zoom}
       />
       <PowerWindowOverlayContainer
+        containerRect={playerContainerRect}
+        playerSize={playerSize}
+        projectSize={{ width: project.width, height: project.height }}
+        zoom={zoom}
+      />
+      <SpatialEffectPointOverlayContainer
         containerRect={playerContainerRect}
         playerSize={playerSize}
         projectSize={{ width: project.width, height: project.height }}

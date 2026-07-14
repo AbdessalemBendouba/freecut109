@@ -10,6 +10,7 @@ import { useTimelineStore } from '@/features/effects/deps/timeline-contract'
 import {
   useGizmoStore,
   usePowerWindowEditorStore,
+  useSpatialEffectEditorStore,
   useThrottledFrame,
 } from '@/features/effects/deps/preview-contract'
 import { PropertySection } from '@/shared/ui/property-controls'
@@ -85,6 +86,7 @@ export const EffectsSection = memo(function EffectsSection({
   const setEffectsPreviewNew = useGizmoStore((s) => s.setEffectsPreviewNew)
   const clearPreview = useGizmoStore((s) => s.clearPreview)
   const startPowerWindowEditing = usePowerWindowEditorStore((s) => s.startEditing)
+  const stopSpatialEffectEditing = useSpatialEffectEditorStore((s) => s.stopEditing)
   const currentFrame = useThrottledFrame({ updateDuringScrub: !isDock })
 
   // Items are already filtered by parent - use directly
@@ -165,11 +167,12 @@ export const EffectsSection = memo(function EffectsSection({
           addedEffect?.effect.type === 'gpu-effect' &&
           addedEffect.effect.gpuEffectType === 'gpu-power-window'
         ) {
+          stopSpatialEffectEditing()
           startPowerWindowEditing(itemId, addedEffect.id)
         }
       }
     },
-    [addEffect, itemIds, startPowerWindowEditing],
+    [addEffect, itemIds, startPowerWindowEditing, stopSpatialEffectEditing],
   )
 
   const { gpuCategories, triggerPreviews } = useGpuEffectPreviewData()
