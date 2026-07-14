@@ -576,7 +576,8 @@ fn mirrorFragment(input: VertexOutput) -> @location(0) vec4f {
     horizontal: { type: 'boolean', label: 'Horizontal', default: true },
     vertical: { type: 'boolean', label: 'Vertical', default: false },
   },
-  packUniforms: (p) => new Float32Array([p.horizontal ? 1 : 0, p.vertical ? 1 : 0, 0, 0]),
+  packUniforms: (p) =>
+    new Float32Array([p.horizontal !== false ? 1 : 0, p.vertical === true ? 1 : 0, 0, 0]),
 }
 
 // Adapted from Paper Design's fluted-glass shader (published package source).

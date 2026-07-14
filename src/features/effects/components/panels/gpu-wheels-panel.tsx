@@ -22,6 +22,7 @@ import {
   whitePointFromPick,
 } from '@/features/effects/utils/wheel-pickers'
 import { EffectPanelHeaderRow } from './effect-panel-header-actions'
+import { ParamResetButton } from './param-reset-button'
 import type { GpuKeyframePanelProps, GpuParamUpdates } from './panel-props'
 import type { GpuEffectDefinition } from '@/infrastructure/gpu-effects'
 
@@ -1149,12 +1150,9 @@ export const GpuWheelsPanel = memo(function GpuWheelsPanel({
       if (!param) return null
       const value = (displayParams[key] as number) ?? param.default
       const keyframeProperty = getKeyframeProperty(effect.id, key)
+      const label = getEffectParamLabel(t, definition, key)
       return (
-        <PropertyRow
-          key={key}
-          label={getEffectParamLabel(t, definition, key)}
-          className={tonalRowClass}
-        >
+        <PropertyRow key={key} label={label} className={tonalRowClass}>
           <div className="flex items-center gap-1 min-w-0 w-full">
             <SliderInput
               value={value}
@@ -1174,6 +1172,14 @@ export const GpuWheelsPanel = memo(function GpuWheelsPanel({
                 disabled={!effect.enabled}
               />
             ) : null}
+            <ParamResetButton
+              effectId={effect.id}
+              paramKey={key}
+              label={label}
+              value={value}
+              defaultValue={param.default}
+              onParamChange={onParamChange}
+            />
           </div>
         </PropertyRow>
       )
@@ -1300,8 +1306,8 @@ export const GpuWheelsPanel = memo(function GpuWheelsPanel({
                     onReset={() => {
                       // Reset the whole wheel: color push and its master level.
                       emitCommitBatch({
-                        [desc.hueKey]: 0,
-                        [desc.amountKey]: 0,
+                        [desc.hueKey]: definition.params[desc.hueKey]?.default ?? 0,
+                        [desc.amountKey]: definition.params[desc.amountKey]?.default ?? 0,
                         [desc.levelKey]: (definition.params[desc.levelKey]?.default as number) ?? 0,
                       })
                     }}
@@ -1343,8 +1349,8 @@ export const GpuWheelsPanel = memo(function GpuWheelsPanel({
                   }}
                   onReset={() => {
                     emitCommitBatch({
-                      [desc.hueKey]: 0,
-                      [desc.amountKey]: 0,
+                      [desc.hueKey]: definition.params[desc.hueKey]?.default ?? 0,
+                      [desc.amountKey]: definition.params[desc.amountKey]?.default ?? 0,
                     })
                   }}
                 />

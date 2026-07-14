@@ -2,7 +2,7 @@ import type { ItemEffect } from '@/types/effects'
 import type { Point } from '../types/gizmo'
 import { rotatePoint } from '../utils/coordinate-transform'
 
-export type PowerWindowHandle = 'center' | 'east' | 'west' | 'north' | 'south'
+export type PowerWindowHandle = 'center' | 'east' | 'west' | 'north' | 'south' | 'rotation'
 
 export interface PowerWindowParams {
   shape: string
@@ -17,6 +17,11 @@ export interface PowerWindowDragState {
   handle: PowerWindowHandle
   startParams: PowerWindowParams
   startUv: Point
+}
+
+interface PowerWindowDragOptions {
+  canvasAspectRatio?: number
+  snapRotation?: boolean
 }
 
 const MIN_WINDOW_SIZE = 0.02
@@ -50,6 +55,7 @@ export function clampPowerWindowParams(params: PowerWindowParams): PowerWindowPa
 export function derivePowerWindowDragParams(
   drag: PowerWindowDragState,
   currentUv: Point,
+  options: PowerWindowDragOptions = {},
 ): PowerWindowParams {
   const next: PowerWindowParams = { ...drag.startParams }
   if (drag.handle === 'center') {
@@ -59,7 +65,22 @@ export function derivePowerWindowDragParams(
   }
 
   const center = { x: drag.startParams.centerX, y: drag.startParams.centerY }
-  const local = rotatePoint(currentUv, center, -drag.startParams.rotation)
+  const canvasAspectRatio = resolveCanvasAspectRatio(options.canvasAspectRatio)
+  if (drag.handle === 'rotation') {
+    const startAngle = getPointerAngle(drag.startUv, center, canvasAspectRatio)
+    const currentAngle = getPointerAngle(currentUv, center, canvasAspectRatio)
+    const delta = normalizeAngle(currentAngle - startAngle)
+    const rotation = normalizeAngle(drag.startParams.rotation + delta)
+    next.rotation = options.snapRotation ? Math.round(rotation / 15) * 15 : rotation
+    return clampPowerWindowParams(next)
+  }
+
+  const local = rotateCanvasUvPoint(
+    currentUv,
+    center,
+    -drag.startParams.rotation,
+    canvasAspectRatio,
+  )
   if (drag.handle === 'east' || drag.handle === 'west') {
     next.sizeX = Math.abs(local.x - center.x) * 2
   }
@@ -101,4 +122,30 @@ function readNumber(value: unknown, fallback: number): number {
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min
   return Math.max(min, Math.min(max, value))
+}
+
+function getPointerAngle(point: Point, center: Point, aspectRatio: number): number {
+  return (Math.atan2(point.y - center.y, (point.x - center.x) * aspectRatio) * 180) / Math.PI
+}
+
+function normalizeAngle(angle: number): number {
+  let normalized = angle % 360
+  if (normalized > 180) normalized -= 360
+  if (normalized <= -180) normalized += 360
+  return normalized
+}
+
+function resolveCanvasAspectRatio(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 1
+}
+
+function rotateCanvasUvPoint(
+  point: Point,
+  center: Point,
+  angleDegrees: number,
+  aspectRatio: number,
+): Point {
+  const scaledCenter = { x: center.x * aspectRatio, y: center.y }
+  const rotated = rotatePoint({ x: point.x * aspectRatio, y: point.y }, scaledCenter, angleDegrees)
+  return { x: rotated.x / aspectRatio, y: rotated.y }
 }

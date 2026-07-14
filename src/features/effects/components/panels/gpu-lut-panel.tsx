@@ -1,6 +1,6 @@
 import { memo, useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileUp } from 'lucide-react'
+import { FileUp, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   parseCubeLut,
@@ -12,6 +12,7 @@ import { PropertyRow, SliderInput } from '@/shared/ui/property-controls'
 import { createLogger } from '@/shared/logging/logger'
 import { getEffectDefinitionName } from '@/features/effects/utils/effect-i18n'
 import { EffectPanelHeaderRow } from './effect-panel-header-actions'
+import { ParamResetButton } from './param-reset-button'
 import type { GpuKeyframePanelProps, GpuParamUpdates } from './panel-props'
 
 const logger = createLogger('GpuLutPanel')
@@ -49,8 +50,19 @@ export const GpuLutPanel = memo(function GpuLutPanel({
 
   const lutName = typeof gpuEffect.params.lutName === 'string' ? gpuEffect.params.lutName : ''
   const hasLut = typeof gpuEffect.params.lutData === 'string' && gpuEffect.params.lutData.length > 0
-  const intensity = typeof gpuEffect.params.intensity === 'number' ? gpuEffect.params.intensity : 1
-  const isDefault = !hasLut && intensity === 1
+  const intensityParam = definition.params.intensity
+  const intensityDefault = typeof intensityParam?.default === 'number' ? intensityParam.default : 1
+  const intensity =
+    typeof gpuEffect.params.intensity === 'number' ? gpuEffect.params.intensity : intensityDefault
+  const lutParamKeys = ['lutName', 'lutSize', 'lutData'] as const
+  const lutIsDefault = lutParamKeys.every(
+    (key) =>
+      (gpuEffect.params[key] ?? definition.params[key]?.default) ===
+      definition.params[key]?.default,
+  )
+  const isDefault = lutIsDefault && intensity === intensityDefault
+  const fileLabel = t('effects.lut.file')
+  const resetFileLabel = `${t('effects.panel.resetToDefaults')}: ${fileLabel}`
 
   const handleImport = useCallback(async () => {
     if (typeof window.showOpenFilePicker !== 'function') {
@@ -130,6 +142,24 @@ export const GpuLutPanel = memo(function GpuLutPanel({
                   {hasLut && lutName ? lutName : t('effects.lut.import')}
                 </span>
               </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 flex-shrink-0 text-muted-foreground hover:text-foreground"
+                onClick={() =>
+                  onParamsBatchChange(effect.id, {
+                    lutName: definition.params.lutName?.default ?? '',
+                    lutSize: definition.params.lutSize?.default ?? '0',
+                    lutData: definition.params.lutData?.default ?? '',
+                  })
+                }
+                title={resetFileLabel}
+                aria-label={resetFileLabel}
+                disabled={lutIsDefault}
+              >
+                <RotateCcw className="h-3 w-3" />
+              </Button>
             </div>
           </PropertyRow>
           {importError && (
@@ -156,6 +186,16 @@ export const GpuLutPanel = memo(function GpuLutPanel({
                 property={keyframeProperty}
                 currentValue={intensity}
                 disabled={!effect.enabled}
+              />
+            ) : null}
+            {intensityParam ? (
+              <ParamResetButton
+                effectId={effect.id}
+                paramKey="intensity"
+                label={t('effects.lut.intensity')}
+                value={intensity}
+                defaultValue={intensityParam.default}
+                onParamChange={onParamChange}
               />
             ) : null}
           </PropertyRow>

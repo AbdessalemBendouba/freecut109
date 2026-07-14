@@ -33,6 +33,7 @@ import { usePreviewTransitionModel } from '../hooks/use-preview-transition-model
 import { usePreviewViewModel } from '../hooks/use-preview-view-model'
 import { usePreviewTransitionSessionController } from '../hooks/use-preview-transition-session-controller'
 import { useGizmoStore } from '../stores/gizmo-store'
+import { usePowerWindowEditorStore } from '../stores/power-window-editor-store'
 import { FAST_SCRUB_RENDERER_ENABLED } from '../utils/preview-constants'
 import {
   drawSourceToPreviewDisplayCanvas,
@@ -164,6 +165,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     scrubOffscreenCanvasRef,
     scrubFrameDirtyRef,
   )
+  const isPowerWindowEditing = usePowerWindowEditorStore((s) => s.isEditing)
   const shouldPreferPlayerForPreview = useCallback(
     (previewFrame: number | null) => {
       return (
@@ -450,12 +452,15 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
       getPreviewEffectsOverrideWithGradeApplied,
       getPreviewPathVerticesOverride,
       getPreviewTransformOverride,
-        isResolving,
-        renderSize.height,
-        renderSize.width,
-      ])
+      isResolving,
+      renderSize.height,
+      renderSize.width,
+    ])
 
-  const forceFastScrubOverlay = showGpuEffectsOverlay
+  // Enter the composited path in the same render that activates the editor.
+  // Waiting for the timeline-wide effect scan adds a reactive round trip that
+  // makes the first neutral-EV drag look stuck until another parameter changes.
+  const forceFastScrubOverlay = showGpuEffectsOverlay || isPowerWindowEditing
 
   // The split comparison is the only render-time branch that needs playback
   // state. Keep the selected value stable for the normal (non-split) preview

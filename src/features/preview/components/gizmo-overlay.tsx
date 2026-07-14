@@ -14,6 +14,7 @@ import { getResolvedPlaybackFrame } from '@/shared/state/playback/frame-resoluti
 import { useGizmoStore } from '../stores/gizmo-store'
 import { useCornerPinStore } from '../stores/corner-pin-store'
 import { useMaskEditorStore } from '../stores/mask-editor-store'
+import { usePowerWindowEditorStore } from '../stores/power-window-editor-store'
 import { TransformGizmo } from './transform-gizmo'
 import { GroupGizmo } from './group-gizmo'
 import { SelectableItem } from './selectable-item'
@@ -219,6 +220,7 @@ export function GizmoOverlay({
   const snapLines = useGizmoStore((s) => s.snapLines)
   const isCornerPinEditing = useCornerPinStore((s) => s.isEditing)
   const isMaskEditing = useMaskEditorStore((s) => s.isEditing)
+  const isPowerWindowEditing = usePowerWindowEditorStore((s) => s.isEditing)
   const startTranslate = useGizmoStore((s) => s.startTranslate)
   const updateInteraction = useGizmoStore((s) => s.updateInteraction)
   const endInteraction = useGizmoStore((s) => s.endInteraction)
@@ -359,7 +361,7 @@ export function GizmoOverlay({
   selectedItemsRef.current = selectedItems
 
   const motionPaths = useMemo(() => {
-    if (!coordParams || isCornerPinEditing || isMaskEditing) return []
+    if (!coordParams || isCornerPinEditing || isMaskEditing || isPowerWindowEditing) return []
     const canvas = { width: projectSize.width, height: projectSize.height, fps }
     return selectedItemsRef.current.flatMap((item) => {
       const dragging = item.id === gizmoDragItemId && gizmoPreviewTransform
@@ -392,6 +394,7 @@ export function GizmoOverlay({
     fps,
     isCornerPinEditing,
     isMaskEditing,
+    isPowerWindowEditing,
     projectSize.height,
     projectSize.width,
     motionPathSignature,
@@ -849,7 +852,7 @@ export function GizmoOverlay({
 
         {/* Hide the motion path during playback — it clutters the frame and the
             moving object already conveys the motion. */}
-        {!isPlaying && (
+        {!isPlaying && !isPowerWindowEditing && (
           <MotionPathOverlay
             paths={motionPaths}
             width={playerSize.width}
@@ -884,9 +887,10 @@ export function GizmoOverlay({
           )
         })}
 
-        {/* Transform gizmo(s) for selected items - hidden during corner pin / mask editing */}
-        {isCornerPinEditing || isMaskEditing ? null : selectedItems.length === 1 &&
-          selectedItems[0] ? (
+        {/* Transform gizmo(s) for selected items - hidden while another canvas editor is active */}
+        {isCornerPinEditing ||
+        isMaskEditing ||
+        isPowerWindowEditing ? null : selectedItems.length === 1 && selectedItems[0] ? (
           <TransformGizmo
             item={selectedItems[0]}
             coordParams={coordParams}

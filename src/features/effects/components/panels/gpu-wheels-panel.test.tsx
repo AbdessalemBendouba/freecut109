@@ -106,6 +106,20 @@ describe('GpuWheelsPanel', () => {
     expect(screen.getByText('Mid/Detail')).toHaveAttribute('title', 'Mid/Detail')
   })
 
+  it('keeps definition-driven resets beside sidebar numeric parameters', () => {
+    const props = makeProps({ exposure: 1.2 })
+    render(<GpuWheelsPanel {...props} layout="sidebar" />)
+
+    fireEvent.click(screen.getByRole('button', { name: /reset to defaults: exposure/i }))
+
+    expect(props.onParamChange).toHaveBeenCalledWith(
+      'fx-wheels',
+      'exposure',
+      definition.params.exposure?.default,
+    )
+    expect(screen.getByRole('button', { name: /reset to defaults: temperature/i })).toBeDisabled()
+  })
+
   it('previews numeric wheel value edits live and commits once on blur', () => {
     const props = makeProps({ lift: 0 })
     render(<GpuWheelsPanel {...props} layout="dock" />)

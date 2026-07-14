@@ -18,6 +18,7 @@ import {
   getEffectParamLabel,
 } from '@/features/effects/utils/effect-i18n'
 import { EffectPanelHeaderRow } from './effect-panel-header-actions'
+import { ParamResetButton } from './param-reset-button'
 import type { GpuKeyframePanelProps } from './panel-props'
 
 const FALLBACK_STOPS = ['#000000', '#ffffff']
@@ -58,12 +59,20 @@ export const GpuGradientMapPanel = memo(function GpuGradientMapPanel({
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState(false)
 
-  const preset = typeof gpuEffect.params.preset === 'string' ? gpuEffect.params.preset : 'inferno'
-  const mix = typeof gpuEffect.params.mix === 'number' ? gpuEffect.params.mix : 1
+  const presetParam = definition.params.preset
+  const customStopsParam = definition.params.customStops
+  const mixParam = definition.params.mix
+  const presetDefault = typeof presetParam?.default === 'string' ? presetParam.default : 'inferno'
+  const mixDefault = typeof mixParam?.default === 'number' ? mixParam.default : 1
+  const preset =
+    typeof gpuEffect.params.preset === 'string' ? gpuEffect.params.preset : presetDefault
+  const mix = typeof gpuEffect.params.mix === 'number' ? gpuEffect.params.mix : mixDefault
   const isCustom = preset === 'custom'
   const stops = parseStops(gpuEffect.params.customStops)
   const previewHexes = resolveHexes(preset, gpuEffect.params.customStops)
-  const isDefault = preset === 'inferno' && mix === 1
+  const isDefault = Object.entries(definition.params).every(
+    ([key, param]) => (gpuEffect.params[key] ?? param.default) === param.default,
+  )
 
   const presetOptions = definition.params.preset?.options ?? []
   const mixKeyframe = getKeyframeProperty(effect.id, 'mix')
@@ -137,6 +146,16 @@ export const GpuGradientMapPanel = memo(function GpuGradientMapPanel({
                 ))}
               </SelectContent>
             </Select>
+            {presetParam ? (
+              <ParamResetButton
+                effectId={effect.id}
+                paramKey="preset"
+                label={getEffectParamLabel(t, definition, 'preset')}
+                value={preset}
+                defaultValue={presetParam.default}
+                onParamChange={onParamChange}
+              />
+            ) : null}
           </PropertyRow>
 
           <div className="px-2 pb-1">
@@ -174,17 +193,31 @@ export const GpuGradientMapPanel = memo(function GpuGradientMapPanel({
                   </div>
                 </PropertyRow>
               ))}
-              <div className="px-2 py-1">
+              <div className="flex items-center gap-1 px-2 py-1">
                 <Button
                   variant="outline"
                   size="sm"
-                  className="h-6 w-full justify-center gap-1.5 text-xs"
+                  className="h-6 min-w-0 flex-1 justify-center gap-1.5 text-xs"
                   onClick={addStop}
                   disabled={!enabled}
                 >
                   <Plus className="w-3 h-3" />
                   {t('effects.gradientMap.addStop', { defaultValue: 'Add Stop' })}
                 </Button>
+                {customStopsParam ? (
+                  <ParamResetButton
+                    effectId={effect.id}
+                    paramKey="customStops"
+                    label={getEffectParamLabel(t, definition, 'customStops')}
+                    value={
+                      typeof gpuEffect.params.customStops === 'string'
+                        ? gpuEffect.params.customStops
+                        : customStopsParam.default
+                    }
+                    defaultValue={customStopsParam.default}
+                    onParamChange={onParamChange}
+                  />
+                ) : null}
               </div>
             </>
           )}
@@ -209,6 +242,16 @@ export const GpuGradientMapPanel = memo(function GpuGradientMapPanel({
                 property={mixKeyframe}
                 currentValue={mix}
                 disabled={!enabled}
+              />
+            ) : null}
+            {mixParam ? (
+              <ParamResetButton
+                effectId={effect.id}
+                paramKey="mix"
+                label={getEffectParamLabel(t, definition, 'mix')}
+                value={mix}
+                defaultValue={mixParam.default}
+                onParamChange={onParamChange}
               />
             ) : null}
           </PropertyRow>
