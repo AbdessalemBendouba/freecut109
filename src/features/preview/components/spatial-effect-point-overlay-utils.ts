@@ -7,6 +7,7 @@ export function buildSpatialPointEffects(
   xParam: string,
   yParam: string,
   point: Point,
+  paramKeys: readonly string[] = [xParam, yParam],
 ): ItemEffect[] {
   return effects.map((entry) => {
     if (entry.id !== effectId || entry.effect.type !== 'gpu-effect') return entry
@@ -16,8 +17,8 @@ export function buildSpatialPointEffects(
         ...entry.effect,
         params: {
           ...entry.effect.params,
-          [xParam]: point.x,
-          [yParam]: point.y,
+          ...(paramKeys.includes(xParam) ? { [xParam]: point.x } : {}),
+          ...(paramKeys.includes(yParam) ? { [yParam]: point.y } : {}),
         },
       },
     }

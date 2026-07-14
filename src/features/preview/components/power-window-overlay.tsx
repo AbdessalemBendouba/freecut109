@@ -2,11 +2,13 @@ import { memo, useCallback, useEffect, useMemo, useRef, type PointerEvent } from
 import { useSelectionStore } from '@/shared/state/selection'
 import type { ItemEffect } from '@/types/effects'
 import type { TimelineItem } from '@/types/timeline'
+import { usePlaybackStore } from '@/shared/state/playback'
 import { useGizmoStore } from '../stores/gizmo-store'
 import { usePowerWindowEditorStore } from '../stores/power-window-editor-store'
-import { useItemsStore, useTimelineStore } from '../deps/timeline-store'
+import { useItemsStore, useKeyframesStore, useTimelineStore } from '../deps/timeline-store'
 import type { CoordinateParams, Point } from '../types/gizmo'
 import { screenToCanvas } from '../utils/coordinate-transform'
+import { planEffectGizmoCommit } from '../utils/effect-gizmo-keyframes'
 import {
   buildPowerWindowEffects,
   derivePowerWindowDragParams,
@@ -31,6 +33,7 @@ interface PowerWindowOverlayProps {
 }
 
 const HANDLE_SIZE = 14
+const POWER_WINDOW_NUMBER_KEYS = ['centerX', 'centerY', 'sizeX', 'sizeY', 'rotation'] as const
 
 function findPowerWindowEffect(item: TimelineItem, effectId: string): ItemEffect | null {
   return (
@@ -128,6 +131,8 @@ const PowerWindowOverlay = memo(function PowerWindowOverlay({
     s.preview?.[item.id]?.effects?.find((entry) => entry.id === effect.id),
   )
   const setItemEffects = useTimelineStore((s) => s.setItemEffects)
+  const applyAutoKeyframeOperations = useTimelineStore((s) => s.applyAutoKeyframeOperations)
+  const itemKeyframes = useKeyframesStore((s) => s.keyframesByItemId[item.id])
 
   const params = readPowerWindowParams(previewEffect ?? effect)
   const currentEffects = useMemo(
@@ -154,20 +159,47 @@ const PowerWindowOverlay = memo(function PowerWindowOverlay({
   )
 
   const commit = useCallback(
-    (nextParams: PowerWindowParams) => {
-      setItemEffects([
-        {
-          itemId: item.id,
-          effects: buildPowerWindowEffects(
-            dragEffectsRef.current ?? currentEffects,
-            effect.id,
-            nextParams,
-          ),
-        },
-      ])
+    (nextParams: PowerWindowParams, startParams: PowerWindowParams) => {
+      const changedUpdates: Record<string, number> = {}
+      for (const key of POWER_WINDOW_NUMBER_KEYS) {
+        if (nextParams[key] !== startParams[key]) changedUpdates[key] = nextParams[key]
+      }
+      const plan = planEffectGizmoCommit(
+        item,
+        effect,
+        itemKeyframes,
+        usePlaybackStore.getState().currentFrame,
+        changedUpdates,
+      )
+      if (plan.autoKeyframeOperations.length > 0) {
+        applyAutoKeyframeOperations(plan.autoKeyframeOperations)
+      }
+      if (Object.keys(plan.baseParamUpdates).length > 0) {
+        const rawParams = readPowerWindowParams(effect) ?? startParams
+        const baseParams: PowerWindowParams = { ...rawParams, ...plan.baseParamUpdates }
+        setItemEffects([
+          {
+            itemId: item.id,
+            effects: buildPowerWindowEffects(
+              dragEffectsRef.current ?? currentEffects,
+              effect.id,
+              baseParams,
+              POWER_WINDOW_NUMBER_KEYS,
+            ),
+          },
+        ])
+      }
       clearPreviewForItems([item.id])
     },
-    [clearPreviewForItems, currentEffects, effect.id, item.id, setItemEffects],
+    [
+      applyAutoKeyframeOperations,
+      clearPreviewForItems,
+      currentEffects,
+      effect,
+      item,
+      itemKeyframes,
+      setItemEffects,
+    ],
   )
 
   const handlePointerDown = useCallback(
@@ -213,7 +245,7 @@ const PowerWindowOverlay = memo(function PowerWindowOverlay({
         snapRotation: event.shiftKey,
       })
       dragRef.current = null
-      commit(nextParams)
+      commit(nextParams, drag.startParams)
       dragEffectsRef.current = null
     },
     [canvasAspectRatio, commit, coordParams],
@@ -232,6 +264,11 @@ const PowerWindowOverlay = memo(function PowerWindowOverlay({
       className="pointer-events-auto absolute z-50"
       data-testid="power-window-overlay"
       onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
       style={{
         left: 0,
         top: 0,

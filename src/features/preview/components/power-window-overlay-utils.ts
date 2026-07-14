@@ -94,6 +94,14 @@ export function buildPowerWindowEffects(
   effects: readonly ItemEffect[],
   effectId: string,
   params: PowerWindowParams,
+  paramKeys: readonly (keyof PowerWindowParams)[] = [
+    'shape',
+    'centerX',
+    'centerY',
+    'sizeX',
+    'sizeY',
+    'rotation',
+  ],
 ): ItemEffect[] {
   return effects.map((entry) => {
     if (entry.id !== effectId || entry.effect.type !== 'gpu-effect') return entry
@@ -103,12 +111,12 @@ export function buildPowerWindowEffects(
         ...entry.effect,
         params: {
           ...entry.effect.params,
-          shape: params.shape,
-          centerX: params.centerX,
-          centerY: params.centerY,
-          sizeX: params.sizeX,
-          sizeY: params.sizeY,
-          rotation: params.rotation,
+          ...(paramKeys.includes('shape') ? { shape: params.shape } : {}),
+          ...(paramKeys.includes('centerX') ? { centerX: params.centerX } : {}),
+          ...(paramKeys.includes('centerY') ? { centerY: params.centerY } : {}),
+          ...(paramKeys.includes('sizeX') ? { sizeX: params.sizeX } : {}),
+          ...(paramKeys.includes('sizeY') ? { sizeY: params.sizeY } : {}),
+          ...(paramKeys.includes('rotation') ? { rotation: params.rotation } : {}),
         },
       },
     }

@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import type { TimelineItem } from '@/types/timeline'
+import type { ItemKeyframes } from '@/types/keyframe'
+import { buildEffectAnimatableProperty } from '@/types/keyframe'
+import { usePlaybackStore } from '@/shared/state/playback'
 import { useGizmoStore } from '../stores/gizmo-store'
 import { usePowerWindowEditorStore } from '../stores/power-window-editor-store'
 import { PowerWindowOverlayContainer } from './power-window-overlay'
@@ -36,7 +39,12 @@ const mocks = vi.hoisted(() => {
   }
   return {
     selectionState: { selectedItemIds: ['clip-1'] },
-    timelineState: { items: [item], setItemEffects: vi.fn() },
+    timelineState: {
+      items: [item],
+      keyframesByItemId: {} as Record<string, ItemKeyframes | undefined>,
+      setItemEffects: vi.fn(),
+      applyAutoKeyframeOperations: vi.fn(),
+    },
   }
 })
 
@@ -47,6 +55,8 @@ vi.mock('@/shared/state/selection', () => ({
 
 vi.mock('../deps/timeline-store', () => ({
   useItemsStore: (selector: (state: typeof mocks.timelineState) => unknown) =>
+    selector(mocks.timelineState),
+  useKeyframesStore: (selector: (state: typeof mocks.timelineState) => unknown) =>
     selector(mocks.timelineState),
   useTimelineStore: (selector: (state: typeof mocks.timelineState) => unknown) =>
     selector(mocks.timelineState),
@@ -63,6 +73,8 @@ describe('PowerWindowOverlayContainer', () => {
   beforeEach(() => {
     mocks.selectionState.selectedItemIds = ['clip-1']
     mocks.timelineState.setItemEffects.mockClear()
+    mocks.timelineState.applyAutoKeyframeOperations.mockClear()
+    mocks.timelineState.keyframesByItemId = {}
     usePowerWindowEditorStore.getState().stopEditing()
     useGizmoStore.getState().clearPreview()
   })
@@ -157,5 +169,38 @@ describe('PowerWindowOverlayContainer', () => {
       saturation: 1.4,
     })
     expect(usePowerWindowEditorStore.getState().isEditing).toBe(true)
+  })
+
+  it('updates existing geometry keyframes without overwriting base geometry', () => {
+    const property = buildEffectAnimatableProperty('gpu-power-window', 'window-1', 'centerX')
+    mocks.timelineState.keyframesByItemId = {
+      'clip-1': {
+        itemId: 'clip-1',
+        properties: [
+          {
+            property,
+            keyframes: [{ id: 'center-x-key', frame: 15, value: 0.5, easing: 'linear' }],
+          },
+        ],
+      },
+    }
+    usePlaybackStore.setState({ currentFrame: 15 })
+    render(<PowerWindowOverlayContainer {...overlayProps} />)
+    act(() => usePowerWindowEditorStore.getState().startEditing('clip-1', 'window-1'))
+
+    const handle = screen.getByRole('button', { name: 'Move power window' })
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 480, clientY: 270 })
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 600, clientY: 320 })
+
+    expect(mocks.timelineState.applyAutoKeyframeOperations).toHaveBeenCalledWith([
+      expect.objectContaining({
+        type: 'update',
+        property,
+        keyframeId: 'center-x-key',
+      }),
+    ])
+    const committedEffects = mocks.timelineState.setItemEffects.mock.calls[0]?.[0]?.[0]?.effects
+    expect(committedEffects?.[0]?.effect.params.centerX).toBe(0.5)
+    expect(committedEffects?.[0]?.effect.params.centerY).not.toBe(0.5)
   })
 })

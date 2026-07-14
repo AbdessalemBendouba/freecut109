@@ -2,11 +2,14 @@ import { memo, useCallback, useEffect, useMemo, useRef, type PointerEvent } from
 import { getSpatialPointEffectConfig } from '@/infrastructure/gpu-effects/spatial-point-editor'
 import type { ItemEffect } from '@/types/effects'
 import type { TimelineItem } from '@/types/timeline'
-import { useItemsStore, useTimelineStore } from '../deps/timeline-store'
+import { usePlaybackStore } from '@/shared/state/playback'
+import { useItemsStore, useKeyframesStore, useTimelineStore } from '../deps/timeline-store'
 import { useGizmoStore } from '../stores/gizmo-store'
 import { useSpatialEffectEditorStore } from '../stores/spatial-effect-editor-store'
 import type { CoordinateParams, Point } from '../types/gizmo'
 import { screenToCanvas } from '../utils/coordinate-transform'
+import { planEffectGizmoCommit } from '../utils/effect-gizmo-keyframes'
+import { canvasPointToSpatialEffectUv } from '../utils/spatial-effect-coordinates'
 import { buildSpatialPointEffects } from './spatial-effect-point-overlay-utils'
 
 interface SpatialEffectPointOverlayContainerProps {
@@ -23,10 +26,6 @@ interface SpatialEffectPointOverlayProps {
   effect: ItemEffect
   xParam: string
   yParam: string
-}
-
-function clampUnit(value: number): number {
-  return Math.min(1, Math.max(0, value))
 }
 
 function findSpatialEffect(item: TimelineItem, effectId: string): ItemEffect | null {
@@ -50,10 +49,7 @@ function pointerToCanvasUv(
   coordParams: CoordinateParams,
 ): Point {
   const projectPoint = screenToCanvas(event.clientX, event.clientY, coordParams)
-  return {
-    x: clampUnit(projectPoint.x / coordParams.projectSize.width),
-    y: clampUnit(projectPoint.y / coordParams.projectSize.height),
-  }
+  return canvasPointToSpatialEffectUv(projectPoint, coordParams.projectSize)
 }
 
 export const SpatialEffectPointOverlayContainer = memo(function SpatialEffectPointOverlayContainer({
@@ -135,6 +131,8 @@ const SpatialEffectPointOverlay = memo(function SpatialEffectPointOverlay({
     s.preview?.[item.id]?.effects?.find((entry) => entry.id === effect.id),
   )
   const setItemEffects = useTimelineStore((s) => s.setItemEffects)
+  const applyAutoKeyframeOperations = useTimelineStore((s) => s.applyAutoKeyframeOperations)
+  const itemKeyframes = useKeyframesStore((s) => s.keyframesByItemId[item.id])
   const point = readPoint(previewEffect ?? effect, xParam, yParam)
   const currentEffects = useMemo(
     () =>
@@ -181,21 +179,51 @@ const SpatialEffectPointOverlay = memo(function SpatialEffectPointOverlay({
 
   const commit = useCallback(
     (nextPoint: Point) => {
-      setItemEffects([
-        {
-          itemId: item.id,
-          effects: buildSpatialPointEffects(
-            dragEffectsRef.current ?? currentEffects,
-            effect.id,
-            xParam,
-            yParam,
-            nextPoint,
-          ),
-        },
-      ])
+      const updates = { [xParam]: nextPoint.x, [yParam]: nextPoint.y }
+      const plan = planEffectGizmoCommit(
+        item,
+        effect,
+        itemKeyframes,
+        usePlaybackStore.getState().currentFrame,
+        updates,
+      )
+      if (plan.autoKeyframeOperations.length > 0) {
+        applyAutoKeyframeOperations(plan.autoKeyframeOperations)
+      }
+      const baseParamKeys = Object.keys(plan.baseParamUpdates)
+      if (baseParamKeys.length > 0) {
+        const rawPoint = readPoint(effect, xParam, yParam) ?? nextPoint
+        const basePoint = {
+          x: plan.baseParamUpdates[xParam] ?? rawPoint.x,
+          y: plan.baseParamUpdates[yParam] ?? rawPoint.y,
+        }
+        setItemEffects([
+          {
+            itemId: item.id,
+            effects: buildSpatialPointEffects(
+              dragEffectsRef.current ?? currentEffects,
+              effect.id,
+              xParam,
+              yParam,
+              basePoint,
+              [xParam, yParam],
+            ),
+          },
+        ])
+      }
       clearPreviewForItems([item.id])
     },
-    [clearPreviewForItems, currentEffects, effect.id, item.id, setItemEffects, xParam, yParam],
+    [
+      applyAutoKeyframeOperations,
+      clearPreviewForItems,
+      currentEffects,
+      effect,
+      item,
+      itemKeyframes,
+      setItemEffects,
+      xParam,
+      yParam,
+    ],
   )
 
   useEffect(() => {
@@ -268,9 +296,14 @@ const SpatialEffectPointOverlay = memo(function SpatialEffectPointOverlay({
 
   return (
     <div
-      className="pointer-events-none absolute z-50"
+      className="pointer-events-auto absolute z-50"
       data-testid="spatial-effect-point-overlay"
       onClick={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
       style={{ left: 0, top: 0, width: playerSize.width, height: playerSize.height }}
     >
       <button
