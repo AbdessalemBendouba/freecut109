@@ -11,13 +11,72 @@ import {
 import { getAttachedCaptionItemIds } from '../../../utils/linked-items'
 import { computeClampedSlipDelta } from '../../../utils/slip-utils'
 import { computeSlideContinuitySourceDelta } from '../../../utils/slide-utils'
-import { clampSlideDeltaToPreserveTransitions } from '../../../utils/transition-utils'
+import { clampSlideDeltaToPreserveKeyframes } from '../../../utils/slide-keyframe-constraints'
+import { clampToAdjacentItems, clampTrimAmount } from '../../../utils/trim-utils'
+import {
+  clampSlideDeltaToPreserveTransitions,
+  clampSlipDeltaToPreserveTransitions,
+} from '../../../utils/transition-utils'
 import {
   propagateInsertedGapToSyncLockedTracks,
   propagateRemovedIntervalsToSyncLockedTracks,
 } from '../sync-lock-ripple'
 import { isLinkedSelectionEnabled, requestPostEditWarmForItems } from './shared'
 import type { TimelineItem } from '@/types/timeline'
+
+function keepTightestDelta(requested: number, candidate: number): number {
+  return requested < 0 ? Math.max(requested, candidate) : Math.min(requested, candidate)
+}
+
+function clampSlideParticipantDelta(
+  requestedDelta: number,
+  item: TimelineItem,
+  leftNeighbor: TimelineItem | null,
+  rightNeighbor: TimelineItem | null,
+  items: TimelineItem[],
+  timelineFps: number,
+): number {
+  let clamped = Math.max(requestedDelta, -item.from)
+  const excludedIds = new Set(
+    [item.id, leftNeighbor?.id, rightNeighbor?.id].filter(Boolean) as string[],
+  )
+
+  if (leftNeighbor) {
+    const sourceClamped = clampTrimAmount(leftNeighbor, 'end', clamped, timelineFps).clampedAmount
+    clamped = keepTightestDelta(clamped, sourceClamped)
+    clamped = keepTightestDelta(
+      clamped,
+      clampToAdjacentItems(leftNeighbor, 'end', clamped, items, excludedIds),
+    )
+  }
+  if (rightNeighbor) {
+    const sourceClamped = clampTrimAmount(
+      rightNeighbor,
+      'start',
+      clamped,
+      timelineFps,
+    ).clampedAmount
+    clamped = keepTightestDelta(clamped, sourceClamped)
+    clamped = keepTightestDelta(
+      clamped,
+      clampToAdjacentItems(rightNeighbor, 'start', clamped, items, excludedIds),
+    )
+  }
+
+  for (const other of items) {
+    if (other.trackId !== item.trackId || excludedIds.has(other.id)) continue
+    const otherEnd = other.from + other.durationInFrames
+    if (otherEnd <= item.from && clamped < 0) {
+      clamped = Math.max(clamped, otherEnd - item.from)
+    }
+    const itemEnd = item.from + item.durationInFrames
+    if (other.from >= itemEnd && clamped > 0) {
+      clamped = Math.min(clamped, other.from - itemEnd)
+    }
+  }
+
+  return clamped
+}
 
 function trimAttachedCaptionsToClipBounds(clipIds: Iterable<string>): string[] {
   const store = useItemsStore.getState()
@@ -403,10 +462,26 @@ export function slipItem(id: string, slipDelta: number): void {
 
       const sourceStart = item.sourceStart ?? 0
       const sourceEnd = item.sourceEnd
-      const sourceDuration = item.sourceDuration
       if (sourceEnd === undefined) return
 
-      const clamped = computeClampedSlipDelta(sourceStart, sourceEnd, sourceDuration, slipDelta)
+      const transitions = useTransitionsStore.getState().transitions
+      const timelineFps = useTimelineSettingsStore.getState().fps
+      let clamped = slipDelta
+      for (const synchronizedItem of synchronizedItems) {
+        clamped = computeClampedSlipDelta(
+          synchronizedItem.sourceStart ?? 0,
+          synchronizedItem.sourceEnd,
+          synchronizedItem.sourceDuration,
+          clamped,
+        )
+        clamped = clampSlipDeltaToPreserveTransitions(
+          synchronizedItem,
+          clamped,
+          items,
+          transitions,
+          timelineFps,
+        )
+      }
 
       if (clamped === 0) return
 
@@ -466,16 +541,6 @@ export function slideItem(
       const rightNeighbor = rightNeighborId
         ? (items.find((i) => i.id === rightNeighborId) ?? null)
         : null
-      const clampedSlideDelta = clampSlideDeltaToPreserveTransitions(
-        item,
-        slideDelta,
-        leftNeighbor,
-        rightNeighbor,
-        items,
-        transitions,
-        useTimelineSettingsStore.getState().fps,
-      )
-      if (clampedSlideDelta === 0) return
       const synchronizedCounterpart =
         getSynchronizedLinkedItemsForEdit(items, id, isLinkedSelectionEnabled()).find(
           (candidate) => candidate.id !== id,
@@ -500,6 +565,82 @@ export function slideItem(
               isLinkedSelectionEnabled(),
             )
           : null
+      const counterpartEnd = synchronizedCounterpart
+        ? synchronizedCounterpart.from + synchronizedCounterpart.durationInFrames
+        : 0
+      const cpLeftAdj = synchronizedCounterpart
+        ? (items.find(
+            (candidate) =>
+              candidate.trackId === synchronizedCounterpart.trackId &&
+              candidate.id !== synchronizedCounterpart.id &&
+              candidate.from + candidate.durationInFrames === synchronizedCounterpart.from,
+          ) ?? leftCounterpart)
+        : null
+      const cpRightAdj = synchronizedCounterpart
+        ? (items.find(
+            (candidate) =>
+              candidate.trackId === synchronizedCounterpart.trackId &&
+              candidate.id !== synchronizedCounterpart.id &&
+              candidate.from === counterpartEnd,
+          ) ?? rightCounterpart)
+        : null
+      const timelineFps = useTimelineSettingsStore.getState().fps
+      let clampedSlideDelta = clampSlideParticipantDelta(
+        slideDelta,
+        item,
+        leftNeighbor,
+        rightNeighbor,
+        items,
+        timelineFps,
+      )
+      if (synchronizedCounterpart) {
+        clampedSlideDelta = clampSlideParticipantDelta(
+          clampedSlideDelta,
+          synchronizedCounterpart,
+          cpLeftAdj,
+          cpRightAdj,
+          items,
+          timelineFps,
+        )
+      }
+      clampedSlideDelta = clampSlideDeltaToPreserveTransitions(
+        item,
+        clampedSlideDelta,
+        leftNeighbor,
+        rightNeighbor,
+        items,
+        transitions,
+        timelineFps,
+      )
+      if (synchronizedCounterpart) {
+        clampedSlideDelta = clampSlideDeltaToPreserveTransitions(
+          synchronizedCounterpart,
+          clampedSlideDelta,
+          cpLeftAdj,
+          cpRightAdj,
+          items,
+          transitions,
+          timelineFps,
+        )
+      }
+      clampedSlideDelta = clampSlideDeltaToPreserveKeyframes(
+        clampedSlideDelta,
+        [
+          { item, leftNeighbor, rightNeighbor },
+          ...(synchronizedCounterpart
+            ? [
+                {
+                  item: synchronizedCounterpart,
+                  leftNeighbor: cpLeftAdj,
+                  rightNeighbor: cpRightAdj,
+                },
+              ]
+            : []),
+        ],
+        transitions,
+        useKeyframesStore.getState().keyframesByItemId,
+      )
+      if (clampedSlideDelta === 0) return
       const itemFromBefore = item.from
       const itemSourceStartBefore = item.sourceStart
 
@@ -510,7 +651,7 @@ export function slideItem(
         leftNeighbor,
         rightNeighbor,
         clampedSlideDelta,
-        useTimelineSettingsStore.getState().fps,
+        timelineFps,
       )
 
       // Adjust neighbors (order: shrink first, then extend — same as rolling edit)
@@ -555,27 +696,6 @@ export function slideItem(
       // Find the companion's own adjacent neighbors — may differ from the
       // primary's linked counterparts (e.g. a solo audio clip next to the
       // companion that has no video counterpart).
-      let cpLeftAdj: TimelineItem | null = null
-      let cpRightAdj: TimelineItem | null = null
-      if (synchronizedCounterpart) {
-        const cpEnd = synchronizedCounterpart.from + synchronizedCounterpart.durationInFrames
-        const freshItems = useItemsStore.getState().items
-        cpLeftAdj =
-          freshItems.find(
-            (i) =>
-              i.trackId === synchronizedCounterpart.trackId &&
-              i.id !== synchronizedCounterpart.id &&
-              i.from + i.durationInFrames === synchronizedCounterpart.from,
-          ) ?? leftCounterpart
-        cpRightAdj =
-          freshItems.find(
-            (i) =>
-              i.trackId === synchronizedCounterpart.trackId &&
-              i.id !== synchronizedCounterpart.id &&
-              i.from === cpEnd,
-          ) ?? rightCounterpart
-      }
-
       if (synchronizedCounterpart && actualSlideDelta !== 0) {
         if (actualSlideDelta > 0) {
           if (cpRightAdj) {

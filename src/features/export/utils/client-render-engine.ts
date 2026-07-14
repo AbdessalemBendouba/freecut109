@@ -85,6 +85,7 @@ import {
   hasCornerPin,
   type PreviewPathVerticesOverride,
   resolveCompositionRenderPlan,
+  resolveLiveTransitionRenderPlan,
   collectFrameVideoCandidates,
   getVideoTargetTimeSeconds,
   resolveFrameRenderScene,
@@ -458,6 +459,21 @@ export async function createCompositionRenderer(
     })
     syncVideoItemRegistration(resolvedVideoItem)
     return resolvedVideoItem as TItem
+  }
+  let liveTransitionRenderPlanRevision = -1
+  let liveTransitionRenderPlan = renderPlan
+  const getCurrentRenderPlan = () => {
+    if (!getLiveItemSnapshot || liveTransitionRenderPlanRevision === frameSceneRevision) {
+      return liveTransitionRenderPlan
+    }
+
+    liveTransitionRenderPlan = resolveLiveTransitionRenderPlan({
+      renderPlan,
+      transitions,
+      getCurrentItem,
+    })
+    liveTransitionRenderPlanRevision = frameSceneRevision
+    return liveTransitionRenderPlan
   }
   const getLiveMaskItem = getLiveItemSnapshot
     ? (itemId: string) => {
@@ -1705,7 +1721,7 @@ export async function createCompositionRenderer(
 
       const frameScene = frameSceneCache.resolve(
         {
-          renderPlan,
+          renderPlan: getCurrentRenderPlan(),
           frame,
           canvas: canvasSettings,
           getKeyframes: getCurrentKeyframes,

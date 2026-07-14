@@ -592,7 +592,7 @@ describe('linked edit tools', () => {
     ])
   })
 
-  it('slips a linked audio edit back onto video and repairs transition duration', () => {
+  it('clamps a linked audio slip before it consumes the video transition handle', () => {
     useItemsStore.getState().setItems([
       makeVideoItem({
         id: 'video-1',
@@ -630,10 +630,10 @@ describe('linked edit tools', () => {
     slipItem('audio-2', -4)
 
     const itemById = useItemsStore.getState().itemById
-    expect(itemById['audio-2']).toMatchObject({ sourceStart: 2, sourceEnd: 62 })
-    expect(itemById['video-2']).toMatchObject({ sourceStart: 2, sourceEnd: 62 })
+    expect(itemById['audio-2']).toMatchObject({ sourceStart: 6, sourceEnd: 66 })
+    expect(itemById['video-2']).toMatchObject({ sourceStart: 6, sourceEnd: 66 })
     expect(useTransitionsStore.getState().transitions).toEqual([
-      expect.objectContaining({ durationInFrames: 5 }),
+      expect.objectContaining({ durationInFrames: 12 }),
     ])
   })
 
@@ -794,6 +794,70 @@ describe('linked edit tools', () => {
         rightClipId: 'video-middle',
         durationInFrames: 12,
       }),
+    ])
+  })
+
+  it('clamps an audio-initiated linked slide against the video transition handle', () => {
+    useItemsStore.getState().setItems([
+      makeVideoItem({
+        id: 'video-left',
+        sourceStart: 0,
+        sourceEnd: 60,
+        sourceDuration: 66,
+        linkedGroupId: 'group-left',
+      }),
+      makeAudioItem({
+        id: 'audio-left',
+        sourceStart: 0,
+        sourceEnd: 60,
+        sourceDuration: 66,
+        linkedGroupId: 'group-left',
+      }),
+      makeVideoItem({
+        id: 'video-middle',
+        from: 60,
+        sourceStart: 60,
+        sourceEnd: 120,
+        sourceDuration: 240,
+        linkedGroupId: 'group-middle',
+        mediaId: 'media-2',
+      }),
+      makeAudioItem({
+        id: 'audio-middle',
+        from: 60,
+        sourceStart: 60,
+        sourceEnd: 120,
+        sourceDuration: 240,
+        linkedGroupId: 'group-middle',
+        mediaId: 'media-2',
+      }),
+      makeVideoItem({
+        id: 'video-right',
+        from: 120,
+        sourceStart: 120,
+        sourceEnd: 180,
+        sourceDuration: 300,
+        linkedGroupId: 'group-right',
+        mediaId: 'media-3',
+      }),
+      makeAudioItem({
+        id: 'audio-right',
+        from: 120,
+        sourceStart: 120,
+        sourceEnd: 180,
+        sourceDuration: 300,
+        linkedGroupId: 'group-right',
+        mediaId: 'media-3',
+      }),
+    ])
+    expect(addTransition('video-left', 'video-middle', 'crossfade', 12)).toBe(true)
+
+    slideItem('audio-middle', 5, 'audio-left', 'audio-right')
+
+    expect(useItemsStore.getState().itemById['audio-middle']).toMatchObject({ from: 60 })
+    expect(useItemsStore.getState().itemById['video-middle']).toMatchObject({ from: 60 })
+    expect(useTransitionsStore.getState().transitions).toEqual([
+      expect.objectContaining({ durationInFrames: 12 }),
     ])
   })
 
