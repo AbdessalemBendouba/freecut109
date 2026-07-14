@@ -350,6 +350,72 @@ describe('linked edit tools', () => {
     expect(useTransitionsStore.getState().transitions).toHaveLength(1)
   })
 
+  it('clamps rolling before it can invalidate a transition on the opposite edge', () => {
+    useEditorStore.setState({ linkedSelectionEnabled: false })
+    useItemsStore.getState().setItems([
+      makeVideoItem({
+        id: 'video-a',
+        durationInFrames: 100,
+        sourceEnd: 100,
+        sourceDuration: 300,
+        linkedGroupId: undefined,
+      }),
+      makeVideoItem({
+        id: 'video-b',
+        from: 100,
+        durationInFrames: 40,
+        sourceStart: 100,
+        sourceEnd: 140,
+        sourceDuration: 300,
+        linkedGroupId: undefined,
+      }),
+      makeVideoItem({
+        id: 'video-c',
+        from: 140,
+        durationInFrames: 100,
+        sourceStart: 100,
+        sourceEnd: 200,
+        sourceDuration: 300,
+        linkedGroupId: undefined,
+      }),
+    ])
+    useTransitionsStore.getState().setTransitions([
+      {
+        id: 'incoming',
+        leftClipId: 'video-a',
+        rightClipId: 'video-b',
+        trackId: 'video-track',
+        type: 'crossfade',
+        durationInFrames: 5,
+        presentation: 'fade',
+        timing: 'linear',
+        alignment: 0.5,
+      },
+      {
+        id: 'clock-wipe',
+        leftClipId: 'video-b',
+        rightClipId: 'video-c',
+        trackId: 'video-track',
+        type: 'crossfade',
+        durationInFrames: 30,
+        presentation: 'clockWipe',
+        timing: 'linear',
+        alignment: 0.5,
+      },
+    ])
+
+    rollingTrimItems('video-a', 'video-b', 20)
+
+    expect(useItemsStore.getState().itemById['video-b']).toMatchObject({
+      from: 109,
+      durationInFrames: 31,
+    })
+    expect(useTransitionsStore.getState().transitions.map((item) => item.id)).toEqual([
+      'incoming',
+      'clock-wipe',
+    ])
+  })
+
   it('ripple trims linked companions and shifts downstream linked pairs across tracks', () => {
     useItemsStore.getState().setItems([
       makeVideoItem({ id: 'video-1', linkedGroupId: 'group-1' }),
@@ -377,6 +443,73 @@ describe('linked edit tools', () => {
     expect(itemById['audio-1']).toMatchObject({ from: 0, durationInFrames: 50, sourceStart: 10 })
     expect(itemById['video-2']).toMatchObject({ from: 80 })
     expect(itemById['audio-2']).toMatchObject({ from: 80 })
+  })
+
+  it('clamps ripple before it can invalidate a transition on the opposite edge', () => {
+    useEditorStore.setState({ linkedSelectionEnabled: false })
+    useItemsStore.getState().setItems([
+      makeVideoItem({
+        id: 'video-a',
+        durationInFrames: 100,
+        sourceEnd: 100,
+        sourceDuration: 300,
+        linkedGroupId: undefined,
+      }),
+      makeVideoItem({
+        id: 'video-b',
+        from: 100,
+        durationInFrames: 40,
+        sourceStart: 100,
+        sourceEnd: 140,
+        sourceDuration: 300,
+        linkedGroupId: undefined,
+      }),
+      makeVideoItem({
+        id: 'video-c',
+        from: 140,
+        durationInFrames: 100,
+        sourceStart: 100,
+        sourceEnd: 200,
+        sourceDuration: 300,
+        linkedGroupId: undefined,
+      }),
+    ])
+    useTransitionsStore.getState().setTransitions([
+      {
+        id: 'incoming',
+        leftClipId: 'video-a',
+        rightClipId: 'video-b',
+        trackId: 'video-track',
+        type: 'crossfade',
+        durationInFrames: 5,
+        presentation: 'fade',
+        timing: 'linear',
+        alignment: 0.5,
+      },
+      {
+        id: 'clock-wipe',
+        leftClipId: 'video-b',
+        rightClipId: 'video-c',
+        trackId: 'video-track',
+        type: 'crossfade',
+        durationInFrames: 30,
+        presentation: 'clockWipe',
+        timing: 'linear',
+        alignment: 0.5,
+      },
+    ])
+
+    rippleTrimItem('video-b', 'start', 20)
+
+    expect(useItemsStore.getState().itemById['video-b']).toMatchObject({
+      from: 100,
+      durationInFrames: 31,
+    })
+    expect(useItemsStore.getState().itemById['video-c']).toMatchObject({ from: 131 })
+    expect(useTransitionsStore.getState().transitions.map((item) => item.id)).toEqual([
+      'incoming',
+      'clock-wipe',
+    ])
   })
 
   it('ripple trim auto-blades a sync-locked continuous clip on another track', () => {

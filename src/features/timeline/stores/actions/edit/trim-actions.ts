@@ -12,6 +12,10 @@ import { getAttachedCaptionItemIds } from '../../../utils/linked-items'
 import { computeClampedSlipDelta } from '../../../utils/slip-utils'
 import { computeSlideContinuitySourceDelta } from '../../../utils/slide-utils'
 import { clampSlideDeltaToPreserveKeyframes } from '../../../utils/slide-keyframe-constraints'
+import {
+  clampRippleTrimDeltaToPreserveEditState,
+  clampRollingTrimDeltaToPreserveEditState,
+} from '../../../utils/trim-edit-constraints'
 import { clampToAdjacentItems, clampTrimAmount } from '../../../utils/trim-utils'
 import {
   clampSlideDeltaToPreserveTransitions,
@@ -253,10 +257,31 @@ export function rippleTrimItem(id: string, handle: 'start' | 'end', trimDelta: n
       const synced = getSynchronizedLinkedItemsForEdit(store.items, id, isLinkedSelectionEnabled())
       const syncedIds = new Set(synced.map((candidate) => candidate.id))
       const oldById = new Map(synced.map((candidate) => [candidate.id, candidate]))
+      const transitions = useTransitionsStore.getState().transitions
+      const keyframesByItemId = useKeyframesStore.getState().keyframesByItemId
+      const timelineFps = useTimelineSettingsStore.getState().fps
+      let clampedTrimDelta = trimDelta
+      for (const syncedItem of synced) {
+        clampedTrimDelta = keepTightestDelta(
+          clampedTrimDelta,
+          clampRippleTrimDeltaToPreserveEditState(
+            syncedItem,
+            handle,
+            clampedTrimDelta,
+            store.items,
+            transitions,
+            keyframesByItemId,
+            timelineFps,
+            syncedIds,
+          ),
+        )
+      }
+      if (clampedTrimDelta === 0) return
       const oldFrom = item.from
       const oldEnd = item.from + item.durationInFrames
-      if (handle === 'start') store._trimItemStart(id, trimDelta, { skipAdjacentClamp: true })
-      else store._trimItemEnd(id, trimDelta, { skipAdjacentClamp: true })
+      if (handle === 'start')
+        store._trimItemStart(id, clampedTrimDelta, { skipAdjacentClamp: true })
+      else store._trimItemEnd(id, clampedTrimDelta, { skipAdjacentClamp: true })
       const trimmed = useItemsStore.getState().itemById[id]
       if (!trimmed) return
       let shift = 0
@@ -292,7 +317,6 @@ export function rippleTrimItem(id: string, handle: 'start' | 'end', trimDelta: n
       if (shift !== 0) {
         const fresh = useItemsStore.getState().items
         const deltas = new Map<string, number>()
-        const transitions = useTransitionsStore.getState().transitions
         for (const syncedItem of synced) {
           const before = oldById.get(syncedItem.id)
           if (!before) continue
@@ -385,19 +409,49 @@ export function rollingTrimItems(leftId: string, rightId: string, editPointDelta
         isLinkedSelectionEnabled(),
       )
       const rightBefore = itemsBefore.find((item) => item.id === rightId)
-      if (!rightBefore) return
+      const leftBefore = itemsBefore.find((item) => item.id === leftId)
+      if (!leftBefore || !rightBefore) return
+      const transitions = useTransitionsStore.getState().transitions
+      const keyframesByItemId = useKeyframesStore.getState().keyframesByItemId
+      const timelineFps = useTimelineSettingsStore.getState().fps
+      let clampedEditPointDelta = clampRollingTrimDeltaToPreserveEditState(
+        leftBefore,
+        'end',
+        editPointDelta,
+        rightBefore,
+        itemsBefore,
+        transitions,
+        keyframesByItemId,
+        timelineFps,
+      )
+      if (counterpartPair) {
+        clampedEditPointDelta = keepTightestDelta(
+          clampedEditPointDelta,
+          clampRollingTrimDeltaToPreserveEditState(
+            counterpartPair.leftCounterpart,
+            'end',
+            clampedEditPointDelta,
+            counterpartPair.rightCounterpart,
+            itemsBefore,
+            transitions,
+            keyframesByItemId,
+            timelineFps,
+          ),
+        )
+      }
+      if (clampedEditPointDelta === 0) return
 
       // Order matters: shrink first, then extend. The internal _trimItemEnd/_trimItemStart
       // methods have clampToAdjacentItems guards that prevent extending into a neighbor.
       // By shrinking the losing clip first, we free up space for the gaining clip to extend into.
-      if (editPointDelta > 0) {
+      if (clampedEditPointDelta > 0) {
         // Edit point moves right: right clip shrinks (frees space), then left clip extends
-        itemsStore._trimItemStart(rightId, editPointDelta)
-        itemsStore._trimItemEnd(leftId, editPointDelta)
+        itemsStore._trimItemStart(rightId, clampedEditPointDelta)
+        itemsStore._trimItemEnd(leftId, clampedEditPointDelta)
       } else {
         // Edit point moves left: left clip shrinks (frees space), then right clip extends
-        itemsStore._trimItemEnd(leftId, editPointDelta)
-        itemsStore._trimItemStart(rightId, editPointDelta)
+        itemsStore._trimItemEnd(leftId, clampedEditPointDelta)
+        itemsStore._trimItemStart(rightId, clampedEditPointDelta)
       }
 
       const rightAfter = useItemsStore.getState().itemById[rightId]
