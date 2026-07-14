@@ -104,8 +104,6 @@ export interface PreviewDecoderMetricsSample {
   fallbackSourceEvictions: number
   fallbackReadyNotifications: number
   exactFallbackReplacements: number
-  automaticProxyRequests: number
-  automaticProxyReadyHits: number
 }
 
 export interface PreviewScrubPerformanceState {
@@ -300,7 +298,10 @@ export function recordPreviewScrubPresented(frame: number): void {
     requestToRenderStartMs: Number((render.renderStartedAtMs - render.request.atMs).toFixed(2)),
     requestToPresentMs: Number((presentedAtMs - render.request.atMs).toFixed(2)),
     renderMs: Number((render.renderEndedAtMs - render.renderStartedAtMs).toFixed(2)),
-    supersededByRequests: Math.max(0, (latestRequest?.seq ?? render.request.seq) - render.request.seq),
+    supersededByRequests: Math.max(
+      0,
+      (latestRequest?.seq ?? render.request.seq) - render.request.seq,
+    ),
   })
   completedRendersByFrame.delete(frame)
   if (pendingRequestsByFrame.get(frame)?.seq === render.request.seq) {
@@ -309,10 +310,7 @@ export function recordPreviewScrubPresented(frame: number): void {
   scheduleDomSnapshot(state)
 }
 
-export function recordPreviewScrubPresentationQuality(
-  frame: number,
-  usedFallback: boolean,
-): void {
+export function recordPreviewScrubPresentationQuality(frame: number, usedFallback: boolean): void {
   const state = getPerformanceState()
   if (!state) return
   const now = performance.now()
@@ -341,9 +339,7 @@ export function recordPreviewScrubPresentationQuality(
   scheduleDomSnapshot(state)
 }
 
-export function recordPreviewCompositionRender(
-  sample: PreviewCompositionRenderSample,
-): void {
+export function recordPreviewCompositionRender(sample: PreviewCompositionRenderSample): void {
   const state = getPerformanceState()
   if (!state) return
   pushBounded(state.renders, sample)
@@ -375,7 +371,8 @@ export function recordPreviewCanvasPool(sample: PreviewCanvasPoolSample): void {
   if (
     sample.peakInUse <= maxCanvasPoolPeak &&
     sample.temporaryAllocations <= maxCanvasPoolTemporaryAllocations
-  ) return
+  )
+    return
   maxCanvasPoolPeak = Math.max(maxCanvasPoolPeak, sample.peakInUse)
   maxCanvasPoolTemporaryAllocations = Math.max(
     maxCanvasPoolTemporaryAllocations,

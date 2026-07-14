@@ -132,8 +132,6 @@ export type PreviewPerfSnapshot = {
     scrubProxyFallbackEvictions: number
     scrubProxyFallbackReady: number
     scrubProxyExactReplacements: number
-    automaticScrubProxyRequests: number
-    automaticScrubProxyReadyHits: number
     staleScrubOverlayDrops: number
     scrubDroppedFrames: number
     scrubUpdates: number

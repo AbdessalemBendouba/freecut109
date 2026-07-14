@@ -193,8 +193,6 @@ export function usePreviewPerfPublisher({
         scrubProxyFallbackEvictions: preseekMetrics.fallbackSourceEvictions,
         scrubProxyFallbackReady: preseekMetrics.fallbackReadyNotifications,
         scrubProxyExactReplacements: preseekMetrics.exactFallbackReplacements,
-        automaticScrubProxyRequests: preseekMetrics.automaticProxyRequests,
-        automaticScrubProxyReadyHits: preseekMetrics.automaticProxyReadyHits,
         staleScrubOverlayDrops: stats.staleScrubOverlayDrops,
         scrubDroppedFrames: stats.scrubDroppedFrames,
         scrubUpdates: stats.scrubUpdates,

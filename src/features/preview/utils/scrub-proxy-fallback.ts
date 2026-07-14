@@ -1,22 +1,14 @@
 import { blobUrlManager } from '@/infrastructure/browser/blob-url-manager'
 import { getObjectUrlBlob } from '@/infrastructure/browser/object-url-registry'
-import {
-  getSharedProxyKey,
-  importMediaLibraryService,
-  proxyService,
-  useMediaLibraryStore,
-} from '../deps/media-library-contract'
+import { proxyService, useMediaLibraryStore } from '../deps/media-library-contract'
 import { importFilmstripCache } from '../deps/timeline-filmstrip'
 import {
   cacheActivePreviewFallbackBitmap,
   getCachedActivePreviewFallbackBitmap,
   isActivePreviewTargetSuperseded,
-  noteAutomaticScrubProxyRequest,
 } from './decoder-prewarm'
 
-const MAX_AUTOMATIC_PROXY_JOBS = 4
 const MAX_FALLBACK_DRIFT_SECONDS = 0.75
-const automaticProxyMediaIds = new Set<string>()
 const fallbackGenerationBySource = new Map<string, number>()
 const fallbackInflight = new Map<string, Promise<void>>()
 let filmstripModulePromise: ReturnType<typeof importFilmstripCache> | null = null
@@ -28,45 +20,6 @@ function loadFilmstripModule() {
 
 export function warmScrubProxyFallback(): void {
   void loadFilmstripModule().then(({ filmstripCache }) => filmstripCache.prewarm())
-}
-
-function pruneAutomaticProxyJobs(): void {
-  const statuses = useMediaLibraryStore.getState().proxyStatus
-  for (const mediaId of automaticProxyMediaIds) {
-    if (statuses.get(mediaId) !== 'generating') automaticProxyMediaIds.delete(mediaId)
-  }
-}
-
-function scheduleAutomaticProxy(mediaId: string): void {
-  const store = useMediaLibraryStore.getState()
-  const media = store.mediaById[mediaId]
-  if (!media || !proxyService.canGenerateProxy(media.mimeType)) return
-
-  const proxyKey = getSharedProxyKey(media)
-  proxyService.setProxyKey(media.id, proxyKey)
-  if (proxyService.hasProxy(media.id, proxyKey)) {
-    noteAutomaticScrubProxyRequest(true)
-    return
-  }
-  if (store.proxyStatus.get(media.id) === 'generating') return
-
-  pruneAutomaticProxyJobs()
-  if (automaticProxyMediaIds.size >= MAX_AUTOMATIC_PROXY_JOBS) return
-  automaticProxyMediaIds.add(media.id)
-  noteAutomaticScrubProxyRequest(false)
-  proxyService.generateProxy(
-    media.id,
-    media.storageType === 'opfs' && media.opfsPath
-      ? { kind: 'opfs', path: media.opfsPath, mimeType: media.mimeType }
-      : async () => {
-          const { mediaLibraryService } = await importMediaLibraryService()
-          return mediaLibraryService.getMediaFile(media.id)
-        },
-    media.width,
-    media.height,
-    proxyKey,
-    { priority: 'background' },
-  )
 }
 
 async function bitmapFromFrame(frame: { url: string; bitmap?: ImageBitmap }): Promise<ImageBitmap> {
@@ -83,7 +36,6 @@ export function scheduleScrubProxyFallback(src: string, timestamp: number): void
   const mediaId = blobUrlManager.getMediaIdByUrl(src) ?? proxyService.getMediaIdByProxyUrl(src)
   if (!mediaId) return
 
-  scheduleAutomaticProxy(mediaId)
   const media = useMediaLibraryStore.getState().mediaById[mediaId]
   if (!media || media.duration <= 0) return
 
@@ -127,10 +79,6 @@ export function scheduleScrubProxyFallback(src: string, timestamp: number): void
 }
 
 export function disposeScrubProxyFallback(): void {
-  for (const mediaId of automaticProxyMediaIds) {
-    proxyService.cancelBackgroundProxy(mediaId)
-  }
   fallbackGenerationBySource.clear()
   fallbackInflight.clear()
-  automaticProxyMediaIds.clear()
 }

@@ -107,15 +107,12 @@ export const PreviewPerfPanel = memo(function PreviewPerfPanel({
               active {snapshot.activePreseekWorkerPosts}/{snapshot.activePreseekRequests} cancel{' '}
               {snapshot.activePreseekCancellations} supersede {snapshot.activePreseekSuperseded}{' '}
               lookahead {snapshot.activePreseekLookaheadPosts} decoders{' '}
-              {snapshot.activePreseekExtractorCount}/{snapshot.activePreseekExtractorPeak}
-              {' '}ready {snapshot.activePreseekReadyNotifications}
+              {snapshot.activePreseekExtractorCount}/{snapshot.activePreseekExtractorPeak} ready{' '}
+              {snapshot.activePreseekReadyNotifications}
             </span>
           )}
           {snapshot.preseekCacheSourceEvictions > 0 && (
-            <span style={{ color: '#fbbf24' }}>
-              {' '}
-              evict {snapshot.preseekCacheSourceEvictions}
-            </span>
+            <span style={{ color: '#fbbf24' }}> evict {snapshot.preseekCacheSourceEvictions}</span>
           )}
           {snapshot.preseekWaitMatches > 0 && (
             <span>
@@ -129,15 +126,12 @@ export const PreviewPerfPanel = memo(function PreviewPerfPanel({
           {snapshot.preseekWaitTimeouts > 0 && (
             <span style={{ color: '#fbbf24' }}> {snapshot.preseekWaitTimeouts} timeout</span>
           )}
-          {(snapshot.scrubProxyFallbackRequests > 0 ||
-            snapshot.automaticScrubProxyRequests > 0) && (
+          {snapshot.scrubProxyFallbackRequests > 0 && (
             <span>
               {' '}
-              proxy fallback {snapshot.scrubProxyFallbackHits}/
-              {snapshot.scrubProxyFallbackRequests} cache {snapshot.scrubProxyFallbackBitmaps}
-              {' '}ready {snapshot.scrubProxyFallbackReady} exact{' '}
-              {snapshot.scrubProxyExactReplacements} auto{' '}
-              {snapshot.automaticScrubProxyReadyHits}/{snapshot.automaticScrubProxyRequests}
+              proxy fallback {snapshot.scrubProxyFallbackHits}/{snapshot.scrubProxyFallbackRequests}{' '}
+              cache {snapshot.scrubProxyFallbackBitmaps} ready {snapshot.scrubProxyFallbackReady}{' '}
+              exact {snapshot.scrubProxyExactReplacements}
             </span>
           )}
         </div>

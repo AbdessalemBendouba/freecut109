@@ -76,8 +76,6 @@ export interface DecoderPrewarmMetricsSnapshot {
   fallbackSourceEvictions: number
   fallbackReadyNotifications: number
   exactFallbackReplacements: number
-  automaticProxyRequests: number
-  automaticProxyReadyHits: number
 }
 
 interface PoolWorker {
@@ -178,8 +176,6 @@ const decoderPrewarmMetrics: DecoderPrewarmMetricsSnapshot = {
   fallbackSourceEvictions: 0,
   fallbackReadyNotifications: 0,
   exactFallbackReplacements: 0,
-  automaticProxyRequests: 0,
-  automaticProxyReadyHits: 0,
 }
 
 /** In-flight preseek promises keyed by source URL — lets the render engine await
@@ -432,9 +428,7 @@ function cachePredecodedBitmap(src: string, timestamp: number, bitmap: ImageBitm
   if (fallbackEntries) {
     const retained: CachedFallbackBitmapEntry[] = []
     for (const entry of fallbackEntries) {
-      if (
-        Math.abs(entry.timestamp - timestamp) <= PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS
-      ) {
+      if (Math.abs(entry.timestamp - timestamp) <= PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS) {
         entry.bitmap.close()
         decoderPrewarmMetrics.exactFallbackReplacements += 1
       } else {
@@ -528,11 +522,6 @@ export function getCachedActivePreviewFallbackBitmap(
   }
   if (best) decoderPrewarmMetrics.fallbackCacheHits += 1
   return best?.bitmap ?? null
-}
-
-export function noteAutomaticScrubProxyRequest(ready: boolean): void {
-  if (ready) decoderPrewarmMetrics.automaticProxyReadyHits += 1
-  else decoderPrewarmMetrics.automaticProxyRequests += 1
 }
 
 function addInflightPreseek(src: string, entry: InflightPreseek): void {
@@ -708,10 +697,7 @@ function settleActivePreviewRequest(
   request.resolve(bitmap)
 }
 
-function scheduleMissingActivePreviewLookahead(
-  src: string,
-  timestamps: number[],
-): void {
+function scheduleMissingActivePreviewLookahead(src: string, timestamps: number[]): void {
   const missing = timestamps.filter(
     (timestamp) =>
       !getCachedPredecodedBitmap(src, timestamp, PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS),
@@ -980,11 +966,7 @@ export function isActivePreviewFrameDecodeReady(frame: number): boolean {
   for (const [src, timestamps] of latestActivePreviewTimestampsBySrc) {
     for (const timestamp of timestamps) {
       if (
-        !getCachedPredecodedBitmap(
-          src,
-          timestamp,
-          PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS,
-        ) &&
+        !getCachedPredecodedBitmap(src, timestamp, PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS) &&
         !getCachedActivePreviewFallbackBitmap(
           src,
           timestamp,
@@ -1003,13 +985,7 @@ export function isActivePreviewFrameExactDecodeReady(frame: number): boolean {
   if (latestActivePreviewTimestampsBySrc.size === 0) return true
   for (const [src, timestamps] of latestActivePreviewTimestampsBySrc) {
     for (const timestamp of timestamps) {
-      if (
-        !getCachedPredecodedBitmap(
-          src,
-          timestamp,
-          PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS,
-        )
-      ) {
+      if (!getCachedPredecodedBitmap(src, timestamp, PRESEEK_REQUEST_REUSE_TOLERANCE_SECONDS)) {
         return false
       }
     }
@@ -1043,7 +1019,9 @@ export function isActivePreviewTargetSuperseded(
 ): boolean {
   if (!activePreviewScrubSession) return false
   const latestTimestamps = latestActivePreviewTimestampsBySrc.get(src)
-  return latestTimestamps !== undefined && !isActivePreviewSourceTarget(src, timestamp, toleranceSeconds)
+  return (
+    latestTimestamps !== undefined && !isActivePreviewSourceTarget(src, timestamp, toleranceSeconds)
+  )
 }
 
 export function backgroundPreseek(src: string, timestamp: number): Promise<ImageBitmap | null> {
