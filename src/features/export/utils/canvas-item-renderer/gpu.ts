@@ -31,7 +31,7 @@ import { getAnimatedTransform } from '../canvas-keyframes'
 import { combineEffects, getAdjustmentLayerEffects, getGpuEffectInstances } from '../canvas-effects'
 import {
   getItemRenderTimelineSpan,
-  getRenderTimelineSourceStart,
+  resolveCompositionSourceFrame,
   type RenderTimelineSpan,
 } from '../render-span'
 import {
@@ -819,8 +819,13 @@ async function renderGpuSubCompChildrenToTexture(
   const subAdjustmentLayers = subData?.adjustmentLayers ?? []
   if (!subData) return null
   const effectiveRenderSpan = participant.renderSpan ?? getItemRenderTimelineSpan(participant.item)
-  const sourceOffset = getRenderTimelineSourceStart(participant.item, effectiveRenderSpan)
-  const localFrame = frame - effectiveRenderSpan.from + sourceOffset
+  const localFrame = resolveCompositionSourceFrame(
+    participant.item,
+    frame,
+    rctx.fps,
+    subData.fps,
+    effectiveRenderSpan,
+  )
   if (localFrame < 0 || localFrame >= subData.durationInFrames) return null
 
   const activeMasks = getActiveSubCompMasks(

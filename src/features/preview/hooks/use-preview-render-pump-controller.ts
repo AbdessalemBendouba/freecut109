@@ -51,7 +51,7 @@ import {
   resolveScrubDirectionPlan,
   selectBoundaryPrewarmFrames,
   selectBoundarySourcePrewarmSources,
-  shouldDropStaleForcedPreviewRender,
+  shouldDropStalePausedPreviewRender,
   shouldPreservePausedTransportPresentation,
   shouldRejectBlankTransportHandoff,
   shouldRestoreCommittedPreviewSnapshot,
@@ -1020,8 +1020,7 @@ export function usePreviewRenderPump({
               pausedPlaybackLookaheadStartedMsRef.current = null
             }
             if (
-              shouldDropStaleForcedPreviewRender({
-                forceFastScrubOverlay,
+              shouldDropStalePausedPreviewRender({
                 renderedFrame: frameToRender,
                 currentFrame: playbackState.currentFrame,
                 previewFrame: playbackState.previewFrame,
@@ -1984,15 +1983,24 @@ export function usePreviewRenderPump({
 
       const isPausedInsideTransition = isPausedTransitionOverlayActive(state.currentFrame, state)
       const prevIsPausedInsideTransition = isPausedTransitionOverlayActive(prev.currentFrame, prev)
+      // Overlay cleanup may run in a sibling subscriber before this handler.
+      // The store transition is the stable signal that release needs an exact
+      // committed-frame render instead of the ordinary Player handoff.
+      const releasedScrubRenderFrame =
+        settlingReleasedScrubFrame !== null && prev.previewFrame !== settlingReleasedScrubFrame
+          ? settlingReleasedScrubFrame
+          : null
       const targetFrame = resolveRenderPumpTargetFrame({
         state,
         forceFastScrubOverlay,
         isPausedInsideTransition,
+        settlingReleasedScrubFrame: releasedScrubRenderFrame,
       })
       const prevTargetFrame = resolveRenderPumpTargetFrame({
         state: prev,
         forceFastScrubOverlay,
         isPausedInsideTransition: prevIsPausedInsideTransition,
+        settlingReleasedScrubFrame: null,
       })
       const playStateChanged = state.isPlaying !== prev.isPlaying
       const isAtomicScrubTarget = isAtomicPreviewTarget(state)
@@ -2032,7 +2040,7 @@ export function usePreviewRenderPump({
         state,
         prev,
         targetFrame,
-        prevTargetFrame,
+        prevTargetFrame: releasedScrubRenderFrame === null ? prevTargetFrame : null,
       })
       scrubDirectionRef.current = scrubDirectionPlan.direction
       previewPerfRef.current.scrubUpdates += scrubDirectionPlan.scrubUpdates

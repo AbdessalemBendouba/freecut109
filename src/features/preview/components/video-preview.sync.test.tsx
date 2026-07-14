@@ -573,7 +573,7 @@ function setSingleVideoItemAtFrame(item: Record<string, unknown>, frame = 24) {
   })
 }
 
-function setSingleCompoundItemWithGpuEffectAtFrame(frame = 24) {
+function setSingleCompoundItemWithGpuEffectAtFrame(frame = 24, includeGpuEffect = true) {
   const nestedTrack = {
     id: 'sub-track-video',
     name: 'Video',
@@ -606,17 +606,21 @@ function setSingleCompoundItemWithGpuEffectAtFrame(frame = 24) {
           from: 0,
           durationInFrames: 120,
           src: 'blob:nested-gpu-video',
-          effects: [
-            {
-              id: 'nested-effect',
-              enabled: true,
-              effect: {
-                type: 'gpu-effect',
-                gpuEffectType: 'gpu-sepia',
-                params: { amount: 0.5 },
-              },
-            },
-          ],
+          ...(includeGpuEffect
+            ? {
+                effects: [
+                  {
+                    id: 'nested-effect',
+                    enabled: true,
+                    effect: {
+                      type: 'gpu-effect',
+                      gpuEffectType: 'gpu-sepia',
+                      params: { amount: 0.5 },
+                    },
+                  },
+                ],
+              }
+            : {}),
         } as unknown as TimelineItem,
       ],
     },
@@ -2875,6 +2879,41 @@ describe('VideoPreview sync behavior', () => {
       expect(getDisplayedFrame()).toBe(47)
       expect(scrubCanvas.style.visibility).toBe('visible')
     })
+  })
+
+  it('renders the committed frame after repeatedly leaving an ordinary compound ruler hover', async () => {
+    setSingleCompoundItemWithGpuEffectAtFrame(47, false)
+    const { container } = renderDefaultPreview()
+    const scrubCanvas = getScrubCanvas(container)
+    const renderer = await waitFor(() => {
+      expect(createCompositionRendererMock).toHaveBeenCalledTimes(1)
+      return rendererMockState.instances[0]!
+    })
+
+    for (const [index, hoverFrame] of [48, 49, 46].entries()) {
+      renderer.renderFrame.mockClear()
+      act(() => {
+        usePlaybackStore.getState().setPreviewFrame(hoverFrame)
+      })
+      await waitFor(() => {
+        expect(renderer.renderFrame).toHaveBeenCalledWith(hoverFrame)
+        expect(getDisplayedFrame()).toBe(hoverFrame)
+        expect(scrubCanvas.style.visibility).toBe('visible')
+      })
+
+      renderer.renderFrame.mockClear()
+      act(() => {
+        usePlaybackStore.getState().setPreviewFrame(null)
+      })
+
+      await waitFor(() => {
+        if (index === 0) {
+          expect(renderer.renderFrame).toHaveBeenCalledWith(47)
+        }
+        expect(getDisplayedFrame()).toBe(47)
+        expect(scrubCanvas.style.visibility).toBe('visible')
+      })
+    }
   })
 
   it('restores the committed compound frame immediately when leaving a black skim frame', async () => {

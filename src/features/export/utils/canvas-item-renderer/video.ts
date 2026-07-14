@@ -243,6 +243,9 @@ export async function renderVideoItem(
       : rawSourceTime
   const tier2ToleranceSeconds = getTier2VideoFrameToleranceSeconds(sourceFps)
   const previewRootFrame = rctx.previewRootTimelineFrame ?? frame
+  const holdPreviewFrontBuffer = () => {
+    if (isPreviewMode) rctx.markActivePreviewFramePending?.()
+  }
   if (rctx.isActivePreviewFrameSuperseded?.(previewRootFrame)) {
     return
   }
@@ -374,6 +377,7 @@ export async function renderVideoItem(
     mediabunnyReadyPromise = rctx.ensureVideoItemReady(item.id)
     if (mediabunnyInitAction === 'warm-background-and-skip') {
       void mediabunnyReadyPromise
+      holdPreviewFrontBuffer()
       return
     }
     // A cold main-thread MediaBunny init can take hundreds of milliseconds.
@@ -465,21 +469,25 @@ export async function renderVideoItem(
       // while rapid Play/Pause seeks it. This happens on both pause and resume;
       // the element is still the authoritative source, so committing the
       // freshly-cleared composition canvas would replace the front buffer with black.
-      rctx.markActivePreviewFramePending?.()
+      holdPreviewFrontBuffer()
       return
     }
-    if (
+    const isPendingOrSupersededSource =
       pendingWorkerSource &&
-      rctx.isActivePreviewSourceTarget?.(
-        pendingWorkerSource,
-        sourceTime,
-        tier2ToleranceSeconds,
-      )
-    ) {
-      // The nested proxy target is scheduled but not drawable yet. Abort the
-      // composition render so the existing preview remains visible instead of
-      // presenting the compound's freshly-cleared offscreen canvas as black.
-      rctx.markActivePreviewFramePending?.()
+      (rctx.isActivePreviewSourceTarget?.(
+          pendingWorkerSource,
+          sourceTime,
+          tier2ToleranceSeconds,
+        ) ||
+        rctx.isActivePreviewTargetSuperseded?.(
+          pendingWorkerSource,
+          sourceTime,
+          tier2ToleranceSeconds,
+        ))
+    if (isPendingOrSupersededSource) {
+      // A source-only cancellation can race the root-frame target on ruler
+      // exit. Treat it as pending so the cleared composition never commits.
+      holdPreviewFrontBuffer()
     }
     return
   }
@@ -511,19 +519,23 @@ export async function renderVideoItem(
 
   const resolvedWorkerSource =
     rctx.getResolvedVideoSource?.(item, sourceTime, tier2ToleranceSeconds) ?? item.src
-  if (
-    rctx.isActivePreviewFrameSuperseded?.(previewRootFrame) ||
-    (resolvedWorkerSource &&
+  const rootFrameSuperseded = rctx.isActivePreviewFrameSuperseded?.(previewRootFrame) === true
+  const sourceTargetSuperseded = Boolean(
+    resolvedWorkerSource &&
       rctx.isActivePreviewTargetSuperseded?.(
         resolvedWorkerSource,
         sourceTime,
         tier2ToleranceSeconds,
-      ))
-  ) {
+      ),
+  )
+  if (rootFrameSuperseded || sourceTargetSuperseded) {
     // The pointer has already moved and the active worker cancelled this exact
     // frame. Do not replace that cancellation with a blocking main-thread
     // MediaBunny seek; the render pump will immediately pick up the latest
     // target and stale-frame presentation guards keep this canvas hidden.
+    if (!rootFrameSuperseded && sourceTargetSuperseded) {
+      holdPreviewFrontBuffer()
+    }
     return
   }
 
@@ -754,12 +766,14 @@ export async function renderVideoItem(
     mediabunnyFailedThisFrame,
   })
   if (!allowVideoElementFallback && !allowPreviewFallback) {
+    holdPreviewFrontBuffer()
     return
   }
 
   const video = videoElements.get(item.id)
   if (!video) {
     log.warn('Video element not found', { itemId: item.id, frame })
+    holdPreviewFrontBuffer()
     return
   }
 
@@ -790,7 +804,10 @@ export async function renderVideoItem(
 
   // Wait for video to have enough data to draw
   if (video.readyState < 2) {
-    if (isPreviewMode) return
+    if (isPreviewMode) {
+      holdPreviewFrontBuffer()
+      return
+    }
 
     await new Promise<void>((resolve) => {
       const checkReady = () => {

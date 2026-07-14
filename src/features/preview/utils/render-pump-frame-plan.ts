@@ -29,6 +29,7 @@ interface ResolveRenderPumpTargetFrameParams {
   state: RenderPumpFrameState
   forceFastScrubOverlay: boolean
   isPausedInsideTransition: boolean
+  settlingReleasedScrubFrame?: number | null
 }
 
 interface ResolveActivePreviewPresentationTargetParams {
@@ -56,8 +57,7 @@ interface ShouldPreservePausedTransportPresentationParams {
   isPlaying: boolean
 }
 
-interface ShouldDropStaleForcedPreviewRenderParams {
-  forceFastScrubOverlay: boolean
+interface ShouldDropStalePausedPreviewRenderParams {
   renderedFrame: number
   currentFrame: number
   previewFrame: number | null
@@ -134,17 +134,16 @@ export function shouldPreservePausedTransportPresentation({
   )
 }
 
-/** Compound/forced-overlay renders are serialized, but a hover target can be
- * superseded while its render is in flight. Only the latest paused target may
- * take ownership of the shared offscreen canvas. */
-export function shouldDropStaleForcedPreviewRender({
-  forceFastScrubOverlay,
+/** A hover target can be superseded while its render is in flight. Only the
+ * latest paused target may take ownership of the shared offscreen canvas,
+ * regardless of whether the workspace normally forces the overlay. */
+export function shouldDropStalePausedPreviewRender({
   renderedFrame,
   currentFrame,
   previewFrame,
   isPlaying,
-}: ShouldDropStaleForcedPreviewRenderParams): boolean {
-  if (!forceFastScrubOverlay || isPlaying) return false
+}: ShouldDropStalePausedPreviewRenderParams): boolean {
+  if (isPlaying) return false
   return renderedFrame !== (previewFrame ?? currentFrame)
 }
 
@@ -203,9 +202,11 @@ export function resolveRenderPumpTargetFrame({
   state,
   forceFastScrubOverlay,
   isPausedInsideTransition,
+  settlingReleasedScrubFrame = null,
 }: ResolveRenderPumpTargetFrameParams): number | null {
   return (
     state.previewFrame ??
+    settlingReleasedScrubFrame ??
     (forceFastScrubOverlay || isPausedInsideTransition ? state.currentFrame : null)
   )
 }

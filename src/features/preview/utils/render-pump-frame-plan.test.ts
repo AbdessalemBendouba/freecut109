@@ -10,7 +10,7 @@ import {
   resolveScrubDirectionPlan,
   selectBoundaryPrewarmFrames,
   selectBoundarySourcePrewarmSources,
-  shouldDropStaleForcedPreviewRender,
+  shouldDropStalePausedPreviewRender,
   shouldPreservePausedTransportPresentation,
   shouldRejectBlankTransportHandoff,
   shouldRestoreCommittedPreviewSnapshot,
@@ -54,10 +54,9 @@ describe('render pump frame plan', () => {
     ).toBe(false)
   })
 
-  it('drops superseded compound hover renders after the ruler target changes or clears', () => {
+  it('drops superseded hover renders after the ruler target changes or clears', () => {
     expect(
-      shouldDropStaleForcedPreviewRender({
-        forceFastScrubOverlay: true,
+      shouldDropStalePausedPreviewRender({
         renderedFrame: 120,
         currentFrame: 100,
         previewFrame: null,
@@ -65,8 +64,7 @@ describe('render pump frame plan', () => {
       }),
     ).toBe(true)
     expect(
-      shouldDropStaleForcedPreviewRender({
-        forceFastScrubOverlay: true,
+      shouldDropStalePausedPreviewRender({
         renderedFrame: 120,
         currentFrame: 100,
         previewFrame: 121,
@@ -74,8 +72,7 @@ describe('render pump frame plan', () => {
       }),
     ).toBe(true)
     expect(
-      shouldDropStaleForcedPreviewRender({
-        forceFastScrubOverlay: true,
+      shouldDropStalePausedPreviewRender({
         renderedFrame: 121,
         currentFrame: 100,
         previewFrame: 121,
@@ -210,6 +207,17 @@ describe('render pump frame plan', () => {
     })
 
     expect(target).toBe(124)
+  })
+
+  it('routes an ordinary ruler release back through the exact current-frame renderer', () => {
+    const target = resolveRenderPumpTargetFrame({
+      state: makeState({ previewFrame: null, currentFrame: 142 }),
+      forceFastScrubOverlay: false,
+      isPausedInsideTransition: false,
+      settlingReleasedScrubFrame: 142,
+    })
+
+    expect(target).toBe(142)
   })
 
   it('uses current frame when overlay is forced', () => {

@@ -222,6 +222,35 @@ describe('renderVideoItem', () => {
     expect(drawFrame).not.toHaveBeenCalled()
   })
 
+  it('holds the front buffer when only the nested source target is superseded', async () => {
+    const drawFrame = vi.fn(async () => true)
+    const extractor = {
+      drawFrame,
+      drawFrameWithCapture: vi.fn(),
+      getLastFailureKind: vi.fn(() => 'none' as const),
+      getDimensions: vi.fn(() => ({ width: 1920, height: 1080 })),
+      getDuration: vi.fn(() => 30),
+    }
+    const markActivePreviewFramePending = vi.fn()
+    const renderContext = createRenderContext({
+      videoExtractors: new Map([[item.id, extractor]]),
+      useMediabunny: new Set([item.id]),
+      getCachedPredecodedBitmap: vi.fn(() => null),
+      waitForInflightPredecodedBitmap: vi.fn(async () => null),
+      getResolvedVideoSource: vi.fn(() => 'blob:nested-source'),
+      isActivePreviewFrameCurrent: vi.fn(() => false),
+      isActivePreviewFrameSuperseded: vi.fn(() => false),
+      isActivePreviewTargetSuperseded: vi.fn(() => true),
+      markActivePreviewFramePending,
+      workerPredecodeWaitMs: 0,
+    } as unknown as Partial<ItemRenderContext>)
+
+    await renderVideoItem(createCanvasContext(), item, transform, 12, renderContext)
+
+    expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
+    expect(drawFrame).not.toHaveBeenCalled()
+  })
+
   it('holds the previous preview until the exact active worker frame is ready', async () => {
     const drawFrame = vi.fn(async () => true)
     const extractor = {
@@ -302,6 +331,25 @@ describe('renderVideoItem', () => {
       isActivePreviewFrameCurrent: vi.fn(() => true),
       isActivePreviewFrameSuperseded: vi.fn(() => false),
       isActivePreviewSourceTarget: vi.fn(() => true),
+      markActivePreviewFramePending,
+    })
+
+    await renderVideoItem(createCanvasContext(), item, transform, 12, renderContext)
+
+    expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
+  })
+
+  it('holds the front buffer when a cold nested source target was replaced on ruler exit', async () => {
+    const markActivePreviewFramePending = vi.fn()
+    const renderContext = createRenderContext({
+      getCachedPredecodedBitmap: vi.fn(() => null),
+      getCachedActivePreviewFallbackBitmap: vi.fn(() => null),
+      getResolvedVideoSource: vi.fn(() => 'blob:compound-proxy'),
+      waitForInflightPredecodedBitmap: vi.fn(async () => null),
+      isActivePreviewFrameCurrent: vi.fn(() => false),
+      isActivePreviewFrameSuperseded: vi.fn(() => false),
+      isActivePreviewSourceTarget: vi.fn(() => false),
+      isActivePreviewTargetSuperseded: vi.fn(() => true),
       markActivePreviewFramePending,
     })
 
