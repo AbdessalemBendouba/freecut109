@@ -61,6 +61,7 @@ const overlayProps = {
 
 describe('PowerWindowOverlayContainer', () => {
   beforeEach(() => {
+    mocks.selectionState.selectedItemIds = ['clip-1']
     usePowerWindowEditorStore.getState().stopEditing()
     useGizmoStore.getState().clearPreview()
   })
@@ -108,5 +109,21 @@ describe('PowerWindowOverlayContainer', () => {
     expect(screen.queryByTestId('power-window-overlay')).not.toBeInTheDocument()
     expect(usePowerWindowEditorStore.getState().isEditing).toBe(false)
     expect(useGizmoStore.getState().preview).toBeNull()
+  })
+
+  it('shows the video window when timeline selection also contains linked audio', () => {
+    mocks.selectionState.selectedItemIds = ['clip-1', 'linked-audio-1']
+    render(<PowerWindowOverlayContainer {...overlayProps} />)
+
+    act(() => {
+      usePowerWindowEditorStore.getState().startEditing('clip-1', 'window-1')
+    })
+
+    expect(screen.getByTestId('power-window-overlay')).toBeInTheDocument()
+    expect(usePowerWindowEditorStore.getState()).toMatchObject({
+      isEditing: true,
+      editingItemId: 'clip-1',
+      editingEffectId: 'window-1',
+    })
   })
 })

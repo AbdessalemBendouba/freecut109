@@ -69,14 +69,14 @@ export const PowerWindowOverlayContainer = memo(function PowerWindowOverlayConta
   const stopEditing = usePowerWindowEditorStore((s) => s.stopEditing)
   const clearPreviewForItems = useGizmoStore((s) => s.clearPreviewForItems)
 
-  const selectedItem = useMemo(() => {
-    if (selectedItemIds.length !== 1) return null
-    return items.find((item) => item.id === selectedItemIds[0]) ?? null
-  }, [items, selectedItemIds])
+  const editingItem = useMemo(() => {
+    if (!isEditing || !editingItemId || !selectedItemIds.includes(editingItemId)) return null
+    return items.find((item) => item.id === editingItemId) ?? null
+  }, [editingItemId, isEditing, items, selectedItemIds])
 
   const effect =
-    selectedItem && isEditing && selectedItem.id === editingItemId && editingEffectId !== null
-      ? findPowerWindowEffect(selectedItem, editingEffectId)
+    editingItem && editingEffectId !== null
+      ? findPowerWindowEffect(editingItem, editingEffectId)
       : null
   const coordParams = useMemo((): CoordinateParams | null => {
     if (!containerRect) return null
@@ -84,11 +84,11 @@ export const PowerWindowOverlayContainer = memo(function PowerWindowOverlayConta
   }, [containerRect, playerSize, projectSize, zoom])
   useEffect(() => {
     if (!isEditing) return
-    if (!selectedItem || selectedItem.id !== editingItemId || !effect) {
+    if (!editingItem || !effect) {
       if (editingItemId) clearPreviewForItems([editingItemId])
       stopEditing()
     }
-  }, [clearPreviewForItems, editingItemId, effect, isEditing, selectedItem, stopEditing])
+  }, [clearPreviewForItems, editingItem, editingItemId, effect, isEditing, stopEditing])
 
   useEffect(() => {
     if (!isEditing) return
@@ -102,13 +102,13 @@ export const PowerWindowOverlayContainer = memo(function PowerWindowOverlayConta
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [clearPreviewForItems, editingItemId, isEditing, stopEditing])
 
-  if (!coordParams || !selectedItem || !effect) return null
+  if (!coordParams || !editingItem || !effect) return null
 
   return (
     <PowerWindowOverlay
       coordParams={coordParams}
       effect={effect}
-      item={selectedItem}
+      item={editingItem}
       playerSize={playerSize}
     />
   )
