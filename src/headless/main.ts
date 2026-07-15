@@ -465,16 +465,28 @@ async function normalizeProjectForHeadless(raw: unknown): Promise<Project> {
 async function probeMedia(input: { url: string; fileName: string; mimeType?: string }) {
   const response = await fetch(input.url)
   if (!response.ok) throw new Error(`Media fetch failed: HTTP ${response.status}`)
-  const blob = await response.blob()
-  const file = new File([blob], input.fileName, { type: input.mimeType || blob.type })
-  const validation = await validateMediaFileContent(file)
-  if (!validation.valid) throw new Error(validation.error ?? 'Media validation failed')
-  const mimeType = getMimeType(file)
-  const { metadata } = await mediaProcessorService.processMedia(file, mimeType, {
-    generateThumbnail: false,
-    fastMetadata: true,
-  })
-  return { mimeType, metadata }
+  if (!response.body || typeof navigator.storage?.getDirectory !== 'function') {
+    throw new Error('Streaming media probe requires OPFS and a readable response body')
+  }
+  const root = await navigator.storage.getDirectory()
+  const safeName = input.fileName.replace(/[^A-Za-z0-9._-]/g, '_').slice(-160) || 'source.bin'
+  const tempName = `.freecut-probe-${crypto.randomUUID()}-${safeName}`
+  try {
+    const handle = await root.getFileHandle(tempName, { create: true })
+    const writable = await handle.createWritable()
+    await response.body.pipeTo(writable)
+    const file = await handle.getFile()
+    const validation = await validateMediaFileContent(file)
+    if (!validation.valid) throw new Error(validation.error ?? 'Media validation failed')
+    const mimeType = input.mimeType || getMimeType(file)
+    const { metadata } = await mediaProcessorService.processMedia(file, mimeType, {
+      generateThumbnail: false,
+      fastMetadata: true,
+    })
+    return { mimeType, metadata }
+  } finally {
+    await root.removeEntry(tempName).catch(() => {})
+  }
 }
 
 declare global {

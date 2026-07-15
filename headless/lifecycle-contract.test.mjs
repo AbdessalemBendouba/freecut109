@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   capabilities,
   lifecycleEditRequestSchema,
+  mediaProbeRequestSchema,
   projectCreateRequestSchema,
   projectSaveRequestSchema,
 } from './lib/contract.mjs'
@@ -12,8 +13,33 @@ test('lifecycle project requests are strict and revision guarded', () => {
     projectCreateRequestSchema.safeParse({ name: 'Demo', surprise: true }).success,
     false,
   )
-  assert.equal(projectSaveRequestSchema.safeParse({ project: {}, force: true }).success, true)
+  const project = {
+    id: 'demo',
+    name: 'Demo',
+    description: '',
+    createdAt: 1,
+    updatedAt: 1,
+    duration: 0,
+    schemaVersion: 14,
+    metadata: { width: 1920, height: 1080, fps: 30 },
+  }
+  assert.equal(projectSaveRequestSchema.safeParse({ project, force: true }).success, true)
+  assert.equal(projectSaveRequestSchema.safeParse({ project: {}, force: true }).success, false)
+  assert.equal(
+    projectSaveRequestSchema.safeParse({
+      project: { ...project, rootFolderHandle: {} },
+      force: true,
+    }).success,
+    false,
+  )
+  assert.equal(
+    projectSaveRequestSchema.safeParse({ project: { ...project, surprise: true }, force: true })
+      .success,
+    false,
+  )
   assert.equal(projectSaveRequestSchema.safeParse({ project: {} }).success, false)
+  assert.equal(mediaProbeRequestSchema.safeParse({ persist: true }).success, false)
+  assert.equal(mediaProbeRequestSchema.safeParse({ persist: true, force: true }).success, true)
 })
 
 test('lifecycle edits require unique caller ids and accept id references', () => {

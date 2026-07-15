@@ -308,9 +308,43 @@ export const projectCreateRequestSchema = z
   })
   .strict()
 
+const lifecycleTimelineSchema = z
+  .object({
+    tracks: z.array(z.unknown()),
+    items: z.array(z.unknown()),
+  })
+  .passthrough()
+
+export const lifecycleProjectSchema = z
+  .object({
+    id: portableIdSchema,
+    name: z.string().min(1).max(100),
+    description: z.string().max(500),
+    createdAt: z.number().int().nonnegative(),
+    updatedAt: z.number().int().nonnegative(),
+    duration: z.number().finite().nonnegative(),
+    schemaVersion: z.number().int().positive().optional(),
+    thumbnail: z.string().optional(),
+    thumbnailId: z.string().optional(),
+    rootFolderName: z.string().optional(),
+    metadata: z
+      .object({
+        width: z.number().int().min(320).max(7680),
+        height: z.number().int().min(240).max(4320),
+        fps: z.number().int().min(1).max(240),
+        backgroundColor: z
+          .string()
+          .regex(/^#[0-9A-Fa-f]{6}$/)
+          .optional(),
+      })
+      .strict(),
+    timeline: lifecycleTimelineSchema.optional(),
+  })
+  .strict()
+
 export const projectSaveRequestSchema = z
   .object({
-    project: projectObject,
+    project: lifecycleProjectSchema,
     expectedRevision: revisionSchema.optional(),
     force: z.boolean().optional(),
   })
@@ -443,6 +477,10 @@ export const mediaProbeRequestSchema = z
     force: z.boolean().optional(),
   })
   .strict()
+  .refine((value) => !value.persist || Boolean(value.expectedRevision) || value.force === true, {
+    message: 'expectedRevision is required for persisted probes unless force is true',
+    path: ['expectedRevision'],
+  })
 
 export const RENDER_OPTIONS = {
   codecs: ['h264', 'h265', 'vp9', 'vp8', 'av1'],

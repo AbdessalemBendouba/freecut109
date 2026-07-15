@@ -159,7 +159,15 @@ async function main() {
   }
 
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freecut-headless-regression-'))
-  const server = await createHarnessServer({ distDir })
+  const probeSource = path.join(tempDir, 'probe.svg')
+  fs.writeFileSync(
+    probeSource,
+    '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="3"><rect width="2" height="3"/></svg>',
+  )
+  const server = await createHarnessServer({
+    distDir,
+    resolveMedia: (id) => (id === 'probe-source' ? probeSource : null),
+  })
   const browser = await chromium.launch({
     channel: 'chrome',
     headless: true,
@@ -175,6 +183,36 @@ async function main() {
 
     await page.goto(server.harnessUrl, { waitUntil: 'load', timeout: 60_000 })
     await page.waitForFunction(() => Boolean(window.freecut?.ready), { timeout: 30_000 })
+
+    const probeContract = await page.evaluate(async (url) => {
+      const originalBlob = Response.prototype.blob
+      let blobCalled = false
+      Response.prototype.blob = async function () {
+        blobCalled = true
+        throw new Error('response.blob must not be used')
+      }
+      try {
+        const probe = await window.freecut.probeMedia({
+          url,
+          fileName: 'probe.svg',
+          mimeType: 'image/svg+xml',
+        })
+        const root = await navigator.storage.getDirectory()
+        const leftovers = []
+        for await (const name of root.keys()) {
+          if (name.startsWith('.freecut-probe-')) leftovers.push(name)
+        }
+        return { blobCalled, leftovers, mimeType: probe.mimeType }
+      } finally {
+        Response.prototype.blob = originalBlob
+      }
+    }, server.mediaUrl('probe-source'))
+    check('media probe streams without response.blob', probeContract.blobCalled === false)
+    check('media probe removes its OPFS temporary file', probeContract.leftovers.length === 0)
+    check(
+      'streaming media probe keeps authoritative MIME',
+      probeContract.mimeType === 'image/svg+xml',
+    )
 
     // --- Render path ---
     console.log('\nRender:')

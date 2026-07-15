@@ -74,9 +74,26 @@ test('exclusive writer lock refuses a second writer', async (t) => {
     () => acquireWriterLock(root),
     (error) => error.code === 'WORKSPACE_LOCKED',
   )
+  await assert.rejects(
+    () => acquireWriterLock(root, { breakLock: true }),
+    (error) => error.code === 'WORKSPACE_LOCKED',
+  )
   await release()
   const releaseAgain = await acquireWriterLock(root)
   await releaseAgain()
+})
+
+test('writer lock automatically recovers an old lock with a confirmed-dead local PID', async (t) => {
+  const root = tempWorkspace()
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }))
+  const lockDir = path.join(root, '.freecut-headless')
+  fs.mkdirSync(lockDir, { recursive: true })
+  fs.writeFileSync(
+    path.join(lockDir, 'writer.lock'),
+    JSON.stringify({ pid: 2_147_483_647, token: 'stale', createdAt: 0 }),
+  )
+  const release = await acquireWriterLock(root, { staleGraceMs: 1 })
+  await release()
 })
 
 test('media staging streams supported files and rejects traversal ids', async (t) => {

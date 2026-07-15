@@ -87,6 +87,8 @@ async function withBrowser(workspace, args, operation) {
 }
 
 async function withWriter(workspace, args, operation) {
+  if (args['break-lock'])
+    console.error('Attempting explicit recovery of a confirmed-dead workspace writer lock')
   const release = await acquireWriterLock(workspace, { breakLock: Boolean(args['break-lock']) })
   try {
     await assertAtomicReplace(workspace)
