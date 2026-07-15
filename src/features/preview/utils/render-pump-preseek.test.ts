@@ -72,6 +72,37 @@ describe('render pump preseek helpers', () => {
     expect(getVideoItemSourceTimeSeconds(item, 16, 30)).toBeCloseTo(2.4)
   })
 
+  it('computes descending source time for a reversed clip', () => {
+    const item = makeVideoItem({
+      from: 10,
+      durationInFrames: 30,
+      sourceStart: 120,
+      sourceEnd: 180,
+      sourceFps: 60,
+      speed: 1,
+      isReversed: true,
+    })
+
+    expect(getVideoItemSourceTimeSeconds(item, 10, 30)).toBeCloseTo(179 / 60)
+    expect(getVideoItemSourceTimeSeconds(item, 11, 30)).toBeCloseTo(177 / 60)
+    expect(getVideoItemSourceTimeSeconds(item, 39, 30)).toBeCloseTo(121 / 60)
+  })
+
+  it('derives the reverse endpoint when sourceEnd is absent', () => {
+    const item = makeVideoItem({
+      from: 10,
+      durationInFrames: 15,
+      sourceStart: 120,
+      sourceEnd: undefined,
+      sourceFps: 60,
+      speed: 2,
+      isReversed: true,
+    })
+
+    expect(getVideoItemSourceTimeSeconds(item, 10, 30)).toBeCloseTo(179 / 60)
+    expect(getVideoItemSourceTimeSeconds(item, 11, 30)).toBeCloseTo(175 / 60)
+  })
+
   it('requires explicit source fps when requested', () => {
     const item = makeVideoItem({ sourceFps: undefined })
 

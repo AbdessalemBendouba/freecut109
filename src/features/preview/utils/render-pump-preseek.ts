@@ -81,12 +81,20 @@ export function getVideoItemSourceTimeSeconds(
     return null
   }
 
+  const sourceStart = item.sourceStart ?? item.trimStart ?? 0
+  const speed = item.speed ?? 1
+  const reverseSourceEnd =
+    item.sourceEnd ?? sourceStart + (item.durationInFrames * speed * sourceFps) / timelineFps
+
   return getVideoTargetTimeSeconds(
-    item.sourceStart ?? item.trimStart ?? 0,
+    sourceStart,
     sourceFps,
     localFrame,
-    item.speed ?? 1,
+    speed,
     timelineFps,
+    0,
+    item.isReversed === true,
+    reverseSourceEnd,
   )
 }
 
