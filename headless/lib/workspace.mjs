@@ -3,6 +3,7 @@
 // files on disk, mirroring workspace-fs's `media/{id}/{filename}` layout.
 import fs from 'node:fs'
 import path from 'node:path'
+import { assertSinglePathComponent, HttpError, resolveContained } from './http-security.mjs'
 
 // Files in media/{id}/ that are NOT the source blob (mirrors
 // NON_SOURCE_NAMES in workspace-fs/media-source.ts).
@@ -16,19 +17,31 @@ const NON_SOURCE_NAMES = new Set([
 
 const MEDIA_ITEM_TYPES = new Set(['video', 'audio', 'image'])
 
-/** Load + parse a project. Accepts a project id (under the workspace) or a direct project.json path. */
-export function loadProject(workspaceDir, projectIdOrFile) {
-  let projectJsonPath
-  if (projectIdOrFile.endsWith('.json')) {
-    projectJsonPath = path.resolve(projectIdOrFile)
-  } else {
-    projectJsonPath = path.join(workspaceDir, 'projects', projectIdOrFile, 'project.json')
-  }
+function readProject(projectJsonPath) {
   if (!fs.existsSync(projectJsonPath)) {
     throw new Error(`Project file not found: ${projectJsonPath}`)
   }
   const project = JSON.parse(fs.readFileSync(projectJsonPath, 'utf8'))
   return { project, projectJsonPath }
+}
+
+/** CLI-only direct file loader. Direct paths must never be accepted by the HTTP service. */
+export function loadProjectFile(projectFile) {
+  return readProject(path.resolve(projectFile))
+}
+
+/** Workspace-scoped loader for HTTP/API project ids. */
+export function loadProjectById(workspaceDir, projectId) {
+  assertSinglePathComponent(projectId, 'project id')
+  const projectsDir = path.join(workspaceDir, 'projects')
+  const projectJsonPath = resolveContained(projectsDir, path.join(projectId, 'project.json'))
+  if (!fs.existsSync(projectJsonPath)) throw new HttpError(404, 'PROJECT_NOT_FOUND', 'Project not found')
+  return readProject(projectJsonPath)
+}
+
+/** Backward-compatible CLI loader: id under workspace or an explicit JSON file. */
+export function loadProject(workspaceDir, projectIdOrFile) {
+  return projectIdOrFile.endsWith('.json') ? loadProjectFile(projectIdOrFile) : loadProjectById(workspaceDir, projectIdOrFile)
 }
 
 /** List projects using the actionable directory name as id; projectId is the JSON's internal id. */
@@ -99,7 +112,8 @@ export function collectMediaIds(project, range = null) {
 
 /** Read a media's MediaMetadata (media/{id}/metadata.json), or null if absent/unreadable. */
 export function readMediaMetadata(workspaceDir, mediaId) {
-  const metaPath = path.join(workspaceDir, 'media', mediaId, 'metadata.json')
+  assertSinglePathComponent(mediaId, 'media id')
+  const metaPath = resolveContained(path.join(workspaceDir, 'media'), path.join(mediaId, 'metadata.json'))
   if (!fs.existsSync(metaPath)) return null
   try {
     return JSON.parse(fs.readFileSync(metaPath, 'utf8'))
@@ -116,12 +130,14 @@ export function collectAddClipMedia(workspaceDir, ops) {
 
 /** Resolve a media id to its source file path under media/{id}/ (first non-reserved file). */
 export function resolveMediaFile(workspaceDir, mediaId) {
-  const mediaDir = path.join(workspaceDir, 'media', mediaId)
+  assertSinglePathComponent(mediaId, 'media id')
+  const mediaRoot = path.join(workspaceDir, 'media')
+  const mediaDir = resolveContained(mediaRoot, mediaId)
   if (!fs.existsSync(mediaDir)) return null
   for (const entry of fs.readdirSync(mediaDir, { withFileTypes: true })) {
     if (!entry.isFile()) continue
     if (NON_SOURCE_NAMES.has(entry.name)) continue
-    return path.join(mediaDir, entry.name)
+    return resolveContained(mediaRoot, path.join(mediaId, entry.name))
   }
   return null
 }

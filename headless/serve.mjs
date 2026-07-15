@@ -24,11 +24,12 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { loadProject, listProjects, collectAddClipMedia } from './lib/workspace.mjs'
+import { loadProjectById, listProjects, collectAddClipMedia } from './lib/workspace.mjs'
 import { parseArgs, chromeLaunchArgs } from './lib/cli.mjs'
 import { prepareJob, renderJob, startHarness, warningsHeaderValue } from './lib/render-core.mjs'
 import { OperationQueue, OperationQueueError } from './lib/operation-queue.mjs'
 import { PageSession, probeGpu } from './lib/page-session.mjs'
+import { assertSinglePathComponent, HttpError, readJsonBody, setHttpTimeouts } from './lib/http-security.mjs'
 import {
   HEADLESS_API_VERSION,
   ContractValidationError,
@@ -56,24 +57,6 @@ export function resolveHost(args = {}, env = process.env) {
     throw new Error('Host must be a non-empty string (--host or FREECUT_HOST)')
   }
   return host.trim()
-}
-
-function readJsonBody(req) {
-  return new Promise((resolve, reject) => {
-    let data = ''
-    req.on('data', (chunk) => {
-      data += chunk
-      if (data.length > 64 * 1024 * 1024) reject(new Error('Request body too large'))
-    })
-    req.on('end', () => {
-      try {
-        resolve(data ? JSON.parse(data) : {})
-      } catch (e) {
-        reject(new Error(`Invalid JSON body: ${e.message}`))
-      }
-    })
-    req.on('error', reject)
-  })
 }
 
 function sendJson(res, status, obj) {
@@ -161,6 +144,7 @@ async function main() {
 
   const handleRender = async (req, res) => {
     const body = validate(renderRequestSchema, await readJsonBody(req))
+    if (body.project) assertSinglePathComponent(body.project, 'project id')
     const outPath = path.join(tmpDir, `render-${process.pid}-${++counter}.out`)
     const job = prepareJob(workspace, { ...body, out: outPath }, mediaUrlOf)
 
@@ -191,7 +175,8 @@ async function main() {
 
   const handleEdit = async (req, res) => {
     const body = validate(editRequestSchema, await readJsonBody(req))
-    const project = body.projectObject ?? loadProject(workspace, body.project).project
+    if (body.project) assertSinglePathComponent(body.project, 'project id')
+    const project = body.projectObject ?? loadProjectById(workspace, body.project).project
     const ops = body.ops
     const media = collectAddClipMedia(workspace, ops)
     const result = await queue.enqueue(
@@ -225,13 +210,24 @@ async function main() {
     handler().catch((e) => {
       console.error(`${route} failed:`, e.message ?? e)
       if (!res.headersSent) {
-        const validation = e instanceof ContractValidationError || String(e.message).startsWith('Invalid JSON body:')
+        const validation = e instanceof ContractValidationError
         const missingMedia = e.code === 'MISSING_MEDIA'
-        const status = validation ? 400 : missingMedia ? 422 : e instanceof OperationQueueError ? e.statusCode : 500
+        const status = validation
+          ? 400
+          : missingMedia
+            ? 422
+            : e instanceof OperationQueueError || e instanceof HttpError
+              ? e.statusCode
+              : 500
+        if (status === 413 || status === 408) res.setHeader('Connection', 'close')
+        if (status === 413 || status === 408) res.once('finish', () => req.destroy())
         sendJson(res, status, {
           error: {
             code: validation ? (e.code ?? 'INVALID_JSON') : (e.code ?? 'INTERNAL_ERROR'),
-            message: e.message ?? String(e), fields: e.fields ?? [],
+            message: validation || missingMedia || e instanceof OperationQueueError || e instanceof HttpError
+              ? e.message
+              : 'Internal server error',
+            fields: e.fields ?? [],
             ...(missingMedia ? { mediaIds: e.mediaIds } : {}),
             apiVersion: HEADLESS_API_VERSION,
           },
@@ -240,6 +236,7 @@ async function main() {
       else res.destroy()
     })
   })
+  setHttpTimeouts(server)
 
   // The default remains loopback-only because the render service has no auth.
   // Network exposure must be an explicit CLI/environment configuration choice.
