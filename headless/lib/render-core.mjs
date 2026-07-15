@@ -181,7 +181,11 @@ export function warningsHeaderValue(warnings) {
 }
 
 /** Render one prepared job through an already-loaded harness page; saves to job.outPath. */
-export async function renderJob(page, job, { setProgressLabel, onWarn, allowMissingMedia = false } = {}) {
+export async function renderJob(
+  page,
+  job,
+  { setProgressLabel, onWarn, allowMissingMedia = false, downloadTimeoutMs = 30 * 60_000 } = {},
+) {
   const warn = onWarn ?? ((m) => console.warn(m))
   if (job.missing.length > 0) {
     if (!allowMissingMedia) throw new MissingMediaError(job.missing)
@@ -211,7 +215,7 @@ export async function renderJob(page, job, { setProgressLabel, onWarn, allowMiss
   }
 
   setProgressLabel?.(path.basename(job.outPath))
-  const downloadPromise = page.waitForEvent('download', { timeout: 30 * 60_000 })
+  const downloadPromise = page.waitForEvent('download', { timeout: downloadTimeoutMs })
   downloadPromise.catch(() => {})
   const summary = await page.evaluate((payload) => window.freecut.renderProject(payload), {
     project: job.project,

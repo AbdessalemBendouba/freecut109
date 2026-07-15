@@ -228,6 +228,14 @@ Stable warning codes are:
 `ok: true` means bytes were produced after strict preconditions passed. It does
 not mean there were no non-fatal degradations; callers must inspect `warnings`.
 
+The service serializes browser work and bounds both execution time and backlog.
+Defaults are a 30-minute whole-render deadline, a 2-minute whole-edit deadline,
+eight waiting operations, and a 30-second graceful shutdown drain. Configure
+them with `--render-timeout-ms`, `--edit-timeout-ms`, `--max-queue-depth`, and
+`--shutdown-timeout-ms`. A full queue returns HTTP 429. A timed-out operation
+returns HTTP 504 and the disposable browser page is recreated before the next
+queued operation starts.
+
 The HTTP API version is `1`. HTTP bodies use canonical camelCase fields
 `inSec`, `outSec`, and `audioOnly`; CLI aliases are normalized before
 validation. Bodies are strict, edit operation arrays must be nonempty, numeric

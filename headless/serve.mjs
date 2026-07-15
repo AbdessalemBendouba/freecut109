@@ -27,6 +27,8 @@ import { pathToFileURL } from 'node:url'
 import { loadProject, listProjects, collectAddClipMedia } from './lib/workspace.mjs'
 import { parseArgs, chromeLaunchArgs } from './lib/cli.mjs'
 import { prepareJob, renderJob, startHarness, warningsHeaderValue } from './lib/render-core.mjs'
+import { OperationQueue, OperationQueueError } from './lib/operation-queue.mjs'
+import { PageSession, probeGpu } from './lib/page-session.mjs'
 import {
   HEADLESS_API_VERSION,
   ContractValidationError,
@@ -36,8 +38,11 @@ import {
   validate,
 } from './lib/contract.mjs'
 
-const HELP = `Usage: node headless/serve.mjs --workspace <dir> [--host 127.0.0.1] [--port 8787] [--build] [--head] [--harness-url <url>]\n`
-const SERVE_OPTIONS = new Set(['workspace', 'host', 'port', 'build', 'head', 'harness-url', 'help'])
+const HELP = `Usage: node headless/serve.mjs --workspace <dir> [options]\n\nOptions:\n  --host <address>           Bind address (default: 127.0.0.1)\n  --port <n>                 HTTP port (default: 8787)\n  --render-timeout-ms <n>    Whole render deadline (default: 1800000)\n  --edit-timeout-ms <n>      Whole edit deadline (default: 120000)\n  --max-queue-depth <n>      Waiting operations allowed behind the active one (default: 8)\n  --shutdown-timeout-ms <n>  Graceful queue drain deadline (default: 30000)\n  --build  --head  --harness-url <url>\n`
+const SERVE_OPTIONS = new Set([
+  'workspace', 'host', 'port', 'build', 'head', 'harness-url', 'help', 'render-timeout-ms',
+  'edit-timeout-ms', 'max-queue-depth', 'shutdown-timeout-ms',
+])
 
 /** Resolve the service bind address without exposing native runs by default. */
 export function resolveHost(args = {}, env = process.env) {
@@ -77,24 +82,6 @@ function sendJson(res, status, obj) {
   res.end(body)
 }
 
-/** Inspect the WebGPU adapter so operators can confirm a real GPU vs software. */
-async function probeGpu(page) {
-  return page
-    .evaluate(async () => {
-      if (!globalThis.navigator?.gpu) return { available: false }
-      const adapter = await navigator.gpu.requestAdapter()
-      if (!adapter) return { available: false }
-      const info = adapter.info ?? {}
-      return {
-        available: true,
-        vendor: info.vendor ?? '',
-        architecture: info.architecture ?? '',
-        description: info.description ?? '',
-      }
-    })
-    .catch(() => ({ available: false }))
-}
-
 /** Heuristic: is this a software (CPU) WebGPU adapter rather than a real GPU? */
 function isSoftwareGpu(gpu) {
   if (!gpu?.available) return true
@@ -111,6 +98,18 @@ async function main() {
   if (!fs.existsSync(workspace)) throw new Error(`Workspace not found: ${workspace}`)
   const host = resolveHost(args)
   const port = args.port ? Number(args.port) : 8787
+  const positiveInt = (name, fallback, { min = 1, max = 86_400_000 } = {}) => {
+    const value = args[name] === undefined ? fallback : Number(args[name])
+    if (!Number.isInteger(value) || value < min || value > max) {
+      throw new Error(`--${name} must be an integer between ${min} and ${max}`)
+    }
+    return value
+  }
+  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be an integer between 0 and 65535')
+  const renderTimeoutMs = positiveInt('render-timeout-ms', 30 * 60_000)
+  const editTimeoutMs = positiveInt('edit-timeout-ms', 2 * 60_000)
+  const maxQueueDepth = positiveInt('max-queue-depth', 8, { min: 0, max: 10_000 })
+  const shutdownTimeoutMs = positiveInt('shutdown-timeout-ms', 30_000)
 
   const { harnessUrl, mediaUrlOf, closeServers } = await startHarness({
     workspace,
@@ -123,15 +122,15 @@ async function main() {
     headless: !args.head,
     args: chromeLaunchArgs(),
   })
-  const context = await browser.newContext({ acceptDownloads: true })
-  const page = await context.newPage()
-  page.on('pageerror', (e) => console.error('[pageerror]', e.message))
-  await page.exposeBinding('__freecutProgress', () => {})
-  await page.goto(harnessUrl, { waitUntil: 'load', timeout: 60_000 })
-  await page.waitForFunction(() => Boolean(window.freecut?.ready), { timeout: 30_000 })
+  const session = new PageSession({
+    browser,
+    harnessUrl,
+    onPageError: (e) => console.error('[pageerror]', e.message),
+  })
+  await session.open()
 
   // Report the WebGPU adapter so it's obvious whether this is a real GPU.
-  const gpu = await probeGpu(page)
+  let gpu = await probeGpu(session.page)
   if (gpu.available) {
     console.log(`WebGPU adapter: ${gpu.vendor || '?'} / ${gpu.architecture || gpu.description || '?'}`)
   }
@@ -143,16 +142,18 @@ async function main() {
     )
   }
 
-  // Serialize page operations: one render/edit at a time.
-  let queue = Promise.resolve()
-  const enqueue = (fn) => {
-    const run = queue.then(fn, fn)
-    queue = run.then(
-      () => {},
-      () => {},
-    )
-    return run
-  }
+  const queue = new OperationQueue({
+    maxQueueDepth,
+    recover: async (error) => {
+      console.error(`Recreating browser page after failed operation: ${error.message ?? error}`)
+      if (!queue.accepting) {
+        await session.close()
+        return
+      }
+      await session.recreate()
+      gpu = await probeGpu(session.page)
+    },
+  })
 
   const tmpDir = path.join(os.tmpdir(), 'freecut-serve')
   fs.mkdirSync(tmpDir, { recursive: true })
@@ -164,7 +165,10 @@ async function main() {
     const job = prepareJob(workspace, { ...body, out: outPath }, mediaUrlOf)
 
     const t0 = Date.now()
-    const summary = await enqueue(() => renderJob(page, job))
+    const summary = await queue.enqueue(
+      () => renderJob(session.page, job, { downloadTimeoutMs: 0 }),
+      { timeoutMs: renderTimeoutMs, kind: 'render' },
+    )
     console.log(
       `render ${job.project.name ?? job.project.id} -> ${summary.effectiveSettings.container} ` +
         `(${(summary.fileSize / 1e6).toFixed(2)}MB, ${summary.durationSeconds.toFixed(2)}s) in ${Date.now() - t0}ms`,
@@ -190,8 +194,9 @@ async function main() {
     const project = body.projectObject ?? loadProject(workspace, body.project).project
     const ops = body.ops
     const media = collectAddClipMedia(workspace, ops)
-    const result = await enqueue(() =>
-      page.evaluate((payload) => window.freecut.editProject(payload), { project, ops, media }),
+    const result = await queue.enqueue(
+      () => session.page.evaluate((payload) => window.freecut.editProject(payload), { project, ops, media }),
+      { timeoutMs: editTimeoutMs, kind: 'edit' },
     )
     sendJson(res, 200, result)
   }
@@ -202,7 +207,6 @@ async function main() {
     const handler =
       route === 'GET /health'
         ? async () => {
-            const gpu = await probeGpu(page)
             sendJson(res, 200, { ok: true, apiVersion: HEADLESS_API_VERSION, gpu, software: isSoftwareGpu(gpu), harnessUrl })
           }
         : route === 'GET /capabilities'
@@ -223,9 +227,10 @@ async function main() {
       if (!res.headersSent) {
         const validation = e instanceof ContractValidationError || String(e.message).startsWith('Invalid JSON body:')
         const missingMedia = e.code === 'MISSING_MEDIA'
-        sendJson(res, validation ? 400 : missingMedia ? 422 : 500, {
+        const status = validation ? 400 : missingMedia ? 422 : e instanceof OperationQueueError ? e.statusCode : 500
+        sendJson(res, status, {
           error: {
-            code: validation ? (e.code ?? 'INVALID_JSON') : missingMedia ? e.code : 'INTERNAL_ERROR',
+            code: validation ? (e.code ?? 'INVALID_JSON') : (e.code ?? 'INTERNAL_ERROR'),
             message: e.message ?? String(e), fields: e.fields ?? [],
             ...(missingMedia ? { mediaIds: e.mediaIds } : {}),
             apiVersion: HEADLESS_API_VERSION,
@@ -242,13 +247,27 @@ async function main() {
   console.log(`FreeCut render service on http://${host}:${port}  (workspace: ${workspace})`)
   console.log(`  GET /health  GET /capabilities  GET /projects  POST /render  POST /edit`)
 
-  const shutdown = async () => {
+  let shuttingDown
+  const shutdown = () => shuttingDown ??= (async () => {
     console.log('\nShutting down...')
-    server.close()
-    await browser.close()
-    await closeServers()
-    process.exit(0)
-  }
+    const serverClosed = new Promise((resolve) => server.close(resolve))
+    try {
+      await queue.shutdown(shutdownTimeoutMs)
+    } catch (error) {
+      console.error(error.message)
+    } finally {
+      await session.close()
+      await browser.close()
+      await closeServers()
+      let closeTimer
+      const closed = await Promise.race([
+        serverClosed.then(() => true),
+        new Promise((resolve) => { closeTimer = setTimeout(() => resolve(false), shutdownTimeoutMs) }),
+      ])
+      clearTimeout(closeTimer)
+      if (!closed) server.closeAllConnections?.()
+    }
+  })()
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
 }
