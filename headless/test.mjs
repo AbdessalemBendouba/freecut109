@@ -183,8 +183,38 @@ async function main() {
 
     check('render returns ok', summary.ok === true)
     check('render mime is video', /video\//.test(summary.mimeType), summary.mimeType)
+    check('supported render reports effective codec', summary.effectiveSettings?.codec === 'vp9')
+    check('supported render has no codec fallback warning', !summary.warnings.some((w) => w.code === 'CODEC_FALLBACK'))
     check('render duration ~3s', Math.abs(summary.durationSeconds - 3) < 0.3, `got ${summary.durationSeconds}`)
     check('render produced bytes (>1KB)', size > 1000, `size ${size}`)
+
+    // Deterministic capability seam: force AVC to adapt to VP9 regardless of
+    // the codecs installed on the CI host.
+    console.log('\nForced codec fallback:')
+    await page.evaluate(() => { globalThis.__freecutSupportedCodecsOverride = ['vp9'] })
+    const fallbackInput = structuredClone(TEXT_TIMELINE)
+    fallbackInput.settings.codec = 'avc'
+    fallbackInput.settings.container = 'mp4'
+    fallbackInput.outputFileName = 'regression-fallback.mp4'
+    const fallbackDownloadPromise = page.waitForEvent('download', { timeout: 120_000 })
+    fallbackDownloadPromise.catch(() => {})
+    const fallbackSummary = await page.evaluate(
+      (input) => window.freecut.renderTimeline(input),
+      fallbackInput,
+    )
+    const fallbackOutPath = path.join(os.tmpdir(), 'freecut-headless-regression-fallback.webm')
+    const fallbackDownload = await fallbackDownloadPromise
+    await fallbackDownload.saveAs(fallbackOutPath)
+    const fallbackSignature = fs.readFileSync(fallbackOutPath).subarray(0, 4).toString('hex')
+    check('fallback reports stable warning code', fallbackSummary.warnings.some((w) => w.code === 'CODEC_FALLBACK'))
+    check('fallback reports effective VP9/WebM',
+      fallbackSummary.effectiveSettings?.codec === 'vp9' &&
+      fallbackSummary.effectiveSettings?.container === 'webm' &&
+      fallbackSummary.effectiveSettings?.audioCodec === 'opus')
+    check('fallback MIME matches effective WebM', fallbackSummary.mimeType.startsWith('video/webm'), fallbackSummary.mimeType)
+    check('fallback filename matches effective WebM', fallbackSummary.fileName.endsWith('.webm'), fallbackSummary.fileName)
+    check('fallback bytes have WebM signature', fallbackSignature === '1a45dfa3', fallbackSignature)
+    await page.evaluate(() => { delete globalThis.__freecutSupportedCodecsOverride })
 
     // --- Edit path ---
     console.log('\nEdit:')

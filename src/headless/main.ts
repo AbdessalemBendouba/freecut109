@@ -36,6 +36,7 @@ import {
   getSupportedCodecs,
   selectFallbackVideoCodec,
   getPreferredContainerForCodec,
+  getDefaultAudioCodec,
 } from '@/features/export/utils/client-renderer'
 import type { ClientVideoContainer } from '@/features/export/utils/client-renderer'
 import { resolveMediaUrls } from '@/features/media-library/utils/media-resolver'
@@ -104,8 +105,16 @@ interface HeadlessRenderSummary {
   fileSize: number
   durationSeconds: number
   fileName: string
-  /** Non-fatal issues encountered while adapting the render settings. */
-  warnings: string[]
+  /** Settings actually used after browser capability adaptation. */
+  effectiveSettings: ClientExportSettings
+  /** Non-fatal, machine-readable render degradations. */
+  warnings: HeadlessRenderWarning[]
+}
+
+interface HeadlessRenderWarning {
+  code: 'CODEC_FALLBACK' | 'WEBGPU_TRANSITION_FALLBACK'
+  message: string
+  details?: Record<string, unknown>
 }
 
 type ProgressSink = (progress: RenderProgress) => void
@@ -150,6 +159,11 @@ function defaultFileName(settings: ClientExportSettings): string {
   return `freecut-export.${settings.container}`
 }
 
+function effectiveFileName(requested: string | undefined, settings: ClientExportSettings): string {
+  if (!requested) return defaultFileName(settings)
+  return `${requested.replace(/\.[^./\\]+$/, '')}.${settings.container}`
+}
+
 async function detectWebGpu(): Promise<boolean> {
   try {
     if (!('gpu' in navigator) || !navigator.gpu) return false
@@ -182,13 +196,13 @@ function compositionUsesGpuEffects(
 async function assertGpuForComposition(
   composition: CompositionInputProps,
   compositions: SubComposition[],
-): Promise<void> {
+): Promise<HeadlessRenderWarning[]> {
   const needsGpuEffects = compositionUsesGpuEffects(composition, compositions)
   const hasTransitions = (composition.transitions?.length ?? 0) > 0
-  if (!needsGpuEffects && !hasTransitions) return
+  if (!needsGpuEffects && !hasTransitions) return []
 
   const gpuAvailable = await detectWebGpu()
-  if (gpuAvailable) return
+  if (gpuAvailable) return []
 
   if (needsGpuEffects) {
     throw new Error(
@@ -197,22 +211,35 @@ async function assertGpuForComposition(
         'with a GPU (or SwiftShader/Vulkan in headless/Docker).',
     )
   }
-  log.warn('WebGPU unavailable; transitions will use the Canvas2D fallback')
+  const warning: HeadlessRenderWarning = {
+    code: 'WEBGPU_TRANSITION_FALLBACK',
+    message: 'WebGPU unavailable; transitions will use the Canvas2D fallback',
+  }
+  log.warn(warning.message)
+  return [warning]
 }
 
 /**
  * Ensure the requested video codec is actually encodable in this browser;
- * otherwise fall back the same way the in-app export does. Mutates and
- * returns the settings.
+ * otherwise fall back the same way the in-app export does.
  */
-async function adaptVideoSettings(settings: ClientExportSettings): Promise<ClientExportSettings> {
-  if (settings.mode === 'audio') return settings
-  const supported = await getSupportedCodecs({
+async function adaptVideoSettings(
+  requestedSettings: ClientExportSettings,
+): Promise<{ settings: ClientExportSettings; warnings: HeadlessRenderWarning[] }> {
+  const settings = structuredClone(requestedSettings)
+  if (settings.mode === 'audio') return { settings, warnings: [] }
+  const testOverride = (globalThis as unknown as {
+    __freecutSupportedCodecsOverride?: Awaited<ReturnType<typeof getSupportedCodecs>>
+  }).__freecutSupportedCodecsOverride
+  const supported = testOverride ?? await getSupportedCodecs({
     width: settings.resolution.width,
     height: settings.resolution.height,
     bitrate: settings.videoBitrate,
   })
-  if (supported.includes(settings.codec)) return settings
+  if (supported.includes(settings.codec)) {
+    settings.audioCodec = getDefaultAudioCodec(settings.container)
+    return { settings, warnings: [] }
+  }
 
   const container = settings.container as ClientVideoContainer
   const fallback =
@@ -222,14 +249,22 @@ async function adaptVideoSettings(settings: ClientExportSettings): Promise<Clien
       `No supported video codec available (requested ${settings.codec}; browser supports: ${supported.join(', ') || 'none'})`,
     )
   }
-  log.warn('Requested video codec unsupported; falling back', {
-    requested: settings.codec,
+  const requested = settings.codec
+  const effectiveContainer = getPreferredContainerForCodec(fallback)
+  const warning: HeadlessRenderWarning = {
+    code: 'CODEC_FALLBACK',
+    message: `Requested video codec ${requested} is unsupported; using ${fallback}/${effectiveContainer}`,
+    details: { requestedCodec: requested, effectiveCodec: fallback, effectiveContainer },
+  }
+  log.warn(warning.message, {
+    requested,
     fallback,
-    container: getPreferredContainerForCodec(fallback),
+    container: effectiveContainer,
   })
   settings.codec = fallback
-  settings.container = getPreferredContainerForCodec(fallback)
-  return settings
+  settings.container = effectiveContainer
+  settings.audioCodec = getDefaultAudioCodec(effectiveContainer)
+  return { settings, warnings: [warning] }
 }
 
 async function renderTimeline(input: HeadlessTimelineInput): Promise<HeadlessRenderSummary> {
@@ -248,14 +283,14 @@ async function renderTimeline(input: HeadlessTimelineInput): Promise<HeadlessRen
     masterBusDb,
     compositions = [],
     media,
-    settings,
+    settings: requestedSettings,
   } = input
 
   log.info('Headless render starting', {
-    mode: settings.mode,
-    codec: settings.codec,
-    container: settings.container,
-    resolution: `${settings.resolution.width}x${settings.resolution.height}`,
+    mode: requestedSettings.mode,
+    codec: requestedSettings.codec,
+    container: requestedSettings.container,
+    resolution: `${requestedSettings.resolution.width}x${requestedSettings.resolution.height}`,
     fps,
     tracks: tracks.length,
     items: items.length,
@@ -272,8 +307,7 @@ async function renderTimeline(input: HeadlessTimelineInput): Promise<HeadlessRen
   // Seed media metadata so codec lookups resolve (enables AC-3/E-AC-3 audio).
   seedMediaLibrary(media)
 
-  await adaptVideoSettings(settings)
-  const warnings: string[] = []
+  const { settings, warnings } = await adaptVideoSettings(requestedSettings)
 
   const composition: CompositionInputProps = convertTimelineToComposition(
     tracks,
@@ -291,7 +325,7 @@ async function renderTimeline(input: HeadlessTimelineInput): Promise<HeadlessRen
   )
 
   // Fail loudly if the project needs WebGPU (effects) but it isn't available.
-  await assertGpuForComposition(composition, compositions)
+  warnings.push(...await assertGpuForComposition(composition, compositions))
 
   // Resolve top-level media (mediaId -> seeded blob URL). Export never uses proxies.
   composition.tracks = await resolveMediaUrls(composition.tracks, { useProxy: false })
@@ -301,7 +335,7 @@ async function renderTimeline(input: HeadlessTimelineInput): Promise<HeadlessRen
       ? await renderAudioOnly({ settings, composition, onProgress: reportProgress })
       : await renderComposition({ settings, composition, onProgress: reportProgress })
 
-  const fileName = input.outputFileName ?? defaultFileName(settings)
+  const fileName = effectiveFileName(input.outputFileName, settings)
   triggerDownload(result.blob, fileName)
 
   log.info('Headless render complete', {
@@ -317,6 +351,7 @@ async function renderTimeline(input: HeadlessTimelineInput): Promise<HeadlessRen
     fileSize: result.fileSize,
     durationSeconds: result.duration,
     fileName,
+    effectiveSettings: settings,
     warnings,
   }
 }

@@ -22,6 +22,7 @@
 //   --quality <q>          low|medium|high|ultra (default: high)
 //   --in/--out-sec/--duration <sec>   Render only a slice
 //   --audio-only           Render audio only (container default: mp3)
+//   --allow-missing-media  Render blank/silent gaps and report MISSING_MEDIA warnings
 //   --head                 Run headed (visible browser) for debugging
 //   --build                Build dist/ first if the harness isn't built
 //   --harness-url <url>    Dev mode: drive a running Vite dev server instead of dist/
@@ -35,8 +36,8 @@ import { parseArgs, chromeLaunchArgs } from './lib/cli.mjs'
 import { prepareJob, renderJob, startHarness } from './lib/render-core.mjs'
 import { normalizeRenderInput, renderRequestSchema, validate } from './lib/contract.mjs'
 
-const RENDER_OPTIONS = new Set(['workspace', 'project', 'out', 'codec', 'container', 'resolution', 'fps', 'quality', 'in', 'out-sec', 'duration', 'audio-only', 'head', 'build', 'harness-url', 'batch', 'list', 'help', 'json'])
-const HELP = `Usage:\n  node headless/render.mjs --workspace <dir> --project <id|project.json> [options]\n  node headless/render.mjs --workspace <dir> --batch <jobs.json>\n  node headless/render.mjs --workspace <dir> --list [--json]\n\nOptions: --out --codec --container --resolution --fps --quality --in --out-sec --duration --audio-only --head --build --harness-url --json\n`
+const RENDER_OPTIONS = new Set(['workspace', 'project', 'out', 'codec', 'container', 'resolution', 'fps', 'quality', 'in', 'out-sec', 'duration', 'audio-only', 'allow-missing-media', 'head', 'build', 'harness-url', 'batch', 'list', 'help', 'json'])
+const HELP = `Usage:\n  node headless/render.mjs --workspace <dir> --project <id|project.json> [options]\n  node headless/render.mjs --workspace <dir> --batch <jobs.json>\n  node headless/render.mjs --workspace <dir> --list [--json]\n\nOptions: --out --codec --container --resolution --fps --quality --in --out-sec --duration --audio-only --allow-missing-media --head --build --harness-url --json\n`
 
 async function main() {
   const args = parseArgs(process.argv.slice(2), { allowed: RENDER_OPTIONS })
@@ -69,7 +70,7 @@ async function main() {
     if (jobArgsList.length === 0) throw new Error('Batch file is empty')
   } else {
     if (!args.project) throw new Error('Missing --project <id|project.json> (or --batch <file>)')
-    const { workspace: _workspace, batch: _batch, list: _list, head: _head, build: _build, 'harness-url': _harnessUrl, help: _help, json: _json, _: _positionals, ...job } = args
+    const { workspace: _workspace, batch: _batch, list: _list, head: _head, build: _build, 'harness-url': _harnessUrl, help: _help, json: _json, 'allow-missing-media': _allowMissingMedia, _: _positionals, ...job } = args
     jobArgsList = [validate(renderRequestSchema, normalizeRenderInput(job))]
   }
 
@@ -123,12 +124,15 @@ async function main() {
           `${job.settings.resolution.width}x${job.settings.resolution.height}@${job.settings.fps}${range} ` +
           `| media ${job.mediaResolved}/${job.mediaTotal}`,
       )
-      const summary = await renderJob(page, job, { setProgressLabel })
+      const summary = await renderJob(page, job, {
+        setProgressLabel,
+        allowMissingMedia: Boolean(args['allow-missing-media']),
+      })
       if (!args.json) process.stdout.write('\n')
       if (!args.json) console.log(
-        `  Done: ${job.outPath}  (${summary.mimeType}, ${(summary.fileSize / 1_000_000).toFixed(2)} MB, ${summary.durationSeconds.toFixed(2)}s)`,
+        `  Done: ${summary.outputPath}  (${summary.mimeType}, ${(summary.fileSize / 1_000_000).toFixed(2)} MB, ${summary.durationSeconds.toFixed(2)}s)`,
       )
-      jsonResults.push({ out: job.outPath, settings: job.settings, summary })
+      jsonResults.push({ out: summary.outputPath, requestedSettings: job.settings, summary })
     }
     if (args.json) console.log(JSON.stringify({ ok: true, renders: jsonResults }))
   } finally {

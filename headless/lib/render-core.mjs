@@ -158,19 +158,56 @@ export function prepareJob(workspace, jobArgs, mediaUrlOf) {
   }
 }
 
+export class MissingMediaError extends Error {
+  constructor(mediaIds) {
+    super(`Referenced media source(s) not found on disk: ${mediaIds.join(', ')}`)
+    this.name = 'MissingMediaError'
+    this.code = 'MISSING_MEDIA'
+    this.mediaIds = mediaIds
+  }
+}
+
+export function outputPathForContainer(requestedPath, container) {
+  const extension = path.extname(requestedPath)
+  return `${extension ? requestedPath.slice(0, -extension.length) : requestedPath}.${container}`
+}
+
+function warningMessage(warning) {
+  return typeof warning === 'string' ? warning : warning.message
+}
+
+export function warningsHeaderValue(warnings) {
+  return JSON.stringify(warnings).replace(/[^\t\x20-\x7E]/g, ' ')
+}
+
 /** Render one prepared job through an already-loaded harness page; saves to job.outPath. */
-export async function renderJob(page, job, { setProgressLabel, onWarn } = {}) {
-  fs.mkdirSync(path.dirname(job.outPath), { recursive: true })
+export async function renderJob(page, job, { setProgressLabel, onWarn, allowMissingMedia = false } = {}) {
   const warn = onWarn ?? ((m) => console.warn(m))
   if (job.missing.length > 0) {
-    warn(`  WARNING: ${job.missing.length} media source(s) not found on disk: ${job.missing.join(', ')}`)
+    if (!allowMissingMedia) throw new MissingMediaError(job.missing)
   }
+  const preparationWarnings = []
+  if (job.missing.length > 0) preparationWarnings.push({
+    code: 'MISSING_MEDIA',
+    message: `${job.missing.length} media source(s) not found on disk: ${job.missing.join(', ')}`,
+    details: { mediaIds: job.missing },
+  })
   const unsupportedAudio = job.media.filter((m) => m.metadata?.audioCodecSupported === false)
   if (unsupportedAudio.length > 0) {
     const list = unsupportedAudio
       .map((m) => `${m.metadata.fileName ?? m.mediaId} (${m.metadata.audioCodec ?? 'unknown'})`)
       .join(', ')
-    warn(`  WARNING: audio may be silent (codec not decodable headlessly): ${list}`)
+    preparationWarnings.push({
+      code: 'UNSUPPORTED_AUDIO',
+      message: `Audio may be silent (codec not decodable headlessly): ${list}`,
+      details: {
+        media: unsupportedAudio.map((m) => ({
+          mediaId: m.mediaId,
+          fileName: m.metadata.fileName,
+          audioCodec: m.metadata.audioCodec ?? 'unknown',
+        })),
+      },
+    })
   }
 
   setProgressLabel?.(path.basename(job.outPath))
@@ -185,7 +222,12 @@ export async function renderJob(page, job, { setProgressLabel, onWarn } = {}) {
     outPoint: job.outPoint,
   })
   const download = await downloadPromise
-  await download.saveAs(job.outPath)
-  for (const w of summary.warnings ?? []) warn(`  WARNING: ${w}`)
-  return summary
+  const effectiveContainer = summary.effectiveSettings?.container
+  if (!effectiveContainer) throw new Error('Render summary omitted effectiveSettings.container')
+  const outputPath = outputPathForContainer(job.outPath, effectiveContainer)
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true })
+  await download.saveAs(outputPath)
+  const warnings = [...preparationWarnings, ...(summary.warnings ?? [])]
+  for (const warning of warnings) warn(`  WARNING [${warning.code ?? 'UNKNOWN'}]: ${warningMessage(warning)}`)
+  return { ...summary, fileName: path.basename(outputPath), outputPath, warnings }
 }

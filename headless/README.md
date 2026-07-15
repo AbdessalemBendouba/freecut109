@@ -89,6 +89,7 @@ npm run headless -- --workspace "<ws>" --list --json
 | `--out-sec <sec>` | end | Render range end (seconds). |
 | `--duration <sec>` | — | Render this many seconds from `--in`. |
 | `--audio-only` | off | Render audio only. |
+| `--allow-missing-media` | off | Permissive human workflow: render gaps for missing sources and emit a `MISSING_MEDIA` warning. |
 | `--build` | off | Build `dist/` first if the harness isn't built. |
 | `--head` | off | Run a visible browser for debugging. |
 | `--harness-url <url>` | — | Dev mode: drive a running `npm run dev` server instead of `dist/`. |
@@ -99,8 +100,9 @@ All CLIs support `--help`, reject unknown flags, and accept `--json` for a
 single machine-readable result without progress output.
 
 - **Media must be mirrored to the workspace folder on disk.** The CLI reads
-  `media/<id>/<file>`. If a media source is missing (imported but never read in
-  the app), open the project in FreeCut once so it's mirrored, then re-run.
+  `media/<id>/<file>`. Missing referenced media fails before browser rendering
+  by default. Open the project in FreeCut once so it is mirrored, or use
+  `--allow-missing-media` explicitly when blank/silent gaps are acceptable.
 - **Codec support is verified at render time** and falls back the same way the
   app does (e.g. H.264 → VP9 if unavailable). Headless Chrome here supports
   H.264/HEVC/VP9/AV1 video and AAC/Opus audio with hardware WebGPU.
@@ -199,6 +201,32 @@ curl -X POST localhost:8787/edit -H 'content-type: application/json' \
 
 `project` is a workspace project id; `projectObject` is an inline Project JSON.
 Media is resolved from the service's workspace by id.
+
+### Render success contract
+
+Render requests are strict by default. This includes the HTTP service, batch
+files, and `--json` automation. Missing referenced media returns a stable
+`MISSING_MEDIA` error (HTTP 422) and no artifact. Only the CLI's explicit
+`--allow-missing-media` mode permits an incomplete artifact.
+
+Every successful render summary contains `effectiveSettings` (mode, codec,
+audio codec, container, resolution, FPS, and quality) and structured
+`warnings`. Output extension, attachment filename, and HTTP `Content-Type` are
+selected from the effective browser result after codec adaptation, not from
+the requested container. CLI `--json` includes this summary. HTTP file
+responses expose the same warning array as JSON in `X-Freecut-Warnings`.
+
+Stable warning codes are:
+
+| Code | Meaning |
+|------|---------|
+| `CODEC_FALLBACK` | The requested video codec was unavailable; `effectiveSettings` identifies the codec/container used. |
+| `MISSING_MEDIA` | Permissive CLI mode rendered one or more missing sources as gaps. |
+| `UNSUPPORTED_AUDIO` | A source audio codec cannot be decoded headlessly and may be silent. |
+| `WEBGPU_TRANSITION_FALLBACK` | Transitions used the Canvas2D path because WebGPU was unavailable. |
+
+`ok: true` means bytes were produced after strict preconditions passed. It does
+not mean there were no non-fatal degradations; callers must inspect `warnings`.
 
 The HTTP API version is `1`. HTTP bodies use canonical camelCase fields
 `inSec`, `outSec`, and `audioOnly`; CLI aliases are normalized before

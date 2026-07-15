@@ -26,7 +26,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { loadProject, listProjects, collectAddClipMedia } from './lib/workspace.mjs'
 import { parseArgs, chromeLaunchArgs } from './lib/cli.mjs'
-import { prepareJob, renderJob, startHarness } from './lib/render-core.mjs'
+import { prepareJob, renderJob, startHarness, warningsHeaderValue } from './lib/render-core.mjs'
 import {
   HEADLESS_API_VERSION,
   ContractValidationError,
@@ -38,16 +38,6 @@ import {
 
 const HELP = `Usage: node headless/serve.mjs --workspace <dir> [--host 127.0.0.1] [--port 8787] [--build] [--head] [--harness-url <url>]\n`
 const SERVE_OPTIONS = new Set(['workspace', 'host', 'port', 'build', 'head', 'harness-url', 'help'])
-
-const CONTAINER_MIME = {
-  mp4: 'video/mp4',
-  webm: 'video/webm',
-  mov: 'video/quicktime',
-  mkv: 'video/x-matroska',
-  mp3: 'audio/mpeg',
-  wav: 'audio/wav',
-  m4a: 'audio/mp4',
-}
 
 /** Resolve the service bind address without exposing native runs by default. */
 export function resolveHost(args = {}, env = process.env) {
@@ -170,33 +160,29 @@ async function main() {
 
   const handleRender = async (req, res) => {
     const body = validate(renderRequestSchema, await readJsonBody(req))
-    const container = body.container ?? (body.audioOnly ? 'mp3' : undefined)
-    const outPath = path.join(tmpDir, `render-${process.pid}-${++counter}.${container ?? 'out'}`)
+    const outPath = path.join(tmpDir, `render-${process.pid}-${++counter}.out`)
     const job = prepareJob(workspace, { ...body, out: outPath }, mediaUrlOf)
-    // Fix the extension to the (possibly fallback-adjusted) container after settings build.
-    const finalOut = path.join(tmpDir, `render-${process.pid}-${counter}.${job.settings.container}`)
-    job.outPath = finalOut
 
     const t0 = Date.now()
     const summary = await enqueue(() => renderJob(page, job))
     console.log(
-      `render ${job.project.name ?? job.project.id} -> ${job.settings.container} ` +
+      `render ${job.project.name ?? job.project.id} -> ${summary.effectiveSettings.container} ` +
         `(${(summary.fileSize / 1e6).toFixed(2)}MB, ${summary.durationSeconds.toFixed(2)}s) in ${Date.now() - t0}ms`,
     )
 
     res.writeHead(200, {
-      'Content-Type': CONTAINER_MIME[job.settings.container] ?? 'application/octet-stream',
-      'Content-Length': fs.statSync(finalOut).size,
-      'Content-Disposition': `attachment; filename="${path.basename(finalOut)}"`,
+      'Content-Type': summary.mimeType,
+      'Content-Length': fs.statSync(summary.outputPath).size,
+      'Content-Disposition': `attachment; filename="${summary.fileName}"`,
       // Header values must be ASCII; sanitize defensively so a warning never
       // turns a successful render into a 500.
       ...(summary.warnings?.length
-        ? { 'X-Freecut-Warnings': JSON.stringify(summary.warnings).replace(/[^\t\x20-\x7E]/g, ' ') }
+        ? { 'X-Freecut-Warnings': warningsHeaderValue(summary.warnings) }
         : {}),
     })
-    const stream = fs.createReadStream(finalOut)
+    const stream = fs.createReadStream(summary.outputPath)
     stream.pipe(res)
-    stream.on('close', () => fs.rm(finalOut, () => {}))
+    stream.on('close', () => fs.rm(summary.outputPath, () => {}))
   }
 
   const handleEdit = async (req, res) => {
@@ -236,10 +222,13 @@ async function main() {
       console.error(`${route} failed:`, e.message ?? e)
       if (!res.headersSent) {
         const validation = e instanceof ContractValidationError || String(e.message).startsWith('Invalid JSON body:')
-        sendJson(res, validation ? 400 : 500, {
+        const missingMedia = e.code === 'MISSING_MEDIA'
+        sendJson(res, validation ? 400 : missingMedia ? 422 : 500, {
           error: {
-            code: validation ? (e.code ?? 'INVALID_JSON') : 'INTERNAL_ERROR',
-            message: e.message ?? String(e), fields: e.fields ?? [], apiVersion: HEADLESS_API_VERSION,
+            code: validation ? (e.code ?? 'INVALID_JSON') : missingMedia ? e.code : 'INTERNAL_ERROR',
+            message: e.message ?? String(e), fields: e.fields ?? [],
+            ...(missingMedia ? { mediaIds: e.mediaIds } : {}),
+            apiVersion: HEADLESS_API_VERSION,
           },
         })
       }
