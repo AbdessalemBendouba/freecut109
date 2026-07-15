@@ -223,6 +223,11 @@ Unexpected failures use the same envelope with HTTP 500 and
 `code: "INTERNAL_ERROR"`. Breaking contract changes require an API version
 bump. New edit operations must update the schema, capabilities, docs, and tests.
 
+The native service binds to `127.0.0.1` by default because it has no
+authentication. Use `--host <address>` (or `FREECUT_HOST`) only when an explicit
+network bind is required; the command-line option takes precedence over the
+environment variable.
+
 ## Docker (Linux GPU server deployment)
 
 **Docker here is for deploying the render service on a Linux host with an NVIDIA
@@ -247,6 +252,12 @@ curl localhost:8787/health
 curl -X POST localhost:8787/render -H 'content-type: application/json' \
   -d '{"project":"<id>","duration":5}' -o out.mp4
 ```
+
+The image explicitly sets `FREECUT_HOST=0.0.0.0` so Docker's published port is
+reachable from the host. The API has no authentication or TLS and can read
+workspace media and edit/render projects. Restrict port 8787 with the host
+firewall or publish it only on loopback (`-p 127.0.0.1:8787:8787`). If remote
+access is required, place the service behind an authenticated TLS reverse proxy.
 
 Without `--gpus all` (or on Windows), the container falls back to software
 WebGPU: cuts/text/transitions and audio still render, but GPU effects fail with

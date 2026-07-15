@@ -48,6 +48,9 @@ RUN npm run build
 # (To force software even on a GPU host: -e VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json)
 ENV FREECUT_CHROME_ARGS="--no-sandbox"
 ENV FREECUT_WORKSPACE=/workspace
+# The container port must accept traffic from the published Docker interface.
+# Native serve.mjs runs remain loopback-only unless explicitly overridden.
+ENV FREECUT_HOST=0.0.0.0
 
 EXPOSE 8787
 CMD ["sh", "-c", "node headless/serve.mjs --workspace \"$FREECUT_WORKSPACE\" --port 8787"]

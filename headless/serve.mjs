@@ -5,7 +5,7 @@
 // Requests are serialized (one page op at a time) to avoid GPU/CPU contention.
 //
 // Usage:
-//   node headless/serve.mjs --workspace <dir> [--port 8787] [--build] [--head] [--harness-url <url>]
+//   node headless/serve.mjs --workspace <dir> [--host 127.0.0.1] [--port 8787] [--build] [--head] [--harness-url <url>]
 //
 // API:
 //   GET  /health                      -> { ok, harnessUrl }
@@ -23,7 +23,7 @@ import http from 'node:http'
 import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
-import { chromium } from 'playwright'
+import { pathToFileURL } from 'node:url'
 import { loadProject, listProjects, collectAddClipMedia } from './lib/workspace.mjs'
 import { parseArgs, chromeLaunchArgs } from './lib/cli.mjs'
 import { prepareJob, renderJob, startHarness } from './lib/render-core.mjs'
@@ -36,8 +36,8 @@ import {
   validate,
 } from './lib/contract.mjs'
 
-const HELP = `Usage: node headless/serve.mjs --workspace <dir> [--port 8787] [--build] [--head] [--harness-url <url>]\n`
-const SERVE_OPTIONS = new Set(['workspace', 'port', 'build', 'head', 'harness-url', 'help'])
+const HELP = `Usage: node headless/serve.mjs --workspace <dir> [--host 127.0.0.1] [--port 8787] [--build] [--head] [--harness-url <url>]\n`
+const SERVE_OPTIONS = new Set(['workspace', 'host', 'port', 'build', 'head', 'harness-url', 'help'])
 
 const CONTAINER_MIME = {
   mp4: 'video/mp4',
@@ -47,6 +47,20 @@ const CONTAINER_MIME = {
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
   m4a: 'audio/mp4',
+}
+
+/** Resolve the service bind address without exposing native runs by default. */
+export function resolveHost(args = {}, env = process.env) {
+  const host = Object.prototype.hasOwnProperty.call(args, 'host')
+    ? args.host
+    : Object.prototype.hasOwnProperty.call(env, 'FREECUT_HOST')
+      ? env.FREECUT_HOST
+      : '127.0.0.1'
+
+  if (typeof host !== 'string' || host.trim() === '') {
+    throw new Error('Host must be a non-empty string (--host or FREECUT_HOST)')
+  }
+  return host.trim()
 }
 
 function readJsonBody(req) {
@@ -99,11 +113,13 @@ function isSoftwareGpu(gpu) {
 }
 
 async function main() {
+  const { chromium } = await import('playwright')
   const args = parseArgs(process.argv.slice(2), { allowed: SERVE_OPTIONS })
   if (args.help) { console.log(HELP); return }
   const workspace = args.workspace
   if (!workspace) throw new Error('Missing --workspace <dir>')
   if (!fs.existsSync(workspace)) throw new Error(`Workspace not found: ${workspace}`)
+  const host = resolveHost(args)
   const port = args.port ? Number(args.port) : 8787
 
   const { harnessUrl, mediaUrlOf, closeServers } = await startHarness({
@@ -231,10 +247,10 @@ async function main() {
     })
   })
 
-  // Bind to loopback only — the render service has no auth, so exposing it
-  // on the network would let any LAN peer render/edit projects and read media.
-  await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve))
-  console.log(`FreeCut render service on http://localhost:${port}  (workspace: ${workspace})`)
+  // The default remains loopback-only because the render service has no auth.
+  // Network exposure must be an explicit CLI/environment configuration choice.
+  await new Promise((resolve) => server.listen(port, host, resolve))
+  console.log(`FreeCut render service on http://${host}:${port}  (workspace: ${workspace})`)
   console.log(`  GET /health  GET /capabilities  GET /projects  POST /render  POST /edit`)
 
   const shutdown = async () => {
@@ -248,7 +264,9 @@ async function main() {
   process.on('SIGTERM', shutdown)
 }
 
-main().catch((e) => {
-  console.error('\nService failed to start:', e.message ?? e)
-  process.exit(1)
-})
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main().catch((e) => {
+    console.error('\nService failed to start:', e.message ?? e)
+    process.exit(1)
+  })
+}
