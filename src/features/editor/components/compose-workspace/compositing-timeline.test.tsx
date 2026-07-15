@@ -20,7 +20,7 @@ import {
   openComposition,
 } from '@/features/editor/deps/timeline-motion'
 import { useMediaLibraryStore } from '@/features/editor/deps/media-library-contract'
-import type { ShapeItem } from '@/types/timeline'
+import type { ShapeItem, TimelineItem } from '@/types/timeline'
 import { useComposeUiStore } from './compose-ui-store'
 import { CompositingTimeline } from './compositing-timeline'
 
@@ -114,6 +114,86 @@ describe('CompositingTimeline', () => {
     expect(screen.getByTestId(`motion-layer-span-${shape.id}`)).toHaveClass(
       'border-foreground/80',
       'text-foreground',
+    )
+  })
+
+  it('shows generated motion on the parent span and its driven child properties', () => {
+    useItemsStore.getState().setItems([
+      {
+        ...shape,
+        from: 15,
+        durationInFrames: 60,
+        motionModifiers: [
+          {
+            id: 'drift-1',
+            type: 'float-drift',
+            enabled: true,
+            amplitude: 1,
+            frequency: 0.6,
+            phaseFrames: 0,
+            seed: 1,
+          },
+        ],
+      },
+    ])
+
+    render(<CompositingTimeline />)
+
+    expect(screen.getByTestId(`motion-procedural-badge-${shape.id}`)).toHaveTextContent('ƒx')
+    expect(screen.queryByTestId(`motion-procedural-summary-${shape.id}`)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+    expect(screen.getByTestId('procedural-band-x')).toHaveAttribute('data-from-frame', '15')
+    expect(screen.getByTestId('procedural-band-x')).toHaveAttribute('data-to-frame', '74')
+    expect(screen.getByTestId('procedural-band-y')).toBeInTheDocument()
+    expect(screen.getByTestId('procedural-band-rotation')).toBeInTheDocument()
+  })
+
+  it('shows procedural text-motion slots on collapsed and expanded text layers', () => {
+    useItemsStore.getState().setItems([
+      {
+        ...shape,
+        type: 'text',
+        text: 'New Motion Editor',
+        color: '#ffffff',
+        from: 18,
+        durationInFrames: 69,
+        textMotion: {
+          in: {
+            presetId: 'blur-in',
+            durationFrames: 14,
+            staggerFrames: 3,
+            intensity: 1,
+            order: 'forward',
+            easing: 'ease-out',
+            seed: 0,
+            unit: 'word',
+          },
+          out: {
+            presetId: 'sink',
+            durationFrames: 14,
+            staggerFrames: 4,
+            intensity: 1,
+            order: 'forward',
+            easing: 'ease-in',
+            seed: 0,
+            unit: 'word',
+          },
+        },
+      } as TimelineItem,
+    ])
+
+    render(<CompositingTimeline />)
+
+    expect(screen.getByTestId(`motion-procedural-badge-${shape.id}`)).toHaveTextContent('ƒx')
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+    expect(screen.getByTestId('motion-text-procedural-lanes')).toBeInTheDocument()
+    expect(screen.getByTestId('motion-text-procedural-band-in')).toHaveAttribute(
+      'data-from-frame',
+      '18',
+    )
+    expect(screen.getByTestId('motion-text-procedural-band-out')).toHaveAttribute(
+      'data-to-frame',
+      '87',
     )
   })
 

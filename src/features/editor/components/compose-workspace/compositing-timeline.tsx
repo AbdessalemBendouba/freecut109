@@ -56,6 +56,8 @@ import type { AnimatableProperty, Keyframe, KeyframeRef } from '@/types/keyframe
 import type { BlendMode } from '@/types/blend-modes'
 import { BLEND_MODE_GROUPS, BLEND_MODE_LABELS } from '@/types/blend-modes'
 import type { TimelineItem, TimelineTrack } from '@/types/timeline'
+import type { TextMotionEffect, TextMotionSlot } from '@/types/text-motion'
+import { getTextMotionPreset, segmentTextUnits } from '@/shared/typography/text-motion'
 import {
   addItemOnNewTrack,
   addItemsOnNewTracks,
@@ -71,6 +73,7 @@ import {
   duplicateItemsWithTrackChanges,
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,
+  getProceduralBands,
   getDroppedMediaDurationInFrames,
   isTimelineTemplateDragData,
   interpolatePropertyValue,
@@ -110,10 +113,127 @@ const RULER_HEIGHT = 28
 const LAYER_ROW_HEIGHT = 34
 const RULER_DIVISIONS = 10
 const EMPTY_LAYER_IDS: string[] = []
+const PROCEDURAL_HATCH =
+  'repeating-linear-gradient(45deg, rgba(56,189,248,0.55) 0 2px, transparent 2px 5px)'
 interface MotionTimeViewport {
   startFrame: number
   endFrame: number
 }
+
+interface TextMotionTimelineBand {
+  slot: TextMotionSlot
+  presetId: string
+  fromFrame: number
+  toFrame: number
+  unitCount: number
+}
+
+function getTextMotionUnitCount(item: Extract<TimelineItem, { type: 'text' }>, effect: TextMotionEffect) {
+  const unit = effect.unit ?? getTextMotionPreset(effect.presetId).unit
+  return Math.max(1, segmentTextUnits(item.text.split(/\r?\n/u), unit).unitCount)
+}
+
+function getTextMotionWindow(
+  item: Extract<TimelineItem, { type: 'text' }>,
+  effect: TextMotionEffect | undefined,
+): { length: number; unitCount: number } {
+  if (!effect) return { length: 0, unitCount: 0 }
+  const unitCount = getTextMotionUnitCount(item, effect)
+  const maxRank =
+    effect.order === 'center'
+      ? Math.floor((unitCount - 1) / 2)
+      : Math.max(0, unitCount - 1)
+  const requested = Math.max(0, effect.durationFrames) + Math.max(0, effect.staggerFrames) * maxRank
+  return { length: Math.min(item.durationInFrames / 2, requested), unitCount }
+}
+
+function getTextMotionTimelineBands(item: TimelineItem): TextMotionTimelineBand[] {
+  if (item.type !== 'text' || !item.textMotion) return []
+  const { in: inEffect, loop: loopEffect, out: outEffect } = item.textMotion
+  const inWindow = getTextMotionWindow(item, inEffect)
+  const outWindow = getTextMotionWindow(item, outEffect)
+  const clipEnd = item.from + item.durationInFrames
+  const bands: TextMotionTimelineBand[] = []
+
+  if (inEffect && inWindow.length > 0) {
+    bands.push({
+      slot: 'in',
+      presetId: inEffect.presetId,
+      fromFrame: item.from,
+      toFrame: item.from + inWindow.length,
+      unitCount: inWindow.unitCount,
+    })
+  }
+  if (loopEffect) {
+    const loopFrom = item.from + inWindow.length
+    const loopTo = clipEnd - outWindow.length
+    if (loopTo > loopFrom) {
+      bands.push({
+        slot: 'loop',
+        presetId: loopEffect.presetId,
+        fromFrame: loopFrom,
+        toFrame: loopTo,
+        unitCount: getTextMotionUnitCount(item, loopEffect),
+      })
+    }
+  }
+  if (outEffect && outWindow.length > 0) {
+    bands.push({
+      slot: 'out',
+      presetId: outEffect.presetId,
+      fromFrame: clipEnd - outWindow.length,
+      toFrame: clipEnd,
+      unitCount: outWindow.unitCount,
+    })
+  }
+  return bands
+}
+
+const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
+  bands,
+  timeViewport,
+}: {
+  bands: TextMotionTimelineBand[]
+  timeViewport: MotionTimeViewport
+}) {
+  const visibleFrameRange = Math.max(1, timeViewport.endFrame - timeViewport.startFrame)
+  return (
+    <div data-testid="motion-text-procedural-lanes">
+      {bands.map((band) => {
+        const left = ((band.fromFrame - timeViewport.startFrame) / visibleFrameRange) * 100
+        const width = ((band.toFrame - band.fromFrame) / visibleFrameRange) * 100
+        return (
+          <div key={band.slot} className="flex h-6 border-t border-border/45 bg-background/25">
+            <div
+              className="flex shrink-0 items-center border-r border-border pl-14 pr-2 text-[9px] text-sky-300/90"
+              style={{ width: LAYER_COLUMN_WIDTH }}
+            >
+              <span className="w-8 uppercase tracking-[0.08em]">{band.slot}</span>
+              <span className="truncate text-muted-foreground">{band.presetId}</span>
+              <span className="ml-auto pl-2 tabular-nums text-muted-foreground/70">
+                {band.unitCount}u
+              </span>
+            </div>
+            <div className="relative min-w-0 flex-1 overflow-hidden">
+              <div
+                data-testid={`motion-text-procedural-band-${band.slot}`}
+                data-from-frame={band.fromFrame}
+                data-to-frame={band.toFrame}
+                className="absolute top-1/2 h-2.5 -translate-y-1/2 rounded-sm border border-sky-300/45 bg-sky-400/10"
+                style={{
+                  left: `${left}%`,
+                  width: `${Math.max(0.5, width)}%`,
+                  backgroundImage: PROCEDURAL_HATCH,
+                }}
+                title={`${band.presetId} · ${band.unitCount} units · ${Math.round(band.fromFrame)}–${Math.round(band.toFrame)}f`}
+              />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+})
 
 interface MotionMiddlePanState {
   startClientY: number
@@ -489,10 +609,19 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       ),
     [item.id, selectedKeyframes],
   )
+  const proceduralPropertyIds = useMemo(
+    () =>
+      new Set(
+        getProceduralBands(item.motionModifiers, item.durationInFrames, item.from).keys(),
+      ),
+    [item.durationInFrames, item.from, item.motionModifiers],
+  )
   const visiblePropertyCount =
     propertyFilter === 'keyframed'
       ? properties.filter(
-          (property) => (originalKeyframesByProperty[property]?.length ?? 0) > 0,
+          (property) =>
+            (originalKeyframesByProperty[property]?.length ?? 0) > 0 ||
+            proceduralPropertyIds.has(property),
         ).length
       : properties.length
 
@@ -665,6 +794,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           singleCurveMode
           selectedCurveVisibleExternally={paneMode === 'lanes' && inlineCurveProperty !== null}
           propertyFilter={propertyFilter}
+          proceduralFrameOffset={item.from}
+          proceduralDurationInFrames={item.durationInFrames}
           showPlayhead={false}
           inlinePropertyGroupIds={MOTION_INLINE_PROPERTY_GROUP_IDS}
           spacious
@@ -2429,12 +2560,20 @@ export const CompositingTimeline = memo(function CompositingTimeline({
               const expanded = expandedLayerIdSet.has(item.id)
               const selected = selectedItemIdSet.has(item.id)
               const properties = getItemProperties(item)
+              const proceduralBands = getProceduralBands(
+                item.motionModifiers,
+                item.durationInFrames,
+                item.from,
+              )
+              const textMotionBands = getTextMotionTimelineBands(item)
+              const hasProceduralMotion = proceduralBands.size > 0 || textMotionBands.length > 0
               const hasVisibleChildProperties =
                 propertyFilter === 'all' ||
+                textMotionBands.length > 0 ||
                 properties.some((property) =>
                   keyframesByItemId[item.id]?.properties.some(
                     (entry) => entry.property === property && entry.keyframes.length > 0,
-                  ),
+                  ) || proceduralBands.has(property),
                 )
               const isDragging = rowReorderDrag?.sourceTrackId === track?.id
               const isDropTarget = reorderDropTargetTrackId === track?.id && !isDragging
@@ -2742,6 +2881,15 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                         <span className="pointer-events-none block truncate px-1.5">
                           {item.label || item.type}
                         </span>
+                        {hasProceduralMotion ? (
+                          <span
+                            data-testid={`motion-procedural-badge-${item.id}`}
+                            className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-sm border border-sky-300/45 bg-sky-950/75 px-1 font-mono text-[8px] font-semibold text-sky-200"
+                            title={t('timeline.clipIndicators.hasMotion')}
+                          >
+                            ƒx
+                          </span>
+                        ) : null}
                       </button>
                       ) : null}
                       </div>
@@ -2749,7 +2897,14 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                   </MotionRowContextMenu>
 
                   {expanded ? (
-                    <MotionDopesheetLanes
+                    <>
+                      {textMotionBands.length > 0 ? (
+                        <TextMotionTimelineLanes
+                          bands={textMotionBands}
+                          timeViewport={timeViewport}
+                        />
+                      ) : null}
+                      <MotionDopesheetLanes
                       item={item}
                       properties={properties}
                       compositionDurationInFrames={durationInFrames}
@@ -2779,7 +2934,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                         setScrubFrame(frame)
                       }}
                       onTimeViewportChange={updateTimeViewport}
-                    />
+                      />
+                    </>
                   ) : null}
                 </div>
               )

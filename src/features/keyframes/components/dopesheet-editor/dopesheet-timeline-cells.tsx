@@ -116,6 +116,9 @@ function ProceduralBandView({
   const width = Math.max(3, frameToX(band.toFrame) - left)
   return (
     <div
+      data-testid={`procedural-band-${band.property}`}
+      data-from-frame={band.fromFrame}
+      data-to-frame={band.toFrame}
       className="pointer-events-none absolute top-1/2 z-0 h-2 -translate-y-1/2 overflow-hidden rounded-sm border border-sky-400/40 bg-sky-400/10"
       style={{ left, width, backgroundImage: PROCEDURAL_HATCH }}
       title={title}
@@ -387,8 +390,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
     if (previewFrame !== undefined) return getRenderedKeyframeX(previewFrame)
     return renderedKeyframeXById.get(keyframe.id) ?? null
   }
-  const xForSegmentKeyframe = (keyframe: Keyframe): number =>
-    frameToX(displayedFrame(keyframe))
+  const xForSegmentKeyframe = (keyframe: Keyframe): number => frameToX(displayedFrame(keyframe))
 
   const connectorSegments = buildConnectorSegments(
     keyframes.map((keyframe) => ({
