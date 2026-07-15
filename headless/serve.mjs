@@ -31,7 +31,13 @@ import {
   resolveMediaFile,
 } from './lib/workspace.mjs'
 import { parseArgs, chromeLaunchArgs } from './lib/cli.mjs'
-import { prepareJob, renderJob, startHarness, warningsHeaderValue } from './lib/render-core.mjs'
+import {
+  assertHardwareGpuForJob,
+  prepareJob,
+  renderJob,
+  startHarness,
+  warningsHeaderValue,
+} from './lib/render-core.mjs'
 import { OperationQueue, OperationQueueError } from './lib/operation-queue.mjs'
 import { PageSession, probeGpu } from './lib/page-session.mjs'
 import {
@@ -170,7 +176,7 @@ async function main() {
   }
   if (isSoftwareGpu(gpu)) {
     console.warn(
-      'WARNING: WebGPU is software (no real GPU) — GPU effects will fail. ' +
+      'WARNING: WebGPU is software (no real GPU) — GPU-effect renders are rejected. ' +
         'Run on a Linux host with an NVIDIA GPU + Container Toolkit (--gpus all ' +
         '-e NVIDIA_DRIVER_CAPABILITIES=all), or render natively on Windows/macOS.',
     )
@@ -201,6 +207,7 @@ async function main() {
     if (body.project) assertSinglePathComponent(body.project, 'project id')
     const outPath = path.join(tmpDir, `render-${process.pid}-${++counter}.out`)
     const job = prepareJob(workspace, { ...body, out: outPath }, mediaUrlOf)
+    assertHardwareGpuForJob(job, isSoftwareGpu(gpu))
 
     const t0 = Date.now()
     const summary = await queue.enqueue(

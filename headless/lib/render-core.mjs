@@ -15,6 +15,7 @@ import {
 import { createMediaServer } from '../media-server.mjs'
 import { createHarnessServer } from '../server.mjs'
 import { normalizeRenderInput, renderRequestSchema, validate } from './contract.mjs'
+import { HttpError } from './http-security.mjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -201,6 +202,33 @@ export class MissingMediaError extends Error {
   }
 }
 
+class HardwareGpuRequiredError extends HttpError {
+  constructor() {
+    super(
+      422,
+      'HARDWARE_GPU_REQUIRED',
+      'This project uses GPU effects, but the active WebGPU adapter is software-only. ' +
+        'Run on a native Linux host with NVIDIA Vulkan support or render natively.',
+    )
+    this.name = 'HardwareGpuRequiredError'
+  }
+}
+
+function projectUsesGpuEffects(project) {
+  const timeline = project?.timeline
+  if (!timeline) return false
+  const timelines = [timeline, ...(timeline.compositions ?? [])]
+  return timelines.some((entry) =>
+    (entry.items ?? []).some((item) => item.effects?.some((effect) => effect.enabled)),
+  )
+}
+
+export function assertHardwareGpuForJob(job, softwareGpu) {
+  if (softwareGpu && projectUsesGpuEffects(job.project)) {
+    throw new HardwareGpuRequiredError()
+  }
+}
+
 export function outputPathForContainer(requestedPath, container) {
   const extension = path.extname(requestedPath)
   return `${extension ? requestedPath.slice(0, -extension.length) : requestedPath}.${container}`
@@ -218,9 +246,16 @@ export function warningsHeaderValue(warnings) {
 export async function renderJob(
   page,
   job,
-  { setProgressLabel, onWarn, allowMissingMedia = false, downloadTimeoutMs = 30 * 60_000 } = {},
+  {
+    setProgressLabel,
+    onWarn,
+    allowMissingMedia = false,
+    softwareGpu = false,
+    downloadTimeoutMs = 30 * 60_000,
+  } = {},
 ) {
   const warn = onWarn ?? ((m) => console.warn(m))
+  assertHardwareGpuForJob(job, softwareGpu)
   if (job.missing.length > 0) {
     if (!allowMissingMedia) throw new MissingMediaError(job.missing)
   }

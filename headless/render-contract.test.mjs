@@ -73,6 +73,25 @@ test('supported settings remain requested settings without fallback warning', as
   assert.equal(result.outputPath, path.join(dir, 'result.mp4'))
 })
 
+test('software WebGPU rejects GPU-effect projects before browser rendering', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'freecut-render-contract-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const page = fakePage(summary())
+  const effectProject = {
+    id: 'project-1',
+    name: 'Project',
+    metadata: {},
+    timeline: {
+      items: [{ id: 'item-1', effects: [{ id: 'effect-1', enabled: true }] }],
+    },
+  }
+  await assert.rejects(
+    () => renderJob(page, job(dir, { project: effectProject }), { softwareGpu: true }),
+    (error) => error.code === 'HARDWARE_GPU_REQUIRED' && error.statusCode === 422,
+  )
+  assert.equal(page.evaluateCalls, 0)
+})
+
 test('fallback metadata controls extension, MIME, summary, and output signature', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'freecut-render-contract-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))

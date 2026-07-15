@@ -319,12 +319,13 @@ docker build -f headless/Dockerfile -t freecut-headless .
 
 # Run on a Linux host WITH a GPU (NVIDIA Container Toolkit installed):
 docker run --rm -p 8787:8787 --gpus all -e NVIDIA_DRIVER_CAPABILITIES=all \
-  -v /path/to/FreeCutProjects:/workspace:ro freecut-headless
+  -v /path/to/FreeCutProjects:/workspace freecut-headless
 
 # Confirm it's using the real GPU (not software):
 curl localhost:8787/health
 #  good:  {"ok":true,"gpu":{"available":true,"vendor":"nvidia",...},"software":false}
-#  bad:   {... "vendor":"mesa","architecture":"llvmpipe", "software":true}  -> effects will fail
+#  bad:   {... "vendor":"mesa","architecture":"llvmpipe", "software":true}
+#         GPU-effect renders are rejected with HARDWARE_GPU_REQUIRED.
 curl -X POST localhost:8787/render -H 'content-type: application/json' \
   -d '{"project":"<id>","duration":5}' -o out.mp4
 ```
@@ -336,8 +337,8 @@ firewall or publish it only on loopback (`-p 127.0.0.1:8787:8787`). If remote
 access is required, place the service behind an authenticated TLS reverse proxy.
 
 Without `--gpus all` (or on Windows), the container falls back to software
-WebGPU: cuts/text/transitions and audio still render, but GPU effects fail with
-a clear error and the service logs a warning at startup.
+WebGPU: cuts/text/transitions and audio still render, but GPU-effect projects
+are rejected with `HARDWARE_GPU_REQUIRED` before rendering.
 
 ### What's verified
 
@@ -347,8 +348,8 @@ In-container against a real workspace:
 - **Audio works, including AAC** — the `@mediabunny/aac-encoder` WASM polyfill is
   registered automatically when there's no native AAC encoder (Linux Chrome); Opus
   (webm) and MP3 also work.
-- **GPU effects** need a real GPU. Software WebGPU (lavapipe and SwiftShader) hits a
-  Dawn device-loss on the effects pipeline, surfaced as a clear render error.
+- **GPU effects** need a real GPU. Software WebGPU (lavapipe and SwiftShader)
+  can return blank frames without failing, so the service rejects those jobs.
 
 ### Why Windows Docker can't use the GPU
 
