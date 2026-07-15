@@ -101,6 +101,9 @@ export interface ProjectTimeline {
       reverseConformPreviewPath?: string
       reverseConformPreviewKey?: string
       reverseConformPreviewUsesProxy?: boolean
+      reverseConformPreviewIsSourceLevel?: boolean
+      reverseConformPreviewSourceDuration?: number
+      reverseConformPreviewFps?: number
       reverseConformStatus?: 'pending' | 'ready' | 'error'
       reverseConformLocalStart?: number
       text?: string
