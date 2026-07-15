@@ -139,8 +139,11 @@ export async function changeAppLanguage(lang: string): Promise<void> {
 // Preload the user's persisted/detected language before first render.
 // Errors are caught so the app still renders with English fallback.
 export const i18nReady: Promise<void> = (async () => {
+  const persistedLanguage =
+    typeof localStorage === 'undefined' ? null : localStorage.getItem(I18N_STORAGE_KEY)
+  const detectedLanguage = typeof navigator === 'undefined' ? DEFAULT_LANGUAGE : navigator.language
   const initial = resolveSupportedLanguage(
-    localStorage.getItem(I18N_STORAGE_KEY) ?? navigator.language,
+    persistedLanguage ?? detectedLanguage,
   )
   if (initial !== DEFAULT_LANGUAGE) await loadLanguageResources(initial)
 })().catch((err) => {

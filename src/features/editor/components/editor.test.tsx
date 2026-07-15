@@ -92,6 +92,15 @@ vi.mock('./color-timeline-navigator', () => ({
   ColorTimelineNavigator: () => <div data-testid="color-timeline-navigator" />,
 }))
 
+vi.mock('./animate-workspace/animate-layout', () => ({
+  AnimateLayout: () => <div data-testid="animate-layout" />,
+}))
+
+vi.mock('./compose-workspace/compose-layout', () => ({
+  MotionPreviewArea: () => <div data-testid="motion-preview-area" />,
+  MotionTimelineDock: () => <div data-testid="motion-timeline-dock" />,
+}))
+
 vi.mock('./project-debug-panel', () => ({
   ProjectDebugPanel: () => <div data-testid="project-debug-panel" />,
 }))
@@ -105,7 +114,7 @@ vi.mock('./audio-meter-panel', () => ({
 }))
 
 vi.mock('@/features/editor/deps/timeline-ui', () => ({
-  Timeline: () => <div data-testid="timeline" />,
+  importTimeline: vi.fn().mockResolvedValue({ Timeline: () => <div data-testid="timeline" /> }),
   importBentoLayoutDialog: vi.fn().mockResolvedValue({ BentoLayoutDialog: () => null }),
   importFillerRemovalDialog: vi.fn().mockResolvedValue({ FillerRemovalDialog: () => null }),
   importReverseConformDialog: vi.fn().mockResolvedValue({ ReverseConformDialog: () => null }),
@@ -443,5 +452,34 @@ describe('LoadedEditor migration metadata refresh', () => {
     expect(screen.getByTestId('color-timeline-navigator')).toBeInTheDocument()
     expect(screen.queryByTestId('timeline')).not.toBeInTheDocument()
     expect(screen.queryByTestId('properties-sidebar')).not.toBeInTheDocument()
+  })
+
+  it('mounts Motion in the shared editor shell and swaps only the classic Timeline', async () => {
+    mocks.editorState.workspace = 'motion'
+
+    render(
+      <LoadedEditor
+        projectId="project-1"
+        project={{
+          id: 'project-1',
+          name: 'Motion Project',
+          width: 1920,
+          height: 1080,
+          fps: 30,
+        }}
+        migration={{
+          storedSchemaVersion: 14,
+          currentSchemaVersion: 14,
+          requiresUpgrade: false,
+        }}
+      />,
+    )
+
+    expect(await screen.findByTestId('motion-timeline-dock')).toBeInTheDocument()
+    expect(screen.getByTestId('motion-preview-area')).toBeInTheDocument()
+    expect(screen.queryByTestId('timeline')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('animate-layout')).not.toBeInTheDocument()
+    expect(screen.getByTestId('media-sidebar')).toBeInTheDocument()
+    expect(screen.getByTestId('properties-sidebar')).toBeInTheDocument()
   })
 })
