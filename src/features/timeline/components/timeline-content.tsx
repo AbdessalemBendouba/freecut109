@@ -378,6 +378,7 @@ interface TimelineMarqueeLayerProps {
   itemIds: string[]
   onSelectionChange: (ids: string[]) => void
   onMarqueeActiveChange: (active: boolean) => void
+  onMarqueeGestureEnd: (event: MouseEvent) => void
 }
 
 const TimelineMarqueeLayer = memo(function TimelineMarqueeLayer({
@@ -385,6 +386,7 @@ const TimelineMarqueeLayer = memo(function TimelineMarqueeLayer({
   itemIds,
   onSelectionChange,
   onMarqueeActiveChange,
+  onMarqueeGestureEnd,
 }: TimelineMarqueeLayerProps) {
   const previewItemIdsRef = useRef<string[]>([])
 
@@ -455,6 +457,7 @@ const TimelineMarqueeLayer = memo(function TimelineMarqueeLayer({
     items: marqueeItems,
     onSelectionChange,
     onPreviewSelectionChange: setPreviewItemIds,
+    onGestureEnd: onMarqueeGestureEnd,
     enabled: itemIds.length > 0,
     threshold: 5,
     commitSelectionOnMouseUp: true,
@@ -765,6 +768,10 @@ export const TimelineContent = memo(function TimelineContent({
   const [containerWidth, setContainerWidth] = useState(0)
   const marqueeWasActiveRef = useRef(false)
   const marqueeResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const marqueePointerDownRef = useRef(false)
+  const marqueeStartPreviewFrameRef = useRef<number | null>(null)
+  const marqueeReleasePreviewRef = useRef<{ frame: number; itemId?: string } | null>(null)
+  const marqueeReleaseRafRef = useRef<number | null>(null)
   const dragWasActiveRef = useRef(false)
   const scrubWasActiveRef = useRef(false)
   const scrubTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1126,6 +1133,10 @@ export const TimelineContent = memo(function TimelineContent({
       if (active) {
         clearItemSelection()
         marqueeWasActiveRef.current = true
+        const lockedFrame = marqueeStartPreviewFrameRef.current
+        if (lockedFrame !== null && usePlaybackStore.getState().previewFrame !== lockedFrame) {
+          setPreviewFrameRef.current(lockedFrame)
+        }
         return
       }
 
@@ -1251,14 +1262,68 @@ export const TimelineContent = memo(function TimelineContent({
   // Preview scrubber: show ghost playhead on hover
   const handleTimelineMouseDownCapture = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return
+
     const target = e.target as HTMLElement
-    if (target.closest('.timeline-ruler') || target.closest('[data-playhead-handle]')) {
-      return
+    if (!target.closest('[data-track-id]') || target.closest('[data-item-id]')) return
+
+    // A press on track background is a potential marquee gesture. Freeze the
+    // skim target immediately so the few pixels before marquee activation do
+    // not briefly seek the preview away from the mouse-down frame.
+    marqueePointerDownRef.current = true
+    if (marqueeReleaseRafRef.current !== null) {
+      cancelAnimationFrame(marqueeReleaseRafRef.current)
+      marqueeReleaseRafRef.current = null
     }
-    if (usePlaybackStore.getState().previewFrame !== null) {
+    const playback = usePlaybackStore.getState()
+    marqueeStartPreviewFrameRef.current = playback.previewFrame
+    marqueeReleasePreviewRef.current =
+      playback.previewFrame === null
+        ? null
+        : { frame: playback.previewFrame, itemId: playback.previewItemId ?? undefined }
+    if (previewRafRef.current !== null) {
+      cancelAnimationFrame(previewRafRef.current)
+      previewRafRef.current = null
+    }
+  }, [])
+
+  const finishMarqueePointerGesture = useCallback((e: MouseEvent) => {
+    const wasMarqueePointerGesture = marqueePointerDownRef.current
+    const releasePreview = marqueeReleasePreviewRef.current
+    marqueePointerDownRef.current = false
+    marqueeStartPreviewFrameRef.current = null
+    marqueeReleasePreviewRef.current = null
+
+    if (!wasMarqueePointerGesture) return
+
+    const container = containerRef.current
+    const rect = container?.getBoundingClientRect()
+    const pointerIsInsideTimeline =
+      rect !== undefined &&
+      e.clientX >= rect.left &&
+      e.clientX <= rect.right &&
+      e.clientY >= rect.top &&
+      e.clientY <= rect.bottom
+
+    if (pointerIsInsideTimeline && releasePreview) {
+      // Complete marquee teardown first. Its mouseup path may clear transient
+      // preview state later in the same event dispatch.
+      marqueeReleaseRafRef.current = requestAnimationFrame(() => {
+        marqueeReleaseRafRef.current = null
+        setPreviewFrameRef.current(releasePreview.frame, releasePreview.itemId)
+      })
+    } else {
       setPreviewFrameRef.current(null)
     }
   }, [])
+
+  useEffect(
+    () => () => {
+      if (marqueeReleaseRafRef.current !== null) {
+        cancelAnimationFrame(marqueeReleaseRafRef.current)
+      }
+    },
+    [],
+  )
 
   const handleTimelineMouseMove = useCallback(
     (e: React.MouseEvent) => {
@@ -1282,7 +1347,7 @@ export const TimelineContent = memo(function TimelineContent({
         body.classList.contains(className),
       )
       const interactionLockActive = gestureCursorActive || body.style.userSelect === 'none'
-      if (interactionLockActive) {
+      if (interactionLockActive && !marqueePointerDownRef.current) {
         if (usePlaybackStore.getState().previewFrame !== null) {
           setPreviewFrameRef.current(null)
         }
@@ -1290,7 +1355,7 @@ export const TimelineContent = memo(function TimelineContent({
       }
 
       // Skip during any drag (playhead drag, item drag, marquee)
-      if (marqueeWasActiveRef.current || dragWasActiveRef.current || scrubWasActiveRef.current)
+      if (!marqueePointerDownRef.current && (dragWasActiveRef.current || scrubWasActiveRef.current))
         return
 
       const scrollContainer = containerRef.current
@@ -1326,6 +1391,11 @@ export const TimelineContent = memo(function TimelineContent({
       const itemEl = target.closest('[data-item-id]') as HTMLElement | null
       const itemId = itemEl?.getAttribute('data-item-id') ?? undefined
 
+      if (marqueePointerDownRef.current) {
+        marqueeReleasePreviewRef.current = { frame, itemId }
+        return
+      }
+
       // RAF-throttle the store update
       if (previewRafRef.current !== null) {
         cancelAnimationFrame(previewRafRef.current)
@@ -1339,6 +1409,8 @@ export const TimelineContent = memo(function TimelineContent({
   )
 
   const handleTimelineMouseLeave = useCallback(() => {
+    if (marqueePointerDownRef.current) return
+
     if (previewRafRef.current !== null) {
       cancelAnimationFrame(previewRafRef.current)
       previewRafRef.current = null
@@ -1883,6 +1955,7 @@ export const TimelineContent = memo(function TimelineContent({
           itemIds={itemIds}
           onSelectionChange={handleMarqueeSelectionChange}
           onMarqueeActiveChange={handleMarqueeActiveChange}
+          onMarqueeGestureEnd={finishMarqueePointerGesture}
         />
 
         {itemIds.length === 0 && (

@@ -16,6 +16,9 @@ import { TimelineContent } from './timeline-content'
 const perfMarkMocks = vi.hoisted(() => ({
   mark: vi.fn(),
 }))
+const marqueeMocks = vi.hoisted(() => ({
+  onGestureEnd: undefined as ((event: MouseEvent, wasActualDrag: boolean) => void) | undefined,
+}))
 
 vi.mock('@/shared/logging/perf-marks', () => ({
   perfMarkRender: perfMarkMocks.mark,
@@ -25,14 +28,19 @@ vi.mock('@/shared/logging/perf-marks', () => ({
 vi.mock('@/shared/marquee/use-marquee-selection', () => {
   const INACTIVE = { active: false, startX: 0, startY: 0, currentX: 0, currentY: 0 }
   return {
-    useMarqueeSelection: () => ({
-      isActive: false,
-      marquee: {
-        subscribe: () => () => {},
-        getSnapshot: () => INACTIVE,
-      },
-      selectedIds: [],
-    }),
+    useMarqueeSelection: (options: {
+      onGestureEnd?: (event: MouseEvent, wasActualDrag: boolean) => void
+    }) => {
+      marqueeMocks.onGestureEnd = options.onGestureEnd
+      return {
+        isActive: false,
+        marquee: {
+          subscribe: () => () => {},
+          getSnapshot: () => INACTIVE,
+        },
+        selectedIds: [],
+      }
+    },
   }
 })
 
@@ -176,6 +184,7 @@ function resetStores() {
 describe('TimelineContent playback selection behavior', () => {
   beforeEach(() => {
     resetStores()
+    marqueeMocks.onGestureEnd = undefined
   })
 
   it('keeps the selected clip selected after the playhead moves past it', async () => {
@@ -641,5 +650,75 @@ describe('TimelineContent playback selection behavior', () => {
     fireEvent.mouseDown(ruler!, { button: 0 })
 
     expect(usePlaybackStore.getState().previewFrame).toBe(24)
+  })
+
+  it('locks the skim preview from track mousedown until the marquee gesture ends', () => {
+    const { container } = render(<TimelineContent duration={10} tracks={[VIDEO_TRACK]} />)
+
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+
+    act(() => {
+      usePlaybackStore.getState().setCurrentFrame(90)
+      usePlaybackStore.getState().setPreviewFrame(24)
+    })
+
+    const track = container.querySelector(`[data-track-id="${VIDEO_TRACK.id}"]`)
+    const scrollContainer = container.querySelector('[data-timeline-scroll-container]')
+    expect(track).toBeTruthy()
+    expect(scrollContainer).toBeTruthy()
+
+    vi.spyOn(scrollContainer!, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 400,
+      bottom: 200,
+      width: 400,
+      height: 200,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.mouseDown(track!, { button: 0, clientX: 80, clientY: 100 })
+    document.body.style.userSelect = 'none'
+    fireEvent.mouseMove(track!, { clientX: 180, clientY: 100 })
+    fireEvent.mouseLeave(scrollContainer!)
+
+    act(() => {
+      frameCallbacks.splice(0).forEach((callback) => callback(performance.now()))
+    })
+
+    expect(usePlaybackStore.getState().currentFrame).toBe(90)
+    expect(usePlaybackStore.getState().previewFrame).toBe(24)
+
+    document.body.style.userSelect = ''
+    act(() => {
+      marqueeMocks.onGestureEnd?.(
+        new MouseEvent('mouseup', { button: 0, clientX: 180, clientY: 100 }),
+        true,
+      )
+    })
+    act(() => {
+      frameCallbacks.splice(0).forEach((callback) => callback(performance.now()))
+    })
+    expect(usePlaybackStore.getState().previewFrame).not.toBe(24)
+
+    const releaseFrame = usePlaybackStore.getState().previewFrame
+    frameCallbacks.length = 0
+    fireEvent.mouseMove(track!, { clientX: 220, clientY: 100 })
+    expect(frameCallbacks.length).toBeGreaterThan(0)
+
+    act(() => {
+      frameCallbacks.splice(0).forEach((callback) => callback(performance.now()))
+    })
+
+    expect(usePlaybackStore.getState().previewFrame).not.toBe(releaseFrame)
+    animationFrameSpy.mockRestore()
   })
 })

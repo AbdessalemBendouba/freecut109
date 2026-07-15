@@ -7,6 +7,7 @@ import { useMarqueeSelection, type Rect } from './use-marquee-selection'
 interface MarqueeHarnessProps {
   onSelectionChange: (ids: string[]) => void
   onPreviewSelectionChange: (ids: string[]) => void
+  onGestureEnd: (event: MouseEvent, wasActualDrag: boolean) => void
 }
 
 function createRect(left: number, top: number, right: number, bottom: number): Rect {
@@ -20,7 +21,11 @@ function createRect(left: number, top: number, right: number, bottom: number): R
   }
 }
 
-function MarqueeHarness({ onSelectionChange, onPreviewSelectionChange }: MarqueeHarnessProps) {
+function MarqueeHarness({
+  onSelectionChange,
+  onPreviewSelectionChange,
+  onGestureEnd,
+}: MarqueeHarnessProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const items = useMemo(
     () => [
@@ -35,6 +40,7 @@ function MarqueeHarness({ onSelectionChange, onPreviewSelectionChange }: Marquee
     items,
     onSelectionChange,
     onPreviewSelectionChange,
+    onGestureEnd,
     commitSelectionOnMouseUp: true,
   })
 
@@ -77,10 +83,12 @@ describe('useMarqueeSelection deferred commits', () => {
   it('updates the lightweight preview during drag and commits global selection once on mouseup', () => {
     const onSelectionChange = vi.fn<(ids: string[]) => void>()
     const onPreviewSelectionChange = vi.fn<(ids: string[]) => void>()
+    const onGestureEnd = vi.fn<(event: MouseEvent, wasActualDrag: boolean) => void>()
     const { getByTestId } = render(
       <MarqueeHarness
         onSelectionChange={onSelectionChange}
         onPreviewSelectionChange={onPreviewSelectionChange}
+        onGestureEnd={onGestureEnd}
       />,
     )
     const container = getByTestId('marquee-container')
@@ -110,6 +118,8 @@ describe('useMarqueeSelection deferred commits', () => {
 
     fireEvent.mouseUp(document, { clientX: 100, clientY: 100 })
 
+    expect(onGestureEnd).toHaveBeenCalledTimes(1)
+    expect(onGestureEnd.mock.calls[0]?.[1]).toBe(true)
     expect(onPreviewSelectionChange).toHaveBeenLastCalledWith([])
     expect(onSelectionChange).toHaveBeenCalledTimes(1)
     expect(onSelectionChange).toHaveBeenCalledWith(['clip-1', 'clip-2'])
