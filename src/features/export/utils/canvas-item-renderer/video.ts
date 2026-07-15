@@ -192,7 +192,7 @@ export async function renderVideoItem(
   rctx: ItemRenderContext,
   sourceFrameOffset: number = 0,
   renderSpan?: RenderTimelineSpan,
-): Promise<void> {
+): Promise<boolean> {
   const {
     fps,
     videoExtractors,
@@ -247,7 +247,12 @@ export async function renderVideoItem(
     if (isPreviewMode) rctx.markActivePreviewFramePending?.()
   }
   if (rctx.isActivePreviewFrameSuperseded?.(previewRootFrame)) {
-    return
+    // A repeated ruler exit can supersede a committed-frame render and then
+    // request that same frame again before this render unwinds. Frame-number
+    // checks alone can no longer identify this cleared canvas as stale, so
+    // explicitly abort its parent render.
+    holdPreviewFrontBuffer()
+    return false
   }
   if (isPreviewMode && rctx.isActivePreviewFrameCurrent?.(previewRootFrame)) {
     // Held scrubs already have a dedicated exact/fallback bitmap scheduler.
@@ -264,7 +269,7 @@ export async function renderVideoItem(
       sourceTime,
       tier2ToleranceSeconds,
     )
-    if (drewActiveBitmap) return
+    if (drewActiveBitmap) return true
   }
   const domVideoElementProvider = rctx.domVideoElementProvider
   // During transitions, frame can lie outside item's natural span (the
@@ -359,7 +364,7 @@ export async function renderVideoItem(
     // entire playback session. Mediabunny init + keyframe seek takes
     // 400-500ms on the main thread, causing visible frame drops.
     // DOM video has slight timing drift at speed != 1, but no freezes.
-    return
+    return true
   }
 
   const mediabunnyInitAction = resolvePreviewMediabunnyInitAction({
@@ -378,7 +383,7 @@ export async function renderVideoItem(
     if (mediabunnyInitAction === 'warm-background-and-skip') {
       void mediabunnyReadyPromise
       holdPreviewFrontBuffer()
-      return
+      return false
     }
     // A cold main-thread MediaBunny init can take hundreds of milliseconds.
     // Continue through worker bitmap and cached-frame fallbacks while it warms.
@@ -411,7 +416,7 @@ export async function renderVideoItem(
           rctx.canvasPool,
         )
       ) {
-        return
+        return true
       }
     }
 
@@ -432,7 +437,7 @@ export async function renderVideoItem(
         if (rctx.ensureVideoItemReady && !mediabunnyReadyPromise) {
           void rctx.ensureVideoItemReady(item.id)
         }
-        return
+        return true
       }
     }
 
@@ -470,7 +475,7 @@ export async function renderVideoItem(
       // the element is still the authoritative source, so committing the
       // freshly-cleared composition canvas would replace the front buffer with black.
       holdPreviewFrontBuffer()
-      return
+      return false
     }
     const isPendingOrSupersededSource =
       pendingWorkerSource &&
@@ -484,12 +489,16 @@ export async function renderVideoItem(
           sourceTime,
           tier2ToleranceSeconds,
         ))
-    if (isPendingOrSupersededSource) {
-      // A source-only cancellation can race the root-frame target on ruler
-      // exit. Treat it as pending so the cleared composition never commits.
+    if (
+      rctx.isActivePreviewFrameCurrent?.(previewRootFrame) ||
+      isPendingOrSupersededSource
+    ) {
+      // Direction changes can cancel the old source request before the new
+      // one is registered. The root frame is still active, so returning it as
+      // complete would commit a partially rendered (usually black) canvas.
       holdPreviewFrontBuffer()
     }
-    return
+    return false
   }
 
   // === TRY PRE-DECODED BITMAP (from background Web Worker) ===
@@ -513,7 +522,7 @@ export async function renderVideoItem(
       if (!useMediabunny.has(item.id) && rctx.ensureVideoItemReady) {
         void rctx.ensureVideoItemReady(item.id)
       }
-      return
+      return true
     }
   }
 
@@ -533,10 +542,8 @@ export async function renderVideoItem(
     // frame. Do not replace that cancellation with a blocking main-thread
     // MediaBunny seek; the render pump will immediately pick up the latest
     // target and stale-frame presentation guards keep this canvas hidden.
-    if (!rootFrameSuperseded && sourceTargetSuperseded) {
-      holdPreviewFrontBuffer()
-    }
-    return
+    holdPreviewFrontBuffer()
+    return false
   }
 
   if (rctx.isActivePreviewFrameCurrent?.(previewRootFrame)) {
@@ -544,7 +551,7 @@ export async function renderVideoItem(
     // this exact target. The worker-ready subscription wakes the render pump;
     // avoiding MediaBunny here keeps pointer input and cancellation responsive.
     rctx.markActivePreviewFramePending?.()
-    return
+    return false
   }
 
   // === TRY MEDIABUNNY FIRST (fast, precise frame access) ===
@@ -581,7 +588,7 @@ export async function renderVideoItem(
           rctx.canvasPool,
         )
       ) {
-        return
+        return true
       }
     }
 
@@ -618,7 +625,7 @@ export async function renderVideoItem(
         )
       ) {
         mediabunnyFailureCountByItem.set(item.id, 0)
-        return
+        return true
       }
     }
 
@@ -699,7 +706,7 @@ export async function renderVideoItem(
       if (scrubbingCache && capturedFrame) {
         scrubbingCache.putVideoFrame(item.id, capturedFrame, capturedSourceTime ?? clampedTime)
       }
-      return
+      return true
     }
     mediabunnyFailedThisFrame = true
 
@@ -720,7 +727,7 @@ export async function renderVideoItem(
           rctx.canvasPool,
         )
       ) {
-        return
+        return true
       }
     }
     if (failureKind === 'no-sample') {
@@ -767,14 +774,14 @@ export async function renderVideoItem(
   })
   if (!allowVideoElementFallback && !allowPreviewFallback) {
     holdPreviewFrontBuffer()
-    return
+    return false
   }
 
   const video = videoElements.get(item.id)
   if (!video) {
     log.warn('Video element not found', { itemId: item.id, frame })
     holdPreviewFrontBuffer()
-    return
+    return false
   }
 
   const clampedTime = Math.max(0, Math.min(sourceTime, video.duration - 0.01))
@@ -806,7 +813,7 @@ export async function renderVideoItem(
   if (video.readyState < 2) {
     if (isPreviewMode) {
       holdPreviewFrontBuffer()
-      return
+      return false
     }
 
     await new Promise<void>((resolve) => {
@@ -831,7 +838,7 @@ export async function renderVideoItem(
   if (video.readyState < 2) {
     if (import.meta.env.DEV && frame < 5)
       log.warn(`Video not ready after waiting: frame=${frame} readyState=${video.readyState}`)
-    return
+    return false
   }
 
   if (import.meta.env.DEV && (frame < 5 || frame % 30 === 0)) {
@@ -851,6 +858,7 @@ export async function renderVideoItem(
     undefined,
     rctx.canvasPool,
   )
+  return true
 }
 
 export function resolveVideoParticipantSourceTime(

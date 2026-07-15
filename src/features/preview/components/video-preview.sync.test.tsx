@@ -2939,6 +2939,51 @@ describe('VideoPreview sync behavior', () => {
     expect(scrubCanvas.style.visibility).toBe('visible')
   })
 
+  it('does not restore a hidden stale scrub canvas after a fast ruler swipe', async () => {
+    setSingleVideoItemAtFrame({ id: 'item-fast-swipe-release' }, 47)
+    const { scrubCanvas, renderer } = await renderReadySingleRendererPreview(47, {
+      expectVisible: false,
+    })
+    expect(scrubCanvas.style.visibility).toBe('hidden')
+
+    renderer.renderFrame.mockClear()
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(48)
+    })
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(48)
+      expect(scrubCanvas.style.visibility).toBe('visible')
+    })
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(49)
+      usePlaybackStore.getState().setPreviewFrame(50)
+    })
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(50)
+    })
+
+    let resolveCommittedFrame: (() => void) | null = null
+    renderer.renderFrame.mockImplementation(async (frame: number) => {
+      if (frame === 47) {
+        await new Promise<void>((resolve) => {
+          resolveCommittedFrame = resolve
+        })
+      }
+    })
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(null)
+    })
+
+    expect(scrubCanvas.style.visibility).toBe('hidden')
+
+    await act(async () => {
+      resolveCommittedFrame?.()
+      await Promise.resolve()
+    })
+  })
+
   it('captures a fresh live frame for scopes instead of reusing an in-flight stale sample', async () => {
     setSingleVideoItemAtFrame({ id: 'item-live-scopes' })
     const { renderer } = await renderReadySingleRendererPreview(24, { expectVisible: false })
