@@ -3,15 +3,15 @@ import { z } from 'zod'
 export const HEADLESS_API_VERSION = 1
 
 const id = z.string().min(1)
-export const portableIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/)
-export const revisionSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/)
+const portableIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/)
+const revisionSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/)
 const finite = z.number().finite()
 const frame = z.number().int().nonnegative()
 const positiveFrames = z.number().int().positive()
 const projectObject = z.record(z.string(), z.unknown())
 const params = z.record(z.string(), z.union([z.number(), z.boolean(), z.string()]))
 
-export const GPU_EFFECT_TYPES = [
+const GPU_EFFECT_TYPES = [
   'gpu-ascii',
   'gpu-block-glitch',
   'gpu-blocks',
@@ -68,7 +68,7 @@ export const GPU_EFFECT_TYPES = [
   'gpu-zoom-blur',
 ]
 
-export const ANIMATABLE_PROPERTIES = [
+const ANIMATABLE_PROPERTIES = [
   'x',
   'y',
   'width',
@@ -255,7 +255,7 @@ export const EDIT_OPERATION_NAMES = [
   'removeEffect',
   'setTransform',
 ]
-export const EDIT_OPERATION_DESCRIPTIONS = Object.fromEntries(
+const EDIT_OPERATION_DESCRIPTIONS = Object.fromEntries(
   EDIT_OPERATION_NAMES.map((name) => [name, samplesDescription(name)]),
 )
 
@@ -315,7 +315,7 @@ const lifecycleTimelineSchema = z
   })
   .passthrough()
 
-export const lifecycleProjectSchema = z
+const lifecycleProjectSchema = z
   .object({
     id: portableIdSchema,
     name: z.string().min(1).max(100),
@@ -482,7 +482,7 @@ export const mediaProbeRequestSchema = z
     path: ['expectedRevision'],
   })
 
-export const RENDER_OPTIONS = {
+const RENDER_OPTIONS = {
   codecs: ['h264', 'h265', 'vp9', 'vp8', 'av1'],
   containers: ['mp4', 'webm', 'mov', 'mkv', 'mp3', 'wav', 'm4a'],
   qualities: ['low', 'medium', 'high', 'ultra'],

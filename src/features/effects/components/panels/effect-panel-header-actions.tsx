@@ -18,7 +18,7 @@ interface EffectPanelHeaderActionsProps extends EffectMoveProps {
   onEditInColor?: () => void
 }
 
-export function EffectPanelHeaderActions({
+function EffectPanelHeaderActions({
   effectId,
   enabled,
   isDefault,

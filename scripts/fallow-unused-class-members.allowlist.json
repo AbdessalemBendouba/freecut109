@@ -22,11 +22,6 @@
         },
         {
           "parentName": "VideoFrameExtractor",
-          "memberName": "dispose",
-          "kind": "class_method"
-        },
-        {
-          "parentName": "VideoFrameExtractor",
           "memberName": "drawFrameWithCapture",
           "kind": "class_method"
         },
@@ -63,6 +58,17 @@
       ]
     },
     {
+      "path": "src/features/export/utils/shared-video-extractor.ts",
+      "reason": "SharedVideoExtractorPool is consumed through the client renderer's pool abstraction; dispose releases every extractor lane during renderer teardown.",
+      "members": [
+        {
+          "parentName": "SharedVideoExtractorPool",
+          "memberName": "dispose",
+          "kind": "class_method"
+        }
+      ]
+    },
+    {
       "path": "src/features/media-library/transcription/browser-transcriber.ts",
       "reason": "Audited as a live transcription service API reached through adapter instances.",
       "members": [
@@ -84,27 +90,7 @@
       "members": [
         {
           "parentName": "ScrubbingCache",
-          "memberName": "cacheFrame",
-          "kind": "class_method"
-        },
-        {
-          "parentName": "ScrubbingCache",
-          "memberName": "dispose",
-          "kind": "class_method"
-        },
-        {
-          "parentName": "ScrubbingCache",
-          "memberName": "putGpuFrame",
-          "kind": "class_method"
-        },
-        {
-          "parentName": "ScrubbingCache",
           "memberName": "setEvictionHint",
-          "kind": "class_method"
-        },
-        {
-          "parentName": "ScrubbingCache",
-          "memberName": "setGpuDevice",
           "kind": "class_method"
         }
       ]

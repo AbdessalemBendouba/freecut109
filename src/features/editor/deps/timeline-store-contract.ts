@@ -32,7 +32,6 @@ export {
   beginMotionModifierEdit,
   commitMotionModifierEdit,
   removeMotionModifierFromItems,
-  setEffectAudioPulse,
   bakeMotionToKeyframes,
 } from '@/features/timeline/stores/actions/motion-modifier-actions'
 export {

@@ -11,7 +11,7 @@ export class HttpError extends Error {
   }
 }
 
-export function isSinglePathComponent(value) {
+function isSinglePathComponent(value) {
   return (
     typeof value === 'string' &&
     value.length > 0 &&
@@ -77,7 +77,7 @@ export function requireGetOrHead(req, res) {
   return false
 }
 
-export function parseSingleByteRange(header, size) {
+function parseSingleByteRange(header, size) {
   if (header === undefined) return null
   if (typeof header !== 'string' || header.includes(',')) return false
   const match = /^bytes=(\d*)-(\d*)$/.exec(header)

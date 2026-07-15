@@ -80,7 +80,6 @@ export {
   beginMotionModifierEdit,
   commitMotionModifierEdit,
   removeMotionModifierFromItems,
-  setEffectAudioPulse,
   bakeMotionToKeyframes,
 } from '../stores/actions/motion-modifier-actions'
 export {

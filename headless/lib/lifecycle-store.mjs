@@ -213,25 +213,6 @@ export async function saveProjectResource(
   })
 }
 
-export async function updateProjectResource(workspace, id, updates, options) {
-  const current = await getProjectResource(workspace, id)
-  const next = {
-    ...current.project,
-    ...(updates.name !== undefined ? { name: updates.name } : {}),
-    ...(updates.description !== undefined ? { description: updates.description } : {}),
-    metadata: {
-      ...current.project.metadata,
-      ...(updates.width !== undefined ? { width: updates.width } : {}),
-      ...(updates.height !== undefined ? { height: updates.height } : {}),
-      ...(updates.fps !== undefined ? { fps: updates.fps } : {}),
-      ...(updates.backgroundColor !== undefined
-        ? { backgroundColor: updates.backgroundColor }
-        : {}),
-    },
-  }
-  return saveProjectResource(workspace, id, next, options)
-}
-
 function localPidIsAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return null
   try {
@@ -345,7 +326,7 @@ export async function assertAtomicReplace(workspace) {
   }
 }
 
-export function sanitizeFileName(name) {
+function sanitizeFileName(name) {
   const cleaned = [...name]
     .map((character) =>
       character.codePointAt(0) < 32 || '<>:"/\\|?*'.includes(character) ? '_' : character,

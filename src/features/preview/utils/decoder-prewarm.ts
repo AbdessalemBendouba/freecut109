@@ -933,7 +933,7 @@ export function settleActivePreviewRenderTarget(frame: number): void {
   }, 160)
 }
 
-export function setActivePreviewSourceTargets(src: string, timestamps: number[]): void {
+function setActivePreviewSourceTargets(src: string, timestamps: number[]): void {
   latestActivePreviewTimestampsBySrc.set(src, [...new Set(timestamps)])
 }
 
@@ -980,7 +980,7 @@ export function isActivePreviewFrameDecodeReady(frame: number): boolean {
   return true
 }
 
-export function isActivePreviewFrameExactDecodeReady(frame: number): boolean {
+function isActivePreviewFrameExactDecodeReady(frame: number): boolean {
   if (!isActivePreviewFrameCurrent(frame)) return true
   if (latestActivePreviewTimestampsBySrc.size === 0) return true
   for (const [src, timestamps] of latestActivePreviewTimestampsBySrc) {

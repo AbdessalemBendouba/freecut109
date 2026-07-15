@@ -12,7 +12,7 @@ export interface PreviewDomVideoDrawDecision {
   driftThreshold: number | null
 }
 
-export const PREVIEW_DOM_VIDEO_SEEK_WAIT_MS = 48
+const PREVIEW_DOM_VIDEO_SEEK_WAIT_MS = 48
 
 export interface ResolvePreviewDomVideoDrawDecisionOptions {
   domVideo: HTMLVideoElement | null

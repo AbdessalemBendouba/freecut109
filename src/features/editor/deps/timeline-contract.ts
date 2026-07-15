@@ -26,7 +26,6 @@ export {
   beginTextMotionEdit,
   commitTextMotionEdit,
   removeTextMotionEffect,
-  setEffectAudioPulse,
   bakeMotionToKeyframes,
   buildDroppedCompositionTimelineItems,
   buildDroppedMediaTimelineItems,

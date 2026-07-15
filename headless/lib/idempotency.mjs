@@ -4,14 +4,14 @@ import path from 'node:path'
 import { atomicWriteFile, withResourceLock } from './lifecycle-store.mjs'
 import { HttpError } from './http-security.mjs'
 
-export const IDEMPOTENCY_LIMITS = {
+const IDEMPOTENCY_LIMITS = {
   ttlMs: 24 * 60 * 60 * 1000,
   maxCount: 4096,
   maxTotalResponseBytes: 512 * 1024 * 1024,
   maxResponseBytes: 40 * 1024 * 1024,
 }
 
-export function validateIdempotencyKey(value) {
+function validateIdempotencyKey(value) {
   if (
     typeof value !== 'string' ||
     value.length < 1 ||
