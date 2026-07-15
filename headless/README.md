@@ -68,6 +68,9 @@ npm run headless -- --workspace "<ws>" --project <id> \
 
 # Audio only
 npm run headless -- --workspace "<ws>" --project <id> --audio-only --container mp3
+
+# Machine-readable output (also supported by edit.mjs)
+npm run headless -- --workspace "<ws>" --list --json
 ```
 
 ### Options
@@ -91,6 +94,9 @@ npm run headless -- --workspace "<ws>" --project <id> --audio-only --container m
 | `--harness-url <url>` | — | Dev mode: drive a running `npm run dev` server instead of `dist/`. |
 
 ## Notes & limitations
+
+All CLIs support `--help`, reject unknown flags, and accept `--json` for a
+single machine-readable result without progress output.
 
 - **Media must be mirrored to the workspace folder on disk.** The CLI reads
   `media/<id>/<file>`. If a media source is missing (imported but never read in
@@ -149,6 +155,10 @@ Safe by default: with neither `--out` nor `--in-place` it's a dry run.
 | `removeEffect` | `itemId`, `effectId` |
 | `setTransform` | `id`, `transform` (e.g. `{ "x": 0, "y": 150, "opacity": 0.5, "rotation": 0 }`) |
 
+Operations are validated before Chrome starts. Item and track references must
+exist and be compatible. `removeItems` rejects the entire operation if any
+requested id is missing, so it never reports success for a partial request.
+
 `addClip` reads the media's `metadata.json` (passed automatically by the CLI),
 so its source range, fps, and audio companion match an in-app import.
 
@@ -171,6 +181,7 @@ npm run headless:serve -- --workspace "<ws>" --port 8787   # add --build on firs
 
 # then:
 curl localhost:8787/health
+curl localhost:8787/capabilities
 curl localhost:8787/projects
 curl -X POST localhost:8787/render -H 'content-type: application/json' \
   -d '{"project":"<id>","codec":"vp9","duration":5}' -o out.webm
@@ -180,13 +191,37 @@ curl -X POST localhost:8787/edit -H 'content-type: application/json' \
 
 | Route | Body | Returns |
 |-------|------|---------|
-| `GET /health` | — | `{ ok, gpu: { available, vendor, architecture }, software, harnessUrl }` |
-| `GET /projects` | — | `[{ id, name, updatedAt }]` |
+| `GET /health` | — | `{ ok, apiVersion, gpu: { available, vendor, architecture }, software, harnessUrl }` |
+| `GET /capabilities` | — | API version, operations, options, and JSON Schemas. |
+| `GET /projects` | — | `[{ id, projectId, name, updatedAt }]`; `id` is the actionable directory key. |
 | `POST /render` | `{ project\|projectObject, codec?, container?, resolution?, fps?, quality?, in?, outSec?, duration?, audioOnly? }` | the rendered file (attachment) |
 | `POST /edit` | `{ project\|projectObject, ops, ... }` | `{ ok, project, applied, results }` |
 
 `project` is a workspace project id; `projectObject` is an inline Project JSON.
 Media is resolved from the service's workspace by id.
+
+The HTTP API version is `1`. HTTP bodies use canonical camelCase fields
+`inSec`, `outSec`, and `audioOnly`; CLI aliases are normalized before
+validation. Bodies are strict, edit operation arrays must be nonempty, numeric
+values must be finite and bounded, and exactly one of `project` or
+`projectObject` is required.
+
+Validation failures return HTTP 400 in a stable envelope:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Request validation failed",
+    "fields": [{ "path": "ops", "message": "Invalid input", "code": "too_small" }],
+    "apiVersion": 1
+  }
+}
+```
+
+Unexpected failures use the same envelope with HTTP 500 and
+`code: "INTERNAL_ERROR"`. Breaking contract changes require an API version
+bump. New edit operations must update the schema, capabilities, docs, and tests.
 
 ## Docker (Linux GPU server deployment)
 

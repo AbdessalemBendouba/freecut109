@@ -217,6 +217,26 @@ async function main() {
     const after = edit.project?.timeline?.items?.length ?? 0
     check('edit added an item', after === before + 1, `items ${before} -> ${after}`)
 
+    const missingTargetError = await page.evaluate(async (project) => {
+      try {
+        await window.freecut.editProject({ project, ops: [{ op: 'updateItem', id: 'missing', updates: { label: 'nope' } }] })
+        return null
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    }, SAMPLE_PROJECT)
+    check('missing update target fails truthfully', /id: item "missing" does not exist/.test(missingTargetError ?? ''), missingTargetError)
+
+    const missingRemoveError = await page.evaluate(async (project) => {
+      try {
+        await window.freecut.editProject({ project, ops: [{ op: 'removeItems', ids: ['text-1', 'missing'] }] })
+        return null
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+      }
+    }, SAMPLE_PROJECT)
+    check('removeItems rejects a batch containing missing ids', /ids: item "missing" does not exist/.test(missingRemoveError ?? ''), missingRemoveError)
+
     const reopenedProject = JSON.parse(JSON.stringify(edit.project))
     const items = reopenedProject.timeline?.items ?? []
     const keyframes = reopenedProject.timeline?.keyframes ?? []

@@ -31,7 +31,7 @@ export function loadProject(workspaceDir, projectIdOrFile) {
   return { project, projectJsonPath }
 }
 
-/** List all projects in a workspace as { id, name, updatedAt }. */
+/** List projects using the actionable directory name as id; projectId is the JSON's internal id. */
 export function listProjects(workspaceDir) {
   const projectsDir = path.join(workspaceDir, 'projects')
   if (!fs.existsSync(projectsDir)) return []
@@ -42,7 +42,7 @@ export function listProjects(workspaceDir) {
     if (!fs.existsSync(jsonPath)) continue
     try {
       const p = JSON.parse(fs.readFileSync(jsonPath, 'utf8'))
-      out.push({ id: p.id ?? entry.name, name: p.name ?? '(unnamed)', updatedAt: p.updatedAt ?? 0 })
+      out.push({ id: entry.name, projectId: p.id ?? entry.name, name: p.name ?? '(unnamed)', updatedAt: p.updatedAt ?? 0 })
     } catch {
       // skip unreadable project
     }

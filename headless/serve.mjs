@@ -27,6 +27,17 @@ import { chromium } from 'playwright'
 import { loadProject, listProjects, collectAddClipMedia } from './lib/workspace.mjs'
 import { parseArgs, chromeLaunchArgs } from './lib/cli.mjs'
 import { prepareJob, renderJob, startHarness } from './lib/render-core.mjs'
+import {
+  HEADLESS_API_VERSION,
+  ContractValidationError,
+  capabilities,
+  editRequestSchema,
+  renderRequestSchema,
+  validate,
+} from './lib/contract.mjs'
+
+const HELP = `Usage: node headless/serve.mjs --workspace <dir> [--port 8787] [--build] [--head] [--harness-url <url>]\n`
+const SERVE_OPTIONS = new Set(['workspace', 'port', 'build', 'head', 'harness-url', 'help'])
 
 const CONTAINER_MIME = {
   mp4: 'video/mp4',
@@ -88,7 +99,8 @@ function isSoftwareGpu(gpu) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2))
+  const args = parseArgs(process.argv.slice(2), { allowed: SERVE_OPTIONS })
+  if (args.help) { console.log(HELP); return }
   const workspace = args.workspace
   if (!workspace) throw new Error('Missing --workspace <dir>')
   if (!fs.existsSync(workspace)) throw new Error(`Workspace not found: ${workspace}`)
@@ -141,7 +153,7 @@ async function main() {
   let counter = 0
 
   const handleRender = async (req, res) => {
-    const body = await readJsonBody(req)
+    const body = validate(renderRequestSchema, await readJsonBody(req))
     const container = body.container ?? (body.audioOnly ? 'mp3' : undefined)
     const outPath = path.join(tmpDir, `render-${process.pid}-${++counter}.${container ?? 'out'}`)
     const job = prepareJob(workspace, { ...body, out: outPath }, mediaUrlOf)
@@ -172,9 +184,9 @@ async function main() {
   }
 
   const handleEdit = async (req, res) => {
-    const body = await readJsonBody(req)
+    const body = validate(editRequestSchema, await readJsonBody(req))
     const project = body.projectObject ?? loadProject(workspace, body.project).project
-    const ops = Array.isArray(body.ops) ? body.ops : []
+    const ops = body.ops
     const media = collectAddClipMedia(workspace, ops)
     const result = await enqueue(() =>
       page.evaluate((payload) => window.freecut.editProject(payload), { project, ops, media }),
@@ -189,8 +201,10 @@ async function main() {
       route === 'GET /health'
         ? async () => {
             const gpu = await probeGpu(page)
-            sendJson(res, 200, { ok: true, gpu, software: isSoftwareGpu(gpu), harnessUrl })
+            sendJson(res, 200, { ok: true, apiVersion: HEADLESS_API_VERSION, gpu, software: isSoftwareGpu(gpu), harnessUrl })
           }
+        : route === 'GET /capabilities'
+          ? async () => sendJson(res, 200, capabilities())
         : route === 'GET /projects'
           ? async () => sendJson(res, 200, listProjects(workspace))
           : route === 'POST /render'
@@ -204,7 +218,15 @@ async function main() {
     }
     handler().catch((e) => {
       console.error(`${route} failed:`, e.message ?? e)
-      if (!res.headersSent) sendJson(res, 500, { error: e.message ?? String(e) })
+      if (!res.headersSent) {
+        const validation = e instanceof ContractValidationError || String(e.message).startsWith('Invalid JSON body:')
+        sendJson(res, validation ? 400 : 500, {
+          error: {
+            code: validation ? (e.code ?? 'INVALID_JSON') : 'INTERNAL_ERROR',
+            message: e.message ?? String(e), fields: e.fields ?? [], apiVersion: HEADLESS_API_VERSION,
+          },
+        })
+      }
       else res.destroy()
     })
   })
@@ -213,7 +235,7 @@ async function main() {
   // on the network would let any LAN peer render/edit projects and read media.
   await new Promise((resolve) => server.listen(port, '127.0.0.1', resolve))
   console.log(`FreeCut render service on http://localhost:${port}  (workspace: ${workspace})`)
-  console.log(`  GET /health  GET /projects  POST /render  POST /edit`)
+  console.log(`  GET /health  GET /capabilities  GET /projects  POST /render  POST /edit`)
 
   const shutdown = async () => {
     console.log('\nShutting down...')

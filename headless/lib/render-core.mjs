@@ -8,6 +8,7 @@ import path from 'node:path'
 import { loadProject, collectMediaIds, resolveMediaFiles, resolveMediaFile, readMediaMetadata } from './workspace.mjs'
 import { createMediaServer } from '../media-server.mjs'
 import { createHarnessServer } from '../server.mjs'
+import { normalizeRenderInput, renderRequestSchema, validate } from './contract.mjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
@@ -27,9 +28,13 @@ function buildSettings(project, opts) {
     width = Number(m[1])
     height = Number(m[2])
   }
+  if (!Number.isFinite(fps) || fps < 1 || fps > 240) throw new Error('Effective fps must be between 1 and 240')
+  if (![width, height].every((value) => Number.isInteger(value) && value >= 16 && value <= 16384)) {
+    throw new Error('Effective resolution dimensions must be integers between 16 and 16384')
+  }
   const quality = opts.quality ?? 'high'
 
-  if (opts['audio-only'] || opts.audioOnly) {
+  if (opts.audioOnly) {
     const container = opts.container ?? 'mp3'
     return {
       mode: 'audio',
@@ -62,8 +67,8 @@ function buildSettings(project, opts) {
 
 /** Compute the render range (frames) from a job's in/out-sec/duration (seconds). */
 function computeRange(opts, fps) {
-  const inV = opts.in ?? opts.inSec
-  const outV = opts['out-sec'] ?? opts.outSec
+  const inV = opts.inSec
+  const outV = opts.outSec
   const hasRange = inV !== undefined || outV !== undefined || opts.duration !== undefined
   if (!hasRange) return { hasRange: false, inPoint: null, outPoint: null }
   const inSec = inV !== undefined ? Number(inV) : 0
@@ -117,7 +122,7 @@ export async function startHarness({ workspace, devUrl, build }) {
 
 /** Resolve everything needed to render one job (no browser involved). */
 export function prepareJob(workspace, jobArgs, mediaUrlOf) {
-  if (!jobArgs.project && !jobArgs.projectObject) throw new Error('Job missing "project"')
+  jobArgs = validate(renderRequestSchema, normalizeRenderInput(jobArgs))
   const { project, projectJsonPath } = jobArgs.projectObject
     ? { project: jobArgs.projectObject, projectJsonPath: '(inline)' }
     : loadProject(workspace, jobArgs.project)
