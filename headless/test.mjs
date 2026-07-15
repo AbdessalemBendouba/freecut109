@@ -279,6 +279,30 @@ async function main() {
     const after = edit.project?.timeline?.items?.length ?? 0
     check('edit added an item', after === before + 1, `items ${before} -> ${after}`)
 
+    const referencedEdit = await page.evaluate(
+      (project) =>
+        window.freecut.editProject({
+          project,
+          ops: [
+            { callerId: 'created', op: 'addText', text: 'referenced', from: 0 },
+            {
+              callerId: 'moved',
+              op: 'moveItem',
+              id: { $ref: 'created#/detail/id' },
+              from: 12,
+            },
+          ],
+        }),
+      SAMPLE_PROJECT,
+    )
+    const referencedId = referencedEdit.results?.[0]?.detail?.id
+    check('caller result reference resolves generated id', Boolean(referencedId))
+    check(
+      'referenced operation moved the generated item',
+      referencedEdit.project?.timeline?.items?.find((item) => item.id === referencedId)?.from ===
+        12,
+    )
+
     const missingTargetError = await page.evaluate(async (project) => {
       try {
         await window.freecut.editProject({

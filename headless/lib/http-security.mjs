@@ -159,6 +159,14 @@ export function sendHttpError(res, error) {
 }
 
 export function readJsonBody(req, { maxBytes = 64 * 1024 * 1024, timeoutMs = 30_000 } = {}) {
+  return readJsonBodyWithBytes(req, { maxBytes, timeoutMs }).then(({ value }) => value)
+}
+
+/** Read a JSON body while retaining the exact bytes for idempotency hashing. */
+export function readJsonBodyWithBytes(
+  req,
+  { maxBytes = 64 * 1024 * 1024, timeoutMs = 30_000 } = {},
+) {
   return new Promise((resolve, reject) => {
     let settled = false
     let bytes = 0
@@ -184,8 +192,9 @@ export function readJsonBody(req, { maxBytes = 64 * 1024 * 1024, timeoutMs = 30_
     }
     const onEnd = () => {
       try {
-        const data = Buffer.concat(chunks).toString('utf8')
-        finish(resolve, data ? JSON.parse(data) : {})
+        const rawBytes = Buffer.concat(chunks)
+        const data = rawBytes.toString('utf8')
+        finish(resolve, { value: data ? JSON.parse(data) : {}, rawBytes })
       } catch (error) {
         finish(reject, new HttpError(400, 'INVALID_JSON', `Invalid JSON body: ${error.message}`))
       }

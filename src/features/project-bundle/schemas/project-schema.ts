@@ -597,10 +597,11 @@ const projectSchema = z
     schemaVersion: z.number().int().optional(),
     thumbnail: z.string().optional(),
     thumbnailId: z.string().optional(),
+    rootFolderName: z.string().optional(),
     metadata: projectResolutionSchema,
     timeline: timelineSchema.optional(),
   })
-  .passthrough()
+  .strict()
 
 // ============================================================================
 // Media Reference Schema

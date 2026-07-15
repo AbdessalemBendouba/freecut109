@@ -24,7 +24,12 @@ import os from 'node:os'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { loadProjectById, listProjects, collectAddClipMedia } from './lib/workspace.mjs'
+import {
+  loadProjectById,
+  listProjects,
+  collectAddClipMedia,
+  resolveMediaFile,
+} from './lib/workspace.mjs'
 import { parseArgs, chromeLaunchArgs } from './lib/cli.mjs'
 import { prepareJob, renderJob, startHarness, warningsHeaderValue } from './lib/render-core.mjs'
 import { OperationQueue, OperationQueueError } from './lib/operation-queue.mjs'
@@ -33,6 +38,7 @@ import {
   assertSinglePathComponent,
   HttpError,
   readJsonBody,
+  readJsonBodyWithBytes,
   setHttpTimeouts,
 } from './lib/http-security.mjs'
 import {
@@ -40,9 +46,27 @@ import {
   ContractValidationError,
   capabilities,
   editRequestSchema,
+  lifecycleEditRequestSchema,
+  mediaProbeRequestSchema,
+  projectCreateRequestSchema,
+  projectSaveRequestSchema,
+  projectUpdateRequestSchema,
   renderRequestSchema,
   validate,
 } from './lib/contract.mjs'
+import {
+  acquireWriterLock,
+  assertAtomicReplace,
+  assertPortableId,
+  createProjectResource,
+  getMediaResource,
+  getProjectResource,
+  listMediaResources,
+  listProjectResources,
+  saveProjectResource,
+  updateMediaMetadata,
+} from './lib/lifecycle-store.mjs'
+import { withIdempotency } from './lib/idempotency.mjs'
 
 const HELP = `Usage: node headless/serve.mjs --workspace <dir> [options]\n\nOptions:\n  --host <address>           Bind address (default: 127.0.0.1)\n  --port <n>                 HTTP port (default: 8787)\n  --render-timeout-ms <n>    Whole render deadline (default: 1800000)\n  --edit-timeout-ms <n>      Whole edit deadline (default: 120000)\n  --max-queue-depth <n>      Waiting operations allowed behind the active one (default: 8)\n  --shutdown-timeout-ms <n>  Graceful queue drain deadline (default: 30000)\n  --build  --head  --harness-url <url>\n`
 const SERVE_OPTIONS = new Set([
@@ -96,6 +120,13 @@ async function main() {
   const workspace = args.workspace
   if (!workspace) throw new Error('Missing --workspace <dir>')
   if (!fs.existsSync(workspace)) throw new Error(`Workspace not found: ${workspace}`)
+  const releaseWriterLock = await acquireWriterLock(workspace)
+  try {
+    await assertAtomicReplace(workspace)
+  } catch (error) {
+    await releaseWriterLock()
+    throw error
+  }
   const host = resolveHost(args)
   const port = args.port ? Number(args.port) : 8787
   const positiveInt = (name, fallback, { min = 1, max = 86_400_000 } = {}) => {
@@ -162,8 +193,11 @@ async function main() {
   fs.mkdirSync(tmpDir, { recursive: true })
   let counter = 0
 
-  const handleRender = async (req, res) => {
-    const body = validate(renderRequestSchema, await readJsonBody(req))
+  const handleRender = async (req, res, { normalizeInline = false } = {}) => {
+    let body = validate(renderRequestSchema, await readJsonBody(req))
+    if (normalizeInline && body.projectObject) {
+      body = { ...body, projectObject: await browserNormalize(body.projectObject) }
+    }
     if (body.project) assertSinglePathComponent(body.project, 'project id')
     const outPath = path.join(tmpDir, `render-${process.pid}-${++counter}.out`)
     const job = prepareJob(workspace, { ...body, out: outPath }, mediaUrlOf)
@@ -211,9 +245,219 @@ async function main() {
     sendJson(res, 200, result)
   }
 
+  const browserNormalize = (project) =>
+    queue.enqueue(
+      () => session.page.evaluate((value) => window.freecut.normalizeProject(value), project),
+      { timeoutMs: editTimeoutMs, kind: 'project-normalize' },
+    )
+
+  const resourceEnvelope = (resource) => ({
+    ok: true,
+    apiVersion: HEADLESS_API_VERSION,
+    ...resource,
+  })
+
+  const handleV1ProjectList = async (url, res) => {
+    const limitText = url.searchParams.get('limit')
+    const limit = limitText === null ? 100 : Number(limitText)
+    if (!Number.isInteger(limit) || limit < 1 || limit > 1000)
+      throw new HttpError(400, 'VALIDATION_ERROR', 'limit must be an integer between 1 and 1000')
+    let offset = 0
+    const cursor = url.searchParams.get('cursor')
+    if (cursor) {
+      try {
+        const decoded = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+        if (!Number.isInteger(decoded.offset) || decoded.offset < 0) throw new Error('invalid')
+        offset = decoded.offset
+      } catch {
+        throw new HttpError(400, 'VALIDATION_ERROR', 'cursor is invalid')
+      }
+    }
+    const all = await listProjectResources(workspace)
+    const projects = all.slice(offset, offset + limit)
+    const nextOffset = offset + projects.length
+    const nextCursor =
+      nextOffset < all.length
+        ? Buffer.from(JSON.stringify({ offset: nextOffset })).toString('base64url')
+        : null
+    sendJson(res, 200, {
+      ok: true,
+      apiVersion: HEADLESS_API_VERSION,
+      projects,
+      nextCursor,
+    })
+  }
+
+  const handleV1ProjectCreate = async (req, res) => {
+    const { value: raw, rawBytes } = await readJsonBodyWithBytes(req, { maxBytes: 1024 * 1024 })
+    const body = validate(projectCreateRequestSchema, raw)
+    const route = '/v1/projects'
+    const result = await withIdempotency(
+      workspace,
+      {
+        key: req.headers['idempotency-key'],
+        method: 'POST',
+        route,
+        requestBytes: rawBytes,
+      },
+      async () => {
+        const project = await queue.enqueue(
+          () => session.page.evaluate((value) => window.freecut.createProject(value), body),
+          { timeoutMs: editTimeoutMs, kind: 'project-create' },
+        )
+        const resource = await createProjectResource(workspace, project)
+        return { status: 201, response: resourceEnvelope(resource) }
+      },
+    )
+    if (result.replayed) res.setHeader('Idempotency-Replayed', 'true')
+    sendJson(res, result.status, result.response)
+  }
+
+  const handleV1ProjectSave = async (req, res, id) => {
+    const body = validate(
+      projectSaveRequestSchema,
+      await readJsonBody(req, { maxBytes: 16 * 1024 * 1024 }),
+    )
+    if (body.project.id !== undefined && body.project.id !== id)
+      throw new HttpError(400, 'PROJECT_ID_MISMATCH', 'Project body id must equal the path id')
+    const project = await browserNormalize({ ...body.project, id })
+    const resource = await saveProjectResource(workspace, id, project, body)
+    sendJson(res, 200, resourceEnvelope(resource))
+  }
+
+  const handleV1ProjectUpdate = async (req, res, id) => {
+    const body = validate(
+      projectUpdateRequestSchema,
+      await readJsonBody(req, { maxBytes: 1024 * 1024 }),
+    )
+    const current = await getProjectResource(workspace, id)
+    const project = await browserNormalize({
+      ...current.project,
+      ...(body.updates.name !== undefined ? { name: body.updates.name } : {}),
+      ...(body.updates.description !== undefined ? { description: body.updates.description } : {}),
+      metadata: {
+        ...current.project.metadata,
+        ...(body.updates.width !== undefined ? { width: body.updates.width } : {}),
+        ...(body.updates.height !== undefined ? { height: body.updates.height } : {}),
+        ...(body.updates.fps !== undefined ? { fps: body.updates.fps } : {}),
+        ...(body.updates.backgroundColor !== undefined
+          ? { backgroundColor: body.updates.backgroundColor }
+          : {}),
+      },
+    })
+    const resource = await saveProjectResource(workspace, id, project, body)
+    sendJson(res, 200, resourceEnvelope(resource))
+  }
+
+  const handleV1ProjectEdit = async (req, res, id) => {
+    const { value: raw, rawBytes } = await readJsonBodyWithBytes(req, {
+      maxBytes: 16 * 1024 * 1024,
+    })
+    const body = validate(lifecycleEditRequestSchema, raw)
+    const execute = async () => {
+      const current = await getProjectResource(workspace, id)
+      const media = collectAddClipMedia(workspace, body.ops)
+      const result = await queue.enqueue(
+        () =>
+          session.page.evaluate((payload) => window.freecut.editProject(payload), {
+            project: current.project,
+            ops: body.ops,
+            media,
+          }),
+        { timeoutMs: editTimeoutMs, kind: 'edit' },
+      )
+      if (!body.persist)
+        return {
+          status: 200,
+          response: {
+            ...result,
+            apiVersion: HEADLESS_API_VERSION,
+            persisted: false,
+            baseRevision: current.revision,
+          },
+        }
+      const project = await browserNormalize(result.project)
+      const resource = await saveProjectResource(workspace, id, project, body)
+      return {
+        status: 200,
+        response: {
+          ...result,
+          apiVersion: HEADLESS_API_VERSION,
+          project: resource.project,
+          persisted: true,
+          revision: resource.revision,
+          warnings: resource.warnings,
+        },
+      }
+    }
+    if (!body.persist) {
+      const result = await execute()
+      sendJson(res, result.status, result.response)
+      return
+    }
+    const result = await withIdempotency(
+      workspace,
+      {
+        key: req.headers['idempotency-key'],
+        method: 'POST',
+        route: `/v1/projects/${id}/edit`,
+        requestBytes: rawBytes,
+      },
+      execute,
+    )
+    if (result.replayed) res.setHeader('Idempotency-Replayed', 'true')
+    sendJson(res, result.status, result.response)
+  }
+
+  const handleV1MediaProbe = async (req, res, id) => {
+    const body = validate(
+      mediaProbeRequestSchema,
+      await readJsonBody(req, { maxBytes: 1024 * 1024 }),
+    )
+    const current = await getMediaResource(workspace, id)
+    const source = resolveMediaFile(workspace, id)
+    if (!source) throw new HttpError(422, 'MISSING_MEDIA', 'Media source file is missing')
+    const probe = await queue.enqueue(
+      () =>
+        session.page.evaluate((payload) => window.freecut.probeMedia(payload), {
+          url: mediaUrlOf(id),
+          fileName: path.basename(source),
+          mimeType: current.metadata.mimeType,
+        }),
+      { timeoutMs: editTimeoutMs, kind: 'media-probe' },
+    )
+    if (!body.persist) {
+      sendJson(res, 200, {
+        ok: true,
+        apiVersion: HEADLESS_API_VERSION,
+        mediaId: id,
+        probe,
+        persisted: false,
+      })
+      return
+    }
+    const saved = await updateMediaMetadata(workspace, id, probe, body)
+    sendJson(res, 200, {
+      ok: true,
+      apiVersion: HEADLESS_API_VERSION,
+      mediaId: id,
+      probe,
+      persisted: true,
+      revision: saved.revision,
+    })
+  }
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost')
     const route = `${req.method} ${url.pathname}`
+    const projectMatch = /^\/v1\/projects\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/.exec(url.pathname)
+    const projectEditMatch = /^\/v1\/projects\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})\/edit$/.exec(
+      url.pathname,
+    )
+    const mediaMatch = /^\/v1\/media\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})$/.exec(url.pathname)
+    const mediaProbeMatch = /^\/v1\/media\/([A-Za-z0-9][A-Za-z0-9_-]{0,63})\/probe$/.exec(
+      url.pathname,
+    )
     const handler =
       route === 'GET /health'
         ? async () => {
@@ -227,13 +471,80 @@ async function main() {
           }
         : route === 'GET /capabilities'
           ? async () => sendJson(res, 200, capabilities())
-          : route === 'GET /projects'
-            ? async () => sendJson(res, 200, listProjects(workspace))
-            : route === 'POST /render'
-              ? () => handleRender(req, res)
-              : route === 'POST /edit'
-                ? () => handleEdit(req, res)
-                : null
+          : route === 'GET /v1/capabilities'
+            ? async () => sendJson(res, 200, { ok: true, ...capabilities() })
+            : route === 'POST /v1/projects'
+              ? () => handleV1ProjectCreate(req, res)
+              : route === 'GET /v1/projects'
+                ? () => handleV1ProjectList(url, res)
+                : projectEditMatch && req.method === 'POST'
+                  ? () =>
+                      handleV1ProjectEdit(
+                        req,
+                        res,
+                        assertPortableId(projectEditMatch[1], 'project id'),
+                      )
+                  : projectMatch && req.method === 'GET'
+                    ? async () =>
+                        sendJson(
+                          res,
+                          200,
+                          resourceEnvelope(
+                            await getProjectResource(
+                              workspace,
+                              assertPortableId(projectMatch[1], 'project id'),
+                            ),
+                          ),
+                        )
+                    : projectMatch && req.method === 'PUT'
+                      ? () =>
+                          handleV1ProjectSave(
+                            req,
+                            res,
+                            assertPortableId(projectMatch[1], 'project id'),
+                          )
+                      : projectMatch && req.method === 'PATCH'
+                        ? () =>
+                            handleV1ProjectUpdate(
+                              req,
+                              res,
+                              assertPortableId(projectMatch[1], 'project id'),
+                            )
+                        : route === 'GET /v1/media'
+                          ? async () =>
+                              sendJson(res, 200, {
+                                ok: true,
+                                apiVersion: HEADLESS_API_VERSION,
+                                media: await listMediaResources(workspace),
+                              })
+                          : mediaProbeMatch && req.method === 'POST'
+                            ? () =>
+                                handleV1MediaProbe(
+                                  req,
+                                  res,
+                                  assertPortableId(mediaProbeMatch[1], 'media id'),
+                                )
+                            : mediaMatch && req.method === 'GET'
+                              ? async () =>
+                                  sendJson(
+                                    res,
+                                    200,
+                                    resourceEnvelope(
+                                      await getMediaResource(
+                                        workspace,
+                                        assertPortableId(mediaMatch[1], 'media id'),
+                                      ),
+                                    ),
+                                  )
+                              : route === 'POST /v1/render'
+                                ? () => handleRender(req, res, { normalizeInline: true })
+                                : route === 'GET /projects'
+                                  ? async () => sendJson(res, 200, listProjects(workspace))
+                                  : route === 'POST /render'
+                                    ? () => handleRender(req, res)
+                                    : route === 'POST /edit'
+                                      ? () => handleEdit(req, res)
+                                      : null
     if (!handler) {
       sendJson(res, 404, { error: `No route: ${route}` })
       return
@@ -253,6 +564,8 @@ async function main() {
         if (status === 413 || status === 408) res.setHeader('Connection', 'close')
         if (status === 413 || status === 408) res.once('finish', () => req.destroy())
         sendJson(res, status, {
+          ok: false,
+          apiVersion: HEADLESS_API_VERSION,
           error: {
             code: validation ? (e.code ?? 'INVALID_JSON') : (e.code ?? 'INTERNAL_ERROR'),
             message:
@@ -265,6 +578,8 @@ async function main() {
             fields: e.fields ?? [],
             ...(missingMedia ? { mediaIds: e.mediaIds } : {}),
             apiVersion: HEADLESS_API_VERSION,
+            ...(e.expectedRevision ? { expectedRevision: e.expectedRevision } : {}),
+            ...(e.actualRevision ? { actualRevision: e.actualRevision } : {}),
           },
         })
       } else res.destroy()
@@ -291,6 +606,7 @@ async function main() {
         await session.close()
         await browser.close()
         await closeServers()
+        await releaseWriterLock()
         let closeTimer
         const closed = await Promise.race([
           serverClosed.then(() => true),

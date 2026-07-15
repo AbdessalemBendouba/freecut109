@@ -16,6 +16,45 @@ Two CLIs:
 - **`render.mjs`** (`npm run headless`) — render a project (or a slice) to video/audio.
 - **`edit.mjs`** — apply structural edits (add/split/trim/move/delete/transition) and write the project back.
 
+## Agent lifecycle API
+
+The lifecycle interface works on an empty workspace and lets an agent build a
+project without first opening the editor. Build the harness, then create and
+inspect a project:
+
+```bash
+npm run build
+npm run headless:agent -- capabilities --workspace "<ws>" --json
+npm run headless:agent -- project create --workspace "<ws>" --id demo --name "Demo" --json
+npm run headless:agent -- project list --workspace "<ws>" --json
+npm run headless:agent -- project get --workspace "<ws>" --id demo --json
+```
+
+Mutations return an exact-byte `sha256:...` revision. Supply it on save,
+update, persisted edit, and persisted media probe; `--force` is an explicit
+overwrite decision.
+
+```bash
+npm run headless:agent -- project update --workspace "<ws>" --id demo \
+  --name "New name" --expected-revision "sha256:..." --json
+npm run headless:agent -- project edit --workspace "<ws>" --id demo \
+  --ops edits.json --persist --expected-revision "sha256:..." --json
+npm run headless:agent -- media import --workspace "<ws>" --file ./clip.mp4 \
+  --id clip_1 --project demo --json
+```
+
+Lifecycle edit operations require a unique `callerId`. A later operation can
+refer to an ID created earlier, for example
+`{"$ref":"clip#/detail/created/0/id"}` in an ID-valued field. Imports are
+CLI-only: HTTP accepts neither server-local paths nor media uploads.
+
+The service publishes the same contract under `/v1`: project create/list/get/
+save/update/edit; media list/get/probe; capabilities; and strict render.
+`POST /v1/projects` and persisted edits require `Idempotency-Key`. The service
+takes an exclusive `.freecut-headless/writer.lock`; do not use the interactive
+editor on the same workspace during lifecycle mutations. It remains
+unauthenticated and loopback-only by default.
+
 ## How it works
 
 ```

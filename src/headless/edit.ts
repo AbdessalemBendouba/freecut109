@@ -53,9 +53,22 @@ import { getGpuEffect } from '@/infrastructure/gpu-effects'
 const log = createLogger('HeadlessEdit')
 
 export type EditOperationName =
-  | 'addText' | 'addItem' | 'updateItem' | 'moveItem' | 'removeItems' | 'split'
-  | 'trimStart' | 'trimEnd' | 'addTransition' | 'addTrack' | 'addClip'
-  | 'addKeyframe' | 'removeKeyframes' | 'addEffect' | 'removeEffect' | 'setTransform'
+  | 'addText'
+  | 'addItem'
+  | 'updateItem'
+  | 'moveItem'
+  | 'removeItems'
+  | 'split'
+  | 'trimStart'
+  | 'trimEnd'
+  | 'addTransition'
+  | 'addTrack'
+  | 'addClip'
+  | 'addKeyframe'
+  | 'removeKeyframes'
+  | 'addEffect'
+  | 'removeEffect'
+  | 'setTransform'
 
 /** A wire operation. Node validates its discriminator and fields before this browser boundary. */
 export type EditOp = Record<string, unknown> & { op: EditOperationName }
@@ -72,7 +85,62 @@ export interface HeadlessEditResult {
   /** The edited project (timeline rebuilt from stores). The driver writes this to disk. */
   project: Project
   applied: number
-  results: Array<{ op: string; ok: boolean; detail?: unknown; error?: string }>
+  results: Array<{ callerId?: string; op: string; ok: boolean; detail?: unknown; error?: string }>
+}
+
+function resolvePointer(value: unknown, pointer: string): unknown {
+  if (!pointer.startsWith('/')) throw new Error(`Invalid result JSON pointer "${pointer}"`)
+  let current = value
+  for (const raw of pointer.slice(1).split('/')) {
+    const key = raw.replace(/~1/g, '/').replace(/~0/g, '~')
+    if (current === null || typeof current !== 'object' || !(key in current)) {
+      throw new Error(`Result reference pointer not found: ${pointer}`)
+    }
+    current = (current as Record<string, unknown>)[key]
+  }
+  return current
+}
+
+const REFERENCE_ID_FIELDS = new Set([
+  'id',
+  'itemId',
+  'trackId',
+  'leftClipId',
+  'rightClipId',
+  'effectId',
+  'mediaId',
+])
+
+function resolveOperationRefs(
+  op: EditOp,
+  prior: Map<string, HeadlessEditResult['results'][number]>,
+): EditOp {
+  const visit = (value: unknown, field?: string): unknown => {
+    if (value && typeof value === 'object' && !Array.isArray(value) && '$ref' in value) {
+      if (!field || !REFERENCE_ID_FIELDS.has(field))
+        throw new Error(`$ref is not allowed in field "${field ?? '$'}"`)
+      const ref = (value as { $ref?: unknown }).$ref
+      if (typeof ref !== 'string') throw new Error('$ref must be a string')
+      const match = /^([A-Za-z][A-Za-z0-9_-]{0,63})#(\/.*)$/.exec(ref)
+      if (!match) throw new Error(`Invalid result reference: ${ref}`)
+      const result = prior.get(match[1]!)
+      if (!result?.ok)
+        throw new Error(`Result reference is not a prior successful operation: ${match[1]}`)
+      const resolved = resolvePointer(result, match[2]!)
+      if (typeof resolved !== 'string')
+        throw new Error(`Result reference must resolve to an id string: ${ref}`)
+      return resolved
+    }
+    if (Array.isArray(value))
+      return value.map((entry) => visit(entry, field === 'ids' ? 'id' : field))
+    if (value && typeof value === 'object') {
+      return Object.fromEntries(
+        Object.entries(value).map(([key, entry]) => [key, visit(entry, key)]),
+      )
+    }
+    return value
+  }
+  return visit(op) as EditOp
 }
 
 const asString = (value: unknown, fallback?: string): string | undefined =>
@@ -103,7 +171,8 @@ function resolveTrackId(preferred: unknown, kind: 'video' | 'audio' = 'video'): 
   const requested = asString(preferred)
   if (requested) {
     const track = requireTrack(requested)
-    if ((track.kind ?? 'video') !== kind) throw new Error(`trackId: track "${requested}" is not ${kind}`)
+    if ((track.kind ?? 'video') !== kind)
+      throw new Error(`trackId: track "${requested}" is not ${kind}`)
     return requested
   }
   const match = all.find((t) => !t.isGroup && (t.kind ?? 'video') === kind)
@@ -133,7 +202,8 @@ function resolveOrCreateTrack(preferred: unknown, kind: 'video' | 'audio'): stri
   const requested = asString(preferred)
   if (requested) {
     const track = requireTrack(requested)
-    if ((track.kind ?? 'video') !== kind) throw new Error(`trackId: track "${requested}" is not ${kind}`)
+    if ((track.kind ?? 'video') !== kind)
+      throw new Error(`trackId: track "${requested}" is not ${kind}`)
     return requested
   }
   return getOrCreateTrack(kind)
@@ -437,12 +507,20 @@ export async function editProject(input: HeadlessEditInput): Promise<HeadlessEdi
   log.info('Headless edit starting', { ops: input.ops.length })
 
   const results: HeadlessEditResult['results'] = []
-  for (const op of input.ops) {
+  const prior = new Map<string, HeadlessEditResult['results'][number]>()
+  const callerIds = input.ops.map((op) => asString(op.callerId)).filter(Boolean) as string[]
+  if (new Set(callerIds).size !== callerIds.length) throw new Error('Duplicate edit callerId')
+  for (const rawOp of input.ops) {
+    const callerId = asString(rawOp.callerId)
+    const op = resolveOperationRefs(rawOp, prior)
     try {
       const detail = applyOp(op)
-      results.push({ op: op.op, ok: true, detail })
+      const result = { ...(callerId ? { callerId } : {}), op: op.op, ok: true as const, detail }
+      results.push(result)
+      if (callerId) prior.set(callerId, result)
     } catch (error) {
       results.push({
+        ...(callerId ? { callerId } : {}),
         op: op.op,
         ok: false,
         error: error instanceof Error ? error.message : String(error),

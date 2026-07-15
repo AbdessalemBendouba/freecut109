@@ -25,7 +25,15 @@ import type { MediaMetadata } from '@/types/storage'
 import type { ItemEffect } from '@/types/effects'
 
 import { createLogger } from '@/shared/logging/logger'
-import { migrateProject } from '@/shared/projects/migrations'
+import { CURRENT_SCHEMA_VERSION, migrateProject } from '@/shared/projects/migrations'
+import {
+  DEFAULT_PROJECT_FPS,
+  DEFAULT_PROJECT_HEIGHT,
+  DEFAULT_PROJECT_WIDTH,
+} from '@/shared/projects/defaults'
+import { validateProject } from '@/features/project-bundle/schemas/project-schema'
+import { mediaProcessorService } from '@/features/media-library/services/media-processor-service'
+import { getMimeType, validateMediaFileContent } from '@/features/media-library/utils/validation'
 import { convertTimelineToComposition } from '@/features/export/utils/timeline-to-composition'
 import {
   renderComposition,
@@ -228,14 +236,18 @@ async function adaptVideoSettings(
 ): Promise<{ settings: ClientExportSettings; warnings: HeadlessRenderWarning[] }> {
   const settings = structuredClone(requestedSettings)
   if (settings.mode === 'audio') return { settings, warnings: [] }
-  const testOverride = (globalThis as unknown as {
-    __freecutSupportedCodecsOverride?: Awaited<ReturnType<typeof getSupportedCodecs>>
-  }).__freecutSupportedCodecsOverride
-  const supported = testOverride ?? await getSupportedCodecs({
-    width: settings.resolution.width,
-    height: settings.resolution.height,
-    bitrate: settings.videoBitrate,
-  })
+  const testOverride = (
+    globalThis as unknown as {
+      __freecutSupportedCodecsOverride?: Awaited<ReturnType<typeof getSupportedCodecs>>
+    }
+  ).__freecutSupportedCodecsOverride
+  const supported =
+    testOverride ??
+    (await getSupportedCodecs({
+      width: settings.resolution.width,
+      height: settings.resolution.height,
+      bitrate: settings.videoBitrate,
+    }))
   if (supported.includes(settings.codec)) {
     settings.audioCodec = getDefaultAudioCodec(settings.container)
     return { settings, warnings: [] }
@@ -325,7 +337,7 @@ async function renderTimeline(input: HeadlessTimelineInput): Promise<HeadlessRen
   )
 
   // Fail loudly if the project needs WebGPU (effects) but it isn't available.
-  warnings.push(...await assertGpuForComposition(composition, compositions))
+  warnings.push(...(await assertGpuForComposition(composition, compositions)))
 
   // Resolve top-level media (mediaId -> seeded blob URL). Export never uses proxies.
   composition.tracks = await resolveMediaUrls(composition.tracks, { useProxy: false })
@@ -402,6 +414,67 @@ interface FreecutHeadlessApi {
   renderTimeline: typeof renderTimeline
   renderProject: typeof renderProject
   editProject: typeof editProject
+  normalizeProject: typeof normalizeProjectForHeadless
+  probeMedia: typeof probeMedia
+  createProject: typeof createProjectForHeadless
+}
+
+function createProjectForHeadless(input: {
+  id?: string
+  name: string
+  description?: string
+  width?: number
+  height?: number
+  fps?: number
+  backgroundColor?: string
+}): Project {
+  const now = Date.now()
+  const raw: Project = {
+    id: input.id ?? crypto.randomUUID(),
+    name: input.name,
+    description: input.description ?? '',
+    createdAt: now,
+    updatedAt: now,
+    duration: 0,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    metadata: {
+      width: input.width ?? DEFAULT_PROJECT_WIDTH,
+      height: input.height ?? DEFAULT_PROJECT_HEIGHT,
+      fps: input.fps ?? DEFAULT_PROJECT_FPS,
+      ...(input.backgroundColor ? { backgroundColor: input.backgroundColor } : {}),
+    },
+  }
+  const validated = validateProject(raw)
+  if (!validated.success || !validated.data) throw new Error('Created project failed validation')
+  return validated.data as Project
+}
+
+async function normalizeProjectForHeadless(raw: unknown): Promise<Project> {
+  const validated = validateProject(raw)
+  if (!validated.success || !validated.data) {
+    throw new Error(
+      `Project validation failed: ${validated.errors?.issues[0]?.message ?? 'invalid project'}`,
+    )
+  }
+  const migrated = migrateProject(validated.data as Project).project
+  const current = validateProject(migrated)
+  if (!current.success || !current.data) throw new Error('Migrated project failed validation')
+  return current.data as Project
+}
+
+async function probeMedia(input: { url: string; fileName: string; mimeType?: string }) {
+  const response = await fetch(input.url)
+  if (!response.ok) throw new Error(`Media fetch failed: HTTP ${response.status}`)
+  const blob = await response.blob()
+  const file = new File([blob], input.fileName, { type: input.mimeType || blob.type })
+  const validation = await validateMediaFileContent(file)
+  if (!validation.valid) throw new Error(validation.error ?? 'Media validation failed')
+  const mimeType = getMimeType(file)
+  const { metadata } = await mediaProcessorService.processMedia(file, mimeType, {
+    generateThumbnail: false,
+    fastMetadata: true,
+  })
+  return { mimeType, metadata }
 }
 
 declare global {
@@ -410,5 +483,13 @@ declare global {
   }
 }
 
-window.freecut = { ready: true, renderTimeline, renderProject, editProject }
+window.freecut = {
+  ready: true,
+  renderTimeline,
+  renderProject,
+  editProject,
+  normalizeProject: normalizeProjectForHeadless,
+  probeMedia,
+  createProject: createProjectForHeadless,
+}
 log.info('Headless harness ready')

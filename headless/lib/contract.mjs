@@ -3,6 +3,8 @@ import { z } from 'zod'
 export const HEADLESS_API_VERSION = 1
 
 const id = z.string().min(1)
+export const portableIdSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/)
+export const revisionSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/)
 const finite = z.number().finite()
 const frame = z.number().int().nonnegative()
 const positiveFrames = z.number().int().positive()
@@ -291,6 +293,157 @@ export const editRequestSchema = z
     path: ['project'],
   })
 
+export const projectCreateRequestSchema = z
+  .object({
+    id: portableIdSchema.optional(),
+    name: z.string().trim().min(1).max(100),
+    description: z.string().max(500).optional(),
+    width: z.number().int().min(320).max(7680).optional(),
+    height: z.number().int().min(240).max(4320).optional(),
+    fps: z.number().int().min(1).max(240).optional(),
+    backgroundColor: z
+      .string()
+      .regex(/^#[0-9A-Fa-f]{6}$/)
+      .optional(),
+  })
+  .strict()
+
+export const projectSaveRequestSchema = z
+  .object({
+    project: projectObject,
+    expectedRevision: revisionSchema.optional(),
+    force: z.boolean().optional(),
+  })
+  .strict()
+  .refine((v) => Boolean(v.expectedRevision) || v.force === true, {
+    message: 'expectedRevision is required unless force is true',
+    path: ['expectedRevision'],
+  })
+
+export const projectUpdateRequestSchema = z
+  .object({
+    updates: z
+      .object({
+        name: z.string().trim().min(1).max(100).optional(),
+        description: z.string().max(500).optional(),
+        width: z.number().int().min(320).max(7680).optional(),
+        height: z.number().int().min(240).max(4320).optional(),
+        fps: z.number().int().min(1).max(240).optional(),
+        backgroundColor: z
+          .string()
+          .regex(/^#[0-9A-Fa-f]{6}$/)
+          .optional(),
+      })
+      .strict()
+      .refine((v) => Object.keys(v).length > 0, 'updates must not be empty'),
+    expectedRevision: revisionSchema.optional(),
+    force: z.boolean().optional(),
+  })
+  .strict()
+  .refine((v) => Boolean(v.expectedRevision) || v.force === true, {
+    message: 'expectedRevision is required unless force is true',
+    path: ['expectedRevision'],
+  })
+
+export const lifecycleEditRequestSchema = z
+  .object({
+    ops: z.array(z.record(z.string(), z.unknown())).min(1).max(1000),
+    persist: z.boolean().optional(),
+    expectedRevision: revisionSchema.optional(),
+    force: z.boolean().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const callers = new Set()
+    const referenceFields = new Set([
+      'id',
+      'ids',
+      'itemId',
+      'trackId',
+      'leftClipId',
+      'rightClipId',
+      'effectId',
+      'mediaId',
+    ])
+    for (let index = 0; index < value.ops.length; index++) {
+      const callerId = value.ops[index]?.callerId
+      if (typeof callerId !== 'string' || !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(callerId)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'callerId is required and invalid',
+          path: ['ops', index, 'callerId'],
+        })
+      } else if (callers.has(callerId)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'callerId must be unique',
+          path: ['ops', index, 'callerId'],
+        })
+      }
+      const validateRefs = (input, field, path = []) => {
+        if (Array.isArray(input)) {
+          input.forEach((entry, itemIndex) => validateRefs(entry, field, [...path, itemIndex]))
+        } else if (input && typeof input === 'object') {
+          if ('$ref' in input) {
+            const keys = Object.keys(input)
+            const ref = input.$ref
+            const match =
+              typeof ref === 'string' ? /^([A-Za-z][A-Za-z0-9_-]{0,63})#(\/.*)$/.exec(ref) : null
+            if (
+              keys.length !== 1 ||
+              !referenceFields.has(field) ||
+              !match ||
+              !callers.has(match[1])
+            ) {
+              ctx.addIssue({
+                code: 'custom',
+                message: 'reference must target a prior callerId from an ID-valued field',
+                path: ['ops', index, ...path],
+              })
+            }
+            return
+          }
+          for (const [key, entry] of Object.entries(input)) validateRefs(entry, key, [...path, key])
+        }
+      }
+      validateRefs(value.ops[index], undefined)
+      const normalizeRefs = (input) => {
+        if (Array.isArray(input)) return input.map(normalizeRefs)
+        if (input && typeof input === 'object') {
+          if (Object.keys(input).length === 1 && typeof input.$ref === 'string')
+            return 'reference-id'
+          return Object.fromEntries(
+            Object.entries(input).map(([key, entry]) => [key, normalizeRefs(entry)]),
+          )
+        }
+        return input
+      }
+      const { callerId: _callerId, ...wireOp } = value.ops[index]
+      const parsed = editOpSchema.safeParse(normalizeRefs(wireOp))
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues)
+          ctx.addIssue({ ...issue, path: ['ops', index, ...issue.path] })
+      }
+      if (typeof callerId === 'string' && /^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(callerId))
+        callers.add(callerId)
+    }
+    if (value.persist && !value.expectedRevision && value.force !== true) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'expectedRevision is required for persisted edits unless force is true',
+        path: ['expectedRevision'],
+      })
+    }
+  })
+
+export const mediaProbeRequestSchema = z
+  .object({
+    persist: z.boolean().optional(),
+    expectedRevision: revisionSchema.optional(),
+    force: z.boolean().optional(),
+  })
+  .strict()
+
 export const RENDER_OPTIONS = {
   codecs: ['h264', 'h265', 'vp9', 'vp8', 'av1'],
   containers: ['mp4', 'webm', 'mov', 'mkv', 'mp3', 'wav', 'm4a'],
@@ -385,6 +538,36 @@ export function capabilities() {
     schemas: {
       render: z.toJSONSchema(renderRequestSchema, { target: 'draft-7' }),
       edit: z.toJSONSchema(editRequestSchema, { target: 'draft-7' }),
+      projectCreate: z.toJSONSchema(projectCreateRequestSchema, { target: 'draft-7' }),
+      projectSave: z.toJSONSchema(projectSaveRequestSchema, { target: 'draft-7' }),
+      projectUpdate: z.toJSONSchema(projectUpdateRequestSchema, { target: 'draft-7' }),
+      lifecycleEdit: z.toJSONSchema(lifecycleEditRequestSchema, { target: 'draft-7' }),
+      mediaProbe: z.toJSONSchema(mediaProbeRequestSchema, { target: 'draft-7' }),
+    },
+    lifecycle: {
+      routes: [
+        'GET /v1/capabilities',
+        'POST /v1/projects',
+        'GET /v1/projects',
+        'GET /v1/projects/:id',
+        'PUT /v1/projects/:id',
+        'PATCH /v1/projects/:id',
+        'POST /v1/projects/:id/edit',
+        'GET /v1/media',
+        'GET /v1/media/:id',
+        'POST /v1/media/:id/probe',
+        'POST /v1/render',
+      ],
+      httpMediaUpload: false,
+      deleteProject: false,
+      writerMode: 'exclusive',
+      limits: {
+        projectJsonBytes: 16 * 1024 * 1024,
+        mediaMetadataBytes: 2 * 1024 * 1024,
+        editOps: 1000,
+        localMediaBytes: 20 * 1024 ** 3,
+      },
+      deprecatedRoutes: ['/capabilities', '/projects', '/render', '/edit'],
     },
   }
 }
