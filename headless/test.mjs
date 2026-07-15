@@ -158,8 +158,13 @@ async function main() {
     )
   }
 
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'freecut-headless-regression-'))
   const server = await createHarnessServer({ distDir })
-  const browser = await chromium.launch({ channel: 'chrome', headless: true, args: chromeLaunchArgs() })
+  const browser = await chromium.launch({
+    channel: 'chrome',
+    headless: true,
+    args: chromeLaunchArgs(),
+  })
   try {
     const context = await browser.newContext({ acceptDownloads: true })
     const page = await context.newPage()
@@ -175,8 +180,11 @@ async function main() {
     console.log('\nRender:')
     const downloadPromise = page.waitForEvent('download', { timeout: 120_000 })
     downloadPromise.catch(() => {})
-    const summary = await page.evaluate((input) => window.freecut.renderTimeline(input), TEXT_TIMELINE)
-    const outPath = path.join(os.tmpdir(), 'freecut-headless-regression.webm')
+    const summary = await page.evaluate(
+      (input) => window.freecut.renderTimeline(input),
+      TEXT_TIMELINE,
+    )
+    const outPath = path.join(tempDir, 'render.webm')
     const download = await downloadPromise
     await download.saveAs(outPath)
     const size = fs.existsSync(outPath) ? fs.statSync(outPath).size : 0
@@ -184,14 +192,23 @@ async function main() {
     check('render returns ok', summary.ok === true)
     check('render mime is video', /video\//.test(summary.mimeType), summary.mimeType)
     check('supported render reports effective codec', summary.effectiveSettings?.codec === 'vp9')
-    check('supported render has no codec fallback warning', !summary.warnings.some((w) => w.code === 'CODEC_FALLBACK'))
-    check('render duration ~3s', Math.abs(summary.durationSeconds - 3) < 0.3, `got ${summary.durationSeconds}`)
+    check(
+      'supported render has no codec fallback warning',
+      !summary.warnings.some((w) => w.code === 'CODEC_FALLBACK'),
+    )
+    check(
+      'render duration ~3s',
+      Math.abs(summary.durationSeconds - 3) < 0.3,
+      `got ${summary.durationSeconds}`,
+    )
     check('render produced bytes (>1KB)', size > 1000, `size ${size}`)
 
     // Deterministic capability seam: force AVC to adapt to VP9 regardless of
     // the codecs installed on the CI host.
     console.log('\nForced codec fallback:')
-    await page.evaluate(() => { globalThis.__freecutSupportedCodecsOverride = ['vp9'] })
+    await page.evaluate(() => {
+      globalThis.__freecutSupportedCodecsOverride = ['vp9']
+    })
     const fallbackInput = structuredClone(TEXT_TIMELINE)
     fallbackInput.settings.codec = 'avc'
     fallbackInput.settings.container = 'mp4'
@@ -202,19 +219,34 @@ async function main() {
       (input) => window.freecut.renderTimeline(input),
       fallbackInput,
     )
-    const fallbackOutPath = path.join(os.tmpdir(), 'freecut-headless-regression-fallback.webm')
+    const fallbackOutPath = path.join(tempDir, 'fallback.webm')
     const fallbackDownload = await fallbackDownloadPromise
     await fallbackDownload.saveAs(fallbackOutPath)
     const fallbackSignature = fs.readFileSync(fallbackOutPath).subarray(0, 4).toString('hex')
-    check('fallback reports stable warning code', fallbackSummary.warnings.some((w) => w.code === 'CODEC_FALLBACK'))
-    check('fallback reports effective VP9/WebM',
+    check(
+      'fallback reports stable warning code',
+      fallbackSummary.warnings.some((w) => w.code === 'CODEC_FALLBACK'),
+    )
+    check(
+      'fallback reports effective VP9/WebM',
       fallbackSummary.effectiveSettings?.codec === 'vp9' &&
-      fallbackSummary.effectiveSettings?.container === 'webm' &&
-      fallbackSummary.effectiveSettings?.audioCodec === 'opus')
-    check('fallback MIME matches effective WebM', fallbackSummary.mimeType.startsWith('video/webm'), fallbackSummary.mimeType)
-    check('fallback filename matches effective WebM', fallbackSummary.fileName.endsWith('.webm'), fallbackSummary.fileName)
+        fallbackSummary.effectiveSettings?.container === 'webm' &&
+        fallbackSummary.effectiveSettings?.audioCodec === 'opus',
+    )
+    check(
+      'fallback MIME matches effective WebM',
+      fallbackSummary.mimeType.startsWith('video/webm'),
+      fallbackSummary.mimeType,
+    )
+    check(
+      'fallback filename matches effective WebM',
+      fallbackSummary.fileName.endsWith('.webm'),
+      fallbackSummary.fileName,
+    )
     check('fallback bytes have WebM signature', fallbackSignature === '1a45dfa3', fallbackSignature)
-    await page.evaluate(() => { delete globalThis.__freecutSupportedCodecsOverride })
+    await page.evaluate(() => {
+      delete globalThis.__freecutSupportedCodecsOverride
+    })
 
     // --- Edit path ---
     console.log('\nEdit:')
@@ -249,23 +281,37 @@ async function main() {
 
     const missingTargetError = await page.evaluate(async (project) => {
       try {
-        await window.freecut.editProject({ project, ops: [{ op: 'updateItem', id: 'missing', updates: { label: 'nope' } }] })
+        await window.freecut.editProject({
+          project,
+          ops: [{ op: 'updateItem', id: 'missing', updates: { label: 'nope' } }],
+        })
         return null
       } catch (error) {
         return error instanceof Error ? error.message : String(error)
       }
     }, SAMPLE_PROJECT)
-    check('missing update target fails truthfully', /id: item "missing" does not exist/.test(missingTargetError ?? ''), missingTargetError)
+    check(
+      'missing update target fails truthfully',
+      /id: item "missing" does not exist/.test(missingTargetError ?? ''),
+      missingTargetError,
+    )
 
     const missingRemoveError = await page.evaluate(async (project) => {
       try {
-        await window.freecut.editProject({ project, ops: [{ op: 'removeItems', ids: ['text-1', 'missing'] }] })
+        await window.freecut.editProject({
+          project,
+          ops: [{ op: 'removeItems', ids: ['text-1', 'missing'] }],
+        })
         return null
       } catch (error) {
         return error instanceof Error ? error.message : String(error)
       }
     }, SAMPLE_PROJECT)
-    check('removeItems rejects a batch containing missing ids', /ids: item "missing" does not exist/.test(missingRemoveError ?? ''), missingRemoveError)
+    check(
+      'removeItems rejects a batch containing missing ids',
+      /ids: item "missing" does not exist/.test(missingRemoveError ?? ''),
+      missingRemoveError,
+    )
 
     const reopenedProject = JSON.parse(JSON.stringify(edit.project))
     const items = reopenedProject.timeline?.items ?? []
@@ -286,21 +332,22 @@ async function main() {
     console.log('\nEdited project render:')
     const editedDownloadPromise = page.waitForEvent('download', { timeout: 120_000 })
     editedDownloadPromise.catch(() => {})
-    const editedSummary = await page.evaluate(
-      (input) => window.freecut.renderProject(input),
-      {
-        project: reopenedProject,
-        settings: textProjectRenderSettings(reopenedProject),
-        outputFileName: 'regression-edited.webm',
-      },
-    )
-    const editedOutPath = path.join(os.tmpdir(), 'freecut-headless-regression-edited.webm')
+    const editedSummary = await page.evaluate((input) => window.freecut.renderProject(input), {
+      project: reopenedProject,
+      settings: textProjectRenderSettings(reopenedProject),
+      outputFileName: 'regression-edited.webm',
+    })
+    const editedOutPath = path.join(tempDir, 'edited.webm')
     const editedDownload = await editedDownloadPromise
     await editedDownload.saveAs(editedOutPath)
     const editedSize = fs.existsSync(editedOutPath) ? fs.statSync(editedOutPath).size : 0
 
     check('edited render returns ok', editedSummary.ok === true)
-    check('edited render mime is video', /video\//.test(editedSummary.mimeType), editedSummary.mimeType)
+    check(
+      'edited render mime is video',
+      /video\//.test(editedSummary.mimeType),
+      editedSummary.mimeType,
+    )
     check(
       'edited render duration matches timeline',
       Math.abs(editedSummary.durationSeconds - expectedEditedDurationSeconds) < 0.3,
@@ -310,6 +357,7 @@ async function main() {
   } finally {
     await browser.close()
     await server.close()
+    fs.rmSync(tempDir, { recursive: true, force: true })
   }
 
   if (failures > 0) {

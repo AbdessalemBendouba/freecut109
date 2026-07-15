@@ -40,7 +40,12 @@ export function chromeLaunchArgs() {
       : process.platform === 'darwin'
         ? '--use-angle=metal'
         : '--use-angle=vulkan'
-  const base = ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--ignore-gpu-blocklist', angle]
+  const base = [
+    '--enable-unsafe-webgpu',
+    '--enable-features=Vulkan',
+    '--ignore-gpu-blocklist',
+    angle,
+  ]
   const extra = (process.env.FREECUT_CHROME_ARGS ?? '').split(/\s+/).filter(Boolean)
   return [...base, ...extra]
 }

@@ -6,8 +6,13 @@
 import http from 'node:http'
 import path from 'node:path'
 import {
-  assertSinglePathComponent, decodeRequestPath, requireGetOrHead, resolveContained,
-  sendHttpError, serveFile, setHttpTimeouts,
+  assertSinglePathComponent,
+  decodeRequestPath,
+  requireGetOrHead,
+  resolveContained,
+  sendHttpError,
+  serveFile,
+  setHttpTimeouts,
 } from './lib/http-security.mjs'
 
 const MIME = {
@@ -81,7 +86,10 @@ export async function createHarnessServer({ distDir, resolveMedia = () => null, 
           res.end('media not found')
           return
         }
-        await serveFile(req, res, filePath, { contentType: contentType(filePath), allowRange: true })
+        await serveFile(req, res, filePath, {
+          contentType: contentType(filePath),
+          allowRange: true,
+        })
         return
       }
 

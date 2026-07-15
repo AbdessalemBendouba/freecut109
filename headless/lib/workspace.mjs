@@ -35,13 +35,16 @@ export function loadProjectById(workspaceDir, projectId) {
   assertSinglePathComponent(projectId, 'project id')
   const projectsDir = path.join(workspaceDir, 'projects')
   const projectJsonPath = resolveContained(projectsDir, path.join(projectId, 'project.json'))
-  if (!fs.existsSync(projectJsonPath)) throw new HttpError(404, 'PROJECT_NOT_FOUND', 'Project not found')
+  if (!fs.existsSync(projectJsonPath))
+    throw new HttpError(404, 'PROJECT_NOT_FOUND', 'Project not found')
   return readProject(projectJsonPath)
 }
 
 /** Backward-compatible CLI loader: id under workspace or an explicit JSON file. */
 export function loadProject(workspaceDir, projectIdOrFile) {
-  return projectIdOrFile.endsWith('.json') ? loadProjectFile(projectIdOrFile) : loadProjectById(workspaceDir, projectIdOrFile)
+  return projectIdOrFile.endsWith('.json')
+    ? loadProjectFile(projectIdOrFile)
+    : loadProjectById(workspaceDir, projectIdOrFile)
 }
 
 /** List projects using the actionable directory name as id; projectId is the JSON's internal id. */
@@ -55,7 +58,12 @@ export function listProjects(workspaceDir) {
     if (!fs.existsSync(jsonPath)) continue
     try {
       const p = JSON.parse(fs.readFileSync(jsonPath, 'utf8'))
-      out.push({ id: entry.name, projectId: p.id ?? entry.name, name: p.name ?? '(unnamed)', updatedAt: p.updatedAt ?? 0 })
+      out.push({
+        id: entry.name,
+        projectId: p.id ?? entry.name,
+        name: p.name ?? '(unnamed)',
+        updatedAt: p.updatedAt ?? 0,
+      })
     } catch {
       // skip unreadable project
     }
@@ -113,7 +121,10 @@ export function collectMediaIds(project, range = null) {
 /** Read a media's MediaMetadata (media/{id}/metadata.json), or null if absent/unreadable. */
 export function readMediaMetadata(workspaceDir, mediaId) {
   assertSinglePathComponent(mediaId, 'media id')
-  const metaPath = resolveContained(path.join(workspaceDir, 'media'), path.join(mediaId, 'metadata.json'))
+  const metaPath = resolveContained(
+    path.join(workspaceDir, 'media'),
+    path.join(mediaId, 'metadata.json'),
+  )
   if (!fs.existsSync(metaPath)) return null
   try {
     return JSON.parse(fs.readFileSync(metaPath, 'utf8'))
@@ -125,7 +136,10 @@ export function readMediaMetadata(workspaceDir, mediaId) {
 /** Collect `{ mediaId, metadata }` for media referenced by addClip ops (deduped). */
 export function collectAddClipMedia(workspaceDir, ops) {
   const ids = [...new Set(ops.filter((o) => o.op === 'addClip' && o.mediaId).map((o) => o.mediaId))]
-  return ids.map((mediaId) => ({ mediaId, metadata: readMediaMetadata(workspaceDir, mediaId) ?? undefined }))
+  return ids.map((mediaId) => ({
+    mediaId,
+    metadata: readMediaMetadata(workspaceDir, mediaId) ?? undefined,
+  }))
 }
 
 /** Resolve a media id to its source file path under media/{id}/ (first non-reserved file). */

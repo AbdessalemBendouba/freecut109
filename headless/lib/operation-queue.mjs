@@ -37,9 +37,15 @@ export class OperationQueue {
     this.recover = recover
   }
 
-  get accepting() { return this.#accepting }
-  get active() { return this.#active }
-  get waiting() { return this.#waiting }
+  get accepting() {
+    return this.#accepting
+  }
+  get active() {
+    return this.#active
+  }
+  get waiting() {
+    return this.#waiting
+  }
 
   enqueue(run, { timeoutMs, kind = 'browser' }) {
     if (!this.#accepting) {
@@ -77,14 +83,22 @@ export class OperationQueue {
           )
         }
         if (error instanceof OperationQueueError) throw error
-        throw new OperationQueueError('BROWSER_OPERATION_FAILED', `${kind} operation failed`, 500, error)
+        throw new OperationQueueError(
+          'BROWSER_OPERATION_FAILED',
+          `${kind} operation failed`,
+          500,
+          error,
+        )
       } finally {
         this.#active--
       }
     }
 
     const result = this.#tail.then(execute, execute)
-    this.#tail = result.then(() => {}, () => {})
+    this.#tail = result.then(
+      () => {},
+      () => {},
+    )
     return result
   }
 
@@ -92,7 +106,12 @@ export class OperationQueue {
     this.#accepting = false
     await withDeadline(this.#tail, timeoutMs, 'shutdown').catch((error) => {
       if (error instanceof OperationQueueError && error.code === 'OPERATION_TIMEOUT') {
-        throw new OperationQueueError('SHUTDOWN_TIMEOUT', `Queue did not drain within ${timeoutMs}ms`, 503, error)
+        throw new OperationQueueError(
+          'SHUTDOWN_TIMEOUT',
+          `Queue did not drain within ${timeoutMs}ms`,
+          503,
+          error,
+        )
       }
       throw error
     })

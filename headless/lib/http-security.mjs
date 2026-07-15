@@ -12,18 +12,29 @@ export class HttpError extends Error {
 }
 
 export function isSinglePathComponent(value) {
-  return typeof value === 'string' && value.length > 0 && value !== '.' && value !== '..' &&
-    !value.includes('\0') && path.posix.basename(value) === value && path.win32.basename(value) === value
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.includes('\0') &&
+    path.posix.basename(value) === value &&
+    path.win32.basename(value) === value
+  )
 }
 
 export function assertSinglePathComponent(value, label = 'id') {
-  if (!isSinglePathComponent(value)) throw new HttpError(400, 'INVALID_ID', `${label} must be a single path component`)
+  if (!isSinglePathComponent(value))
+    throw new HttpError(400, 'INVALID_ID', `${label} must be a single path component`)
   return value
 }
 
 function isContained(root, candidate) {
   const relative = path.relative(root, candidate)
-  return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))
+  return (
+    relative === '' ||
+    (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))
+  )
 }
 
 /** Resolve a path under root. Existing symlinks are allowed only when their canonical target remains under root. */
@@ -78,7 +89,13 @@ export function parseSingleByteRange(header, size) {
   }
   const start = Number(match[1])
   const requestedEnd = match[2] ? Number(match[2]) : size - 1
-  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(requestedEnd) || start >= size || requestedEnd < start) return false
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(requestedEnd) ||
+    start >= size ||
+    requestedEnd < start
+  )
+    return false
   return { start, end: Math.min(requestedEnd, size - 1) }
 }
 
@@ -87,7 +104,8 @@ export async function serveFile(req, res, filePath, { contentType, allowRange = 
   try {
     info = await fs.promises.stat(filePath)
   } catch (error) {
-    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') throw new HttpError(404, 'NOT_FOUND', 'not found')
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR')
+      throw new HttpError(404, 'NOT_FOUND', 'not found')
     throw error
   }
   if (!info.isFile()) throw new HttpError(404, 'NOT_FOUND', 'not found')
@@ -190,7 +208,10 @@ export function readJsonBody(req, { maxBytes = 64 * 1024 * 1024, timeoutMs = 30_
   })
 }
 
-export function setHttpTimeouts(server, { headersTimeoutMs = 10_000, requestTimeoutMs = 30_000 } = {}) {
+export function setHttpTimeouts(
+  server,
+  { headersTimeoutMs = 10_000, requestTimeoutMs = 30_000 } = {},
+) {
   server.headersTimeout = headersTimeoutMs
   server.requestTimeout = requestTimeoutMs
 }

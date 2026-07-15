@@ -36,7 +36,18 @@ import { parseArgs } from './lib/cli.mjs'
 import { startHarness } from './lib/render-core.mjs'
 import { editRequestSchema, validate } from './lib/contract.mjs'
 
-const EDIT_OPTIONS = new Set(['workspace', 'project', 'ops', 'out', 'in-place', 'build', 'harness-url', 'head', 'help', 'json'])
+const EDIT_OPTIONS = new Set([
+  'workspace',
+  'project',
+  'ops',
+  'out',
+  'in-place',
+  'build',
+  'harness-url',
+  'head',
+  'help',
+  'json',
+])
 const HELP = `Usage: node headless/edit.mjs --workspace <dir> --project <id|project.json> --ops <ops.json> [--out <path> | --in-place] [--json]\n`
 
 function loadOps(args) {
@@ -51,7 +62,10 @@ function loadOps(args) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2), { allowed: EDIT_OPTIONS })
-  if (args.help) { console.log(HELP); return }
+  if (args.help) {
+    console.log(HELP)
+    return
+  }
   if (!args.workspace) throw new Error('Missing --workspace <dir>')
   if (!args.project) throw new Error('Missing --project <id|project.json>')
 
@@ -96,11 +110,15 @@ async function main() {
 
   if (!args.json) console.log('\nApplied ops:')
   for (const r of result.results) {
-    if (!args.json) console.log(`  ${r.ok ? 'ok ' : 'ERR'} ${r.op}${r.detail ? ' ' + JSON.stringify(r.detail) : ''}`)
+    if (!args.json)
+      console.log(
+        `  ${r.ok ? 'ok ' : 'ERR'} ${r.op}${r.detail ? ' ' + JSON.stringify(r.detail) : ''}`,
+      )
   }
   const edited = result.project
   const itemCount = edited.timeline?.items?.length ?? 0
-  if (!args.json) console.log(`Result: ${itemCount} items, ${edited.timeline?.tracks?.length ?? 0} tracks`)
+  if (!args.json)
+    console.log(`Result: ${itemCount} items, ${edited.timeline?.tracks?.length ?? 0} tracks`)
 
   // Write back (safe by default: dry run unless --out or --in-place).
   let outPath = null

@@ -12,6 +12,7 @@ the output. Fidelity matches the in-app export — including hardware GPU effect
 transitions, audio, and (for edits) transition repair + linked-clip cascades.
 
 Two CLIs:
+
 - **`render.mjs`** (`npm run headless`) — render a project (or a slice) to video/audio.
 - **`edit.mjs`** — apply structural edits (add/split/trim/move/delete/transition) and write the project back.
 
@@ -75,24 +76,24 @@ npm run headless -- --workspace "<ws>" --list --json
 
 ### Options
 
-| Flag | Default | Notes |
-|------|---------|-------|
-| `--workspace <dir>` | (required) | The FreeCut workspace folder (picked in the app). |
-| `--project <id\|file>` | (required) | Project id under the workspace, or a path to a `project.json`. |
-| `--out <path>` | `headless/output/<name>.<ext>` | Output file. |
-| `--codec <c>` | `h264` | `h264 \| h265 \| vp9 \| vp8 \| av1`. Falls back automatically if unsupported. |
-| `--container <c>` | derived | `mp4 \| webm \| mov \| mkv` (or `mp3 \| wav \| m4a` with `--audio-only`). |
-| `--resolution <WxH>` | project metadata | e.g. `1920x1080`. |
-| `--fps <n>` | project metadata | |
-| `--quality <q>` | `high` | `low \| medium \| high \| ultra` (controls bitrate). |
-| `--in <sec>` | 0 | Render range start (seconds). |
-| `--out-sec <sec>` | end | Render range end (seconds). |
-| `--duration <sec>` | — | Render this many seconds from `--in`. |
-| `--audio-only` | off | Render audio only. |
-| `--allow-missing-media` | off | Permissive human workflow: render gaps for missing sources and emit a `MISSING_MEDIA` warning. |
-| `--build` | off | Build `dist/` first if the harness isn't built. |
-| `--head` | off | Run a visible browser for debugging. |
-| `--harness-url <url>` | — | Dev mode: drive a running `npm run dev` server instead of `dist/`. |
+| Flag                    | Default                        | Notes                                                                                          |
+| ----------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `--workspace <dir>`     | (required)                     | The FreeCut workspace folder (picked in the app).                                              |
+| `--project <id\|file>`  | (required)                     | Project id under the workspace, or a path to a `project.json`.                                 |
+| `--out <path>`          | `headless/output/<name>.<ext>` | Output file.                                                                                   |
+| `--codec <c>`           | `h264`                         | `h264 \| h265 \| vp9 \| vp8 \| av1`. Falls back automatically if unsupported.                  |
+| `--container <c>`       | derived                        | `mp4 \| webm \| mov \| mkv` (or `mp3 \| wav \| m4a` with `--audio-only`).                      |
+| `--resolution <WxH>`    | project metadata               | e.g. `1920x1080`.                                                                              |
+| `--fps <n>`             | project metadata               |                                                                                                |
+| `--quality <q>`         | `high`                         | `low \| medium \| high \| ultra` (controls bitrate).                                           |
+| `--in <sec>`            | 0                              | Render range start (seconds).                                                                  |
+| `--out-sec <sec>`       | end                            | Render range end (seconds).                                                                    |
+| `--duration <sec>`      | —                              | Render this many seconds from `--in`.                                                          |
+| `--audio-only`          | off                            | Render audio only.                                                                             |
+| `--allow-missing-media` | off                            | Permissive human workflow: render gaps for missing sources and emit a `MISSING_MEDIA` warning. |
+| `--build`               | off                            | Build `dist/` first if the harness isn't built.                                                |
+| `--head`                | off                            | Run a visible browser for debugging.                                                           |
+| `--harness-url <url>`   | —                              | Dev mode: drive a running `npm run dev` server instead of `dist/`.                             |
 
 ## Notes & limitations
 
@@ -139,23 +140,23 @@ Safe by default: with neither `--out` nor `--in-place` it's a dry run.
 
 `edits.json` is an array of ops (each `{ "op": "<name>", ... }`):
 
-| op | fields |
-|----|--------|
-| `addText` | `text`, `from`, `durationInFrames`, `trackId?`, `color?`, `fontSize?`, `fontWeight?`, `textAlign?`, `verticalAlign?` |
-| `addItem` | `item` (a full `TimelineItem`) |
-| `updateItem` | `id`, `updates` (partial `TimelineItem`) |
-| `moveItem` | `id`, `from`, `trackId?` |
-| `removeItems` | `ids` (array) |
-| `split` | `id`, `frame` |
-| `trimStart` / `trimEnd` | `id`, `amount` |
-| `addTransition` | `leftClipId`, `rightClipId`, `type?`, `durationInFrames?` |
-| `addClip` | `mediaId`, `from`, `trackId?`, `durationInFrames?` (video adds a linked audio companion; source range computed from the media's metadata) |
-| `addTrack` | `kind?` (`video`\|`audio`), `order?` |
-| `addKeyframe` | `itemId`, `property`, `frame`, `value`, `easing?` |
-| `removeKeyframes` | `itemId`, `property` |
-| `addEffect` | `itemId`, `gpuEffectType` + `params?` (or a full `effect` object) |
-| `removeEffect` | `itemId`, `effectId` |
-| `setTransform` | `id`, `transform` (e.g. `{ "x": 0, "y": 150, "opacity": 0.5, "rotation": 0 }`) |
+| op                      | fields                                                                                                                                    |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `addText`               | `text`, `from`, `durationInFrames`, `trackId?`, `color?`, `fontSize?`, `fontWeight?`, `textAlign?`, `verticalAlign?`                      |
+| `addItem`               | `item` (a full `TimelineItem`)                                                                                                            |
+| `updateItem`            | `id`, `updates` (partial `TimelineItem`)                                                                                                  |
+| `moveItem`              | `id`, `from`, `trackId?`                                                                                                                  |
+| `removeItems`           | `ids` (array)                                                                                                                             |
+| `split`                 | `id`, `frame`                                                                                                                             |
+| `trimStart` / `trimEnd` | `id`, `amount`                                                                                                                            |
+| `addTransition`         | `leftClipId`, `rightClipId`, `type?`, `durationInFrames?`                                                                                 |
+| `addClip`               | `mediaId`, `from`, `trackId?`, `durationInFrames?` (video adds a linked audio companion; source range computed from the media's metadata) |
+| `addTrack`              | `kind?` (`video`\|`audio`), `order?`                                                                                                      |
+| `addKeyframe`           | `itemId`, `property`, `frame`, `value`, `easing?`                                                                                         |
+| `removeKeyframes`       | `itemId`, `property`                                                                                                                      |
+| `addEffect`             | `itemId`, `gpuEffectType` + `params?` (or a full `effect` object)                                                                         |
+| `removeEffect`          | `itemId`, `effectId`                                                                                                                      |
+| `setTransform`          | `id`, `transform` (e.g. `{ "x": 0, "y": 150, "opacity": 0.5, "rotation": 0 }`)                                                            |
 
 Operations are validated before Chrome starts. Item and track references must
 exist and be compatible. `removeItems` rejects the entire operation if any
@@ -191,13 +192,13 @@ curl -X POST localhost:8787/edit -H 'content-type: application/json' \
   -d '{"project":"<id>","ops":[{"op":"addText","text":"Hi","from":0}]}'
 ```
 
-| Route | Body | Returns |
-|-------|------|---------|
-| `GET /health` | — | `{ ok, apiVersion, gpu: { available, vendor, architecture }, software, harnessUrl }` |
-| `GET /capabilities` | — | API version, operations, options, and JSON Schemas. |
-| `GET /projects` | — | `[{ id, projectId, name, updatedAt }]`; `id` is the actionable directory key. |
-| `POST /render` | `{ project\|projectObject, codec?, container?, resolution?, fps?, quality?, in?, outSec?, duration?, audioOnly? }` | the rendered file (attachment) |
-| `POST /edit` | `{ project\|projectObject, ops, ... }` | `{ ok, project, applied, results }` |
+| Route               | Body                                                                                                               | Returns                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `GET /health`       | —                                                                                                                  | `{ ok, apiVersion, gpu: { available, vendor, architecture }, software, harnessUrl }` |
+| `GET /capabilities` | —                                                                                                                  | API version, operations, options, and JSON Schemas.                                  |
+| `GET /projects`     | —                                                                                                                  | `[{ id, projectId, name, updatedAt }]`; `id` is the actionable directory key.        |
+| `POST /render`      | `{ project\|projectObject, codec?, container?, resolution?, fps?, quality?, in?, outSec?, duration?, audioOnly? }` | the rendered file (attachment)                                                       |
+| `POST /edit`        | `{ project\|projectObject, ops, ... }`                                                                             | `{ ok, project, applied, results }`                                                  |
 
 `project` is a workspace project id; `projectObject` is an inline Project JSON.
 Media is resolved from the service's workspace by id.
@@ -218,12 +219,12 @@ responses expose the same warning array as JSON in `X-Freecut-Warnings`.
 
 Stable warning codes are:
 
-| Code | Meaning |
-|------|---------|
-| `CODEC_FALLBACK` | The requested video codec was unavailable; `effectiveSettings` identifies the codec/container used. |
-| `MISSING_MEDIA` | Permissive CLI mode rendered one or more missing sources as gaps. |
-| `UNSUPPORTED_AUDIO` | A source audio codec cannot be decoded headlessly and may be silent. |
-| `WEBGPU_TRANSITION_FALLBACK` | Transitions used the Canvas2D path because WebGPU was unavailable. |
+| Code                         | Meaning                                                                                             |
+| ---------------------------- | --------------------------------------------------------------------------------------------------- |
+| `CODEC_FALLBACK`             | The requested video codec was unavailable; `effectiveSettings` identifies the codec/container used. |
+| `MISSING_MEDIA`              | Permissive CLI mode rendered one or more missing sources as gaps.                                   |
+| `UNSUPPORTED_AUDIO`          | A source audio codec cannot be decoded headlessly and may be silent.                                |
+| `WEBGPU_TRANSITION_FALLBACK` | Transitions used the Canvas2D path because WebGPU was unavailable.                                  |
 
 `ok: true` means bytes were produced after strict preconditions passed. It does
 not mean there were no non-fatal degradations; callers must inspect `warnings`.
@@ -319,6 +320,28 @@ on Windows/macOS, render natively instead.
 
 ## Dev/regression scripts
 
-- `node headless/probe.mjs` — report WebGPU + WebCodecs support in headless Chrome.
-- `node headless/smoke.mjs` — render a zero-media text title to WebM.
-- `node headless/media-smoke.mjs` — render a generated test clip (video+audio) to MP4.
+The portable quality gate is layered so a production build is reused:
+
+| Command                          | Coverage                                                                                                                          |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run headless:test`          | Builds once, then runs every portable layer.                                                                                      |
+| `npm run headless:test:node`     | Fast schemas, CLI, workspace, HTTP security, render outcomes, binding, and queue recovery.                                        |
+| `npm run headless:test:chrome`   | Built-harness render/edit regression plus success, persisted state, and meaningful failure coverage for every edit discriminator. |
+| `npm run headless:test:media`    | Generates a PCM tone in the OS temp directory, range-serves it, renders WAV, and asserts non-silent audio bytes.                  |
+| `npm run headless:test:portable` | Reuses an existing `dist/`; this is what CI and `npm run verify` call after their build.                                          |
+
+The schema/test parity assertion in `edit-operations.mjs` fails when a new
+public edit operation has no Chrome contract case. All portable artifacts use
+OS temporary directories and are deleted after the test. No binary media
+fixture or optional host codec is required.
+
+Real-GPU effects are deliberately outside the portable PR gate. Before a GPU
+release or deployment, run `npm run headless:gpu:probe` on the target machine,
+confirm a non-software adapter, then render the affected project/effects with
+`npm run headless` or the service. A passing portable suite does not claim GPU
+shader or pixel-level coverage.
+
+Legacy/manual helpers remain available:
+
+- `node headless/smoke.mjs` — zero-media text render against a running dev server.
+- `node headless/media-smoke.mjs` — MP4 video/audio smoke against a running dev server and local `headless/assets/testclip.mp4`.

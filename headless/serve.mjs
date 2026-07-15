@@ -29,7 +29,12 @@ import { parseArgs, chromeLaunchArgs } from './lib/cli.mjs'
 import { prepareJob, renderJob, startHarness, warningsHeaderValue } from './lib/render-core.mjs'
 import { OperationQueue, OperationQueueError } from './lib/operation-queue.mjs'
 import { PageSession, probeGpu } from './lib/page-session.mjs'
-import { assertSinglePathComponent, HttpError, readJsonBody, setHttpTimeouts } from './lib/http-security.mjs'
+import {
+  assertSinglePathComponent,
+  HttpError,
+  readJsonBody,
+  setHttpTimeouts,
+} from './lib/http-security.mjs'
 import {
   HEADLESS_API_VERSION,
   ContractValidationError,
@@ -41,8 +46,17 @@ import {
 
 const HELP = `Usage: node headless/serve.mjs --workspace <dir> [options]\n\nOptions:\n  --host <address>           Bind address (default: 127.0.0.1)\n  --port <n>                 HTTP port (default: 8787)\n  --render-timeout-ms <n>    Whole render deadline (default: 1800000)\n  --edit-timeout-ms <n>      Whole edit deadline (default: 120000)\n  --max-queue-depth <n>      Waiting operations allowed behind the active one (default: 8)\n  --shutdown-timeout-ms <n>  Graceful queue drain deadline (default: 30000)\n  --build  --head  --harness-url <url>\n`
 const SERVE_OPTIONS = new Set([
-  'workspace', 'host', 'port', 'build', 'head', 'harness-url', 'help', 'render-timeout-ms',
-  'edit-timeout-ms', 'max-queue-depth', 'shutdown-timeout-ms',
+  'workspace',
+  'host',
+  'port',
+  'build',
+  'head',
+  'harness-url',
+  'help',
+  'render-timeout-ms',
+  'edit-timeout-ms',
+  'max-queue-depth',
+  'shutdown-timeout-ms',
 ])
 
 /** Resolve the service bind address without exposing native runs by default. */
@@ -75,7 +89,10 @@ function isSoftwareGpu(gpu) {
 async function main() {
   const { chromium } = await import('playwright')
   const args = parseArgs(process.argv.slice(2), { allowed: SERVE_OPTIONS })
-  if (args.help) { console.log(HELP); return }
+  if (args.help) {
+    console.log(HELP)
+    return
+  }
   const workspace = args.workspace
   if (!workspace) throw new Error('Missing --workspace <dir>')
   if (!fs.existsSync(workspace)) throw new Error(`Workspace not found: ${workspace}`)
@@ -88,7 +105,8 @@ async function main() {
     }
     return value
   }
-  if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('--port must be an integer between 0 and 65535')
+  if (!Number.isInteger(port) || port < 0 || port > 65535)
+    throw new Error('--port must be an integer between 0 and 65535')
   const renderTimeoutMs = positiveInt('render-timeout-ms', 30 * 60_000)
   const editTimeoutMs = positiveInt('edit-timeout-ms', 2 * 60_000)
   const maxQueueDepth = positiveInt('max-queue-depth', 8, { min: 0, max: 10_000 })
@@ -115,7 +133,9 @@ async function main() {
   // Report the WebGPU adapter so it's obvious whether this is a real GPU.
   let gpu = await probeGpu(session.page)
   if (gpu.available) {
-    console.log(`WebGPU adapter: ${gpu.vendor || '?'} / ${gpu.architecture || gpu.description || '?'}`)
+    console.log(
+      `WebGPU adapter: ${gpu.vendor || '?'} / ${gpu.architecture || gpu.description || '?'}`,
+    )
   }
   if (isSoftwareGpu(gpu)) {
     console.warn(
@@ -180,7 +200,12 @@ async function main() {
     const ops = body.ops
     const media = collectAddClipMedia(workspace, ops)
     const result = await queue.enqueue(
-      () => session.page.evaluate((payload) => window.freecut.editProject(payload), { project, ops, media }),
+      () =>
+        session.page.evaluate((payload) => window.freecut.editProject(payload), {
+          project,
+          ops,
+          media,
+        }),
       { timeoutMs: editTimeoutMs, kind: 'edit' },
     )
     sendJson(res, 200, result)
@@ -192,17 +217,23 @@ async function main() {
     const handler =
       route === 'GET /health'
         ? async () => {
-            sendJson(res, 200, { ok: true, apiVersion: HEADLESS_API_VERSION, gpu, software: isSoftwareGpu(gpu), harnessUrl })
+            sendJson(res, 200, {
+              ok: true,
+              apiVersion: HEADLESS_API_VERSION,
+              gpu,
+              software: isSoftwareGpu(gpu),
+              harnessUrl,
+            })
           }
         : route === 'GET /capabilities'
           ? async () => sendJson(res, 200, capabilities())
-        : route === 'GET /projects'
-          ? async () => sendJson(res, 200, listProjects(workspace))
-          : route === 'POST /render'
-            ? () => handleRender(req, res)
-            : route === 'POST /edit'
-              ? () => handleEdit(req, res)
-              : null
+          : route === 'GET /projects'
+            ? async () => sendJson(res, 200, listProjects(workspace))
+            : route === 'POST /render'
+              ? () => handleRender(req, res)
+              : route === 'POST /edit'
+                ? () => handleEdit(req, res)
+                : null
     if (!handler) {
       sendJson(res, 404, { error: `No route: ${route}` })
       return
@@ -224,16 +255,19 @@ async function main() {
         sendJson(res, status, {
           error: {
             code: validation ? (e.code ?? 'INVALID_JSON') : (e.code ?? 'INTERNAL_ERROR'),
-            message: validation || missingMedia || e instanceof OperationQueueError || e instanceof HttpError
-              ? e.message
-              : 'Internal server error',
+            message:
+              validation ||
+              missingMedia ||
+              e instanceof OperationQueueError ||
+              e instanceof HttpError
+                ? e.message
+                : 'Internal server error',
             fields: e.fields ?? [],
             ...(missingMedia ? { mediaIds: e.mediaIds } : {}),
             apiVersion: HEADLESS_API_VERSION,
           },
         })
-      }
-      else res.destroy()
+      } else res.destroy()
     })
   })
   setHttpTimeouts(server)
@@ -245,26 +279,29 @@ async function main() {
   console.log(`  GET /health  GET /capabilities  GET /projects  POST /render  POST /edit`)
 
   let shuttingDown
-  const shutdown = () => shuttingDown ??= (async () => {
-    console.log('\nShutting down...')
-    const serverClosed = new Promise((resolve) => server.close(resolve))
-    try {
-      await queue.shutdown(shutdownTimeoutMs)
-    } catch (error) {
-      console.error(error.message)
-    } finally {
-      await session.close()
-      await browser.close()
-      await closeServers()
-      let closeTimer
-      const closed = await Promise.race([
-        serverClosed.then(() => true),
-        new Promise((resolve) => { closeTimer = setTimeout(() => resolve(false), shutdownTimeoutMs) }),
-      ])
-      clearTimeout(closeTimer)
-      if (!closed) server.closeAllConnections?.()
-    }
-  })()
+  const shutdown = () =>
+    (shuttingDown ??= (async () => {
+      console.log('\nShutting down...')
+      const serverClosed = new Promise((resolve) => server.close(resolve))
+      try {
+        await queue.shutdown(shutdownTimeoutMs)
+      } catch (error) {
+        console.error(error.message)
+      } finally {
+        await session.close()
+        await browser.close()
+        await closeServers()
+        let closeTimer
+        const closed = await Promise.race([
+          serverClosed.then(() => true),
+          new Promise((resolve) => {
+            closeTimer = setTimeout(() => resolve(false), shutdownTimeoutMs)
+          }),
+        ])
+        clearTimeout(closeTimer)
+        if (!closed) server.closeAllConnections?.()
+      }
+    })())
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
 }

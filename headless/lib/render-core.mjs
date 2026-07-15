@@ -5,16 +5,35 @@ import { execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import fs from 'node:fs'
 import path from 'node:path'
-import { loadProject, collectMediaIds, resolveMediaFiles, resolveMediaFile, readMediaMetadata } from './workspace.mjs'
+import {
+  loadProject,
+  collectMediaIds,
+  resolveMediaFiles,
+  resolveMediaFile,
+  readMediaMetadata,
+} from './workspace.mjs'
 import { createMediaServer } from '../media-server.mjs'
 import { createHarnessServer } from '../server.mjs'
 import { normalizeRenderInput, renderRequestSchema, validate } from './contract.mjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 
-const CODEC_MAP = { h264: 'avc', avc: 'avc', h265: 'hevc', hevc: 'hevc', vp9: 'vp9', vp8: 'vp8', av1: 'av1' }
+const CODEC_MAP = {
+  h264: 'avc',
+  avc: 'avc',
+  h265: 'hevc',
+  hevc: 'hevc',
+  vp9: 'vp9',
+  vp8: 'vp8',
+  av1: 'av1',
+}
 const DEFAULT_CONTAINER = { avc: 'mp4', hevc: 'mp4', vp9: 'webm', vp8: 'webm', av1: 'webm' }
-const VIDEO_BITRATE_BY_QUALITY = { low: 2_500_000, medium: 5_000_000, high: 10_000_000, ultra: 20_000_000 }
+const VIDEO_BITRATE_BY_QUALITY = {
+  low: 2_500_000,
+  medium: 5_000_000,
+  high: 10_000_000,
+  ultra: 20_000_000,
+}
 
 /** Build ClientExportSettings from a job's options (same keys as the CLI flags). */
 function buildSettings(project, opts) {
@@ -24,11 +43,13 @@ function buildSettings(project, opts) {
   let height = meta.height ?? 1080
   if (opts.resolution) {
     const m = /^(\d+)x(\d+)$/.exec(opts.resolution)
-    if (!m) throw new Error(`Invalid resolution "${opts.resolution}" (expected WxH, e.g. 1920x1080)`)
+    if (!m)
+      throw new Error(`Invalid resolution "${opts.resolution}" (expected WxH, e.g. 1920x1080)`)
     width = Number(m[1])
     height = Number(m[2])
   }
-  if (!Number.isFinite(fps) || fps < 1 || fps > 240) throw new Error('Effective fps must be between 1 and 240')
+  if (!Number.isFinite(fps) || fps < 1 || fps > 240)
+    throw new Error('Effective fps must be between 1 and 240')
   if (![width, height].every((value) => Number.isInteger(value) && value >= 16 && value <= 16384)) {
     throw new Error('Effective resolution dimensions must be integers between 16 and 16384')
   }
@@ -73,7 +94,11 @@ function computeRange(opts, fps) {
   if (!hasRange) return { hasRange: false, inPoint: null, outPoint: null }
   const inSec = inV !== undefined ? Number(inV) : 0
   const outSec =
-    outV !== undefined ? Number(outV) : opts.duration !== undefined ? inSec + Number(opts.duration) : undefined
+    outV !== undefined
+      ? Number(outV)
+      : opts.duration !== undefined
+        ? inSec + Number(opts.duration)
+        : undefined
   return {
     hasRange: true,
     inPoint: Math.round(inSec * fps),
@@ -102,9 +127,14 @@ export async function startHarness({ workspace, devUrl, build }) {
   const resolveMedia = workspace ? (mediaId) => resolveMediaFile(workspace, mediaId) : undefined
   if (devUrl) {
     await ensureHarnessReachable(devUrl)
-    if (!resolveMedia) return { harnessUrl: devUrl, mediaUrlOf: () => undefined, closeServers: async () => {} }
+    if (!resolveMedia)
+      return { harnessUrl: devUrl, mediaUrlOf: () => undefined, closeServers: async () => {} }
     const mediaServer = await createMediaServer(resolveMedia)
-    return { harnessUrl: devUrl, mediaUrlOf: (id) => mediaServer.url(id), closeServers: () => mediaServer.close() }
+    return {
+      harnessUrl: devUrl,
+      mediaUrlOf: (id) => mediaServer.url(id),
+      closeServers: () => mediaServer.close(),
+    }
   }
   const distDir = path.join(REPO_ROOT, 'dist')
   if (!fs.existsSync(path.join(distDir, 'headless.html'))) {
@@ -117,7 +147,11 @@ export async function startHarness({ workspace, devUrl, build }) {
     }
   }
   const server = await createHarnessServer({ distDir, resolveMedia })
-  return { harnessUrl: server.harnessUrl, mediaUrlOf: (id) => server.mediaUrl(id), closeServers: () => server.close() }
+  return {
+    harnessUrl: server.harnessUrl,
+    mediaUrlOf: (id) => server.mediaUrl(id),
+    closeServers: () => server.close(),
+  }
 }
 
 /** Resolve everything needed to render one job (no browser involved). */
@@ -191,11 +225,12 @@ export async function renderJob(
     if (!allowMissingMedia) throw new MissingMediaError(job.missing)
   }
   const preparationWarnings = []
-  if (job.missing.length > 0) preparationWarnings.push({
-    code: 'MISSING_MEDIA',
-    message: `${job.missing.length} media source(s) not found on disk: ${job.missing.join(', ')}`,
-    details: { mediaIds: job.missing },
-  })
+  if (job.missing.length > 0)
+    preparationWarnings.push({
+      code: 'MISSING_MEDIA',
+      message: `${job.missing.length} media source(s) not found on disk: ${job.missing.join(', ')}`,
+      details: { mediaIds: job.missing },
+    })
   const unsupportedAudio = job.media.filter((m) => m.metadata?.audioCodecSupported === false)
   if (unsupportedAudio.length > 0) {
     const list = unsupportedAudio
@@ -232,6 +267,7 @@ export async function renderJob(
   fs.mkdirSync(path.dirname(outputPath), { recursive: true })
   await download.saveAs(outputPath)
   const warnings = [...preparationWarnings, ...(summary.warnings ?? [])]
-  for (const warning of warnings) warn(`  WARNING [${warning.code ?? 'UNKNOWN'}]: ${warningMessage(warning)}`)
+  for (const warning of warnings)
+    warn(`  WARNING [${warning.code ?? 'UNKNOWN'}]: ${warningMessage(warning)}`)
   return { ...summary, fileName: path.basename(outputPath), outputPath, warnings }
 }

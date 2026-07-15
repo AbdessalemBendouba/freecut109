@@ -11,32 +11,55 @@ import {
 } from './lib/render-core.mjs'
 
 const requestedSettings = {
-  mode: 'video', codec: 'avc', audioCodec: 'aac', container: 'mp4', quality: 'high',
-  resolution: { width: 1280, height: 720 }, fps: 30, videoBitrate: 4_000_000, audioBitrate: 192_000,
+  mode: 'video',
+  codec: 'avc',
+  audioCodec: 'aac',
+  container: 'mp4',
+  quality: 'high',
+  resolution: { width: 1280, height: 720 },
+  fps: 30,
+  videoBitrate: 4_000_000,
+  audioBitrate: 192_000,
 }
 
 function fakePage(summary, bytes = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x42, 0x86])) {
   let evaluateCalls = 0
   return {
-    get evaluateCalls() { return evaluateCalls },
+    get evaluateCalls() {
+      return evaluateCalls
+    },
     waitForEvent: async () => ({ saveAs: async (target) => fs.writeFileSync(target, bytes) }),
-    evaluate: async () => { evaluateCalls++; return structuredClone(summary) },
+    evaluate: async () => {
+      evaluateCalls++
+      return structuredClone(summary)
+    },
   }
 }
 
 function job(dir, overrides = {}) {
   return {
     project: { id: 'project-1', name: 'Project', timeline: {}, metadata: {} },
-    settings: structuredClone(requestedSettings), media: [], missing: [], hasRange: false,
-    inPoint: null, outPoint: null, outPath: path.join(dir, 'result.mp4'), ...overrides,
+    settings: structuredClone(requestedSettings),
+    media: [],
+    missing: [],
+    hasRange: false,
+    inPoint: null,
+    outPoint: null,
+    outPath: path.join(dir, 'result.mp4'),
+    ...overrides,
   }
 }
 
 function summary(overrides = {}) {
   return {
-    ok: true, mimeType: 'video/mp4', fileSize: 6, durationSeconds: 1,
-    fileName: 'freecut-export.mp4', effectiveSettings: structuredClone(requestedSettings),
-    warnings: [], ...overrides,
+    ok: true,
+    mimeType: 'video/mp4',
+    fileSize: 6,
+    durationSeconds: 1,
+    fileName: 'freecut-export.mp4',
+    effectiveSettings: structuredClone(requestedSettings),
+    warnings: [],
+    ...overrides,
   }
 }
 
@@ -54,14 +77,23 @@ test('fallback metadata controls extension, MIME, summary, and output signature'
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'freecut-render-contract-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const fallbackWarning = {
-    code: 'CODEC_FALLBACK', message: 'Requested video codec avc is unsupported; using vp9/webm',
+    code: 'CODEC_FALLBACK',
+    message: 'Requested video codec avc is unsupported; using vp9/webm',
     details: { requestedCodec: 'avc', effectiveCodec: 'vp9', effectiveContainer: 'webm' },
   }
-  const page = fakePage(summary({
-    mimeType: 'video/webm', fileName: 'freecut-export.webm',
-    effectiveSettings: { ...requestedSettings, codec: 'vp9', audioCodec: 'opus', container: 'webm' },
-    warnings: [fallbackWarning],
-  }))
+  const page = fakePage(
+    summary({
+      mimeType: 'video/webm',
+      fileName: 'freecut-export.webm',
+      effectiveSettings: {
+        ...requestedSettings,
+        codec: 'vp9',
+        audioCodec: 'opus',
+        container: 'webm',
+      },
+      warnings: [fallbackWarning],
+    }),
+  )
   const result = await renderJob(page, job(dir), { onWarn: () => {} })
   assert.equal(result.outputPath, path.join(dir, 'result.webm'))
   assert.equal(result.fileName, 'result.webm')
@@ -88,7 +120,8 @@ test('permissive missing media succeeds with a structured warning', async (t) =>
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'freecut-render-contract-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const result = await renderJob(fakePage(summary()), job(dir, { missing: ['media-404'] }), {
-    allowMissingMedia: true, onWarn: () => {},
+    allowMissingMedia: true,
+    onWarn: () => {},
   })
   assert.equal(result.ok, true)
   assert.equal(result.warnings[0].code, 'MISSING_MEDIA')
@@ -98,10 +131,13 @@ test('permissive missing media succeeds with a structured warning', async (t) =>
 test('unsupported audio is visible in render JSON and the HTTP warning header', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'freecut-render-contract-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
-  const media = [{
-    mediaId: 'clip-1', url: 'http://localhost/media/clip-1',
-    metadata: { fileName: 'source.mov', audioCodec: 'dts', audioCodecSupported: false },
-  }]
+  const media = [
+    {
+      mediaId: 'clip-1',
+      url: 'http://localhost/media/clip-1',
+      metadata: { fileName: 'source.mov', audioCodec: 'dts', audioCodecSupported: false },
+    },
+  ]
   const result = await renderJob(fakePage(summary()), job(dir, { media }), { onWarn: () => {} })
   assert.equal(result.warnings[0].code, 'UNSUPPORTED_AUDIO')
   const cliJson = JSON.parse(JSON.stringify({ ok: true, renders: [{ summary: result }] }))

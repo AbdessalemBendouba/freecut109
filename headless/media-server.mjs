@@ -6,8 +6,12 @@
 import http from 'node:http'
 import path from 'node:path'
 import {
-  assertSinglePathComponent, decodeRequestPath, requireGetOrHead, sendHttpError,
-  serveFile, setHttpTimeouts,
+  assertSinglePathComponent,
+  decodeRequestPath,
+  requireGetOrHead,
+  sendHttpError,
+  serveFile,
+  setHttpTimeouts,
 } from './lib/http-security.mjs'
 
 const MIME = {

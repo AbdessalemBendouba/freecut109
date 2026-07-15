@@ -36,19 +36,46 @@ import { parseArgs, chromeLaunchArgs } from './lib/cli.mjs'
 import { prepareJob, renderJob, startHarness } from './lib/render-core.mjs'
 import { normalizeRenderInput, renderRequestSchema, validate } from './lib/contract.mjs'
 
-const RENDER_OPTIONS = new Set(['workspace', 'project', 'out', 'codec', 'container', 'resolution', 'fps', 'quality', 'in', 'out-sec', 'duration', 'audio-only', 'allow-missing-media', 'head', 'build', 'harness-url', 'batch', 'list', 'help', 'json'])
+const RENDER_OPTIONS = new Set([
+  'workspace',
+  'project',
+  'out',
+  'codec',
+  'container',
+  'resolution',
+  'fps',
+  'quality',
+  'in',
+  'out-sec',
+  'duration',
+  'audio-only',
+  'allow-missing-media',
+  'head',
+  'build',
+  'harness-url',
+  'batch',
+  'list',
+  'help',
+  'json',
+])
 const HELP = `Usage:\n  node headless/render.mjs --workspace <dir> --project <id|project.json> [options]\n  node headless/render.mjs --workspace <dir> --batch <jobs.json>\n  node headless/render.mjs --workspace <dir> --list [--json]\n\nOptions: --out --codec --container --resolution --fps --quality --in --out-sec --duration --audio-only --allow-missing-media --head --build --harness-url --json\n`
 
 async function main() {
   const args = parseArgs(process.argv.slice(2), { allowed: RENDER_OPTIONS })
-  if (args.help) { console.log(HELP); return }
+  if (args.help) {
+    console.log(HELP)
+    return
+  }
   const workspace = args.workspace
   if (!workspace) throw new Error('Missing --workspace <dir>')
   if (!fs.existsSync(workspace)) throw new Error(`Workspace not found: ${workspace}`)
 
   if (args.list) {
     const projects = listProjects(workspace)
-    if (args.json) { console.log(JSON.stringify({ projects })); return }
+    if (args.json) {
+      console.log(JSON.stringify({ projects }))
+      return
+    }
     if (projects.length === 0) {
       console.log('No projects found in workspace.')
       return
@@ -66,11 +93,25 @@ async function main() {
     const batchPath = args.batch
     if (!fs.existsSync(batchPath)) throw new Error(`Batch file not found: ${batchPath}`)
     const parsed = JSON.parse(fs.readFileSync(batchPath, 'utf8'))
-    jobArgsList = (Array.isArray(parsed) ? parsed : [parsed]).map((job) => validate(renderRequestSchema, normalizeRenderInput(job)))
+    jobArgsList = (Array.isArray(parsed) ? parsed : [parsed]).map((job) =>
+      validate(renderRequestSchema, normalizeRenderInput(job)),
+    )
     if (jobArgsList.length === 0) throw new Error('Batch file is empty')
   } else {
     if (!args.project) throw new Error('Missing --project <id|project.json> (or --batch <file>)')
-    const { workspace: _workspace, batch: _batch, list: _list, head: _head, build: _build, 'harness-url': _harnessUrl, help: _help, json: _json, 'allow-missing-media': _allowMissingMedia, _: _positionals, ...job } = args
+    const {
+      workspace: _workspace,
+      batch: _batch,
+      list: _list,
+      head: _head,
+      build: _build,
+      'harness-url': _harnessUrl,
+      help: _help,
+      json: _json,
+      'allow-missing-media': _allowMissingMedia,
+      _: _positionals,
+      ...job
+    } = args
     jobArgsList = [validate(renderRequestSchema, normalizeRenderInput(job))]
   }
 
@@ -89,7 +130,9 @@ async function main() {
   try {
     const context = await browser.newContext({ acceptDownloads: true })
     const page = await context.newPage()
-    page.on('pageerror', (e) => { if (!args.json) console.error('  [pageerror]', e.message) })
+    page.on('pageerror', (e) => {
+      if (!args.json) console.error('  [pageerror]', e.message)
+    })
     page.on('console', (m) => {
       if (!args.json && m.type() === 'error' && !m.text().includes('Video load error')) {
         console.error('  [page:error]', m.text())
@@ -107,7 +150,9 @@ async function main() {
       const pct = Math.floor(progress?.progress ?? 0)
       if (pct !== lastPct) {
         lastPct = pct
-        process.stdout.write(`\r  ${progressLabel} ${(progress?.phase ?? 'render').padEnd(10)} ${pct}%   `)
+        process.stdout.write(
+          `\r  ${progressLabel} ${(progress?.phase ?? 'render').padEnd(10)} ${pct}%   `,
+        )
       }
     })
 
@@ -118,20 +163,22 @@ async function main() {
     for (let i = 0; i < jobArgsList.length; i++) {
       const job = prepareJob(workspace, jobArgsList[i], mediaUrlOf)
       const range = job.hasRange ? ` frames ${job.inPoint}..${job.outPoint ?? 'end'}` : ''
-      if (!args.json) console.log(
-        `\n[${i + 1}/${jobArgsList.length}] ${job.project.name ?? job.project.id} -> ` +
-          `${job.settings.mode} ${job.settings.codec}/${job.settings.container} ` +
-          `${job.settings.resolution.width}x${job.settings.resolution.height}@${job.settings.fps}${range} ` +
-          `| media ${job.mediaResolved}/${job.mediaTotal}`,
-      )
+      if (!args.json)
+        console.log(
+          `\n[${i + 1}/${jobArgsList.length}] ${job.project.name ?? job.project.id} -> ` +
+            `${job.settings.mode} ${job.settings.codec}/${job.settings.container} ` +
+            `${job.settings.resolution.width}x${job.settings.resolution.height}@${job.settings.fps}${range} ` +
+            `| media ${job.mediaResolved}/${job.mediaTotal}`,
+        )
       const summary = await renderJob(page, job, {
         setProgressLabel,
         allowMissingMedia: Boolean(args['allow-missing-media']),
       })
       if (!args.json) process.stdout.write('\n')
-      if (!args.json) console.log(
-        `  Done: ${summary.outputPath}  (${summary.mimeType}, ${(summary.fileSize / 1_000_000).toFixed(2)} MB, ${summary.durationSeconds.toFixed(2)}s)`,
-      )
+      if (!args.json)
+        console.log(
+          `  Done: ${summary.outputPath}  (${summary.mimeType}, ${(summary.fileSize / 1_000_000).toFixed(2)} MB, ${summary.durationSeconds.toFixed(2)}s)`,
+        )
       jsonResults.push({ out: summary.outputPath, requestedSettings: job.settings, summary })
     }
     if (args.json) console.log(JSON.stringify({ ok: true, renders: jsonResults }))
