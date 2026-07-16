@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from 'react'
 import { cn } from '@/shared/ui/cn'
+import { useRafCoalescedValue } from '../use-raf-coalesced-value'
 import { clampZoomValue, setPointerCaptureSafely } from './dopesheet-utils'
 
 export interface MiniZoomControlProps {
@@ -26,6 +27,8 @@ export function MiniZoomControl({
   onReset,
 }: MiniZoomControlProps) {
   const trackRef = useRef<HTMLButtonElement | null>(null)
+  const { queue: queueValueChange, flushNow: flushValueChange } =
+    useRafCoalescedValue(onValueChange)
 
   const updateValueFromClientX = useCallback(
     (clientX: number) => {
@@ -38,9 +41,9 @@ export function MiniZoomControl({
       const horizontalPadding = 4
       const usableWidth = Math.max(1, rect.width - horizontalPadding * 2)
       const nextValue = ((clientX - rect.left - horizontalPadding) / usableWidth) * 100
-      onValueChange(clampZoomValue(nextValue))
+      queueValueChange(clampZoomValue(nextValue))
     },
-    [onValueChange],
+    [queueValueChange],
   )
 
   const handlePointerDown = useCallback(
@@ -67,11 +70,22 @@ export function MiniZoomControl({
     [disabled, updateValueFromClientX],
   )
 
-  const handlePointerRelease = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
-  }, [])
+  const handlePointerRelease = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      flushValueChange()
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      }
+    },
+    [flushValueChange],
+  )
+
+  const handleDoubleClick = useCallback(() => {
+    // Commit any pointer value first so it cannot overwrite the reset on the
+    // next animation frame.
+    flushValueChange()
+    onReset?.()
+  }, [flushValueChange, onReset])
 
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLButtonElement>) => {
@@ -115,7 +129,7 @@ export function MiniZoomControl({
           'relative h-5 w-16 rounded-sm outline-none transition-colors',
           disabled ? 'cursor-default opacity-50' : 'cursor-ew-resize',
         )}
-        onDoubleClick={onReset}
+        onDoubleClick={onReset ? handleDoubleClick : undefined}
         onKeyDown={handleKeyDown}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}

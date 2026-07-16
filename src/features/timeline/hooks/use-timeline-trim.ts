@@ -44,6 +44,7 @@ import {
   clampRollingTrimDeltaToPreserveEditState,
 } from '../utils/trim-edit-constraints'
 import { getTransitionBridgeAtHandle } from '../utils/transition-edit-guards'
+import { createRafCoalescedCallback } from '../utils/raf-coalesced-callback'
 
 interface TrimState {
   isTrimming: boolean
@@ -628,15 +629,17 @@ export function useTimelineTrim(
         isConstrained !== trimStateRef.current.isConstrained ||
         constraintLabel !== trimStateRef.current.constraintLabel
       ) {
-        setTrimState((prev) => ({
-          ...prev,
+        const nextTrimState = {
+          ...trimStateRef.current,
           currentDelta: deltaFrames,
           isRollingEdit: isRolling,
           isRippleEdit,
           neighborId: neighborId,
           isConstrained,
           constraintLabel,
-        }))
+        }
+        trimStateRef.current = nextTrimState
+        setTrimState(nextTrimState)
       }
 
       setActiveSnapTargetIfChanged({
@@ -739,6 +742,11 @@ export function useTimelineTrim(
   // Setup and cleanup mouse event listeners
   useEffect(() => {
     if (trimState.isTrimming) {
+      const coalescedMouseMove = createRafCoalescedCallback(handleMouseMove)
+      const handleCoalescedMouseUp = () => {
+        coalescedMouseMove.flush()
+        handleMouseUp()
+      }
       const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'Alt') {
           e.preventDefault() // Prevent browser menu activation on Windows
@@ -753,14 +761,15 @@ export function useTimelineTrim(
         if (e.key === 'Shift') shiftKeyRef.current = false
       }
 
-      window.addEventListener('mousemove', handleMouseMove)
-      window.addEventListener('mouseup', handleMouseUp)
+      window.addEventListener('mousemove', coalescedMouseMove.queue)
+      window.addEventListener('mouseup', handleCoalescedMouseUp)
       window.addEventListener('keydown', handleKeyDown)
       window.addEventListener('keyup', handleKeyUp)
 
       return () => {
-        window.removeEventListener('mousemove', handleMouseMove)
-        window.removeEventListener('mouseup', handleMouseUp)
+        window.removeEventListener('mousemove', coalescedMouseMove.queue)
+        window.removeEventListener('mouseup', handleCoalescedMouseUp)
+        coalescedMouseMove.cancel()
         window.removeEventListener('keydown', handleKeyDown)
         window.removeEventListener('keyup', handleKeyUp)
         useRollingEditPreviewStore.getState().clearPreview()

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vite-plus/test'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { act, renderHook } from '@testing-library/react'
 import type { TimelineItem, VideoItem } from '@/types/timeline'
 import type { Transition } from '@/types/transition'
@@ -17,6 +17,7 @@ import { useLinkedEditPreviewStore } from '../stores/linked-edit-preview-store'
 import { useTimelineTrim } from './use-timeline-trim'
 
 const TIMELINE_DURATION = 600
+let rafCallbacks: FrameRequestCallback[] = []
 
 /**
  * Zoom is pinned so 1 px == 1 frame: pixelsPerSecond 30 at 30 fps means
@@ -107,6 +108,9 @@ function holdKey(key: 'Alt' | 'Shift') {
 function moveMouse(clientX: number) {
   act(() => {
     window.dispatchEvent(new MouseEvent('mousemove', { clientX }))
+    const callbacks = rafCallbacks
+    rafCallbacks = []
+    for (const callback of callbacks) callback(performance.now())
   })
 }
 
@@ -118,8 +122,18 @@ function releaseMouse() {
 
 describe('useTimelineTrim', () => {
   beforeEach(() => {
+    rafCallbacks = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
+      rafCallbacks.push(callback)
+      return rafCallbacks.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', (id: number) => {
+      rafCallbacks[id - 1] = () => {}
+    })
     setupStores()
   })
+
+  afterEach(() => vi.unstubAllGlobals())
 
   describe('normal trim', () => {
     it('extends the end handle and updates sourceEnd on commit', () => {
