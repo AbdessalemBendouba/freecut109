@@ -62,10 +62,12 @@ import {
   addItemOnNewTrack,
   addItemsOnNewTracks,
   addKeyframe,
+  beginTextMotionEdit,
   buildDroppedCompositionTimelineItems,
   buildDroppedMediaTimelineItems,
   captureSnapshot,
   CompactNavigator,
+  commitTextMotionEdit,
   createTimelineTemplateItem,
   createDefaultShapeItem,
   createTextTemplateItem,
@@ -89,6 +91,7 @@ import {
   updateItem,
   updateKeyframe,
   updateKeyframes,
+  updateTextMotionLive,
   useCompositionNavigationStore,
   useCompositionsStore,
   useItemsStore,
@@ -126,6 +129,7 @@ interface TextMotionTimelineBand {
   fromFrame: number
   toFrame: number
   unitCount: number
+  durationFrames: number
 }
 
 function getTextMotionUnitCount(item: Extract<TimelineItem, { type: 'text' }>, effect: TextMotionEffect) {
@@ -162,6 +166,7 @@ function getTextMotionTimelineBands(item: TimelineItem): TextMotionTimelineBand[
       fromFrame: item.from,
       toFrame: item.from + inWindow.length,
       unitCount: inWindow.unitCount,
+      durationFrames: inEffect.durationFrames,
     })
   }
   if (loopEffect) {
@@ -174,6 +179,7 @@ function getTextMotionTimelineBands(item: TimelineItem): TextMotionTimelineBand[
         fromFrame: loopFrom,
         toFrame: loopTo,
         unitCount: getTextMotionUnitCount(item, loopEffect),
+        durationFrames: loopEffect.durationFrames,
       })
     }
   }
@@ -184,26 +190,107 @@ function getTextMotionTimelineBands(item: TimelineItem): TextMotionTimelineBand[
       fromFrame: clipEnd - outWindow.length,
       toFrame: clipEnd,
       unitCount: outWindow.unitCount,
+      durationFrames: outEffect.durationFrames,
     })
   }
   return bands
 }
 
 const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
+  itemId,
   bands,
   timeViewport,
 }: {
+  itemId: string
   bands: TextMotionTimelineBand[]
   timeViewport: MotionTimeViewport
 }) {
+  const dragRef = useRef<{
+    pointerId: number
+    slot: TextMotionSlot
+    startX: number
+    startDurationFrames: number
+    laneWidth: number
+    before: ReturnType<typeof beginTextMotionEdit> | null
+  } | null>(null)
+  const suppressClickRef = useRef(false)
   const visibleFrameRange = Math.max(1, timeViewport.endFrame - timeViewport.startFrame)
+
+  const beginDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, band: TextMotionTimelineBand) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      const laneWidth = event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0
+      if (laneWidth <= 0) return
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      dragRef.current = {
+        pointerId: event.pointerId,
+        slot: band.slot,
+        startX: event.clientX,
+        startDurationFrames: band.durationFrames,
+        laneWidth,
+        before: null,
+      }
+    },
+    [],
+  )
+
+  const moveDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      const deltaFrames = ((event.clientX - drag.startX) / drag.laneWidth) * visibleFrameRange
+      if (!drag.before) {
+        if (Math.abs(event.clientX - drag.startX) < 3) return
+        drag.before = beginTextMotionEdit()
+      }
+      const directedDelta = drag.slot === 'out' ? -deltaFrames : deltaFrames
+      const durationFrames = Math.max(1, Math.round(drag.startDurationFrames + directedDelta))
+      updateTextMotionLive([itemId], drag.slot, { durationFrames })
+    },
+    [itemId, visibleFrameRange],
+  )
+
+  const endDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      dragRef.current = null
+      suppressClickRef.current = drag.before !== null && event.type === 'pointerup'
+      if (drag.before) {
+        commitTextMotionEdit(drag.before, { slot: drag.slot, itemIds: [itemId] })
+      }
+    },
+    [itemId],
+  )
+
+  const openAnimationInspector = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.stopPropagation()
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false
+        return
+      }
+      useSelectionStore.getState().selectItems([itemId])
+      const editor = useEditorStore.getState()
+      editor.setRightSidebarOpen(true)
+      editor.setClipInspectorTab('audio')
+    },
+    [itemId],
+  )
+
   return (
     <div data-testid="motion-text-procedural-lanes">
       {bands.map((band) => {
         const left = ((band.fromFrame - timeViewport.startFrame) / visibleFrameRange) * 100
         const width = ((band.toFrame - band.fromFrame) / visibleFrameRange) * 100
         return (
-          <div key={band.slot} className="flex h-6 border-t border-border/45 bg-background/25">
+          <div key={band.slot} className="flex h-7 border-t border-border/45 bg-background/25">
             <div
               className="flex shrink-0 items-center border-r border-border pl-14 pr-2 text-[9px] text-sky-300/90"
               style={{ width: LAYER_COLUMN_WIDTH }}
@@ -211,7 +298,7 @@ const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
               <span className="w-8 uppercase tracking-[0.08em]">{band.slot}</span>
               <span className="truncate text-muted-foreground">{band.presetId}</span>
               <span className="ml-auto pl-2 tabular-nums text-muted-foreground/70">
-                {band.unitCount}u
+                {band.durationFrames}f · {band.unitCount}u
               </span>
             </div>
             <div className="relative min-w-0 flex-1 overflow-hidden">
@@ -219,13 +306,18 @@ const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
                 data-testid={`motion-text-procedural-band-${band.slot}`}
                 data-from-frame={band.fromFrame}
                 data-to-frame={band.toFrame}
-                className="absolute top-1/2 h-2.5 -translate-y-1/2 rounded-sm border border-sky-300/45 bg-sky-400/10"
+                className="absolute top-1/2 h-4 -translate-y-1/2 touch-none cursor-ew-resize rounded-sm border border-sky-300/45 bg-sky-400/10 transition-[border-color,background-color] hover:border-sky-200/80 hover:bg-sky-400/20 active:border-sky-100"
                 style={{
                   left: `${left}%`,
                   width: `${Math.max(0.5, width)}%`,
                   backgroundImage: PROCEDURAL_HATCH,
                 }}
-                title={`${band.presetId} · ${band.unitCount} units · ${Math.round(band.fromFrame)}–${Math.round(band.toFrame)}f`}
+                title={`${band.presetId} · drag to change duration · ${band.durationFrames}f · ${band.unitCount} units`}
+                onPointerDown={(event) => beginDurationDrag(event, band)}
+                onPointerMove={moveDurationDrag}
+                onPointerUp={endDurationDrag}
+                onPointerCancel={endDurationDrag}
+                onClick={openAnimationInspector}
               />
             </div>
           </div>
@@ -2900,6 +2992,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                     <>
                       {textMotionBands.length > 0 ? (
                         <TextMotionTimelineLanes
+                          itemId={item.id}
                           bands={textMotionBands}
                           timeViewport={timeViewport}
                         />

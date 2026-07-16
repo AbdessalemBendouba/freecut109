@@ -195,6 +195,35 @@ describe('CompositingTimeline', () => {
       'data-to-frame',
       '87',
     )
+
+    const inBand = screen.getByTestId('motion-text-procedural-band-in')
+    expect(inBand).toHaveClass('h-4')
+    expect(inBand.parentElement?.parentElement).toHaveClass('h-7')
+    useSelectionStore.getState().clearSelection()
+    useEditorStore.getState().setRightSidebarOpen(false)
+    useEditorStore.getState().setClipInspectorTab('video')
+    fireEvent.click(inBand)
+    expect(useSelectionStore.getState().selectedItemIds).toEqual([shape.id])
+    expect(useEditorStore.getState().rightSidebarOpen).toBe(true)
+    expect(useEditorStore.getState().clipInspectorTab).toBe('audio')
+
+    vi.spyOn(inBand.parentElement!, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 24,
+      width: 300,
+      height: 24,
+      toJSON: () => ({}),
+    })
+    fireEvent.pointerDown(inBand, { pointerId: 21, button: 0, clientX: 100 })
+    fireEvent.pointerMove(inBand, { pointerId: 21, buttons: 1, clientX: 130 })
+    fireEvent.pointerUp(inBand, { pointerId: 21, clientX: 130 })
+
+    const updated = useItemsStore.getState().itemById[shape.id]
+    expect(updated?.type === 'text' ? updated.textMotion?.in?.durationFrames : null).toBe(26)
   })
 
   it('uses one shared flag-and-line playhead and supports continuous ruler scrubbing', () => {
