@@ -29,6 +29,13 @@ export type BuiltInAnimatableProperty =
   | 'textShadowOffsetY'
   | 'textShadowBlur'
   | 'strokeWidth'
+  | 'trimPathStart'
+  | 'trimPathEnd'
+  | 'trimPathOffset'
+  | 'taperStartWidth'
+  | 'taperEndWidth'
+  | 'taperStartLength'
+  | 'taperEndLength'
 
 export type EffectAnimatableProperty = `effect:${string}:${string}:${string}`
 
@@ -210,6 +217,13 @@ const BUILT_IN_PROPERTY_LABELS: Record<BuiltInAnimatableProperty, string> = {
   textShadowOffsetY: 'Shadow Y',
   textShadowBlur: 'Shadow Blur',
   strokeWidth: 'Stroke Width',
+  trimPathStart: 'Trim Paths Start',
+  trimPathEnd: 'Trim Paths End',
+  trimPathOffset: 'Trim Paths Offset',
+  taperStartWidth: 'Taper Start Width',
+  taperEndWidth: 'Taper End Width',
+  taperStartLength: 'Taper Start Length',
+  taperEndLength: 'Taper End Length',
 }
 
 const BUILT_IN_ANIMATABLE_PROPERTIES = new Set<BuiltInAnimatableProperty>(

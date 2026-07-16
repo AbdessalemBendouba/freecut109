@@ -2409,8 +2409,10 @@ describe('renderTransitionToGpuTexture', () => {
     expect(pathParams?.pathVertices).toEqual(expect.any(Array))
     expect(pathParams?.pathVertices?.length).toBeGreaterThan(3)
     expect(pathParams?.pathVertices?.length).toBeLessThanOrEqual(MAX_GPU_SHAPE_PATH_VERTICES)
-    expect(pathParams?.pathVertices?.[0]).toEqual([-320, -180])
-    expect(pathParams?.pathVertices?.at(-1)).toEqual([0, 180])
+    expect(pathParams?.pathVertices?.[0]).toEqual([-320, -180, 0])
+    expect(pathParams?.pathVertices?.at(-1)?.slice(0, 2)).toEqual([0, 180])
+    expect(pathParams?.pathVertices?.at(-1)?.[2]).toBeGreaterThan(0)
+    expect(pathParams?.pathVertices?.at(-1)?.[2]).toBeLessThan(1)
     expect(gpuTransitionPipeline.renderTexturesToTexture).toHaveBeenCalledWith(
       'iris',
       leftTexture,

@@ -48,6 +48,18 @@ export function getAnimatablePropertiesForItem(item: TimelineItem): AnimatablePr
       ]
     case 'text':
       return [...VISUAL_ANIMATABLE_PROPERTIES, ...TEXT_ANIMATABLE_PROPERTIES, ...effectProperties]
+    case 'shape':
+      return [
+        ...VISUAL_ANIMATABLE_PROPERTIES,
+        'trimPathStart',
+        'trimPathEnd',
+        'trimPathOffset',
+        'taperStartWidth',
+        'taperEndWidth',
+        'taperStartLength',
+        'taperEndLength',
+        ...effectProperties,
+      ]
     default:
       return [...VISUAL_ANIMATABLE_PROPERTIES, ...effectProperties]
   }

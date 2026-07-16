@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from 'vite-plus/test'
-import type { AudioItem, SubtitleSegmentItem, VideoItem } from '@/types/timeline'
+import type { AudioItem, ShapeItem, SubtitleSegmentItem, VideoItem } from '@/types/timeline'
 import {
   normalizeFrameFields,
   normalizeItemUpdates,
@@ -96,6 +96,111 @@ describe('normalizeOptionalFps', () => {
 })
 
 describe('normalizeFrameFields', () => {
+  it('migrates legacy custom paths and keeps mask paths closed', () => {
+    const legacyPath: ShapeItem = {
+      id: 'path',
+      type: 'shape',
+      trackId: 'track',
+      from: 0,
+      durationInFrames: 10,
+      label: 'Legacy path',
+      shapeType: 'path',
+      fillColor: '#fff',
+      strokeColor: '#000',
+      strokeWidth: 2,
+      isMask: true,
+      pathClosed: false,
+      pathVertices: [
+        { position: [0, 0], inHandle: [0, 0], outHandle: [0, 0] },
+        { position: [1, 1], inHandle: [-0.1, 0], outHandle: [0.1, 0] },
+      ],
+      transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1 },
+    }
+    const path = normalizeFrameFields(legacyPath)
+
+    expect(path).toMatchObject({
+      pathClosed: true,
+      fillEnabled: true,
+      strokeEnabled: true,
+      strokeLineCap: 'butt',
+      strokeLineJoin: 'miter',
+      strokeMiterLimit: 4,
+      blendMode: 'normal',
+    })
+    expect(path.pathVertices?.map((vertex) => vertex.tangentMode)).toEqual(['corner', 'smooth'])
+  })
+
+  it('normalizes open paths to stroke-only geometry', () => {
+    const openPath: ShapeItem = {
+      id: 'open-path',
+      type: 'shape',
+      trackId: 'track',
+      from: 0,
+      durationInFrames: 10,
+      label: 'Open path',
+      shapeType: 'path',
+      fillColor: '#fff',
+      fillEnabled: true,
+      pathClosed: false,
+      pathVertices: [
+        { position: [0, 0], inHandle: [0, 0], outHandle: [0, 0] },
+        { position: [1, 1], inHandle: [0, 0], outHandle: [0, 0] },
+      ],
+    }
+
+    expect(normalizeFrameFields(openPath).fillEnabled).toBe(false)
+  })
+
+  it('clamps enabled shape strokes to one pixel without changing disabled stroke history', () => {
+    const shape: ShapeItem = {
+      id: 'shape',
+      type: 'shape',
+      trackId: 'track',
+      from: 0,
+      durationInFrames: 10,
+      label: 'Shape',
+      shapeType: 'rectangle',
+      fillColor: '#fff',
+      strokeColor: '#000',
+      strokeEnabled: true,
+      strokeWidth: 0.25,
+    }
+
+    expect(normalizeFrameFields(shape).strokeWidth).toBe(1)
+    expect(normalizeFrameFields({ ...shape, strokeEnabled: false }).strokeWidth).toBe(0.25)
+  })
+
+  it('clamps taper percentages to their supported ranges', () => {
+    const shape: ShapeItem = {
+      id: 'tapered-shape',
+      type: 'shape',
+      trackId: 'track',
+      from: 0,
+      durationInFrames: 10,
+      label: 'Tapered shape',
+      shapeType: 'path',
+      fillColor: '#fff',
+      taperStartWidth: 250,
+      taperEndWidth: -10,
+      taperStartLength: 120,
+      taperEndLength: -20,
+    }
+
+    expect(normalizeFrameFields(shape)).toMatchObject({
+      taperStartWidth: 200,
+      taperEndWidth: 0,
+      taperStartLength: 100,
+      taperEndLength: 0,
+    })
+  })
+
+  it('clamps atomic updates that enable a sub-pixel stroke', () => {
+    expect(normalizeItemUpdates({ strokeEnabled: true, strokeWidth: 0 })).toMatchObject({
+      strokeEnabled: true,
+      strokeWidth: 1,
+    })
+  })
+
   it('rounds the required frame fields', () => {
     const result = normalizeFrameFields(
       makeVideo({ from: 10.6, durationInFrames: 5.4 } as VideoItem),

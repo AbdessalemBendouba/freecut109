@@ -87,6 +87,33 @@ const PEN_BEZIER_DRAG_THRESHOLD = 10
 /** Segment sampling density for interior hit testing on curved paths */
 const CURVE_HIT_TEST_STEPS = 16
 const DEFAULT_PATH_SHAPE_DURATION_SECONDS = 5
+
+function applyDraggedHandle(
+  vertex: MaskVertex,
+  handleType: 'in' | 'out',
+  nextHandle: [number, number],
+  breakTangents: boolean,
+): void {
+  const oppositeKey = handleType === 'in' ? 'outHandle' : 'inHandle'
+  const selectedKey = handleType === 'in' ? 'inHandle' : 'outHandle'
+  vertex[selectedKey] = nextHandle
+
+  if (breakTangents || vertex.tangentMode === 'broken' || vertex.tangentMode === 'corner') {
+    if (breakTangents) vertex.tangentMode = 'broken'
+    return
+  }
+
+  const nextLength = Math.hypot(nextHandle[0], nextHandle[1])
+  const opposite = vertex[oppositeKey]
+  const oppositeLength = Math.hypot(opposite[0], opposite[1])
+  if (vertex.tangentMode === 'continuous' && nextLength > Number.EPSILON) {
+    const scale = oppositeLength / nextLength
+    vertex[oppositeKey] = [-nextHandle[0] * scale, -nextHandle[1] * scale]
+  } else {
+    vertex[oppositeKey] = [-nextHandle[0], -nextHandle[1]]
+    vertex.tangentMode = 'smooth'
+  }
+}
 type PenInteraction =
   | {
       type: 'create'
@@ -156,6 +183,17 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
   // Edit mode state
   const isEditing = useMaskEditorStore((s) => s.isEditing)
   const editingItemId = useMaskEditorStore((s) => s.editingItemId)
+  const editingPathClosed = useItemsStore(
+    useCallback(
+      (state) => {
+        const item = editingItemId ? state.itemById[editingItemId] : undefined
+        return item?.type === 'shape' && item.shapeType === 'path'
+          ? item.isMask || (item.pathClosed ?? true)
+          : true
+      },
+      [editingItemId],
+    ),
+  )
   const draggingVertexIndex = useMaskEditorStore((s) => s.draggingVertexIndex)
   const draggingHandle = useMaskEditorStore((s) => s.draggingHandle)
   const previewVertices = useMaskEditorStore((s) => s.previewVertices)
@@ -362,18 +400,21 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
       const [sx, sy] = vertexToScreen(vertices[0]!)
       ctx.moveTo(sx, sy)
 
-      for (let i = 0; i < vertices.length; i++) {
+      const segmentCount = editingPathClosed ? vertices.length : vertices.length - 1
+      for (let i = 0; i < segmentCount; i++) {
         const curr = vertices[i]!
         const next = vertices[(i + 1) % vertices.length]!
         drawSegment(ctx, curr, next)
       }
 
-      ctx.closePath()
+      if (editingPathClosed) ctx.closePath()
       ctx.strokeStyle = '#22d3ee'
       ctx.lineWidth = 1.5
       ctx.stroke()
-      ctx.fillStyle = 'rgba(34, 211, 238, 0.08)'
-      ctx.fill()
+      if (editingPathClosed) {
+        ctx.fillStyle = 'rgba(34, 211, 238, 0.08)'
+        ctx.fill()
+      }
 
       if (hoveredSegmentIndex !== null) {
         const curr = vertices[hoveredSegmentIndex]
@@ -426,6 +467,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
       handleToScreen,
       hoveredSegmentIndex,
       vertexToScreen,
+      editingPathClosed,
     ],
   )
 
@@ -658,9 +700,10 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
         curveHitTestSteps: CURVE_HIT_TEST_STEPS,
         vertexToScreen,
         handleToScreen,
+        closed: editingPathClosed,
       })
     },
-    [getVertices, vertexToScreen, handleToScreen],
+    [editingPathClosed, getVertices, vertexToScreen, handleToScreen],
   )
 
   const hitTestPen = useCallback(
@@ -746,17 +789,8 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
         originHandle[1] + dy / itemHeight,
       ]
 
-      if (interaction.handleType === 'in') {
-        vertex.inHandle = nextHandle
-        if (!altKey) {
-          vertex.outHandle = [-nextHandle[0], -nextHandle[1]]
-        }
-      } else {
-        vertex.outHandle = nextHandle
-        if (!altKey) {
-          vertex.inHandle = [-nextHandle[0], -nextHandle[1]]
-        }
-      }
+      if (interaction.type === 'close-or-drag' && !altKey) vertex.tangentMode = 'smooth'
+      applyDraggedHandle(vertex, interaction.handleType, nextHandle, altKey)
 
       return nextVertices
     },
@@ -822,6 +856,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
         position: norm,
         inHandle: [0, 0],
         outHandle: [0, 0],
+        tangentMode: 'corner',
       }
       addPenVertex(newVertex)
       setPenDragging(true)
@@ -968,7 +1003,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
 
   /** Commit pen vertices as a new ShapeItem with shapeType='path'. */
   const commitShapePenPath = useCallback(
-    (verts: MaskVertex[]) => {
+    (verts: MaskVertex[], closed: boolean) => {
       const bounds = getPathBounds(verts)
       if (!bounds) {
         cancelPenMode()
@@ -989,6 +1024,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
 
       // Convert vertices to shape-local normalized coords (0-1 within bounding box)
       const localVerts: MaskVertex[] = verts.map((v) => ({
+        ...v,
         position: [
           (v.position[0] - bounds.minX) / spanX,
           (v.position[1] - bounds.minY) / spanY,
@@ -1077,7 +1113,14 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
         label: 'Path',
         shapeType: 'path',
         pathVertices: localVerts,
+        pathClosed: closed,
         fillColor: '#3b82f6',
+        fillEnabled: false,
+        strokeColor: '#3b82f6',
+        strokeWidth: 4,
+        strokeEnabled: true,
+        strokeLineCap: 'round',
+        strokeLineJoin: 'round',
         isMask: false,
         transform: {
           x: centerX,
@@ -1099,20 +1142,28 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
     [coordParams, cancelPenMode, stopEditing],
   )
 
-  /** Finish pen mode by auto-closing a valid path or canceling incomplete work. */
+  /** Finish pen mode as an open path. Clicking the first anchor closes instead. */
   const finishPenMode = useCallback(() => {
     const state = useMaskEditorStore.getState()
     const verts = state.penVertices
 
     resetPenInteraction()
 
-    if (!state.shapePenMode || verts.length < 3) {
+    if (!state.shapePenMode || verts.length < 2) {
       cancelPenMode()
       return
     }
-    commitShapePenPath(verts)
+    commitShapePenPath(verts, false)
   }, [cancelPenMode, commitShapePenPath, resetPenInteraction])
-  closePenPathRef.current = finishPenMode
+
+  const closePenPath = useCallback(() => {
+    const state = useMaskEditorStore.getState()
+    const verts = state.penVertices
+    resetPenInteraction()
+    if (!state.shapePenMode || verts.length < 3) return
+    commitShapePenPath(verts, true)
+  }, [commitShapePenPath, resetPenInteraction])
+  closePenPathRef.current = closePenPath
 
   const cancelCurrentPenMode = useCallback(() => {
     resetPenInteraction()
@@ -1182,11 +1233,17 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
         return
       }
 
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        finishPenMode()
+        return
+      }
+
       e.preventDefault()
     }
     window.addEventListener('keydown', handleKeyDown, true)
     return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [penMode, cancelCurrentPenMode, popLastPenVertex])
+  }, [penMode, cancelCurrentPenMode, finishPenMode, popLastPenVertex])
 
   // ============================================================
   // Edit mode: mouse handlers
@@ -1365,12 +1422,13 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
           : []
 
     if (targetIndices.length === 0) return
-    if (vertices.length - targetIndices.length < 3) return
+    const minimumVertices = editingPathClosed ? 3 : 2
+    if (vertices.length - targetIndices.length < minimumVertices) return
 
     const sortedIndices = [...targetIndices].sort((a, b) => b - a)
     let nextVertices: MaskVertex[] | null = vertices
     for (const index of sortedIndices) {
-      nextVertices = nextVertices ? removeVertex(nextVertices, index) : null
+      nextVertices = nextVertices ? removeVertex(nextVertices, index, minimumVertices) : null
     }
     if (!nextVertices) return
 
@@ -1390,7 +1448,14 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
 
     selectVertices(nextSelectedVertices, nextSelectedIndex)
     commitVertices(nextVertices)
-  }, [commitVertices, getVertices, selectVertices, selectedVertexIndex, selectedVertexIndices])
+  }, [
+    commitVertices,
+    editingPathClosed,
+    getVertices,
+    selectVertices,
+    selectedVertexIndex,
+    selectedVertexIndices,
+  ])
 
   useEffect(() => {
     if (!isEditing || penMode) return
@@ -1454,10 +1519,11 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
       const nextVertices =
         convertSelectedVertexRequestMode === 'corner'
           ? convertVertexToCorner(vertices, index)
-          : convertVertexToBezier(vertices, index)
+          : convertVertexToBezier(vertices, index, editingPathClosed)
       const nextVertex = nextVertices[index]
       if (nextVertex) {
         convertedVertices[index] = {
+          ...nextVertex,
           position: [...nextVertex.position] as [number, number],
           inHandle: [...nextVertex.inHandle] as [number, number],
           outHandle: [...nextVertex.outHandle] as [number, number],
@@ -1478,6 +1544,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
     getVertices,
     commitVertices,
     selectVertex,
+    editingPathClosed,
   ])
 
   const handleEditPointerDown = useCallback(
@@ -1564,6 +1631,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
   )
 
   const handleEditPointerMove = useCallback(
+    // fallow-ignore-next-line complexity
     (e: React.PointerEvent) => {
       if (editDraggingRef.current) {
         const state = dragStateRef.current
@@ -1625,17 +1693,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
             origHandle[1] + dy / itemHeight,
           ]
 
-          if (state.handleType === 'in') {
-            v.inHandle = newHandle
-            if (!e.altKey) {
-              v.outHandle = [-newHandle[0], -newHandle[1]]
-            }
-          } else {
-            v.outHandle = newHandle
-            if (!e.altKey) {
-              v.inHandle = [-newHandle[0], -newHandle[1]]
-            }
-          }
+          applyDraggedHandle(v, state.handleType, newHandle, e.altKey)
         }
 
         updatePreview(newVertices)
@@ -1790,7 +1848,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
         e.stopPropagation()
         const vertices = getVertices()
         if (!vertices) return
-        const newVertices = removeVertex(vertices, hit.index)
+        const newVertices = removeVertex(vertices, hit.index, editingPathClosed ? 3 : 2)
         if (newVertices) {
           const nextSelectedVertices = selectedVertexIndices
             .filter((index) => index !== hit.index)
@@ -1819,6 +1877,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
       selectedVertexIndex,
       selectVertices,
       commitVertices,
+      editingPathClosed,
     ],
   )
 

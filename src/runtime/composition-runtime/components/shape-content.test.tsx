@@ -1,8 +1,9 @@
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vite-plus/test'
 import type { ShapeItem } from '@/types/timeline'
 import { ItemVisualTransformProvider } from '../contexts/item-visual-transform-context'
 import { ShapeContent } from './shape-content'
+import { useGizmoStore } from '@/runtime/composition-runtime/deps/stores'
 
 const shape: ShapeItem = {
   id: 'shape-1',
@@ -18,7 +19,10 @@ const shape: ShapeItem = {
 }
 
 describe('ShapeContent', () => {
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    useGizmoStore.getState().clearPreview()
+  })
 
   it('draws with the evaluated visual dimensions instead of the static item transform', () => {
     const { container } = render(
@@ -41,5 +45,160 @@ describe('ShapeContent', () => {
 
     expect(container.querySelector('svg')).toHaveAttribute('width', '480')
     expect(container.querySelector('svg')).toHaveAttribute('height', '270')
+    expect(container.querySelector('svg')).toHaveAttribute('overflow', 'visible')
+  })
+
+  it('applies normalized trim-path values to the shape stroke', () => {
+    const { container } = render(
+      <ShapeContent
+        item={{
+          ...shape,
+          strokeColor: '#ffffff',
+          strokeWidth: 4,
+          trimPathStart: 25,
+          trimPathEnd: 75,
+          trimPathOffset: 90,
+        }}
+      />,
+    )
+
+    const path = container.querySelector('path')
+    expect(path).toHaveAttribute('pathLength', '100')
+    expect(path).toHaveAttribute('stroke-dasharray', '50 50')
+    expect(path).toHaveAttribute('stroke-dashoffset', '-50')
+  })
+
+  it('updates trim offset immediately from the live properties preview', () => {
+    const { container } = render(
+      <ShapeContent
+        item={{
+          ...shape,
+          strokeColor: '#ffffff',
+          strokeWidth: 4,
+          trimPathStart: 0,
+          trimPathEnd: 50,
+        }}
+      />,
+    )
+
+    expect(container.querySelector('path')).toHaveAttribute('stroke-dashoffset', '0')
+    act(() => {
+      useGizmoStore.getState().setPropertiesPreviewNew({
+        [shape.id]: { trimPathOffset: 90 },
+      })
+    })
+    expect(container.querySelector('path')).toHaveAttribute('stroke-dashoffset', '-25')
+  })
+
+  it('renders an open custom path as stroke-only with its cap and join styling', () => {
+    const { container } = render(
+      <ShapeContent
+        item={{
+          ...shape,
+          shapeType: 'path',
+          pathClosed: false,
+          fillEnabled: true,
+          strokeEnabled: true,
+          strokeColor: '#ffffff',
+          strokeWidth: 4,
+          strokeLineCap: 'round',
+          strokeLineJoin: 'bevel',
+          pathVertices: [
+            { position: [0, 0], inHandle: [0, 0], outHandle: [0, 0] },
+            { position: [1, 1], inHandle: [0, 0], outHandle: [0, 0] },
+          ],
+        }}
+      />,
+    )
+
+    const path = container.querySelector('path')
+    expect(container.querySelector('svg')).toHaveAttribute('overflow', 'visible')
+    expect(path?.getAttribute('d')).not.toMatch(/Z\s*$/)
+    expect(path).toHaveAttribute('fill', 'none')
+    expect(path).toHaveAttribute('stroke-linecap', 'round')
+    expect(path).toHaveAttribute('stroke-linejoin', 'bevel')
+  })
+
+  it('renders a tapered stroke with smoothly varying segment widths', () => {
+    const { container } = render(
+      <ShapeContent
+        item={{
+          ...shape,
+          strokeEnabled: true,
+          strokeColor: '#ffffff',
+          strokeWidth: 10,
+          taperStartWidth: 0,
+          taperStartLength: 50,
+          taperEndWidth: 0,
+          taperEndLength: 50,
+        }}
+      />,
+    )
+
+    const taperedSegments = Array.from(container.querySelectorAll('path[stroke="#ffffff"]'))
+    const widths = taperedSegments.map((path) => Number(path.getAttribute('stroke-width')))
+    expect(taperedSegments).toHaveLength(48)
+    expect(widths[0]).toBeLessThan(widths[24]!)
+    expect(widths.at(-1)).toBeLessThan(widths[24]!)
+  })
+
+  it('renders custom-path taper as one continuous outline without a wrapped start cap', () => {
+    const { container } = render(
+      <ShapeContent
+        item={{
+          ...shape,
+          shapeType: 'path',
+          pathClosed: false,
+          strokeEnabled: true,
+          strokeColor: '#ffffff',
+          strokeWidth: 20,
+          strokeLineCap: 'round',
+          taperStartWidth: 0,
+          taperStartLength: 100,
+          pathVertices: [
+            { position: [0, 0], inHandle: [0, 0], outHandle: [0, 0] },
+            { position: [1, 1], inHandle: [0, 0], outHandle: [0, 0] },
+          ],
+        }}
+      />,
+    )
+
+    expect(container.querySelectorAll('[data-taper-outline="true"]')).toHaveLength(1)
+    expect(container.querySelector('[data-taper-outline="true"]')).toHaveAttribute(
+      'data-taper-cap-count',
+      '1',
+    )
+    expect(container.querySelectorAll('[data-taper-cap="true"]')).toHaveLength(0)
+    expect(container.querySelectorAll('path[stroke="#ffffff"]')).toHaveLength(0)
+  })
+
+  it('live-previews trim offset on a tapered custom path', () => {
+    const taperedPath: ShapeItem = {
+      ...shape,
+      shapeType: 'path',
+      pathClosed: false,
+      strokeEnabled: true,
+      strokeColor: '#ffffff',
+      strokeWidth: 20,
+      taperStartWidth: 0,
+      taperStartLength: 100,
+      trimPathEnd: 50,
+      pathVertices: [
+        { position: [0, 0], inHandle: [0, 0], outHandle: [0.2, 0] },
+        { position: [1, 1], inHandle: [-0.2, 0], outHandle: [0, 0] },
+      ],
+    }
+    const { container } = render(<ShapeContent item={taperedPath} />)
+    const initialOutline = container.querySelector('[data-taper-outline="true"]')?.getAttribute('d')
+
+    act(() => {
+      useGizmoStore.getState().setPropertiesPreviewNew({
+        [shape.id]: { trimPathOffset: 270 },
+      })
+    })
+
+    const updatedOutline = container.querySelector('[data-taper-outline="true"]')?.getAttribute('d')
+    expect(updatedOutline).not.toBe(initialOutline)
+    expect(updatedOutline?.match(/\bM\b/g)).toHaveLength(2)
   })
 })

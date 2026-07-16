@@ -12,7 +12,7 @@ import { resolveEffectiveTrackStates } from '@/features/preview/deps/timeline-ut
 import { useCompositionsStore, useItemsStore } from '@/features/preview/deps/timeline-store'
 import { appendVirtualTranscriptCaptionTrack } from '@/features/preview/deps/caption-items'
 import { useCornerPinStore } from '../stores/corner-pin-store'
-import { useGizmoStore } from '../stores/gizmo-store'
+import { useGizmoStore, type ItemPreview } from '../stores/gizmo-store'
 import { useMaskEditorStore } from '../stores/mask-editor-store'
 import { resolveProxyUrl } from '../utils/media-resolver'
 import {
@@ -90,6 +90,24 @@ interface UsePreviewCompositionBaseModelParams {
   tracks: TimelineTrack[]
   itemsByTrackId: Record<string, TimelineItem[]>
   mediaById: Record<string, Parameters<typeof getMediaResolveCost>[0]>
+}
+
+/**
+ * Apply transient panel edits to the item snapshot consumed by the canvas
+ * renderer. The DOM player subscribes to the same preview store directly, but
+ * the paused fast-scrub canvas needs the values merged into its live snapshot.
+ */
+export function mergeLiveItemPreview(
+  item: TimelineItem,
+  preview: ItemPreview | undefined,
+): TimelineItem {
+  let liveItem = preview?.properties ? ({ ...item, ...preview.properties } as TimelineItem) : item
+
+  if (liveItem.type === 'lottie' && preview?.lottie) {
+    liveItem = { ...liveItem, ...preview.lottie }
+  }
+
+  return liveItem
 }
 
 export function usePreviewCompositionBaseModel({
@@ -247,14 +265,8 @@ export function usePreviewCompositionModel({
 
   const getLiveItemSnapshot = useCallback((itemId: string) => {
     const item = fastScrubLiveItemsByIdRef.current.get(itemId)
-    // Merge any live Lottie edit preview (color/text/slot drag) so the canvas
-    // reflects it without a timeline-store commit. Each present field replaces
-    // the committed map wholesale; absent fields fall through to `item`.
-    if (item?.type === 'lottie') {
-      const lottiePreview = useGizmoStore.getState().preview?.[itemId]?.lottie
-      if (lottiePreview) return { ...item, ...lottiePreview }
-    }
-    return item
+    if (!item) return undefined
+    return mergeLiveItemPreview(item, useGizmoStore.getState().preview?.[itemId])
   }, [])
 
   const getLiveKeyframes = useCallback((itemId: string) => {

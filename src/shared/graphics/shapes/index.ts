@@ -5,4 +5,5 @@
  */
 
 // Shape React components
-export { Rect, Circle, Ellipse, Triangle, Star, Polygon, Heart } from './components'
+export { Rect, Circle, Ellipse, Triangle, Star, Polygon, Heart, ShapePath } from './components'
+export { buildBezierPathData } from './bezier-path'

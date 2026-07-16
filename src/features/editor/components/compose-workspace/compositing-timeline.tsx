@@ -613,6 +613,7 @@ function areItemsEqualForMotionDopesheet(previous: TimelineItem, next: TimelineI
   return true
 }
 
+// fallow-ignore-next-line complexity
 function areMotionDopesheetLanesPropsEqual(
   previous: MotionDopesheetLanesProps,
   next: MotionDopesheetLanesProps,

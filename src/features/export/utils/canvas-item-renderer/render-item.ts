@@ -23,7 +23,7 @@ import {
   resolveCornerPinForSize,
   resolveCornerPinTargetRect,
 } from '@/features/export/deps/composition-runtime'
-import { resolveAnimatedTextItem } from '@/features/export/deps/keyframes'
+import { resolveAnimatedShapeItem, resolveAnimatedTextItem } from '@/features/export/deps/keyframes'
 import type { EffectSourceMask } from '../canvas-effects'
 import { applyMasks } from '../canvas-masks'
 import { renderShape } from '../canvas-shapes'
@@ -79,7 +79,9 @@ export async function renderItem(
           ...resolveAnimatedTextItem(item, itemKeyframes, frame - item.from, rctx.canvasSettings),
           cornerPin: item.cornerPin,
         }
-      : item
+      : item.type === 'shape'
+        ? resolveAnimatedShapeItem(item, itemKeyframes, frame - item.from)
+        : item
   const frameResolvedItem = applyAnimatedCropToItem(animatedTextItem, frame, rctx, renderSpan)
   const resolvedTransform = resolveItemTransform(transform)
   const frameResolvedTransform =

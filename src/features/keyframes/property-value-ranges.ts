@@ -52,6 +52,13 @@ const BUILT_IN_PROPERTY_VALUE_RANGES: Record<BuiltInAnimatableProperty, Property
   },
   textShadowBlur: { property: 'textShadowBlur', min: 0, max: 160, unit: 'px', decimals: 0 },
   strokeWidth: { property: 'strokeWidth', min: 0, max: 24, unit: 'px', decimals: 0 },
+  trimPathStart: { property: 'trimPathStart', min: 0, max: 100, unit: '%', decimals: 1 },
+  trimPathEnd: { property: 'trimPathEnd', min: 0, max: 100, unit: '%', decimals: 1 },
+  trimPathOffset: { property: 'trimPathOffset', min: -360, max: 360, unit: '°', decimals: 1 },
+  taperStartWidth: { property: 'taperStartWidth', min: 0, max: 200, unit: '%', decimals: 1 },
+  taperEndWidth: { property: 'taperEndWidth', min: 0, max: 200, unit: '%', decimals: 1 },
+  taperStartLength: { property: 'taperStartLength', min: 0, max: 100, unit: '%', decimals: 1 },
+  taperEndLength: { property: 'taperEndLength', min: 0, max: 100, unit: '%', decimals: 1 },
 }
 
 function getDecimalsFromStep(step: number | undefined): number {

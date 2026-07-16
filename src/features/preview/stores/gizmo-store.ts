@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { BoundingBox, GizmoState, GizmoHandle, Transform, Point } from '../types/gizmo'
 import type { ItemEffect } from '@/types/effects'
-import type { TimelineItem } from '@/types/timeline'
+import type { ShapeItem, TimelineItem } from '@/types/timeline'
 import type { CropSettings } from '@/types/transform'
 import { calculateTransform } from '../utils/transform-calculations'
 import { applySnapping, applyScaleSnapping, type SnapLine } from '../utils/canvas-snap-utils'
@@ -33,7 +33,31 @@ export interface LottiePreview {
 }
 
 /** Item properties that can be previewed (non-transform) */
-export interface ItemPropertiesPreview {
+type ShapePreviewProperty =
+  | 'shapeType'
+  | 'fillColor'
+  | 'fillEnabled'
+  | 'strokeColor'
+  | 'strokeWidth'
+  | 'strokeEnabled'
+  | 'strokeLineCap'
+  | 'strokeLineJoin'
+  | 'strokeMiterLimit'
+  | 'trimPathStart'
+  | 'trimPathEnd'
+  | 'trimPathOffset'
+  | 'taperStartWidth'
+  | 'taperEndWidth'
+  | 'taperStartLength'
+  | 'taperEndLength'
+  | 'cornerRadius'
+  | 'direction'
+  | 'points'
+  | 'innerRadius'
+  | 'pathClosed'
+  | 'maskFeather'
+
+export interface ItemPropertiesPreview extends Partial<Pick<ShapeItem, ShapePreviewProperty>> {
   fadeIn?: number
   fadeOut?: number
   crop?: CropSettings
@@ -107,17 +131,6 @@ export interface ItemPropertiesPreview {
     width: number
     color: string
   }
-  // Shape properties
-  shapeType?: 'rectangle' | 'circle' | 'triangle' | 'ellipse' | 'star' | 'polygon' | 'heart'
-  fillColor?: string
-  strokeColor?: string
-  strokeWidth?: number
-  cornerRadius?: number
-  direction?: 'up' | 'down' | 'left' | 'right'
-  points?: number
-  innerRadius?: number
-  // Mask properties
-  maskFeather?: number
 }
 
 /**

@@ -39,11 +39,11 @@ describe('ShapeRenderPipeline', () => {
 
     expect(rendered).toBe(true)
     expect(device.createBuffer).toHaveBeenCalledWith({
-      size: (24 + MAX_GPU_SHAPE_PATH_VERTICES * 4) * Float32Array.BYTES_PER_ELEMENT,
+      size: (32 + MAX_GPU_SHAPE_PATH_VERTICES * 4) * Float32Array.BYTES_PER_ELEMENT,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
     const uniformData = queue.writeBuffer.mock.calls[0]?.[2] as Float32Array
-    expect(uniformData.length).toBe(24 + MAX_GPU_SHAPE_PATH_VERTICES * 4)
+    expect(uniformData.length).toBe(32 + MAX_GPU_SHAPE_PATH_VERTICES * 4)
     expect(Array.from(uniformData.slice(0, 3))).toEqual([1920, 1080, 5])
     expect(uniformData[3]).toBeCloseTo(0.8)
     expect(Array.from(uniformData.slice(4, 19))).toEqual([
@@ -121,7 +121,7 @@ describe('ShapeRenderPipeline', () => {
     const uniformData = queue.writeBuffer.mock.calls[0]?.[2] as Float32Array
     expect(uniformData[2]).toBe(7)
     expect(uniformData[18]).toBe(3)
-    expect(Array.from(uniformData.slice(24, 36))).toEqual([
+    expect(Array.from(uniformData.slice(32, 44))).toEqual([
       -150, -120, 0, 0, 150, -120, 0, 0, 0, 120, 0, 0,
     ])
   })

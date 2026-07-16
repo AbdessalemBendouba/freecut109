@@ -11,6 +11,10 @@ export {
   isTextAnimatableProperty,
 } from '@/features/keyframes/utils/animated-text-item'
 export {
+  getShapeAnimatableBaseValue,
+  isShapeAnimatableProperty,
+} from '@/features/keyframes/utils/animated-shape-item'
+export {
   BEZIER_PRESETS,
   areBezierPointsEqual,
   findMatchingBezierPreset,

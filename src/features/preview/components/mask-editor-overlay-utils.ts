@@ -9,6 +9,7 @@ export const MASK_GEOMETRY_TRANSFORM_PROPS = ['x', 'y', 'width', 'height'] as co
 
 export function cloneVertices(vertices: MaskVertex[]): MaskVertex[] {
   return vertices.map((vertex) => ({
+    ...vertex,
     position: [...vertex.position] as [number, number],
     inHandle: [...vertex.inHandle] as [number, number],
     outHandle: [...vertex.outHandle] as [number, number],

@@ -1,34 +1,86 @@
-import React from 'react'
-import { Rect, Circle, Triangle, Ellipse, Star, Polygon, Heart } from '@/shared/graphics/shapes'
-import { useItemGizmoPreview } from '@/runtime/composition-runtime/deps/stores'
+import React, { useCallback, useMemo } from 'react'
+import {
+  Rect,
+  Circle,
+  Triangle,
+  Ellipse,
+  Star,
+  Polygon,
+  Heart,
+  ShapePath,
+  buildBezierPathData,
+} from '@/shared/graphics/shapes'
+import { flattenBezierPath } from '@/shared/graphics/shapes/bezier-path'
+import { hasActiveTaper } from '@/shared/graphics/shapes/taper-path'
+import {
+  buildTaperedOutline,
+  getTaperedOutlineFillPath,
+} from '@/shared/graphics/shapes/taper-outline'
+import { useItemGizmoPreview, useTimelineStore } from '@/runtime/composition-runtime/deps/stores'
 import type { ShapeItem } from '@/types/timeline'
 import { useCompositionSpace } from '../contexts/composition-space-context'
 import { useItemVisualTransform } from '../contexts/item-visual-transform-context'
+import { useSequenceContext } from '@/runtime/composition-runtime/deps/player'
+import { useItemKeyframesFromContext } from '../contexts/keyframes-context'
+import { resolveAnimatedShapeItem } from '@/runtime/composition-runtime/deps/keyframes'
 
 /**
  * Shape content with live property preview support.
  * Renders Composition shapes (Rect, Circle, Triangle, Ellipse, Star, Polygon).
  * Reads preview values from gizmo store for real-time updates during editing.
  */
-export const ShapeContent: React.FC<{ item: ShapeItem }> = ({ item }) => {
+export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?: number } }> = ({
+  item,
+}) => {
   const compositionSpace = useCompositionSpace()
   const renderScaleX = compositionSpace?.scaleX ?? 1
   const renderScaleY = compositionSpace?.scaleY ?? 1
   const renderScale = compositionSpace?.scale ?? 1
   const visualTransform = useItemVisualTransform()
+  const sequenceContext = useSequenceContext()
+  const contextKeyframes = useItemKeyframesFromContext(item.id)
+  const storeKeyframes = useTimelineStore(
+    useCallback((s) => s.keyframes.find((entry) => entry.itemId === item.id), [item.id]),
+  )
+  const relativeFrame = (sequenceContext?.localFrame ?? 0) - (item._sequenceFrameOffset ?? 0)
+  const resolvedItem = useMemo(
+    () => resolveAnimatedShapeItem(item, contextKeyframes ?? storeKeyframes, relativeFrame),
+    [contextKeyframes, item, relativeFrame, storeKeyframes],
+  )
 
   const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id)
 
   // Use preview values if available, otherwise use item's stored values
   const shapePropsPreview = itemPreview?.properties
-  const fillColor = shapePropsPreview?.fillColor ?? item.fillColor ?? '#3b82f6'
-  const strokeColor = shapePropsPreview?.strokeColor ?? item.strokeColor
-  const strokeWidth = (shapePropsPreview?.strokeWidth ?? item.strokeWidth ?? 0) * renderScale
-  const cornerRadius = (shapePropsPreview?.cornerRadius ?? item.cornerRadius ?? 0) * renderScale
-  const direction = shapePropsPreview?.direction ?? item.direction ?? 'up'
-  const points = shapePropsPreview?.points ?? item.points ?? 5
-  const innerRadius = shapePropsPreview?.innerRadius ?? item.innerRadius ?? 0.5
-  const shapeType = shapePropsPreview?.shapeType ?? item.shapeType
+  const fillColor = shapePropsPreview?.fillColor ?? resolvedItem.fillColor ?? '#3b82f6'
+  const strokeColor = shapePropsPreview?.strokeColor ?? resolvedItem.strokeColor
+  const strokeWidth =
+    (shapePropsPreview?.strokeWidth ?? resolvedItem.strokeWidth ?? 0) * renderScale
+  const cornerRadius =
+    (shapePropsPreview?.cornerRadius ?? resolvedItem.cornerRadius ?? 0) * renderScale
+  const direction = shapePropsPreview?.direction ?? resolvedItem.direction ?? 'up'
+  const points = shapePropsPreview?.points ?? resolvedItem.points ?? 5
+  const innerRadius = shapePropsPreview?.innerRadius ?? resolvedItem.innerRadius ?? 0.5
+  const shapeType = shapePropsPreview?.shapeType ?? resolvedItem.shapeType
+  const pathClosed = shapePropsPreview?.pathClosed ?? resolvedItem.pathClosed ?? true
+  const fillEnabled =
+    shapeType === 'path' && !pathClosed
+      ? false
+      : (shapePropsPreview?.fillEnabled ?? resolvedItem.fillEnabled ?? true)
+  const strokeEnabled =
+    shapePropsPreview?.strokeEnabled ??
+    resolvedItem.strokeEnabled ??
+    (strokeWidth > 0 && strokeColor !== undefined)
+  const strokeLineCap = shapePropsPreview?.strokeLineCap ?? resolvedItem.strokeLineCap ?? 'butt'
+  const strokeLineJoin = shapePropsPreview?.strokeLineJoin ?? resolvedItem.strokeLineJoin ?? 'miter'
+  const strokeMiterLimit = shapePropsPreview?.strokeMiterLimit ?? resolvedItem.strokeMiterLimit ?? 4
+  const trimPathStart = shapePropsPreview?.trimPathStart ?? resolvedItem.trimPathStart ?? 0
+  const trimPathEnd = shapePropsPreview?.trimPathEnd ?? resolvedItem.trimPathEnd ?? 100
+  const trimPathOffset = shapePropsPreview?.trimPathOffset ?? resolvedItem.trimPathOffset ?? 0
+  const taperStartWidth = shapePropsPreview?.taperStartWidth ?? resolvedItem.taperStartWidth ?? 100
+  const taperEndWidth = shapePropsPreview?.taperEndWidth ?? resolvedItem.taperEndWidth ?? 100
+  const taperStartLength = shapePropsPreview?.taperStartLength ?? resolvedItem.taperStartLength ?? 0
+  const taperEndLength = shapePropsPreview?.taperEndLength ?? resolvedItem.taperEndLength ?? 0
 
   // Get dimensions with preview support for real-time gizmo scaling
   // Priority: Unified preview (group/properties) > Single gizmo preview > Base transform
@@ -48,12 +100,22 @@ export const ShapeContent: React.FC<{ item: ShapeItem }> = ({ item }) => {
 
   // Common stroke props
   const strokeProps =
-    strokeWidth > 0 && strokeColor
+    strokeEnabled && strokeWidth > 0 && strokeColor
       ? {
           stroke: strokeColor,
           strokeWidth,
+          strokeLinecap: strokeLineCap,
+          strokeLinejoin: strokeLineJoin,
+          strokeMiterlimit: strokeMiterLimit,
         }
       : {}
+  const trimPathProps = { trimPathStart, trimPathEnd, trimPathOffset }
+  const taperProps = {
+    taperStartWidth,
+    taperEndWidth,
+    taperStartLength,
+    taperEndLength,
+  }
 
   // Check if aspect ratio is locked (for squish/squash behavior)
   // Read from preview transforms if available, otherwise from item
@@ -95,9 +157,11 @@ export const ShapeContent: React.FC<{ item: ShapeItem }> = ({ item }) => {
           <Rect
             width={width}
             height={height}
-            fill={fillColor}
+            fill={fillEnabled ? fillColor : 'none'}
             cornerRadius={cornerRadius}
             {...strokeProps}
+            {...trimPathProps}
+            {...taperProps}
           />
         </div>
       )
@@ -108,7 +172,13 @@ export const ShapeContent: React.FC<{ item: ShapeItem }> = ({ item }) => {
       return (
         <div style={centerStyle}>
           <div style={scaleStyle}>
-            <Circle radius={radius} fill={fillColor} {...strokeProps} />
+            <Circle
+              radius={radius}
+              fill={fillEnabled ? fillColor : 'none'}
+              {...strokeProps}
+              {...trimPathProps}
+              {...taperProps}
+            />
           </div>
         </div>
       )
@@ -122,9 +192,11 @@ export const ShapeContent: React.FC<{ item: ShapeItem }> = ({ item }) => {
             <Triangle
               length={baseSize}
               direction={direction}
-              fill={fillColor}
+              fill={fillEnabled ? fillColor : 'none'}
               cornerRadius={cornerRadius}
               {...strokeProps}
+              {...trimPathProps}
+              {...taperProps}
             />
           </div>
         </div>
@@ -137,7 +209,14 @@ export const ShapeContent: React.FC<{ item: ShapeItem }> = ({ item }) => {
       const ry = height / 2
       return (
         <div style={centerStyle}>
-          <Ellipse rx={rx} ry={ry} fill={fillColor} {...strokeProps} />
+          <Ellipse
+            rx={rx}
+            ry={ry}
+            fill={fillEnabled ? fillColor : 'none'}
+            {...strokeProps}
+            {...trimPathProps}
+            {...taperProps}
+          />
         </div>
       )
     }
@@ -153,9 +232,11 @@ export const ShapeContent: React.FC<{ item: ShapeItem }> = ({ item }) => {
               points={points}
               outerRadius={outerRadius}
               innerRadius={innerRadiusValue}
-              fill={fillColor}
+              fill={fillEnabled ? fillColor : 'none'}
               cornerRadius={cornerRadius}
               {...strokeProps}
+              {...trimPathProps}
+              {...taperProps}
             />
           </div>
         </div>
@@ -171,9 +252,11 @@ export const ShapeContent: React.FC<{ item: ShapeItem }> = ({ item }) => {
             <Polygon
               points={points}
               radius={radius}
-              fill={fillColor}
+              fill={fillEnabled ? fillColor : 'none'}
               cornerRadius={cornerRadius}
               {...strokeProps}
+              {...trimPathProps}
+              {...taperProps}
             />
           </div>
         </div>
@@ -190,9 +273,10 @@ export const ShapeContent: React.FC<{ item: ShapeItem }> = ({ item }) => {
           <div style={scaleStyle}>
             <Heart
               height={heartHeight}
-              fill={fillColor}
-              stroke={strokeColor}
-              strokeWidth={strokeWidth}
+              fill={fillEnabled ? fillColor : 'none'}
+              {...strokeProps}
+              {...trimPathProps}
+              {...taperProps}
             />
           </div>
         </div>
@@ -201,37 +285,42 @@ export const ShapeContent: React.FC<{ item: ShapeItem }> = ({ item }) => {
 
     case 'path': {
       // Custom bezier path drawn with pen tool
-      const pathVerts = item.pathVertices
+      const pathVerts = resolvedItem.pathVertices
       if (!pathVerts || pathVerts.length < 2) {
         return <div style={{ width: '100%', height: '100%', backgroundColor: fillColor }} />
       }
-      // Build SVG path from normalized vertices
-      const pathParts: string[] = []
-      const firstV = pathVerts[0]!
-      pathParts.push(`M ${firstV.position[0] * width} ${firstV.position[1] * height}`)
-      for (let i = 0; i < pathVerts.length; i++) {
-        const curr = pathVerts[i]!
-        const next = pathVerts[(i + 1) % pathVerts.length]!
-        const outH = curr.outHandle
-        const inH = next.inHandle
-        const isStraight = outH[0] === 0 && outH[1] === 0 && inH[0] === 0 && inH[1] === 0
-        if (isStraight) {
-          pathParts.push(`L ${next.position[0] * width} ${next.position[1] * height}`)
-        } else {
-          pathParts.push(
-            `C ${(curr.position[0] + outH[0]) * width} ${(curr.position[1] + outH[1]) * height} ${(next.position[0] + inH[0]) * width} ${(next.position[1] + inH[1]) * height} ${next.position[0] * width} ${next.position[1] * height}`,
-          )
-        }
-      }
-      pathParts.push('Z')
+      const pathData = buildBezierPathData(pathVerts, width, height, pathClosed)
+      const taperedOutline =
+        strokeEnabled && strokeColor && hasActiveTaper(taperProps)
+          ? buildTaperedOutline(flattenBezierPath(pathVerts, width, height, pathClosed), {
+              strokeWidth,
+              lineCap: strokeLineCap,
+              ...trimPathProps,
+              ...taperProps,
+            })
+          : null
       return (
         <div style={centerStyle}>
-          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`}>
-            <path
-              d={pathParts.join(' ')}
-              fill={fillColor}
-              {...(strokeWidth > 0 && strokeColor ? { stroke: strokeColor, strokeWidth } : {})}
-            />
+          <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} overflow="visible">
+            {taperedOutline ? (
+              <>
+                <path d={pathData} fill={fillEnabled ? fillColor : 'none'} />
+                <path
+                  d={getTaperedOutlineFillPath(taperedOutline)}
+                  fill={strokeColor}
+                  data-taper-outline="true"
+                  data-taper-cap-count={taperedOutline.caps.length}
+                />
+              </>
+            ) : (
+              <ShapePath
+                d={pathData}
+                fill={fillEnabled ? fillColor : 'none'}
+                {...strokeProps}
+                {...trimPathProps}
+                {...taperProps}
+              />
+            )}
           </svg>
         </div>
       )

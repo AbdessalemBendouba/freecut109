@@ -106,11 +106,7 @@ export async function renderCompositionItem(
     // Use a scoped render context with sub-canvas settings so that
     // rotation centers, clipping, and draw dimensions are relative to the
     // sub-composition canvas, not the main canvas.
-    const subRctx: ItemRenderContext = {
-      ...rctx,
-      fps: subData.fps,
-      canvasSettings: subCanvasSettings,
-    }
+    const subRctx = createSubCompositionRenderContext(rctx, subData, subCanvasSettings)
 
     // Resolve all active masks up front so each item can be masked only by
     // shapes on higher tracks.
@@ -311,6 +307,26 @@ export async function renderCompositionItem(
   } finally {
     rctx.canvasPool.release(subContentCanvas)
     rctx.canvasPool.release(subCanvas)
+  }
+}
+
+/**
+ * Scope item-property animation lookups to the composition currently being
+ * rendered. Root preview keyframes do not contain the keyframes authored on
+ * items inside a compound clip.
+ */
+export function createSubCompositionRenderContext(
+  rctx: ItemRenderContext,
+  subData: SubCompRenderData,
+  canvasSettings: CanvasSettings,
+): ItemRenderContext {
+  return {
+    ...rctx,
+    fps: subData.fps,
+    canvasSettings,
+    keyframesMap: subData.keyframesMap,
+    getCurrentKeyframes: (itemId) =>
+      subData.keyframesMap.get(itemId) ?? rctx.getCurrentKeyframes?.(itemId),
   }
 }
 

@@ -284,6 +284,7 @@ export const useMaskEditorStore = create<MaskEditorState & MaskEditorActions>()(
         ...last,
         outHandle,
         inHandle: [-outHandle[0], -outHandle[1]],
+        tangentMode: 'smooth',
       }
       return { penVertices: verts }
     }),

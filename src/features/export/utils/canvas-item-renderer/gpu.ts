@@ -20,12 +20,13 @@ import {
   invertCornerPinHomography,
   resolveCornerPinForSize,
 } from '@/features/export/deps/composition-runtime'
-import { resolveAnimatedTextItem } from '@/features/export/deps/keyframes'
+import { resolveAnimatedShapeItem, resolveAnimatedTextItem } from '@/features/export/deps/keyframes'
 import type { GpuTexturePool } from '@/infrastructure/gpu-compositor'
 import type { GpuMediaRect, GpuMediaRenderParams } from '@/infrastructure/gpu-media'
 import { MAX_GPU_SHAPE_PATH_VERTICES } from '@/infrastructure/gpu-shapes'
 import { doesMaskAffectTrack } from '@/shared/utils/mask-scope'
 import { isTextMotionActive } from '@/shared/typography/text-motion'
+import { flattenBezierPath } from '@/shared/graphics/shapes/bezier-path'
 import { recordPreviewVideoSource } from '@/shared/logging/preview-scrub-performance'
 import { getAnimatedTransform } from '../canvas-keyframes'
 import { combineEffects, getAdjustmentLayerEffects, getGpuEffectInstances } from '../canvas-effects'
@@ -59,7 +60,11 @@ import {
   calculateMediaDrawDimensions,
   hasCropFeather,
 } from './media-draw'
-import { findSubCompOcclusionCutoffOrder, getActiveSubCompMasks } from './composition'
+import {
+  createSubCompositionRenderContext,
+  findSubCompOcclusionCutoffOrder,
+  getActiveSubCompMasks,
+} from './composition'
 import { resolveVideoParticipantSourceTime } from './video'
 
 export async function renderGpuMediaParticipantToTexture(
@@ -93,8 +98,16 @@ export async function renderGpuMediaParticipantToTexture(
             direction: media.item.direction,
             points: media.item.points,
             innerRadius: media.item.innerRadius,
+            trimPathStart: media.item.trimPathStart,
+            trimPathEnd: media.item.trimPathEnd,
+            trimPathOffset: media.item.trimPathOffset,
+            taperStartWidth: media.item.taperStartWidth,
+            taperEndWidth: media.item.taperEndWidth,
+            taperStartLength: media.item.taperStartLength,
+            taperEndLength: media.item.taperEndLength,
             aspectRatioLocked: participant.item.transform?.aspectRatioLocked,
             pathVertices: media.pathVertices,
+            pathClosed: media.item.pathClosed,
             clear: options?.clear,
             blend: options?.blend,
           }) ?? false)
@@ -556,17 +569,31 @@ async function resolveGpuMediaParticipantSource(
   if (transform.opacity < 0 || transform.opacity > 1) return null
 
   if (participant.item.type === 'shape') {
-    const shape = participant.item
+    const itemKeyframes =
+      rctx.getCurrentKeyframes?.(participant.item.id) ?? rctx.keyframesMap.get(participant.item.id)
+    const shape = resolveAnimatedShapeItem(
+      participant.item,
+      itemKeyframes,
+      frame - participant.item.from,
+    )
     if (getGpuShapeUnsupportedReason(shape, transform, participant.effects, rctx)) return null
     const resolvedPathVertices =
       shape.shapeType === 'path' ? resolveGpuShapePathVertices(shape, transform) : undefined
     const pathVertices = resolvedPathVertices ?? undefined
-    const fillColor = parseGpuColor(shape.fillColor)
+    const parsedFillColor = parseGpuColor(shape.fillColor)
     const parsedStrokeColor =
-      shape.strokeWidth && shape.strokeWidth > 0 && shape.strokeColor
+      (shape.strokeEnabled ?? true) &&
+      shape.strokeWidth &&
+      shape.strokeWidth > 0 &&
+      shape.strokeColor
         ? parseGpuColor(shape.strokeColor)
         : undefined
-    if (!fillColor) return null
+    if (!parsedFillColor) return null
+    const fillEnabled =
+      shape.shapeType === 'path' && shape.pathClosed === false ? false : (shape.fillEnabled ?? true)
+    const fillColor: [number, number, number, number] = fillEnabled
+      ? parsedFillColor
+      : [parsedFillColor[0], parsedFillColor[1], parsedFillColor[2], 0]
     const strokeColor = parsedStrokeColor ?? undefined
     return {
       kind: 'shape',
@@ -905,11 +932,7 @@ async function renderGpuSubCompChildrenToTexture(
       GPUTextureUsage.RENDER_ATTACHMENT |
       GPUTextureUsage.COPY_DST,
   })
-  const subRctx: ItemRenderContext = {
-    ...rctx,
-    fps: subData.fps,
-    canvasSettings: subCanvasSettings,
-  }
+  const subRctx = createSubCompositionRenderContext(rctx, subData, subCanvasSettings)
   try {
     let layerIndex = 0
     for (const visibleChild of visibleChildren) {
@@ -1155,6 +1178,7 @@ function releaseGpuScratchTexture(rctx: ItemRenderContext, texture: GPUTexture):
   texture.destroy()
 }
 
+// fallow-ignore-next-line complexity
 export function getGpuShapeUnsupportedReason(
   shape: ShapeItem,
   transform: ItemTransform,
@@ -1166,8 +1190,27 @@ export function getGpuShapeUnsupportedReason(
   if (shape.shapeType === 'path' && !resolveGpuShapePathVertices(shape, transform)) {
     return 'unsupported-path-complexity'
   }
-  if (!parseGpuColor(shape.fillColor)) return 'unsupported-shape-fill'
   if (
+    shape.shapeType === 'path' &&
+    shape.strokeEnabled !== false &&
+    (shape.strokeWidth ?? 0) > 0 &&
+    ((shape.strokeLineCap ?? 'butt') !== 'round' || (shape.strokeLineJoin ?? 'miter') !== 'round')
+  ) {
+    return 'unsupported-path-stroke-style'
+  }
+  if (
+    shape.shapeType !== 'path' &&
+    ((shape.trimPathStart ?? 0) !== 0 || (shape.trimPathEnd ?? 100) !== 100)
+  ) {
+    return 'canvas-trim-path-metrics-required'
+  }
+  const fillEnabled =
+    shape.shapeType === 'path' && shape.pathClosed === false ? false : shape.fillEnabled !== false
+  if (fillEnabled && !parseGpuColor(shape.fillColor)) {
+    return 'unsupported-shape-fill'
+  }
+  if (
+    shape.strokeEnabled !== false &&
     shape.strokeWidth &&
     shape.strokeWidth > 0 &&
     shape.strokeColor &&
@@ -1187,7 +1230,7 @@ function areGpuSubCompMasksSupported(masks: ReturnType<typeof getActiveSubCompMa
     if ((mask.shape.strokeWidth ?? 0) > 0) return false
     if (
       mask.shape.shapeType === 'path' &&
-      !resolveGpuShapePathVertices(mask.shape, mask.transform)
+      !resolveGpuShapePathVertices({ ...mask.shape, pathClosed: true }, mask.transform)
     ) {
       return false
     }
@@ -1256,7 +1299,7 @@ function renderGpuSubCompMaskToTexture(
   if (!gpuShapePipeline) return false
   const pathVertices =
     mask.shape.shapeType === 'path'
-      ? resolveGpuShapePathVertices(mask.shape, mask.transform)
+      ? resolveGpuShapePathVertices({ ...mask.shape, pathClosed: true }, mask.transform)
       : undefined
   if (mask.shape.shapeType === 'path' && !pathVertices) return false
   const resolvedPathVertices = pathVertices ?? undefined
@@ -1280,6 +1323,7 @@ function renderGpuSubCompMaskToTexture(
     innerRadius: mask.shape.innerRadius,
     aspectRatioLocked: mask.shape.transform?.aspectRatioLocked,
     pathVertices: resolvedPathVertices,
+    pathClosed: true,
     maskFeatherPixels: mask.maskType === 'alpha' ? mask.feather : 0,
     clear: true,
     blend: false,
@@ -1455,122 +1499,48 @@ function parseGpuColor(color: string): [number, number, number, number] | null {
   return [r, g, b, a]
 }
 
+// fallow-ignore-next-line complexity
 function resolveGpuShapePathVertices(
   shape: ShapeItem,
   transform: ItemTransform,
-): Array<[number, number]> | null {
+): Array<[number, number, number?]> | null {
   const vertices = shape.pathVertices
-  if (!vertices || vertices.length < 3) return null
-  const flattened: Array<[number, number]> = []
-  const toLocal = (position: [number, number]): [number, number] => [
-    (position[0] - 0.5) * transform.width,
-    (position[1] - 0.5) * transform.height,
-  ]
-  flattened.push(toLocal(vertices[0]!.position))
-  for (let i = 0; i < vertices.length; i++) {
-    const curr = vertices[i]!
-    const next = vertices[(i + 1) % vertices.length]!
-    const hasCurve =
-      curr.outHandle[0] !== 0 ||
-      curr.outHandle[1] !== 0 ||
-      next.inHandle[0] !== 0 ||
-      next.inHandle[1] !== 0
-    if (!hasCurve) {
-      if (i < vertices.length - 1) flattened.push(toLocal(next.position))
-      continue
+  const closed = shape.pathClosed ?? true
+  if (!vertices || vertices.length < (closed ? 3 : 2)) return null
+  const flattened = flattenBezierPath(vertices, transform.width, transform.height, closed)
+  const metricPoints = flattened.points
+  let points = metricPoints
+  if (closed && points.length > 1 && points.at(-1)?.progress === 1) points = points.slice(0, -1)
+  if (points.length < (closed ? 3 : 2)) return null
+
+  const sampleAtProgress = (progress: number): [number, number, number] => {
+    const nextIndex = metricPoints.findIndex((point) => point.progress >= progress)
+    if (nextIndex <= 0) {
+      const point = metricPoints[0]!
+      return [point.x - transform.width / 2, point.y - transform.height / 2, progress]
     }
-    const p0 = curr.position
-    const p1: [number, number] = [
-      curr.position[0] + curr.outHandle[0],
-      curr.position[1] + curr.outHandle[1],
+    const previous = metricPoints[nextIndex - 1]!
+    const next = metricPoints[nextIndex]!
+    const span = Math.max(next.progress - previous.progress, Number.EPSILON)
+    const amount = (progress - previous.progress) / span
+    return [
+      previous.x + (next.x - previous.x) * amount - transform.width / 2,
+      previous.y + (next.y - previous.y) * amount - transform.height / 2,
+      progress,
     ]
-    const p2: [number, number] = [
-      next.position[0] + next.inHandle[0],
-      next.position[1] + next.inHandle[1],
-    ]
-    const p3 = next.position
-    const steps = Math.max(2, Math.min(6, Math.ceil(estimateBezierLength(p0, p1, p2, p3) * 8)))
-    for (let step = 1; step <= steps; step++) {
-      if (i === vertices.length - 1 && step === steps) continue
-      flattened.push(toLocal(sampleCubicBezier(p0, p1, p2, p3, step / steps)))
-    }
   }
-  if (flattened.length < 3) return null
-  return flattened.length <= MAX_GPU_SHAPE_PATH_VERTICES
-    ? flattened
-    : downsampleClosedPathVertices(flattened, MAX_GPU_SHAPE_PATH_VERTICES)
-}
 
-function sampleCubicBezier(
-  p0: [number, number],
-  p1: [number, number],
-  p2: [number, number],
-  p3: [number, number],
-  t: number,
-): [number, number] {
-  const mt = 1 - t
-  const a = mt * mt * mt
-  const b = 3 * mt * mt * t
-  const c = 3 * mt * t * t
-  const d = t * t * t
-  return [
-    a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
-    a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1],
-  ]
-}
-
-function estimateBezierLength(
-  p0: [number, number],
-  p1: [number, number],
-  p2: [number, number],
-  p3: [number, number],
-): number {
-  return distance2d(p0, p1) + distance2d(p1, p2) + distance2d(p2, p3)
-}
-
-function distance2d(a: [number, number], b: [number, number]): number {
-  return Math.hypot(a[0] - b[0], a[1] - b[1])
-}
-
-function downsampleClosedPathVertices(
-  vertices: Array<[number, number]>,
-  maxVertices: number,
-): Array<[number, number]> | null {
-  if (vertices.length <= maxVertices) return vertices
-  if (maxVertices < 3) return null
-  const segmentLengths = vertices.map((vertex, index) =>
-    distance2d(vertex, vertices[(index + 1) % vertices.length]!),
+  if (points.length <= MAX_GPU_SHAPE_PATH_VERTICES) {
+    return points.map((point) => [
+      point.x - transform.width / 2,
+      point.y - transform.height / 2,
+      point.progress,
+    ])
+  }
+  const sampleCount = MAX_GPU_SHAPE_PATH_VERTICES
+  return Array.from({ length: sampleCount }, (_, index) =>
+    sampleAtProgress(index / (closed ? sampleCount : sampleCount - 1)),
   )
-  const perimeter = segmentLengths.reduce((sum, length) => sum + length, 0)
-  if (perimeter <= 0) return null
-
-  const result: Array<[number, number]> = [vertices[0]!]
-  for (let i = 1; i < maxVertices; i++) {
-    result.push(
-      sampleClosedPolylineAtDistance(vertices, segmentLengths, (perimeter * i) / maxVertices),
-    )
-  }
-  return result.length >= 3 ? result : null
-}
-
-function sampleClosedPolylineAtDistance(
-  vertices: Array<[number, number]>,
-  segmentLengths: number[],
-  targetDistance: number,
-): [number, number] {
-  let traversed = 0
-  for (let i = 0; i < vertices.length; i++) {
-    const segmentLength = segmentLengths[i] ?? 0
-    const next = vertices[(i + 1) % vertices.length]!
-    if (segmentLength <= 0) continue
-    if (traversed + segmentLength >= targetDistance) {
-      const t = (targetDistance - traversed) / segmentLength
-      const current = vertices[i]!
-      return [current[0] + (next[0] - current[0]) * t, current[1] + (next[1] - current[1]) * t]
-    }
-    traversed += segmentLength
-  }
-  return vertices[vertices.length - 1]!
 }
 
 /**

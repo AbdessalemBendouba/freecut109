@@ -19,6 +19,7 @@ import { EDITOR_LAYOUT_CSS_VALUES, getEditorLayout } from '@/config/editor-layou
 import { InteractionLockRegion } from './interaction-lock-region'
 import { Button } from '@/components/ui/button'
 import { ErrorBoundary } from '@/app/error-boundary'
+import { useTranslation } from 'react-i18next'
 
 interface PreviewAreaProps {
   project: {
@@ -159,6 +160,7 @@ const ProgramPreviewSurface = memo(function ProgramPreviewSurface({
  * Uses granular Zustand selectors in child components
  */
 export const PreviewArea = memo(function PreviewArea({ project }: PreviewAreaProps) {
+  const { t } = useTranslation()
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
   const editorDensity = useSettingsStore((s) => s.editorDensity)
@@ -204,13 +206,13 @@ export const PreviewArea = memo(function PreviewArea({ project }: PreviewAreaPro
   const maxItemEndFrame = useItemsStore((s) => s.maxItemEndFrame)
   const totalFrames = maxItemEndFrame > 0 ? maxItemEndFrame : fps * DEFAULT_EMPTY_TIMELINE_SECONDS
   const isPathEditModeActive = isMaskEditingActive && !isPenModeActive
-  const canFinishPenPath = isShapePenModeActive && penVertexCount >= 3
+  const canFinishPenPath = isShapePenModeActive && penVertexCount >= 2
   const selectedVertexCount = selectedVertexIndices.length
   const hasSelectedVertex = selectedVertexCount > 0
-  const remainingPenPoints = Math.max(0, 3 - penVertexCount)
+  const remainingPenPoints = Math.max(0, 2 - penVertexCount)
   const displayedEditVertexCount = previewVertexCount || editVertexCount
   const penModeHint = canFinishPenPath
-    ? 'Close the path from here, or click the first node.'
+    ? t('editor.shapeSection.penFinishHint')
     : penVertexCount === 0
       ? 'Click in the preview to place your first point.'
       : `Add ${remainingPenPoints} more ${remainingPenPoints === 1 ? 'point' : 'points'} to finish.`
@@ -581,7 +583,7 @@ export const PreviewArea = memo(function PreviewArea({ project }: PreviewAreaPro
                   disabled={!canFinishPenPath}
                   onClick={requestFinishPenMode}
                 >
-                  Finish Shape
+                  {t('editor.shapeSection.finishOpenPath')}
                 </Button>
                 <Button
                   type="button"
