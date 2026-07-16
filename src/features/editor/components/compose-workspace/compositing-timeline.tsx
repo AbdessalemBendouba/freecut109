@@ -62,12 +62,10 @@ import {
   addItemOnNewTrack,
   addItemsOnNewTracks,
   addKeyframe,
-  beginTextMotionEdit,
   buildDroppedCompositionTimelineItems,
   buildDroppedMediaTimelineItems,
   captureSnapshot,
   CompactNavigator,
-  commitTextMotionEdit,
   createTimelineTemplateItem,
   createDefaultShapeItem,
   createTextTemplateItem,
@@ -91,7 +89,6 @@ import {
   updateItem,
   updateKeyframe,
   updateKeyframes,
-  updateTextMotionLive,
   useCompositionNavigationStore,
   useCompositionsStore,
   useItemsStore,
@@ -101,6 +98,11 @@ import {
   useTimelineSettingsStore,
   wouldCreateCompositionCycle,
 } from '@/features/editor/deps/timeline-motion'
+import {
+  beginTextMotionEdit,
+  commitTextMotionEdit,
+  updateTextMotionLive,
+} from '@/features/editor/deps/timeline-store'
 import {
   clearMediaDragData,
   getMediaDragData,

@@ -33,11 +33,6 @@ export {
   updateKeyframe,
   updateKeyframes,
 } from '@/features/timeline/stores/actions/keyframe-actions'
-export {
-  beginTextMotionEdit,
-  commitTextMotionEdit,
-  updateTextMotionLive,
-} from '@/features/timeline/stores/actions/text-motion-actions'
 export { setTracks } from '@/features/timeline/stores/actions/track-actions'
 export {
   createCompositeComposition,
