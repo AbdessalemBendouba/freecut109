@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { useKeyframesStore, useTimelineCommandStore } from '@/features/editor/deps/timeline-motion'
 import { useLinkedTransformPickWhip } from './use-linked-transform-pick-whip'
@@ -6,7 +6,7 @@ import { useLinkedTransformPickWhip } from './use-linked-transform-pick-whip'
 function PickWhipHarness() {
   const { drag, begin } = useLinkedTransformPickWhip()
   return (
-    <>
+    <div data-testid="motion-layer-scroll-area">
       <div data-expression-item-id="target" data-expression-property="x">
         <button type="button" onPointerDown={(event) => begin(event, 'target', 'x')}>
           Target X
@@ -22,8 +22,16 @@ function PickWhipHarness() {
       >
         Shape Trim End
       </div>
-      {drag ? <span data-testid="active-pick-whip" /> : null}
-    </>
+      {drag ? (
+        <span
+          data-testid="active-pick-whip"
+          data-start-x={drag.startX}
+          data-start-y={drag.startY}
+          data-clip-top={drag.clipBounds.top}
+          data-clip-bottom={drag.clipBounds.bottom}
+        />
+      ) : null}
+    </div>
   )
 }
 
@@ -90,6 +98,64 @@ describe('useLinkedTransformPickWhip', () => {
       sourceItemId: 'shape-source',
       sourceProperty: 'trimPathEnd',
     })
+    Reflect.deleteProperty(document, 'elementFromPoint')
+  })
+
+  it('keeps the cable anchored to its pick whip while the editor scrolls', async () => {
+    render(<PickWhipHarness />)
+    const button = screen.getByRole('button', { name: 'Target X' })
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    let top = 20
+    vi.spyOn(button, 'getBoundingClientRect').mockImplementation(
+      () =>
+        ({
+          left: 10,
+          top,
+          width: 12,
+          height: 12,
+          right: 22,
+          bottom: top + 12,
+          x: 10,
+          y: top,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    )
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockImplementation(
+      () =>
+        ({
+          left: 4,
+          top: 12,
+          width: 500,
+          height: 300,
+          right: 504,
+          bottom: 312,
+          x: 4,
+          y: 12,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    )
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => null),
+    })
+
+    fireEvent.pointerDown(button, {
+      button: 0,
+      pointerId: 11,
+      clientX: 16,
+      clientY: 26,
+    })
+    expect(screen.getByTestId('active-pick-whip').dataset.startY).toBe('26')
+    expect(screen.getByTestId('active-pick-whip').dataset.clipTop).toBe('12')
+    expect(screen.getByTestId('active-pick-whip').dataset.clipBottom).toBe('312')
+
+    top = 68
+    fireEvent.scroll(button.parentElement!)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('active-pick-whip').dataset.startY).toBe('74')
+    })
+    fireEvent.pointerUp(window, { pointerId: 11, clientX: 16, clientY: 26 })
     Reflect.deleteProperty(document, 'elementFromPoint')
   })
 })

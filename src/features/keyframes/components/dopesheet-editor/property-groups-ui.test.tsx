@@ -101,6 +101,7 @@ describe('DopesheetEditor property groups', () => {
     const linkButton = screen.getByRole('button', {
       name: /drag to link trim paths end to another property/i,
     })
+    expect(linkButton.querySelector('[data-testid="pick-whip-icon"]')).toBeTruthy()
     fireEvent.pointerDown(linkButton, { button: 0, pointerId: 12 })
 
     expect(onLinkedTransformPointerDown).toHaveBeenCalledWith(expect.anything(), 'trimPathEnd')

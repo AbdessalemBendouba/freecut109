@@ -20,7 +20,6 @@ import {
   ChevronLeft,
   ChevronRight,
   LineChart,
-  Link2,
   Lock,
   Sparkles,
   Timer,
@@ -66,6 +65,7 @@ import { DopesheetParameterMenu } from './dopesheet-parameter-menu'
 import { DopesheetLegendPopover } from './dopesheet-legend-popover'
 import { DopesheetViewOptionsMenu } from './dopesheet-view-options-menu'
 import { KeyframeTimingStrip } from './keyframe-timing-strip'
+import { PickWhipIcon } from './pick-whip-icon'
 import { setPointerCaptureSafely } from './dopesheet-utils'
 import {
   arePreviewFramesEqual,
@@ -2571,7 +2571,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                         defaultValue: `Linked to ${linkedTransformSourceLabels[linkableProperty] ?? linkedExpression.sourceProperty}`,
                       })}
                     >
-                      <Link2 className={MINI_ICON_CLASS} />
+                      <PickWhipIcon className={MINI_ICON_CLASS} data-testid="pick-whip-icon" />
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent side="right" align="start" className="w-56 space-y-2 p-2">
@@ -2620,7 +2620,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                     defaultValue: `Drag to link ${rowLabel} to another property`,
                   })}
                 >
-                  <Link2 className={MINI_ICON_CLASS} />
+                  <PickWhipIcon className={MINI_ICON_CLASS} data-testid="pick-whip-icon" />
                 </Button>
               )
             ) : null}

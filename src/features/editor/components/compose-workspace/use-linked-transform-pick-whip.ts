@@ -28,6 +28,14 @@ interface LinkedExpressionDragState {
   moved: boolean
   sourceItemId: string | null
   sourceProperty: LinkableAnimatableProperty | null
+  clipBounds: LinkedExpressionClipBounds
+}
+
+interface LinkedExpressionClipBounds {
+  left: number
+  top: number
+  right: number
+  bottom: number
 }
 
 interface LinkedExpressionCandidate {
@@ -105,11 +113,37 @@ function createNextDragState(
   }
 }
 
+function createLayoutAdjustedDragState(
+  current: LinkedExpressionDragState,
+  origin: HTMLElement,
+  clipRoot: HTMLElement,
+  candidate: LinkedExpressionCandidate | null,
+): LinkedExpressionDragState {
+  const rect = origin.getBoundingClientRect()
+  const clipRect = clipRoot.getBoundingClientRect()
+  return {
+    ...current,
+    startX: rect.left + rect.width / 2,
+    startY: rect.top + rect.height / 2,
+    sourceItemId: candidate?.itemId ?? null,
+    sourceProperty: candidate?.property ?? null,
+    clipBounds: {
+      left: clipRect.left,
+      top: clipRect.top,
+      right: clipRect.right,
+      bottom: clipRect.bottom,
+    },
+  }
+}
+
 export function useLinkedTransformPickWhip() {
   const { t } = useTranslation()
   const [drag, setDrag] = useState<LinkedExpressionDragState | null>(null)
   const dragRef = useRef<LinkedExpressionDragState | null>(null)
   const hoverRef = useRef<HTMLElement | null>(null)
+  const originRef = useRef<HTMLElement | null>(null)
+  const clipRootRef = useRef<HTMLElement | null>(null)
+  const layoutFrameRef = useRef<number | null>(null)
 
   const begin = useCallback(
     (
@@ -119,6 +153,11 @@ export function useLinkedTransformPickWhip() {
     ) => {
       if (event.button !== 0) return
       const rect = event.currentTarget.getBoundingClientRect()
+      const clipRoot = event.currentTarget.closest<HTMLElement>(
+        '[data-testid="motion-layer-scroll-area"]',
+      )
+      if (!clipRoot) return
+      const clipRect = clipRoot.getBoundingClientRect()
       const next: LinkedExpressionDragState = {
         pointerId: event.pointerId,
         targetItemId: itemId,
@@ -130,7 +169,15 @@ export function useLinkedTransformPickWhip() {
         moved: false,
         sourceItemId: null,
         sourceProperty: null,
+        clipBounds: {
+          left: clipRect.left,
+          top: clipRect.top,
+          right: clipRect.right,
+          bottom: clipRect.bottom,
+        },
       }
+      originRef.current = event.currentTarget
+      clipRootRef.current = clipRoot
       dragRef.current = next
       setDrag(next)
     },
@@ -143,6 +190,27 @@ export function useLinkedTransformPickWhip() {
 
   useEffect(() => {
     const clear = () => updateHover(hoverRef, null)
+    const cancelLayoutRefresh = () => {
+      if (layoutFrameRef.current === null) return
+      window.cancelAnimationFrame(layoutFrameRef.current)
+      layoutFrameRef.current = null
+    }
+    const refreshFromLayout = () => {
+      layoutFrameRef.current = null
+      const current = dragRef.current
+      const origin = originRef.current
+      const clipRoot = clipRootRef.current
+      if (!current || !origin?.isConnected || !clipRoot?.isConnected) return
+      const candidate = rejectOrigin(resolveCandidate(current.currentX, current.currentY), current)
+      updateHover(hoverRef, candidate?.row ?? null)
+      const next = createLayoutAdjustedDragState(current, origin, clipRoot, candidate)
+      dragRef.current = next
+      setDrag(next)
+    }
+    const scheduleLayoutRefresh = () => {
+      if (!dragRef.current || layoutFrameRef.current !== null) return
+      layoutFrameRef.current = window.requestAnimationFrame(refreshFromLayout)
+    }
     const move = (event: PointerEvent) => {
       const current = dragRef.current
       if (!current || current.pointerId !== event.pointerId) return
@@ -156,7 +224,10 @@ export function useLinkedTransformPickWhip() {
       const current = dragRef.current
       if (!current || current.pointerId !== event.pointerId) return
       clear()
+      cancelLayoutRefresh()
       dragRef.current = null
+      originRef.current = null
+      clipRootRef.current = null
       setDrag(null)
       if (!commit || !current.moved) return
       commitLink(current, () => toast.error(t('editor.compose.propertyLinkCycle')))
@@ -166,7 +237,10 @@ export function useLinkedTransformPickWhip() {
     const keyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !dragRef.current) return
       clear()
+      cancelLayoutRefresh()
       dragRef.current = null
+      originRef.current = null
+      clipRootRef.current = null
       setDrag(null)
     }
 
@@ -174,12 +248,17 @@ export function useLinkedTransformPickWhip() {
     window.addEventListener('pointerup', pointerUp)
     window.addEventListener('pointercancel', pointerCancel)
     window.addEventListener('keydown', keyDown)
+    window.addEventListener('scroll', scheduleLayoutRefresh, true)
+    window.addEventListener('resize', scheduleLayoutRefresh)
     return () => {
       clear()
+      cancelLayoutRefresh()
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', pointerUp)
       window.removeEventListener('pointercancel', pointerCancel)
       window.removeEventListener('keydown', keyDown)
+      window.removeEventListener('scroll', scheduleLayoutRefresh, true)
+      window.removeEventListener('resize', scheduleLayoutRefresh)
     }
   }, [t])
 
