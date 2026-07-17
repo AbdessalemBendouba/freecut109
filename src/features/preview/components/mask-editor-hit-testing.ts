@@ -21,8 +21,10 @@ interface HitTestMaskVerticesOptions {
   curveHitTestSteps: number
   vertexToScreen: VertexToScreen
   handleToScreen: HandleToScreen
+  closed?: boolean
 }
 
+// fallow-ignore-next-line complexity
 export function hitTestMaskVertices({
   vertices,
   screenX,
@@ -31,7 +33,9 @@ export function hitTestMaskVertices({
   curveHitTestSteps,
   vertexToScreen,
   handleToScreen,
+  closed = true,
 }: HitTestMaskVerticesOptions): MaskHit | null {
+  const segmentCount = closed ? vertices.length : Math.max(0, vertices.length - 1)
   for (let i = 0; i < vertices.length; i++) {
     const vertex = vertices[i]!
     if (vertex.inHandle[0] !== 0 || vertex.inHandle[1] !== 0) {
@@ -55,7 +59,7 @@ export function hitTestMaskVertices({
     }
   }
 
-  for (let i = 0; i < vertices.length; i++) {
+  for (let i = 0; i < segmentCount; i++) {
     const curr = vertices[i]!
     const next = vertices[(i + 1) % vertices.length]!
     const [x1, y1] = vertexToScreen(curr)
@@ -92,7 +96,7 @@ export function hitTestMaskVertices({
     }
   }
 
-  if (vertices.length >= 3) {
+  if (closed && vertices.length >= 3) {
     const polygon: [number, number][] = [vertexToScreen(vertices[0]!)]
 
     for (let i = 0; i < vertices.length; i++) {

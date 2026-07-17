@@ -124,6 +124,7 @@ describe('renderVideoItem', () => {
     await expect(
       Promise.race([renderPromise.then(() => 'rendered'), ready.promise.then(() => 'initialized')]),
     ).resolves.toBe('rendered')
+    await expect(renderPromise).resolves.toBe(true)
     expect(ensureVideoItemReady).toHaveBeenCalledOnce()
     expect(ctx.drawImage).toHaveBeenCalled()
 
@@ -205,6 +206,7 @@ describe('renderVideoItem', () => {
     }
     const isActivePreviewFrameSuperseded = vi.fn(() => true)
     const isActivePreviewTargetSuperseded = vi.fn(() => false)
+    const markActivePreviewFramePending = vi.fn()
     const renderContext = createRenderContext({
       videoExtractors: new Map([[item.id, extractor]]),
       useMediabunny: new Set([item.id]),
@@ -212,6 +214,7 @@ describe('renderVideoItem', () => {
       waitForInflightPredecodedBitmap: vi.fn(async () => null),
       isActivePreviewFrameSuperseded,
       isActivePreviewTargetSuperseded,
+      markActivePreviewFramePending,
       workerPredecodeWaitMs: 0,
     } as unknown as Partial<ItemRenderContext>)
 
@@ -219,6 +222,40 @@ describe('renderVideoItem', () => {
 
     expect(isActivePreviewFrameSuperseded).toHaveBeenCalledWith(12)
     expect(isActivePreviewTargetSuperseded).not.toHaveBeenCalled()
+    expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
+    expect(drawFrame).not.toHaveBeenCalled()
+  })
+
+  it('aborts a video render superseded after its worker lookup started', async () => {
+    const drawFrame = vi.fn(async () => true)
+    const extractor = {
+      drawFrame,
+      drawFrameWithCapture: vi.fn(),
+      getLastFailureKind: vi.fn(() => 'none' as const),
+      getDimensions: vi.fn(() => ({ width: 1920, height: 1080 })),
+      getDuration: vi.fn(() => 30),
+    }
+    const isActivePreviewFrameSuperseded = vi
+      .fn()
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true)
+    const markActivePreviewFramePending = vi.fn()
+    const renderContext = createRenderContext({
+      videoExtractors: new Map([[item.id, extractor]]),
+      useMediabunny: new Set([item.id]),
+      getCachedPredecodedBitmap: vi.fn(() => null),
+      waitForInflightPredecodedBitmap: vi.fn(async () => null),
+      isActivePreviewFrameCurrent: vi.fn(() => false),
+      isActivePreviewFrameSuperseded,
+      isActivePreviewTargetSuperseded: vi.fn(() => false),
+      markActivePreviewFramePending,
+      workerPredecodeWaitMs: 0,
+    } as unknown as Partial<ItemRenderContext>)
+
+    await renderVideoItem(createCanvasContext(), item, transform, 12, renderContext)
+
+    expect(isActivePreviewFrameSuperseded).toHaveBeenCalledTimes(2)
+    expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
     expect(drawFrame).not.toHaveBeenCalled()
   })
 
@@ -334,8 +371,15 @@ describe('renderVideoItem', () => {
       markActivePreviewFramePending,
     })
 
-    await renderVideoItem(createCanvasContext(), item, transform, 12, renderContext)
+    const drewVideoFrame = await renderVideoItem(
+      createCanvasContext(),
+      item,
+      transform,
+      12,
+      renderContext,
+    )
 
+    expect(drewVideoFrame).toBe(false)
     expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
   })
 
@@ -382,7 +426,7 @@ describe('renderVideoItem', () => {
     expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
   })
 
-  it('does not hold a legitimate empty gap with no scheduled source target', async () => {
+  it('holds the front buffer when an active video item temporarily has no source target', async () => {
     const markActivePreviewFramePending = vi.fn()
     const renderContext = createRenderContext({
       getCachedPredecodedBitmap: vi.fn(() => null),
@@ -396,7 +440,7 @@ describe('renderVideoItem', () => {
 
     await renderVideoItem(createCanvasContext(), item, transform, 12, renderContext)
 
-    expect(markActivePreviewFramePending).not.toHaveBeenCalled()
+    expect(markActivePreviewFramePending).toHaveBeenCalledOnce()
   })
 
 })

@@ -22,15 +22,23 @@ export interface GpuShapeRenderParams {
   direction?: ShapeItem['direction']
   points?: number
   innerRadius?: number
+  trimPathStart?: number
+  trimPathEnd?: number
+  trimPathOffset?: number
+  taperStartWidth?: number
+  taperEndWidth?: number
+  taperStartLength?: number
+  taperEndLength?: number
   aspectRatioLocked?: boolean
-  pathVertices?: Array<[number, number]>
+  pathVertices?: Array<[number, number, number?]>
+  pathClosed?: boolean
   clear?: boolean
   blend?: boolean
   maskFeatherPixels?: number
 }
 
 export const MAX_GPU_SHAPE_PATH_VERTICES = 32
-const SHAPE_UNIFORM_FLOAT_COUNT = 24 + MAX_GPU_SHAPE_PATH_VERTICES * 4
+const SHAPE_UNIFORM_FLOAT_COUNT = 32 + MAX_GPU_SHAPE_PATH_VERTICES * 4
 
 const SHAPE_RENDER_SHADER = /* wgsl */ `
 ${FULLSCREEN_QUAD_WGSL}
@@ -44,6 +52,8 @@ struct ShapeUniforms {
   strokeColor: vec4f,
   shapeParams: vec4f,
   flags: vec4f,
+  trimParams: vec4f,
+  taperParams: vec4f,
   pathVertices: array<vec4f, 32>,
 };
 
@@ -103,26 +113,37 @@ fn heartDistance(p: vec2f) -> f32 {
   return implicit * 18.0;
 }
 
-fn pathPolygonDistance(p: vec2f, count: u32) -> f32 {
+fn pathDistanceAndProgress(p: vec2f, count: u32, closed: bool) -> vec2f {
   var minDistance = 1.0e6;
+  var closestProgress = 0.0;
   var inside = false;
-  var previous = u.pathVertices[count - 1u].xy;
+  let segmentCount = select(max(count, 1u) - 1u, count, closed);
   for (var i = 0u; i < 32u; i = i + 1u) {
-    if (i >= count) {
+    if (i >= segmentCount) {
       break;
     }
-    let current = u.pathVertices[i].xy;
-    minDistance = min(minDistance, sdSegment(p, previous, current));
-    let dy = previous.y - current.y;
+    let currentData = u.pathVertices[i];
+    let nextIndex = select(i + 1u, 0u, i + 1u >= count);
+    let nextData = u.pathVertices[nextIndex];
+    let current = currentData.xy;
+    let next = nextData.xy;
+    let segment = next - current;
+    let h = clamp(dot(p - current, segment) / max(dot(segment, segment), 0.001), 0.0, 1.0);
+    let candidateDistance = length(p - (current + segment * h));
+    if (candidateDistance < minDistance) {
+      minDistance = candidateDistance;
+      let nextProgress = select(nextData.z, 1.0, closed && nextIndex == 0u);
+      closestProgress = mix(currentData.z, nextProgress, h);
+    }
+    let dy = next.y - current.y;
     let safeDy = select(select(0.00001, -0.00001, dy < 0.0), dy, abs(dy) > 0.00001);
-    let crosses = ((current.y > p.y) != (previous.y > p.y)) &&
-      (p.x < (previous.x - current.x) * (p.y - current.y) / safeDy + current.x);
-    if (crosses) {
+    let crosses = ((next.y > p.y) != (current.y > p.y)) &&
+      (p.x < (next.x - current.x) * (p.y - current.y) / safeDy + current.x);
+    if (closed && crosses) {
       inside = !inside;
     }
-    previous = current;
   }
-  return select(minDistance, -minDistance, inside);
+  return vec2f(select(minDistance, -minDistance, inside), closestProgress);
 }
 
 @fragment
@@ -135,12 +156,13 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   let sinR = sin(-u.flags.x);
   let localPx = vec2f(relative.x * cosR - relative.y * sinR, relative.x * sinR + relative.y * cosR);
   var d = 1.0e6;
+  var outlineProgress = fract((atan2(localPx.y, localPx.x) + 1.57079632679) / 6.28318530718 + 1.0);
   if (u.shapeKind < 0.5) {
     d = sdRoundedBox(localPx, halfSize, u.shapeParams.x);
   } else if (u.shapeKind < 2.5) {
     d = sdEllipse(localPx, halfSize);
   } else if (u.shapeKind < 3.5) {
-    let dir = u.shapeParams.y;
+    let dir = u.flags.z;
     var a = vec2f(0.0, -halfSize.y);
     var b = vec2f(halfSize.x, halfSize.y);
     var c = vec2f(-halfSize.x, halfSize.y);
@@ -157,16 +179,48 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
     let heartHalf = vec2f(heartBase, heartBase / 1.1);
     d = heartDistance(localPx / max(heartHalf, vec2f(0.001))) * heartBase;
   } else if (u.shapeKind > 6.5 && u.shapeKind < 7.5) {
-    d = pathPolygonDistance(localPx, u32(u.shapeParams.z));
+    let pathResult = pathDistanceAndProgress(localPx, u32(u.shapeParams.z), u.flags.y > 0.5);
+    d = pathResult.x;
+    outlineProgress = pathResult.y;
   } else {
     let normalized = localPx / max(halfSize, vec2f(0.001));
     d = polarShapeDistance(normalized, u.shapeParams.z, u.shapeParams.w, u.shapeKind > 4.5) * min(halfSize.x, halfSize.y);
   }
 
+  let usesAnalyticOutline = u.shapeKind < 0.5 || (u.shapeKind > 3.5 && u.shapeKind < 6.5);
+  if (usesAnalyticOutline && u.flags.y > 1.5) {
+    outlineProgress = pathDistanceAndProgress(localPx, u32(u.flags.y), true).y;
+  }
+
   let edgeSoftness = max(u.flags.w, 0.75);
   let fillAlpha = 1.0 - smoothstep(-edgeSoftness, edgeSoftness, d);
-  let strokeWidth = max(u.shapeParams.y, 0.0);
-  let strokeAlpha = select(0.0, 1.0 - smoothstep(strokeWidth - 0.75, strokeWidth + 0.75, abs(d)), strokeWidth > 0.0);
+  var taperProgress = outlineProgress;
+  var strokeVisible = true;
+  if (u.trimParams.w > 0.5) {
+    outlineProgress = fract(outlineProgress - u.trimParams.z + 1.0);
+    let trimStart = u.trimParams.x;
+    let trimEnd = u.trimParams.y;
+    strokeVisible = select(
+      outlineProgress >= trimStart || outlineProgress < trimEnd,
+      outlineProgress >= trimStart && outlineProgress < trimEnd,
+      trimEnd >= trimStart,
+    );
+    let visibleLength = select(1.0 - trimStart + trimEnd, trimEnd - trimStart, trimEnd >= trimStart);
+    taperProgress = clamp(fract(outlineProgress - trimStart + 1.0) / max(visibleLength, 0.001), 0.0, 1.0);
+  }
+  let startScale = select(
+    1.0,
+    mix(u.taperParams.x, 1.0, taperProgress / max(u.taperParams.z, 0.001)),
+    u.taperParams.z > 0.0 && taperProgress < u.taperParams.z,
+  );
+  let distanceFromEnd = 1.0 - taperProgress;
+  let endScale = select(
+    1.0,
+    mix(u.taperParams.y, 1.0, distanceFromEnd / max(u.taperParams.w, 0.001)),
+    u.taperParams.w > 0.0 && distanceFromEnd < u.taperParams.w,
+  );
+  let strokeWidth = max(u.shapeParams.y * startScale * endScale, 0.0);
+  var strokeAlpha = select(0.0, 1.0 - smoothstep(strokeWidth - 0.75, strokeWidth + 0.75, abs(d)), strokeWidth > 0.0 && strokeVisible);
   let color = mix(u.fillColor, u.strokeColor, strokeAlpha);
   let alpha = max(fillAlpha, strokeAlpha) * color.a * u.opacity;
   return vec4f(color.rgb, alpha);
@@ -243,7 +297,13 @@ export class ShapeRenderPipeline {
             ? 3
             : 0
     const strokeColor = params.strokeColor ?? params.fillColor
-    const pathVertices = params.pathVertices ?? []
+    const pathVertices =
+      params.shapeType === 'path'
+        ? (params.pathVertices ?? [])
+        : makeAnalyticOutlineVertices(params)
+    const trimPathStart = Math.max(0, Math.min(100, params.trimPathStart ?? 0))
+    const trimPathEnd = Math.max(0, Math.min(100, params.trimPathEnd ?? 100))
+    const trimEnabled = trimPathStart !== 0 || trimPathEnd !== 100
     const uniformData = new Float32Array([
       params.outputWidth,
       params.outputHeight,
@@ -262,9 +322,17 @@ export class ShapeRenderPipeline {
         : (params.points ?? (params.shapeType === 'polygon' ? 6 : 5)),
       params.innerRadius ?? 0.5,
       params.rotationRad ?? 0,
-      params.aspectRatioLocked === false ? 0 : 1,
+      params.shapeType === 'path' ? (params.pathClosed === false ? 0 : 1) : pathVertices.length,
       direction,
       params.maskFeatherPixels ?? 0,
+      trimPathStart / 100,
+      trimPathEnd / 100,
+      (params.trimPathOffset ?? 0) / 360,
+      trimEnabled ? 1 : 0,
+      Math.max(0, params.taperStartWidth ?? 100) / 100,
+      Math.max(0, params.taperEndWidth ?? 100) / 100,
+      Math.max(0, Math.min(100, params.taperStartLength ?? 0)) / 100,
+      Math.max(0, Math.min(100, params.taperEndLength ?? 0)) / 100,
       ...packPathVertices(pathVertices),
     ])
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)
@@ -325,11 +393,197 @@ function shapeKind(shapeType: ShapeItem['shapeType']): number | null {
   }
 }
 
-function packPathVertices(vertices: Array<[number, number]>): number[] {
+function packPathVertices(vertices: Array<[number, number, number?]>): number[] {
   const packed: number[] = []
   for (let i = 0; i < MAX_GPU_SHAPE_PATH_VERTICES; i++) {
     const vertex = vertices[i] ?? [0, 0]
-    packed.push(vertex[0], vertex[1], 0, 0)
+    packed.push(vertex[0], vertex[1], vertex[2] ?? 0, 0)
   }
   return packed
+}
+
+type OutlinePoint = [number, number]
+
+/**
+ * Samples the canonical outline order used by exported analytic shapes. The
+ * shader still renders these shapes analytically; these vertices only provide
+ * distance-along-path progress for trim and taper.
+ */
+function makeAnalyticOutlineVertices(
+  params: Pick<
+    GpuShapeRenderParams,
+    'shapeType' | 'transformRect' | 'cornerRadius' | 'points' | 'innerRadius'
+  >,
+): Array<[number, number, number]> {
+  const halfWidth = params.transformRect.width / 2
+  const halfHeight = params.transformRect.height / 2
+  let points: OutlinePoint[] = []
+
+  if (params.shapeType === 'rectangle') {
+    points = sampleRectangleOutline(halfWidth, halfHeight, params.cornerRadius ?? 0)
+  } else if (params.shapeType === 'polygon' || params.shapeType === 'star') {
+    const pointCount = Math.max(
+      3,
+      Math.round(params.points ?? (params.shapeType === 'polygon' ? 6 : 5)),
+    )
+    const vertexCount = params.shapeType === 'star' ? pointCount * 2 : pointCount
+    const innerRadius = Math.max(0.05, Math.min(0.95, params.innerRadius ?? 0.5))
+    points = Array.from({ length: vertexCount }, (_, index) => {
+      const angle = (index * Math.PI * 2) / vertexCount - Math.PI / 2
+      const radius = params.shapeType === 'star' && index % 2 === 1 ? innerRadius : 1
+      return [Math.cos(angle) * halfWidth * radius, Math.sin(angle) * halfHeight * radius]
+    })
+  } else if (params.shapeType === 'heart') {
+    points = sampleHeartOutline(Math.min(halfWidth, halfHeight))
+  }
+
+  return addOutlineProgress(resampleClosedOutline(points, MAX_GPU_SHAPE_PATH_VERTICES))
+}
+
+function sampleRectangleOutline(
+  halfWidth: number,
+  halfHeight: number,
+  radius: number,
+): OutlinePoint[] {
+  const r = Math.max(0, Math.min(radius, halfWidth, halfHeight))
+  if (r === 0) {
+    return [
+      [-halfWidth, -halfHeight],
+      [halfWidth, -halfHeight],
+      [halfWidth, halfHeight],
+      [-halfWidth, halfHeight],
+    ]
+  }
+
+  const points: OutlinePoint[] = [[-halfWidth + r, -halfHeight]]
+  const corners: Array<[number, number, number]> = [
+    [halfWidth - r, -halfHeight + r, -Math.PI / 2],
+    [halfWidth - r, halfHeight - r, 0],
+    [-halfWidth + r, halfHeight - r, Math.PI / 2],
+    [-halfWidth + r, -halfHeight + r, Math.PI],
+  ]
+  for (const [cx, cy, startAngle] of corners) {
+    for (let step = 0; step <= 4; step++) {
+      const angle = startAngle + (step / 4) * (Math.PI / 2)
+      const point: OutlinePoint = [cx + Math.cos(angle) * r, cy + Math.sin(angle) * r]
+      const previous = points.at(-1)
+      if (!previous || previous[0] !== point[0] || previous[1] !== point[1]) points.push(point)
+    }
+  }
+  points.pop()
+  return points
+}
+
+function sampleHeartOutline(base: number): OutlinePoint[] {
+  const width = base * 2
+  const height = width / 1.1
+  const x = (value: number) => value - width / 2
+  const y = (value: number) => value - height / 2
+  const bottomControlPointX = (23 / 110) * width
+  const bottomControlPointY = 0.69 * height
+  const bottomLeftControlPointY = 0.6 * height
+  const topLeftControlPoint = 0.13 * height
+  const topBezierWidth = (29 / 110) * width
+  const topRightControlPointX = (15 / 110) * width
+  const innerControlPointX = (5 / 110) * width
+  const innerControlPointY = 0.07 * height
+  const depth = 0.17 * height
+  const segments: Array<[OutlinePoint, OutlinePoint, OutlinePoint, OutlinePoint]> = [
+    [
+      [x(width / 2), y(height)],
+      [x(width / 2 - bottomControlPointX), y(bottomControlPointY)],
+      [x(0), y(bottomLeftControlPointY)],
+      [x(0), y(height / 4)],
+    ],
+    [
+      [x(0), y(height / 4)],
+      [x(0), y(topLeftControlPoint)],
+      [x(width / 4 - topBezierWidth / 2), y(0)],
+      [x(width / 4), y(0)],
+    ],
+    [
+      [x(width / 4), y(0)],
+      [x(width / 4 + topBezierWidth / 2), y(0)],
+      [x(width / 2 - innerControlPointX), y(innerControlPointY)],
+      [x(width / 2), y(depth)],
+    ],
+    [
+      [x(width / 2), y(depth)],
+      [x(width / 2 + innerControlPointX), y(innerControlPointY)],
+      [x(width / 2 + topRightControlPointX), y(0)],
+      [x((width / 4) * 3), y(0)],
+    ],
+    [
+      [x((width / 4) * 3), y(0)],
+      [x((width / 4) * 3 + topBezierWidth / 2), y(0)],
+      [x(width), y(topLeftControlPoint)],
+      [x(width), y(height / 4)],
+    ],
+    [
+      [x(width), y(height / 4)],
+      [x(width), y(bottomLeftControlPointY)],
+      [x(width / 2 + bottomControlPointX), y(bottomControlPointY)],
+      [x(width / 2), y(height)],
+    ],
+  ]
+  const points: OutlinePoint[] = [segments[0]![0]]
+  for (const [start, control1, control2, end] of segments) {
+    for (let step = 1; step <= 5; step++) {
+      const t = step / 5
+      const mt = 1 - t
+      points.push([
+        mt ** 3 * start[0] +
+          3 * mt ** 2 * t * control1[0] +
+          3 * mt * t ** 2 * control2[0] +
+          t ** 3 * end[0],
+        mt ** 3 * start[1] +
+          3 * mt ** 2 * t * control1[1] +
+          3 * mt * t ** 2 * control2[1] +
+          t ** 3 * end[1],
+      ])
+    }
+  }
+  points.pop()
+  return points
+}
+
+function resampleClosedOutline(points: OutlinePoint[], maximum: number): OutlinePoint[] {
+  if (points.length <= maximum) return points
+  const progressPoints = addOutlineProgress(points)
+  return Array.from({ length: maximum }, (_, index) => {
+    const target = index / maximum
+    const nextIndex = progressPoints.findIndex((point) => point[2] > target)
+    const next =
+      nextIndex < 0
+        ? ([progressPoints[0]![0], progressPoints[0]![1], 1] as const)
+        : progressPoints[nextIndex]!
+    const previous =
+      nextIndex < 0 ? progressPoints.at(-1)! : progressPoints[Math.max(0, nextIndex - 1)]!
+    const previousProgress = nextIndex < 0 ? previous[2] : nextIndex === 0 ? 0 : previous[2]
+    const amount =
+      (target - previousProgress) / Math.max(next[2] - previousProgress, Number.EPSILON)
+    return [
+      previous[0] + (next[0] - previous[0]) * amount,
+      previous[1] + (next[1] - previous[1]) * amount,
+    ]
+  })
+}
+
+function addOutlineProgress(points: OutlinePoint[]): Array<[number, number, number]> {
+  if (points.length < 2) return []
+  const distances = points.map((point, index) => {
+    if (index === 0) return 0
+    const previous = points[index - 1]!
+    return Math.hypot(point[0] - previous[0], point[1] - previous[1])
+  })
+  const last = points.at(-1)!
+  const first = points[0]!
+  const total =
+    distances.reduce((sum, distance) => sum + distance, 0) +
+    Math.hypot(first[0] - last[0], first[1] - last[1])
+  let traversed = 0
+  return points.map((point, index) => {
+    traversed += distances[index]!
+    return [point[0], point[1], total > 0 ? traversed / total : 0]
+  })
 }

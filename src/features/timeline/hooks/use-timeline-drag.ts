@@ -28,6 +28,7 @@ import {
 import { useLinkedEditPreviewStore } from '../stores/linked-edit-preview-store'
 import { DRAG_THRESHOLD_PIXELS } from '../constants'
 import { createLogger } from '@/shared/logging/logger'
+import { createRafCoalescedCallback } from '../utils/raf-coalesced-callback'
 
 const logger = createLogger('TimelineDrag')
 
@@ -137,7 +138,12 @@ function updateLargeAltDragCanvas(
     const left = entry.left + offset.x
     const top = entry.top + offset.y
     context.fillRect(left, top, entry.width, entry.height)
-    context.strokeRect(left + 1, top + 1, Math.max(0, entry.width - 2), Math.max(0, entry.height - 2))
+    context.strokeRect(
+      left + 1,
+      top + 1,
+      Math.max(0, entry.width - 2),
+      Math.max(0, entry.height - 2),
+    )
   }
 }
 
@@ -1512,12 +1518,19 @@ export function useTimelineDrag(
     }
 
     if (dragStateRef.current) {
-      window.addEventListener('mousemove', handleMouseMove)
-      window.addEventListener('mouseup', handleMouseUp)
+      const coalescedMouseMove = createRafCoalescedCallback(handleMouseMove)
+      const handleCoalescedMouseUp = () => {
+        coalescedMouseMove.flush()
+        handleMouseUp()
+      }
+
+      window.addEventListener('mousemove', coalescedMouseMove.queue)
+      window.addEventListener('mouseup', handleCoalescedMouseUp)
 
       return () => {
-        window.removeEventListener('mousemove', handleMouseMove)
-        window.removeEventListener('mouseup', handleMouseUp)
+        window.removeEventListener('mousemove', coalescedMouseMove.queue)
+        window.removeEventListener('mouseup', handleCoalescedMouseUp)
+        coalescedMouseMove.cancel()
         dragVisualTopByTrackIdRef.current.clear()
         clearLargeAltDragCanvas()
         clearLinkedMovePreview()

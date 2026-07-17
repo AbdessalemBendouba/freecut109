@@ -272,27 +272,52 @@ export type ShapeType =
   | 'heart'
   | 'path'
 
-export type ShapeItem = BaseTimelineItem & {
-  type: 'shape'
-  shapeType: ShapeType
+export interface ShapeStyleFields {
   // Fill
   fillColor: string
+  fillEnabled?: boolean
   // Stroke
   strokeColor?: string
   strokeWidth?: number
-  // Shape-specific
-  cornerRadius?: number // Rect, Triangle, Star, Polygon
-  direction?: 'up' | 'down' | 'left' | 'right' // Triangle only
-  points?: number // Star (5 default), Polygon (6 default)
-  innerRadius?: number // Star only (ratio 0-1 of outer)
-  // Path shape (custom bezier path drawn with pen tool)
-  pathVertices?: import('@/types/masks').MaskVertex[] // Normalized 0-1 vertices for 'path' shapeType
-  // Mask properties
-  isMask?: boolean // When true, shape acts as mask for lower tracks
-  maskType?: 'clip' | 'alpha' // clip = hard edges, alpha = soft edges
-  maskFeather?: number // Feather amount for alpha masks (0-100px, default: 10)
-  maskInvert?: boolean // Invert mask (show outside, hide inside)
+  strokeEnabled?: boolean
+  strokeLineCap?: 'butt' | 'round' | 'square'
+  strokeLineJoin?: 'miter' | 'round' | 'bevel'
+  strokeMiterLimit?: number
+  /** Percentage of the outline at which the visible stroke begins (0-100). */
+  trimPathStart?: number
+  /** Percentage of the outline at which the visible stroke ends (0-100). */
+  trimPathEnd?: number
+  /** Rotates the trimmed stroke around the outline, in degrees. */
+  trimPathOffset?: number
+  /** Stroke width at the beginning of the visible path, as a percentage. */
+  taperStartWidth?: number
+  /** Stroke width at the end of the visible path, as a percentage. */
+  taperEndWidth?: number
+  /** Percentage of the visible path used to blend from the start width. */
+  taperStartLength?: number
+  /** Percentage of the visible path used to blend toward the end width. */
+  taperEndLength?: number
 }
+
+export type ShapeItem = BaseTimelineItem &
+  ShapeStyleFields & {
+    type: 'shape'
+    shapeType: ShapeType
+    // Shape-specific
+    cornerRadius?: number // Rect, Triangle, Star, Polygon
+    direction?: 'up' | 'down' | 'left' | 'right' // Triangle only
+    points?: number // Star (5 default), Polygon (6 default)
+    innerRadius?: number // Star only (ratio 0-1 of outer)
+    // Path shape (custom bezier path drawn with pen tool)
+    pathVertices?: import('@/types/masks').MaskVertex[] // Normalized 0-1 vertices for 'path' shapeType
+    /** Whether a custom path connects its final vertex back to its first. Legacy paths are closed. */
+    pathClosed?: boolean
+    // Mask properties
+    isMask?: boolean // When true, shape acts as mask for lower tracks
+    maskType?: 'clip' | 'alpha' // clip = hard edges, alpha = soft edges
+    maskFeather?: number // Feather amount for alpha masks (0-100px, default: 10)
+    maskInvert?: boolean // Invert mask (show outside, hide inside)
+  }
 
 // Adjustment layer - applies effects to all items on tracks ABOVE this track
 export type AdjustmentItem = BaseTimelineItem & {

@@ -56,6 +56,8 @@ import type { AnimatableProperty, Keyframe, KeyframeRef } from '@/types/keyframe
 import type { BlendMode } from '@/types/blend-modes'
 import { BLEND_MODE_GROUPS, BLEND_MODE_LABELS } from '@/types/blend-modes'
 import type { TimelineItem, TimelineTrack } from '@/types/timeline'
+import type { TextMotionEffect, TextMotionSlot } from '@/types/text-motion'
+import { getTextMotionPreset, segmentTextUnits } from '@/shared/typography/text-motion'
 import {
   addItemOnNewTrack,
   addItemsOnNewTracks,
@@ -71,6 +73,7 @@ import {
   duplicateItemsWithTrackChanges,
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,
+  getProceduralBands,
   getDroppedMediaDurationInFrames,
   isTimelineTemplateDragData,
   interpolatePropertyValue,
@@ -96,6 +99,11 @@ import {
   wouldCreateCompositionCycle,
 } from '@/features/editor/deps/timeline-motion'
 import {
+  beginTextMotionEdit,
+  commitTextMotionEdit,
+  updateTextMotionLive,
+} from '@/features/editor/deps/timeline-store'
+import {
   clearMediaDragData,
   getMediaDragData,
   resolveMediaUrl,
@@ -110,22 +118,255 @@ const RULER_HEIGHT = 28
 const LAYER_ROW_HEIGHT = 34
 const RULER_DIVISIONS = 10
 const EMPTY_LAYER_IDS: string[] = []
+const PROCEDURAL_HATCH =
+  'repeating-linear-gradient(45deg, rgba(56,189,248,0.55) 0 2px, transparent 2px 5px)'
 interface MotionTimeViewport {
   startFrame: number
   endFrame: number
 }
 
+interface TextMotionTimelineBand {
+  slot: TextMotionSlot
+  presetId: string
+  fromFrame: number
+  toFrame: number
+  unitCount: number
+  durationFrames: number
+}
+
+function getTextMotionUnitCount(
+  item: Extract<TimelineItem, { type: 'text' }>,
+  effect: TextMotionEffect,
+) {
+  const unit = effect.unit ?? getTextMotionPreset(effect.presetId).unit
+  return Math.max(1, segmentTextUnits(item.text.split(/\r?\n/u), unit).unitCount)
+}
+
+function getTextMotionWindow(
+  item: Extract<TimelineItem, { type: 'text' }>,
+  effect: TextMotionEffect | undefined,
+): { length: number; unitCount: number } {
+  if (!effect) return { length: 0, unitCount: 0 }
+  const unitCount = getTextMotionUnitCount(item, effect)
+  const maxRank =
+    effect.order === 'center' ? Math.floor((unitCount - 1) / 2) : Math.max(0, unitCount - 1)
+  const requested = Math.max(0, effect.durationFrames) + Math.max(0, effect.staggerFrames) * maxRank
+  return { length: Math.min(item.durationInFrames / 2, requested), unitCount }
+}
+
+function getTextMotionTimelineBands(item: TimelineItem): TextMotionTimelineBand[] {
+  if (item.type !== 'text' || !item.textMotion) return []
+  const { in: inEffect, loop: loopEffect, out: outEffect } = item.textMotion
+  const inWindow = getTextMotionWindow(item, inEffect)
+  const outWindow = getTextMotionWindow(item, outEffect)
+  const clipEnd = item.from + item.durationInFrames
+  const bands: TextMotionTimelineBand[] = []
+
+  if (inEffect && inWindow.length > 0) {
+    bands.push({
+      slot: 'in',
+      presetId: inEffect.presetId,
+      fromFrame: item.from,
+      toFrame: item.from + inWindow.length,
+      unitCount: inWindow.unitCount,
+      durationFrames: inEffect.durationFrames,
+    })
+  }
+  if (loopEffect) {
+    const loopFrom = item.from + inWindow.length
+    const loopTo = clipEnd - outWindow.length
+    if (loopTo > loopFrom) {
+      bands.push({
+        slot: 'loop',
+        presetId: loopEffect.presetId,
+        fromFrame: loopFrom,
+        toFrame: loopTo,
+        unitCount: getTextMotionUnitCount(item, loopEffect),
+        durationFrames: loopEffect.durationFrames,
+      })
+    }
+  }
+  if (outEffect && outWindow.length > 0) {
+    bands.push({
+      slot: 'out',
+      presetId: outEffect.presetId,
+      fromFrame: clipEnd - outWindow.length,
+      toFrame: clipEnd,
+      unitCount: outWindow.unitCount,
+      durationFrames: outEffect.durationFrames,
+    })
+  }
+  return bands
+}
+
+const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
+  itemId,
+  bands,
+  timeViewport,
+}: {
+  itemId: string
+  bands: TextMotionTimelineBand[]
+  timeViewport: MotionTimeViewport
+}) {
+  const dragRef = useRef<{
+    pointerId: number
+    slot: TextMotionSlot
+    startX: number
+    startDurationFrames: number
+    currentDurationFrames: number
+    laneWidth: number
+    before: ReturnType<typeof beginTextMotionEdit> | null
+  } | null>(null)
+  const suppressClickRef = useRef(false)
+  const [previewDurationBySlot, setPreviewDurationBySlot] = useState<
+    Partial<Record<TextMotionSlot, number>>
+  >({})
+  const visibleFrameRange = Math.max(1, timeViewport.endFrame - timeViewport.startFrame)
+
+  const beginDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, band: TextMotionTimelineBand) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      const laneWidth = event.currentTarget.parentElement?.getBoundingClientRect().width ?? 0
+      if (laneWidth <= 0) return
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      dragRef.current = {
+        pointerId: event.pointerId,
+        slot: band.slot,
+        startX: event.clientX,
+        startDurationFrames: band.durationFrames,
+        currentDurationFrames: band.durationFrames,
+        laneWidth,
+        before: null,
+      }
+    },
+    [],
+  )
+
+  const moveDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      const deltaFrames = ((event.clientX - drag.startX) / drag.laneWidth) * visibleFrameRange
+      if (!drag.before) {
+        if (Math.abs(event.clientX - drag.startX) < 3) return
+        drag.before = beginTextMotionEdit()
+      }
+      const directedDelta = drag.slot === 'out' ? -deltaFrames : deltaFrames
+      const durationFrames = Math.max(1, Math.round(drag.startDurationFrames + directedDelta))
+      if (durationFrames === drag.currentDurationFrames) return
+      drag.currentDurationFrames = durationFrames
+      // Keep the high-frequency preview local to these tiny band rows. A live
+      // item-store write invalidates the full expanded dopesheet on every tick.
+      setPreviewDurationBySlot((previous) => ({ ...previous, [drag.slot]: durationFrames }))
+    },
+    [visibleFrameRange],
+  )
+
+  const finishDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
+      const drag = dragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      dragRef.current = null
+      suppressClickRef.current = commit && drag.before !== null
+      if (commit && drag.before) {
+        updateTextMotionLive([itemId], drag.slot, {
+          durationFrames: drag.currentDurationFrames,
+        })
+        commitTextMotionEdit(drag.before, { slot: drag.slot, itemIds: [itemId] })
+      }
+      setPreviewDurationBySlot((previous) => {
+        if (previous[drag.slot] === undefined) return previous
+        const next = { ...previous }
+        delete next[drag.slot]
+        return next
+      })
+    },
+    [itemId],
+  )
+
+  const endDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => finishDurationDrag(event, true),
+    [finishDurationDrag],
+  )
+  const cancelDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => finishDurationDrag(event, false),
+    [finishDurationDrag],
+  )
+
+  const openAnimationInspector = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      event.stopPropagation()
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false
+        return
+      }
+      useSelectionStore.getState().selectItems([itemId])
+      const editor = useEditorStore.getState()
+      editor.setRightSidebarOpen(true)
+      editor.setClipInspectorTab('audio')
+    },
+    [itemId],
+  )
+
+  return (
+    <div data-testid="motion-text-procedural-lanes">
+      {bands.map((band) => {
+        const previewDuration = previewDurationBySlot[band.slot] ?? band.durationFrames
+        const durationDelta = previewDuration - band.durationFrames
+        const previewFromFrame =
+          band.slot === 'out' ? band.fromFrame - durationDelta : band.fromFrame
+        const previewToFrame = band.slot === 'out' ? band.toFrame : band.toFrame + durationDelta
+        const left = ((previewFromFrame - timeViewport.startFrame) / visibleFrameRange) * 100
+        const width = ((previewToFrame - previewFromFrame) / visibleFrameRange) * 100
+        return (
+          <div key={band.slot} className="flex h-7 border-t border-border/45 bg-background/25">
+            <div
+              className="flex shrink-0 items-center border-r border-border pl-14 pr-2 text-[9px] text-sky-300/90"
+              style={{ width: LAYER_COLUMN_WIDTH }}
+            >
+              <span className="w-8 uppercase tracking-[0.08em]">{band.slot}</span>
+              <span className="truncate text-muted-foreground">{band.presetId}</span>
+              <span className="ml-auto pl-2 tabular-nums text-muted-foreground/70">
+                {previewDuration}f · {band.unitCount}u
+              </span>
+            </div>
+            <div className="relative min-w-0 flex-1 overflow-hidden">
+              <div
+                data-testid={`motion-text-procedural-band-${band.slot}`}
+                data-from-frame={previewFromFrame}
+                data-to-frame={previewToFrame}
+                className="absolute top-1/2 h-4 -translate-y-1/2 touch-none cursor-ew-resize rounded-sm border border-sky-300/45 bg-sky-400/10 transition-[border-color,background-color] hover:border-sky-200/80 hover:bg-sky-400/20 active:border-sky-100"
+                style={{
+                  left: `${left}%`,
+                  width: `${Math.max(0.5, width)}%`,
+                  backgroundImage: PROCEDURAL_HATCH,
+                }}
+                title={`${band.presetId} · drag to change duration · ${previewDuration}f · ${band.unitCount} units`}
+                onPointerDown={(event) => beginDurationDrag(event, band)}
+                onPointerMove={moveDurationDrag}
+                onPointerUp={endDurationDrag}
+                onPointerCancel={cancelDurationDrag}
+                onClick={openAnimationInspector}
+              />
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+})
+
 interface MotionMiddlePanState {
   startClientY: number
   startScrollTop: number
 }
-const MOTION_INLINE_PROPERTY_GROUP_IDS = [
-  'transform',
-  'crop',
-  'audio',
-  'effects',
-  'other',
-] as const
+const MOTION_INLINE_PROPERTY_GROUP_IDS = ['transform', 'crop', 'audio', 'effects', 'other'] as const
 const logger = createLogger('MotionTimeline')
 
 const ALL_BLEND_MODES = BLEND_MODE_GROUPS.flatMap((group) => group.modes)
@@ -367,6 +608,43 @@ interface MotionDopesheetLanesProps {
   onTimeViewportChange: (viewport: MotionTimeViewport) => void
 }
 
+function areItemsEqualForMotionDopesheet(previous: TimelineItem, next: TimelineItem): boolean {
+  if (previous === next) return true
+
+  const previousRecord = previous as unknown as Record<string, unknown>
+  const nextRecord = next as unknown as Record<string, unknown>
+  const keys = new Set([...Object.keys(previousRecord), ...Object.keys(nextRecord)])
+  for (const key of keys) {
+    // Text-motion bands are rendered by TextMotionTimelineLanes. Their live
+    // duration edits do not affect keyframes or base property values, so they
+    // must not invalidate the much heavier dopesheet subtree.
+    if (key === 'textMotion') continue
+    if (previousRecord[key] !== nextRecord[key]) return false
+  }
+  return true
+}
+
+// fallow-ignore-next-line complexity
+function areMotionDopesheetLanesPropsEqual(
+  previous: MotionDopesheetLanesProps,
+  next: MotionDopesheetLanesProps,
+): boolean {
+  return (
+    areItemsEqualForMotionDopesheet(previous.item, next.item) &&
+    previous.compositionDurationInFrames === next.compositionDurationInFrames &&
+    previous.fps === next.fps &&
+    previous.canvas.width === next.canvas.width &&
+    previous.canvas.height === next.canvas.height &&
+    previous.propertyFilter === next.propertyFilter &&
+    previous.timeViewport.startFrame === next.timeViewport.startFrame &&
+    previous.timeViewport.endFrame === next.timeViewport.endFrame &&
+    previous.inlineCurveProperty === next.inlineCurveProperty &&
+    previous.paneMode === next.paneMode &&
+    previous.properties.length === next.properties.length &&
+    previous.properties.every((property, index) => property === next.properties[index])
+  )
+}
+
 const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   item,
   properties,
@@ -438,10 +716,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     [item.from, originalKeyframesByProperty, properties],
   )
 
-  const relativeFrame = Math.max(
-    0,
-    Math.min(item.durationInFrames - 1, currentFrame - item.from),
-  )
+  const relativeFrame = Math.max(0, Math.min(item.durationInFrames - 1, currentFrame - item.from))
   const selectedKeyframeValueByProperty = useMemo(() => {
     const values: Partial<Record<AnimatableProperty, number>> = {}
     for (let index = selectedKeyframes.length - 1; index >= 0; index -= 1) {
@@ -489,10 +764,17 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       ),
     [item.id, selectedKeyframes],
   )
+  const proceduralPropertyIds = useMemo(
+    () =>
+      new Set(getProceduralBands(item.motionModifiers, item.durationInFrames, item.from).keys()),
+    [item.durationInFrames, item.from, item.motionModifiers],
+  )
   const visiblePropertyCount =
     propertyFilter === 'keyframed'
       ? properties.filter(
-          (property) => (originalKeyframesByProperty[property]?.length ?? 0) > 0,
+          (property) =>
+            (originalKeyframesByProperty[property]?.length ?? 0) > 0 ||
+            proceduralPropertyIds.has(property),
         ).length
       : properties.length
 
@@ -584,12 +866,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           onSegmentEasingChange={(references, updates, options) => {
             if (options?.commit === false) {
               for (const reference of references) {
-                _updateKeyframe(
-                  reference.itemId,
-                  reference.property,
-                  reference.keyframeId,
-                  updates,
-                )
+                _updateKeyframe(reference.itemId, reference.property, reference.keyframeId, updates)
               }
               return
             }
@@ -634,9 +911,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
               return
             }
 
-            const existing = propertyKeyframes.find(
-              (keyframe) => keyframe.frame === relativeFrame,
-            )
+            const existing = propertyKeyframes.find((keyframe) => keyframe.frame === relativeFrame)
             if (existing) updateKeyframe(item.id, property, existing.id, { value })
             else if (options?.allowCreate !== false) {
               addKeyframe(item.id, property, relativeFrame, value)
@@ -647,7 +922,9 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
             clearKeyframeSelection()
           }}
           onNavigateToKeyframe={(frame) => onScrub(clampAbsoluteFrame(frame))}
-          onScrub={(frame) => onScrub(Math.max(0, Math.min(compositionDurationInFrames - 1, frame)))}
+          onScrub={(frame) =>
+            onScrub(Math.max(0, Math.min(compositionDurationInFrames - 1, frame)))
+          }
           onScrubStart={() => onSelectItem(item.id)}
           onActivePropertyChange={() => onSelectItem(item.id)}
           onPropertyChange={(property) => {
@@ -665,6 +942,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           singleCurveMode
           selectedCurveVisibleExternally={paneMode === 'lanes' && inlineCurveProperty !== null}
           propertyFilter={propertyFilter}
+          proceduralFrameOffset={item.from}
+          proceduralDurationInFrames={item.durationInFrames}
           showPlayhead={false}
           inlinePropertyGroupIds={MOTION_INLINE_PROPERTY_GROUP_IDS}
           spacious
@@ -672,7 +951,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       ) : null}
     </div>
   )
-})
+}, areMotionDopesheetLanesPropsEqual)
 
 function getItemProperties(item: TimelineItem): AnimatableProperty[] {
   return getAnimatablePropertiesForItem(item)
@@ -868,9 +1147,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const toggleLayerExpanded = useComposeUiStore((state) => state.toggleLayerExpanded)
   const pruneCompositionLayers = useComposeUiStore((state) => state.pruneCompositionLayers)
   const mediaItems = useMediaLibraryStore((state) => state.mediaItems)
-  const canPasteLayers = useClipboardStore(
-    (state) => (state.itemsClipboard?.items.length ?? 0) > 0,
-  )
+  const canPasteLayers = useClipboardStore((state) => (state.itemsClipboard?.items.length ?? 0) > 0)
 
   const isComposite = composition?.editorKind === 'composite-2d'
   const durationInFrames = Math.max(
@@ -911,8 +1188,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   }
   const selectedItemIdSet = useMemo(() => new Set(selectedItemIds), [selectedItemIds])
   const expandedLayerIdSet = useMemo(() => new Set(expandedLayerIds), [expandedLayerIds])
-  const activeInlineCurve =
-    inlineCurve?.compositionId === activeCompositionId ? inlineCurve : null
+  const activeInlineCurve = inlineCurve?.compositionId === activeCompositionId ? inlineCurve : null
   const trackById = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks])
   const layerEntries = useMemo<LayerEntry[]>(
     () =>
@@ -990,10 +1266,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     return rows
   }, [layerEntries, tracks])
   const visibleLayerIds = useMemo(
-    () =>
-      motionRows.flatMap((row) =>
-        row.kind === 'layer' ? [row.item.id] : [],
-      ),
+    () => motionRows.flatMap((row) => (row.kind === 'layer' ? [row.item.id] : [])),
     [motionRows],
   )
 
@@ -1023,8 +1296,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const selectLayer = useCallback(
     (itemId: string, modifiers: { toggle?: boolean; range?: boolean } = {}) => {
       if (modifiers.range) {
-        const anchorId =
-          selectionAnchorIdRef.current ?? selectedItemIds.at(-1) ?? null
+        const anchorId = selectionAnchorIdRef.current ?? selectedItemIds.at(-1) ?? null
         const anchorIndex = anchorId ? visibleLayerIds.indexOf(anchorId) : -1
         const itemIndex = visibleLayerIds.indexOf(itemId)
         if (anchorIndex >= 0 && itemIndex >= 0) {
@@ -1032,10 +1304,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           const rangeEnd = Math.max(anchorIndex, itemIndex)
           selectItems(
             Array.from(
-              new Set([
-                ...selectedItemIds,
-                ...visibleLayerIds.slice(rangeStart, rangeEnd + 1),
-              ]),
+              new Set([...selectedItemIds, ...visibleLayerIds.slice(rangeStart, rangeEnd + 1)]),
             ),
           )
           return
@@ -1151,7 +1420,9 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       useClipboardStore
         .getState()
         .copyItems(copiedItems, usePlaybackStore.getState().currentFrame, 'copy')
-      toast.success(copiedItems.length === 1 ? 'Copied layer' : `Copied ${copiedItems.length} layers`)
+      toast.success(
+        copiedItems.length === 1 ? 'Copied layer' : `Copied ${copiedItems.length} layers`,
+      )
     },
     [items],
   )
@@ -1331,9 +1602,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         ((event.clientX - drag.startX) / drag.laneWidth) * visibleFrameRange,
       )
       const minDelta = -Math.min(...drag.items.map((item) => item.from))
-      const maxDelta = Math.min(
-        ...drag.items.map((item) => durationInFrames - item.from - 1),
-      )
+      const maxDelta = Math.min(...drag.items.map((item) => durationInFrames - item.from - 1))
       const deltaFrames = Math.max(minDelta, Math.min(maxDelta, rawDelta))
       if (deltaFrames === drag.deltaFrames) return
       const next = { ...drag, deltaFrames }
@@ -1379,11 +1648,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   )
 
   const beginSpanTrim = useCallback(
-    (
-      event: React.PointerEvent<HTMLSpanElement>,
-      item: TimelineItem,
-      handle: 'start' | 'end',
-    ) => {
+    (event: React.PointerEvent<HTMLSpanElement>, item: TimelineItem, handle: 'start' | 'end') => {
       if (event.button !== 0) return
       event.preventDefault()
       event.stopPropagation()
@@ -1418,8 +1683,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       const rawDelta = Math.round(
         ((event.clientX - trim.startX) / trim.laneWidth) * visibleFrameRange,
       )
-      const minDelta =
-        trim.handle === 'start' ? -trim.from : -(trim.durationInFrames - 1)
+      const minDelta = trim.handle === 'start' ? -trim.from : -(trim.durationInFrames - 1)
       const maxDelta =
         trim.handle === 'start'
           ? trim.durationInFrames - 1
@@ -1766,15 +2030,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       )
       selectItems(layers.map((entry) => entry.item.id))
     },
-    [
-      composition,
-      durationInFrames,
-      fps,
-      insertCompositionLayer,
-      mediaItems,
-      selectItems,
-      t,
-    ],
+    [composition, durationInFrames, fps, insertCompositionLayer, mediaItems, selectItems, t],
   )
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLElement>) => {
@@ -1859,10 +2115,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         const pivotFrame = current.startFrame + pivotRatio * currentRange
         const nextRange = Math.max(
           1,
-          Math.min(
-            durationInFrames,
-            Math.round(currentRange * (event.deltaY > 0 ? 1.25 : 0.8)),
-          ),
+          Math.min(durationInFrames, Math.round(currentRange * (event.deltaY > 0 ? 1.25 : 0.8))),
         )
         return normalizeMotionTimeViewport(
           {
@@ -2112,158 +2365,158 @@ export const CompositingTimeline = memo(function CompositingTimeline({
               className="flex shrink-0 items-center gap-1 border-r border-border px-1.5"
               style={{ width: LAYER_COLUMN_WIDTH }}
             >
-            <button
-              type="button"
-              data-testid={`motion-reorder-handle-${row.track.id}`}
-              onPointerDown={(event) => beginRowReorder(event, row.track)}
-              onPointerMove={moveRowReorder}
-              onPointerUp={finishRowReorder}
-              onPointerCancel={cancelRowReorder}
-              className="flex h-6 w-3.5 shrink-0 touch-none items-center justify-center rounded-sm text-muted-foreground/65 outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary active:text-primary"
-              title={t('editor.compose.reorderGroup')}
-              aria-label={t('editor.compose.reorderGroup')}
-            >
-              <EllipsisVertical className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                updateLayerTrack(row.track.id, { isCollapsed: !row.track.isCollapsed })
-              }
-              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label={
-                row.track.isCollapsed
-                  ? t('editor.compose.expandGroup')
-                  : t('editor.compose.collapseGroup')
-              }
-            >
-              {row.track.isCollapsed ? (
-                <ChevronRight className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronDown className="h-3.5 w-3.5" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => updateLayerTrack(row.track.id, { visible: !row.track.visible })}
-              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label={
-                row.track.visible === false
-                  ? t('editor.compose.showGroup')
-                  : t('editor.compose.hideGroup')
-              }
-            >
-              {row.track.visible === false ? (
-                <EyeOff className="h-3.5 w-3.5" />
-              ) : (
-                <Eye className="h-3.5 w-3.5" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => updateLayerTrack(row.track.id, { locked: !row.track.locked })}
-              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label={
-                row.track.locked ? t('editor.compose.unlockGroup') : t('editor.compose.lockGroup')
-              }
-            >
-              {row.track.locked ? (
-                <Lock className="h-3.5 w-3.5" />
-              ) : (
-                <Unlock className="h-3.5 w-3.5" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => updateLayerTrack(row.track.id, { solo: !row.track.solo })}
-              className={cn(
-                'h-5 w-5 rounded text-[9px] font-bold',
-                row.track.solo
-                  ? 'bg-primary/15 text-primary'
-                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-              )}
-              aria-label={
-                row.track.solo ? t('editor.compose.disableSolo') : t('editor.compose.soloGroup')
-              }
-            >
-              S
-            </button>
-            {renameTarget?.kind === 'group' && renameTarget.id === row.track.id ? (
-              <input
-                autoFocus
-                value={renameDraft}
-                onChange={(event) => setRenameDraft(event.target.value)}
-                onFocus={(event) => event.currentTarget.select()}
-                onBlur={commitRename}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.currentTarget.blur()
-                  if (event.key === 'Escape') setRenameTarget(null)
-                }}
-                aria-label="Group name"
-                className="h-5 min-w-24 flex-1 rounded border border-primary/50 bg-background px-1.5 text-[11px] font-semibold outline-none"
-              />
-            ) : (
               <button
                 type="button"
-                onClick={() => selectItems(groupItemIds)}
-                onDoubleClick={() =>
-                  beginRename({ kind: 'group', id: row.track.id }, row.track.name)
-                }
-                className="min-w-0 flex-1 truncate px-1 text-left text-[11px] font-semibold text-foreground"
-                title={row.track.name}
+                data-testid={`motion-reorder-handle-${row.track.id}`}
+                onPointerDown={(event) => beginRowReorder(event, row.track)}
+                onPointerMove={moveRowReorder}
+                onPointerUp={finishRowReorder}
+                onPointerCancel={cancelRowReorder}
+                className="flex h-6 w-3.5 shrink-0 touch-none items-center justify-center rounded-sm text-muted-foreground/65 outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary active:text-primary"
+                title={t('editor.compose.reorderGroup')}
+                aria-label={t('editor.compose.reorderGroup')}
               >
-                {row.track.name}
-                <span className="ml-1.5 text-[9px] font-normal text-muted-foreground">
-                  {t('editor.compose.groupLayerCount', { count: row.items.length })}
-                </span>
+                <EllipsisVertical className="h-4 w-4" />
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => ungroupTracks(row.track.id)}
-              className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-              title={t('editor.compose.ungroup')}
-              aria-label={t('editor.compose.ungroup')}
-            >
-              <Ungroup className="h-3.5 w-3.5" />
-            </button>
+              <button
+                type="button"
+                onClick={() =>
+                  updateLayerTrack(row.track.id, { isCollapsed: !row.track.isCollapsed })
+                }
+                className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={
+                  row.track.isCollapsed
+                    ? t('editor.compose.expandGroup')
+                    : t('editor.compose.collapseGroup')
+                }
+              >
+                {row.track.isCollapsed ? (
+                  <ChevronRight className="h-3.5 w-3.5" />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => updateLayerTrack(row.track.id, { visible: !row.track.visible })}
+                className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={
+                  row.track.visible === false
+                    ? t('editor.compose.showGroup')
+                    : t('editor.compose.hideGroup')
+                }
+              >
+                {row.track.visible === false ? (
+                  <EyeOff className="h-3.5 w-3.5" />
+                ) : (
+                  <Eye className="h-3.5 w-3.5" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => updateLayerTrack(row.track.id, { locked: !row.track.locked })}
+                className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-label={
+                  row.track.locked ? t('editor.compose.unlockGroup') : t('editor.compose.lockGroup')
+                }
+              >
+                {row.track.locked ? (
+                  <Lock className="h-3.5 w-3.5" />
+                ) : (
+                  <Unlock className="h-3.5 w-3.5" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => updateLayerTrack(row.track.id, { solo: !row.track.solo })}
+                className={cn(
+                  'h-5 w-5 rounded text-[9px] font-bold',
+                  row.track.solo
+                    ? 'bg-primary/15 text-primary'
+                    : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+                aria-label={
+                  row.track.solo ? t('editor.compose.disableSolo') : t('editor.compose.soloGroup')
+                }
+              >
+                S
+              </button>
+              {renameTarget?.kind === 'group' && renameTarget.id === row.track.id ? (
+                <input
+                  autoFocus
+                  value={renameDraft}
+                  onChange={(event) => setRenameDraft(event.target.value)}
+                  onFocus={(event) => event.currentTarget.select()}
+                  onBlur={commitRename}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur()
+                    if (event.key === 'Escape') setRenameTarget(null)
+                  }}
+                  aria-label="Group name"
+                  className="h-5 min-w-24 flex-1 rounded border border-primary/50 bg-background px-1.5 text-[11px] font-semibold outline-none"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => selectItems(groupItemIds)}
+                  onDoubleClick={() =>
+                    beginRename({ kind: 'group', id: row.track.id }, row.track.name)
+                  }
+                  className="min-w-0 flex-1 truncate px-1 text-left text-[11px] font-semibold text-foreground"
+                  title={row.track.name}
+                >
+                  {row.track.name}
+                  <span className="ml-1.5 text-[9px] font-normal text-muted-foreground">
+                    {t('editor.compose.groupLayerCount', { count: row.items.length })}
+                  </span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => ungroupTracks(row.track.id)}
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                title={t('editor.compose.ungroup')}
+                aria-label={t('editor.compose.ungroup')}
+              >
+                <Ungroup className="h-3.5 w-3.5" />
+              </button>
             </div>
             <div
-            className="relative min-w-0 flex-1 touch-none overflow-hidden"
-            onPointerDown={beginPlayheadScrub}
-            onPointerMove={movePlayheadScrub}
-            onPointerUp={endPlayheadScrub}
-            onPointerCancel={endPlayheadScrub}
-          >
-            {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
-              <div
-                key={tick}
-                className="pointer-events-none absolute inset-y-0 border-l border-border/45"
-                style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
-              />
-            ))}
-            {!activeInlineCurve && row.items.length > 0 && (
-              <button
-                type="button"
-                data-testid={`motion-group-span-${row.track.id}`}
-                onPointerDown={(event) => !row.track.locked && beginSpanDrag(event, groupItemIds)}
-                onPointerMove={moveSpanDrag}
-                onPointerUp={endSpanDrag}
-                onPointerCancel={endSpanDrag}
-                className={cn(
-                  'absolute top-1/2 h-4 -translate-y-1/2 touch-none rounded-sm border border-timeline-motion-segment/80 bg-timeline-motion-segment/70 px-1 text-left text-[9px] text-foreground',
-                  row.track.locked
-                    ? 'cursor-not-allowed opacity-55'
-                    : 'cursor-grab active:cursor-grabbing',
-                )}
-                style={{
-                  left: `${frameToMotionPercent(groupFrom)}%`,
-                  width: `${Math.max(0.6, ((groupEnd - groupFrom) / visibleFrameRange) * 100)}%`,
-                }}
-              >
-                <span className="block truncate">{row.track.name}</span>
-              </button>
-            )}
+              className="relative min-w-0 flex-1 touch-none overflow-hidden"
+              onPointerDown={beginPlayheadScrub}
+              onPointerMove={movePlayheadScrub}
+              onPointerUp={endPlayheadScrub}
+              onPointerCancel={endPlayheadScrub}
+            >
+              {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
+                <div
+                  key={tick}
+                  className="pointer-events-none absolute inset-y-0 border-l border-border/45"
+                  style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
+                />
+              ))}
+              {!activeInlineCurve && row.items.length > 0 && (
+                <button
+                  type="button"
+                  data-testid={`motion-group-span-${row.track.id}`}
+                  onPointerDown={(event) => !row.track.locked && beginSpanDrag(event, groupItemIds)}
+                  onPointerMove={moveSpanDrag}
+                  onPointerUp={endSpanDrag}
+                  onPointerCancel={endSpanDrag}
+                  className={cn(
+                    'absolute top-1/2 h-4 -translate-y-1/2 touch-none rounded-sm border border-timeline-motion-segment/80 bg-timeline-motion-segment/70 px-1 text-left text-[9px] text-foreground',
+                    row.track.locked
+                      ? 'cursor-not-allowed opacity-55'
+                      : 'cursor-grab active:cursor-grabbing',
+                  )}
+                  style={{
+                    left: `${frameToMotionPercent(groupFrom)}%`,
+                    width: `${Math.max(0.6, ((groupEnd - groupFrom) / visibleFrameRange) * 100)}%`,
+                  }}
+                >
+                  <span className="block truncate">{row.track.name}</span>
+                </button>
+              )}
             </div>
           </div>
         </MotionRowContextMenu>
@@ -2361,430 +2614,453 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           className="h-full overflow-x-hidden overflow-y-auto [content-visibility:auto]"
         >
           <div className="relative min-h-full w-full min-w-0">
-          <div className="sticky top-0 z-20 flex border-b border-border bg-panel-header">
-            <div
-              className="flex shrink-0 items-center justify-between gap-3 border-r border-border px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
-              style={{
-                width: LAYER_COLUMN_WIDTH,
-                height: RULER_HEIGHT,
-              }}
-            >
-              <span>{t('editor.compose.layers')}</span>
-              <Select
-                value={propertyFilter}
-                onValueChange={(value) => setPropertyFilter(value as 'all' | 'keyframed')}
+            <div className="sticky top-0 z-20 flex border-b border-border bg-panel-header">
+              <div
+                className="flex shrink-0 items-center justify-between gap-3 border-r border-border px-3 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground"
+                style={{
+                  width: LAYER_COLUMN_WIDTH,
+                  height: RULER_HEIGHT,
+                }}
               >
-                <SelectTrigger
-                  aria-label="Property filter"
-                  className="h-5 w-32 gap-1 bg-background px-2 text-[9px] font-normal normal-case tracking-normal text-muted-foreground"
+                <span>{t('editor.compose.layers')}</span>
+                <Select
+                  value={propertyFilter}
+                  onValueChange={(value) => setPropertyFilter(value as 'all' | 'keyframed')}
                 >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-[10px]">
-                    All properties
-                  </SelectItem>
-                  <SelectItem value="keyframed" className="text-[10px]">
-                    Animated properties
-                  </SelectItem>
-                </SelectContent>
-              </Select>
+                  <SelectTrigger
+                    aria-label="Property filter"
+                    className="h-5 w-32 gap-1 bg-background px-2 text-[9px] font-normal normal-case tracking-normal text-muted-foreground"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-[10px]">
+                      All properties
+                    </SelectItem>
+                    <SelectItem value="keyframed" className="text-[10px]">
+                      Animated properties
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div
+                className="relative min-w-0 flex-1 touch-none cursor-ew-resize"
+                style={{ height: RULER_HEIGHT }}
+                onPointerDown={beginPlayheadScrub}
+                onPointerMove={movePlayheadScrub}
+                onPointerUp={endPlayheadScrub}
+                onPointerCancel={endPlayheadScrub}
+              >
+                {Array.from({ length: RULER_DIVISIONS + 1 }, (_, index) => {
+                  const frame = Math.round(
+                    timeViewport.startFrame + (index / RULER_DIVISIONS) * visibleFrameRange,
+                  )
+                  return (
+                    <div
+                      key={index}
+                      className="absolute inset-y-0 border-l border-border/70"
+                      style={{ left: `${(index / RULER_DIVISIONS) * 100}%` }}
+                    >
+                      <span className="ml-1 text-[9px] tabular-nums text-muted-foreground">
+                        {formatFrameTime(frame, fps)}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-            <div
-              className="relative min-w-0 flex-1 touch-none cursor-ew-resize"
-              style={{ height: RULER_HEIGHT }}
-              onPointerDown={beginPlayheadScrub}
-              onPointerMove={movePlayheadScrub}
-              onPointerUp={endPlayheadScrub}
-              onPointerCancel={endPlayheadScrub}
-            >
-              {Array.from({ length: RULER_DIVISIONS + 1 }, (_, index) => {
-                const frame = Math.round(
-                  timeViewport.startFrame + (index / RULER_DIVISIONS) * visibleFrameRange,
+
+            {motionRows.length === 0 ? (
+              <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
+                <Plus className="mr-2 h-3.5 w-3.5" />
+                {t('editor.compose.emptyLayers')}
+              </div>
+            ) : (
+              motionRows.map((row, index) => {
+                if (row.kind === 'group') return renderGroupRow(row)
+                const { item, track, depth } = row
+                const expanded = expandedLayerIdSet.has(item.id)
+                const selected = selectedItemIdSet.has(item.id)
+                const properties = getItemProperties(item)
+                const proceduralBands = getProceduralBands(
+                  item.motionModifiers,
+                  item.durationInFrames,
+                  item.from,
                 )
+                const textMotionBands = getTextMotionTimelineBands(item)
+                const hasProceduralMotion = proceduralBands.size > 0 || textMotionBands.length > 0
+                const hasVisibleChildProperties =
+                  propertyFilter === 'all' ||
+                  textMotionBands.length > 0 ||
+                  properties.some(
+                    (property) =>
+                      keyframesByItemId[item.id]?.properties.some(
+                        (entry) => entry.property === property && entry.keyframes.length > 0,
+                      ) || proceduralBands.has(property),
+                  )
+                const isDragging = rowReorderDrag?.sourceTrackId === track?.id
+                const isDropTarget = reorderDropTargetTrackId === track?.id && !isDragging
                 return (
                   <div
-                    key={index}
-                    className="absolute inset-y-0 border-l border-border/70"
-                    style={{ left: `${(index / RULER_DIVISIONS) * 100}%` }}
+                    key={item.id}
+                    data-motion-row-track-id={track?.id}
+                    data-motion-parent-track-id={track?.parentTrackId ?? ''}
+                    className={cn(
+                      'relative border-b border-border/70',
+                      isDragging && 'z-30 opacity-85 shadow-lg',
+                      isDropTarget &&
+                        'before:absolute before:inset-x-0 before:z-40 before:h-0.5 before:bg-primary',
+                      isDropTarget && (reorderDropAfterTarget ? 'before:bottom-0' : 'before:top-0'),
+                    )}
+                    style={
+                      isDragging
+                        ? { transform: `translate3d(0, ${rowReorderDrag?.deltaY ?? 0}px, 0)` }
+                        : undefined
+                    }
                   >
-                    <span className="ml-1 text-[9px] tabular-nums text-muted-foreground">
-                      {formatFrameTime(frame, fps)}
-                    </span>
+                    <MotionRowContextMenu
+                      canGroup={canGroupSelectedLayers}
+                      canPaste={canPasteLayers}
+                      onOpen={() => prepareLayerContextMenu(item.id)}
+                      onRename={() =>
+                        beginRename({ kind: 'layer', id: item.id }, item.label || item.type)
+                      }
+                      onGroup={createGroupFromSelection}
+                      onDuplicate={() => duplicateLayers([item.id])}
+                      onCopy={() => copyLayers([item.id])}
+                      onPaste={() => pasteLayers(track?.parentTrackId)}
+                      onDelete={() => deleteLayers([item.id], track ? [track.id] : [])}
+                    >
+                      <div
+                        className={cn(
+                          'flex transition-colors',
+                          selected ? 'bg-accent/70' : 'hover:bg-accent/35',
+                        )}
+                        style={{ height: LAYER_ROW_HEIGHT }}
+                      >
+                        <div
+                          className="flex shrink-0 items-center gap-1 border-r border-border px-1.5"
+                          style={{ width: LAYER_COLUMN_WIDTH, paddingLeft: 6 + depth * 16 }}
+                        >
+                          {track && (
+                            <button
+                              type="button"
+                              data-testid={`motion-reorder-handle-${track.id}`}
+                              onPointerDown={(event) => beginRowReorder(event, track)}
+                              onPointerMove={moveRowReorder}
+                              onPointerUp={finishRowReorder}
+                              onPointerCancel={cancelRowReorder}
+                              className="flex h-6 w-3.5 shrink-0 touch-none items-center justify-center rounded-sm text-muted-foreground/65 outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary active:text-primary"
+                              title={t('editor.compose.reorderLayer')}
+                              aria-label={t('editor.compose.reorderLayer')}
+                            >
+                              <EllipsisVertical className="h-4 w-4" />
+                            </button>
+                          )}
+                          {hasVisibleChildProperties ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleLayerExpanded(activeCompositionId, item.id)}
+                              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              aria-label={
+                                expanded
+                                  ? t('editor.compose.collapseLayerProperties')
+                                  : t('editor.compose.expandLayerProperties')
+                              }
+                            >
+                              {expanded ? (
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              ) : (
+                                <ChevronRight className="h-3.5 w-3.5" />
+                              )}
+                            </button>
+                          ) : (
+                            <span className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              track && updateLayerTrack(track.id, { visible: !track.visible })
+                            }
+                            className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                            aria-label={
+                              track?.visible === false
+                                ? t('editor.compose.showLayer')
+                                : t('editor.compose.hideLayer')
+                            }
+                          >
+                            {track?.visible === false ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              track && updateLayerTrack(track.id, { locked: !track.locked })
+                            }
+                            className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                            aria-label={
+                              track?.locked
+                                ? t('editor.compose.unlockLayer')
+                                : t('editor.compose.lockLayer')
+                            }
+                          >
+                            {track?.locked ? (
+                              <Lock className="h-3.5 w-3.5" />
+                            ) : (
+                              <Unlock className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              track && updateLayerTrack(track.id, { solo: !track.solo })
+                            }
+                            className={cn(
+                              'h-5 w-5 rounded text-[9px] font-bold',
+                              track?.solo
+                                ? 'bg-primary/15 text-primary'
+                                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                            )}
+                            aria-label={
+                              track?.solo
+                                ? t('editor.compose.disableSolo')
+                                : t('editor.compose.soloLayer')
+                            }
+                          >
+                            S
+                          </button>
+                          {renameTarget?.kind === 'layer' && renameTarget.id === item.id ? (
+                            <input
+                              autoFocus
+                              value={renameDraft}
+                              onChange={(event) => setRenameDraft(event.target.value)}
+                              onFocus={(event) => event.currentTarget.select()}
+                              onBlur={commitRename}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') event.currentTarget.blur()
+                                if (event.key === 'Escape') setRenameTarget(null)
+                              }}
+                              aria-label="Layer name"
+                              className="h-5 min-w-24 flex-1 rounded border border-primary/50 bg-background px-1.5 text-[11px] font-medium outline-none"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(event) =>
+                                selectLayer(item.id, {
+                                  toggle: event.metaKey || event.ctrlKey,
+                                  range: event.shiftKey,
+                                })
+                              }
+                              onDoubleClick={() =>
+                                beginRename({ kind: 'layer', id: item.id }, item.label || item.type)
+                              }
+                              className="min-w-0 flex-1 truncate px-1 text-left text-[11px] font-medium text-foreground"
+                              title={item.label || item.type}
+                            >
+                              <span className="mr-1.5 text-[9px] tabular-nums text-muted-foreground/70">
+                                {index + 1}
+                              </span>
+                              {item.label || item.type}
+                            </button>
+                          )}
+                          <LayerFrameInput
+                            label="I"
+                            ariaLabel={t('editor.compose.inFrame')}
+                            value={item.from}
+                            min={0}
+                            max={Math.max(0, item.from + item.durationInFrames - 1)}
+                            onCommit={(nextFrom) =>
+                              updateItem(item.id, {
+                                from: nextFrom,
+                                durationInFrames: Math.max(
+                                  1,
+                                  item.from + item.durationInFrames - nextFrom,
+                                ),
+                              })
+                            }
+                          />
+                          <LayerFrameInput
+                            label="O"
+                            ariaLabel={t('editor.compose.outFrame')}
+                            value={item.from + item.durationInFrames}
+                            min={item.from + 1}
+                            max={durationInFrames}
+                            onCommit={(nextOut) =>
+                              updateItem(item.id, {
+                                durationInFrames: Math.max(1, nextOut - item.from),
+                              })
+                            }
+                          />
+                          <Select
+                            value={item.blendMode ?? 'normal'}
+                            onValueChange={(value) =>
+                              updateItem(item.id, { blendMode: value as BlendMode })
+                            }
+                          >
+                            <SelectTrigger
+                              className="h-5 w-24 gap-1 bg-background px-2 text-[9px] text-muted-foreground"
+                              aria-label={t('editor.compose.blendMode')}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-72">
+                              {ALL_BLEND_MODES.map((mode) => (
+                                <SelectItem key={mode} value={mode} className="text-[10px]">
+                                  {BLEND_MODE_LABELS[mode]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div
+                          data-motion-timeline-lane
+                          className="relative min-w-0 flex-1 cursor-default overflow-hidden"
+                          onPointerDown={beginPlayheadScrub}
+                          onPointerMove={movePlayheadScrub}
+                          onPointerUp={endPlayheadScrub}
+                          onPointerCancel={endPlayheadScrub}
+                        >
+                          {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
+                            <div
+                              key={tick}
+                              className="pointer-events-none absolute inset-y-0 border-l border-border/45"
+                              style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
+                            />
+                          ))}
+                          {!activeInlineCurve ? (
+                            <button
+                              type="button"
+                              data-testid={`motion-layer-span-${item.id}`}
+                              onPointerDown={(event) =>
+                                !track?.locked &&
+                                beginSpanDrag(
+                                  event,
+                                  selected && !(event.metaKey || event.ctrlKey || event.shiftKey)
+                                    ? selectedItemIds
+                                    : [item.id],
+                                )
+                              }
+                              onPointerMove={moveSpanDrag}
+                              onPointerUp={endSpanDrag}
+                              onPointerCancel={endSpanDrag}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                              }}
+                              className={cn(
+                                'absolute top-1/2 h-5 -translate-y-1/2 touch-none rounded-sm border px-1 text-left text-[9px] shadow-sm transition-colors',
+                                track?.locked
+                                  ? 'cursor-not-allowed opacity-55'
+                                  : 'cursor-grab active:cursor-grabbing',
+                                selected
+                                  ? 'border-foreground/80 bg-timeline-motion-segment/90 text-foreground'
+                                  : 'border-timeline-motion-segment/80 bg-timeline-motion-segment/70 text-foreground hover:bg-timeline-motion-segment/85',
+                              )}
+                              style={{
+                                left: `${frameToMotionPercent(getPreviewFrom(item))}%`,
+                                width: `${Math.max(0.6, (getPreviewDuration(item) / visibleFrameRange) * 100)}%`,
+                              }}
+                              title={`${item.from}–${item.from + item.durationInFrames - 1}`}
+                            >
+                              {!track?.locked ? (
+                                <>
+                                  <span
+                                    role="slider"
+                                    aria-label={`Trim ${item.label || item.type} start`}
+                                    aria-valuemin={0}
+                                    aria-valuemax={item.from + item.durationInFrames - 1}
+                                    aria-valuenow={getPreviewFrom(item)}
+                                    tabIndex={-1}
+                                    data-testid={`motion-trim-start-${item.id}`}
+                                    onPointerDown={(event) => beginSpanTrim(event, item, 'start')}
+                                    onPointerMove={moveSpanTrim}
+                                    onPointerUp={endSpanTrim}
+                                    onPointerCancel={endSpanTrim}
+                                    className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
+                                  />
+                                  <span
+                                    role="slider"
+                                    aria-label={`Trim ${item.label || item.type} end`}
+                                    aria-valuemin={item.from + 1}
+                                    aria-valuemax={durationInFrames}
+                                    aria-valuenow={getPreviewFrom(item) + getPreviewDuration(item)}
+                                    tabIndex={-1}
+                                    data-testid={`motion-trim-end-${item.id}`}
+                                    onPointerDown={(event) => beginSpanTrim(event, item, 'end')}
+                                    onPointerMove={moveSpanTrim}
+                                    onPointerUp={endSpanTrim}
+                                    onPointerCancel={endSpanTrim}
+                                    className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
+                                  />
+                                </>
+                              ) : null}
+                              <span className="pointer-events-none block truncate px-1.5">
+                                {item.label || item.type}
+                              </span>
+                              {hasProceduralMotion ? (
+                                <span
+                                  data-testid={`motion-procedural-badge-${item.id}`}
+                                  className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-sm border border-sky-300/45 bg-sky-950/75 px-1 font-mono text-[8px] font-semibold text-sky-200"
+                                  title={t('timeline.clipIndicators.hasMotion')}
+                                >
+                                  ƒx
+                                </span>
+                              ) : null}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    </MotionRowContextMenu>
+
+                    {expanded ? (
+                      <>
+                        {textMotionBands.length > 0 ? (
+                          <TextMotionTimelineLanes
+                            itemId={item.id}
+                            bands={textMotionBands}
+                            timeViewport={timeViewport}
+                          />
+                        ) : null}
+                        <MotionDopesheetLanes
+                          item={item}
+                          properties={properties}
+                          compositionDurationInFrames={durationInFrames}
+                          fps={fps}
+                          canvas={composition}
+                          propertyFilter={propertyFilter}
+                          timeViewport={timeViewport}
+                          inlineCurveProperty={
+                            activeInlineCurve?.itemId === item.id
+                              ? activeInlineCurve.property
+                              : null
+                          }
+                          onSelectItem={(itemId) => selectItems([itemId])}
+                          onInlineCurveChange={(property) => {
+                            setInlineCurve(
+                              property
+                                ? {
+                                    compositionId: activeCompositionId,
+                                    itemId: item.id,
+                                    property,
+                                  }
+                                : null,
+                            )
+                          }}
+                          onScrub={(frame) => {
+                            pause()
+                            setScrubFrame(frame)
+                          }}
+                          onTimeViewportChange={updateTimeViewport}
+                        />
+                      </>
+                    ) : null}
                   </div>
                 )
-              })}
-            </div>
-          </div>
-
-          {motionRows.length === 0 ? (
-            <div className="flex h-32 items-center justify-center text-xs text-muted-foreground">
-              <Plus className="mr-2 h-3.5 w-3.5" />
-              {t('editor.compose.emptyLayers')}
-            </div>
-          ) : (
-            motionRows.map((row, index) => {
-              if (row.kind === 'group') return renderGroupRow(row)
-              const { item, track, depth } = row
-              const expanded = expandedLayerIdSet.has(item.id)
-              const selected = selectedItemIdSet.has(item.id)
-              const properties = getItemProperties(item)
-              const hasVisibleChildProperties =
-                propertyFilter === 'all' ||
-                properties.some((property) =>
-                  keyframesByItemId[item.id]?.properties.some(
-                    (entry) => entry.property === property && entry.keyframes.length > 0,
-                  ),
-                )
-              const isDragging = rowReorderDrag?.sourceTrackId === track?.id
-              const isDropTarget = reorderDropTargetTrackId === track?.id && !isDragging
-              return (
-                <div
-                  key={item.id}
-                  data-motion-row-track-id={track?.id}
-                  data-motion-parent-track-id={track?.parentTrackId ?? ''}
-                  className={cn(
-                    'relative border-b border-border/70',
-                    isDragging && 'z-30 opacity-85 shadow-lg',
-                    isDropTarget &&
-                      'before:absolute before:inset-x-0 before:z-40 before:h-0.5 before:bg-primary',
-                    isDropTarget && (reorderDropAfterTarget ? 'before:bottom-0' : 'before:top-0'),
-                  )}
-                  style={
-                    isDragging
-                      ? { transform: `translate3d(0, ${rowReorderDrag?.deltaY ?? 0}px, 0)` }
-                      : undefined
-                  }
-                >
-                  <MotionRowContextMenu
-                    canGroup={canGroupSelectedLayers}
-                    canPaste={canPasteLayers}
-                    onOpen={() => prepareLayerContextMenu(item.id)}
-                    onRename={() =>
-                      beginRename(
-                        { kind: 'layer', id: item.id },
-                        item.label || item.type,
-                      )
-                    }
-                    onGroup={createGroupFromSelection}
-                    onDuplicate={() => duplicateLayers([item.id])}
-                    onCopy={() => copyLayers([item.id])}
-                    onPaste={() => pasteLayers(track?.parentTrackId)}
-                    onDelete={() => deleteLayers([item.id], track ? [track.id] : [])}
-                  >
-                    <div
-                      className={cn(
-                        'flex transition-colors',
-                        selected ? 'bg-accent/70' : 'hover:bg-accent/35',
-                      )}
-                      style={{ height: LAYER_ROW_HEIGHT }}
-                    >
-                      <div
-                        className="flex shrink-0 items-center gap-1 border-r border-border px-1.5"
-                        style={{ width: LAYER_COLUMN_WIDTH, paddingLeft: 6 + depth * 16 }}
-                      >
-                      {track && (
-                        <button
-                          type="button"
-                          data-testid={`motion-reorder-handle-${track.id}`}
-                          onPointerDown={(event) => beginRowReorder(event, track)}
-                          onPointerMove={moveRowReorder}
-                          onPointerUp={finishRowReorder}
-                          onPointerCancel={cancelRowReorder}
-                          className="flex h-6 w-3.5 shrink-0 touch-none items-center justify-center rounded-sm text-muted-foreground/65 outline-none hover:bg-accent hover:text-foreground focus-visible:ring-1 focus-visible:ring-primary active:text-primary"
-                          title={t('editor.compose.reorderLayer')}
-                          aria-label={t('editor.compose.reorderLayer')}
-                        >
-                          <EllipsisVertical className="h-4 w-4" />
-                        </button>
-                      )}
-                      {hasVisibleChildProperties ? (
-                        <button
-                          type="button"
-                          onClick={() => toggleLayerExpanded(activeCompositionId, item.id)}
-                          className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                          aria-label={
-                            expanded
-                              ? t('editor.compose.collapseLayerProperties')
-                              : t('editor.compose.expandLayerProperties')
-                          }
-                        >
-                          {expanded ? (
-                            <ChevronDown className="h-3.5 w-3.5" />
-                          ) : (
-                            <ChevronRight className="h-3.5 w-3.5" />
-                          )}
-                        </button>
-                      ) : (
-                        <span className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-                      )}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          track && updateLayerTrack(track.id, { visible: !track.visible })
-                        }
-                        className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        aria-label={
-                          track?.visible === false
-                            ? t('editor.compose.showLayer')
-                            : t('editor.compose.hideLayer')
-                        }
-                      >
-                        {track?.visible === false ? (
-                          <EyeOff className="h-3.5 w-3.5" />
-                        ) : (
-                          <Eye className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          track && updateLayerTrack(track.id, { locked: !track.locked })
-                        }
-                        className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        aria-label={
-                          track?.locked
-                            ? t('editor.compose.unlockLayer')
-                            : t('editor.compose.lockLayer')
-                        }
-                      >
-                        {track?.locked ? (
-                          <Lock className="h-3.5 w-3.5" />
-                        ) : (
-                          <Unlock className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => track && updateLayerTrack(track.id, { solo: !track.solo })}
-                        className={cn(
-                          'h-5 w-5 rounded text-[9px] font-bold',
-                          track?.solo
-                            ? 'bg-primary/15 text-primary'
-                            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                        )}
-                        aria-label={
-                          track?.solo
-                            ? t('editor.compose.disableSolo')
-                            : t('editor.compose.soloLayer')
-                        }
-                      >
-                        S
-                      </button>
-                      {renameTarget?.kind === 'layer' && renameTarget.id === item.id ? (
-                        <input
-                          autoFocus
-                          value={renameDraft}
-                          onChange={(event) => setRenameDraft(event.target.value)}
-                          onFocus={(event) => event.currentTarget.select()}
-                          onBlur={commitRename}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') event.currentTarget.blur()
-                            if (event.key === 'Escape') setRenameTarget(null)
-                          }}
-                          aria-label="Layer name"
-                          className="h-5 min-w-24 flex-1 rounded border border-primary/50 bg-background px-1.5 text-[11px] font-medium outline-none"
-                        />
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={(event) =>
-                            selectLayer(item.id, {
-                              toggle: event.metaKey || event.ctrlKey,
-                              range: event.shiftKey,
-                            })
-                          }
-                          onDoubleClick={() =>
-                            beginRename(
-                              { kind: 'layer', id: item.id },
-                              item.label || item.type,
-                            )
-                          }
-                          className="min-w-0 flex-1 truncate px-1 text-left text-[11px] font-medium text-foreground"
-                          title={item.label || item.type}
-                        >
-                          <span className="mr-1.5 text-[9px] tabular-nums text-muted-foreground/70">
-                            {index + 1}
-                          </span>
-                          {item.label || item.type}
-                        </button>
-                      )}
-                      <LayerFrameInput
-                        label="I"
-                        ariaLabel={t('editor.compose.inFrame')}
-                        value={item.from}
-                        min={0}
-                        max={Math.max(0, item.from + item.durationInFrames - 1)}
-                        onCommit={(nextFrom) =>
-                          updateItem(item.id, {
-                            from: nextFrom,
-                            durationInFrames: Math.max(
-                              1,
-                              item.from + item.durationInFrames - nextFrom,
-                            ),
-                          })
-                        }
-                      />
-                      <LayerFrameInput
-                        label="O"
-                        ariaLabel={t('editor.compose.outFrame')}
-                        value={item.from + item.durationInFrames}
-                        min={item.from + 1}
-                        max={durationInFrames}
-                        onCommit={(nextOut) =>
-                          updateItem(item.id, {
-                            durationInFrames: Math.max(1, nextOut - item.from),
-                          })
-                        }
-                      />
-                      <Select
-                        value={item.blendMode ?? 'normal'}
-                        onValueChange={(value) =>
-                          updateItem(item.id, { blendMode: value as BlendMode })
-                        }
-                      >
-                        <SelectTrigger
-                          className="h-5 w-24 gap-1 bg-background px-2 text-[9px] text-muted-foreground"
-                          aria-label={t('editor.compose.blendMode')}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="max-h-72">
-                          {ALL_BLEND_MODES.map((mode) => (
-                            <SelectItem key={mode} value={mode} className="text-[10px]">
-                              {BLEND_MODE_LABELS[mode]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      </div>
-                      <div
-                      data-motion-timeline-lane
-                      className="relative min-w-0 flex-1 cursor-default overflow-hidden"
-                      onPointerDown={beginPlayheadScrub}
-                      onPointerMove={movePlayheadScrub}
-                      onPointerUp={endPlayheadScrub}
-                      onPointerCancel={endPlayheadScrub}
-                    >
-                      {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
-                        <div
-                          key={tick}
-                          className="pointer-events-none absolute inset-y-0 border-l border-border/45"
-                          style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
-                        />
-                      ))}
-                      {!activeInlineCurve ? (
-                      <button
-                        type="button"
-                        data-testid={`motion-layer-span-${item.id}`}
-                        onPointerDown={(event) =>
-                          !track?.locked &&
-                          beginSpanDrag(
-                            event,
-                            selected && !(event.metaKey || event.ctrlKey || event.shiftKey)
-                              ? selectedItemIds
-                              : [item.id],
-                          )
-                        }
-                        onPointerMove={moveSpanDrag}
-                        onPointerUp={endSpanDrag}
-                        onPointerCancel={endSpanDrag}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                        }}
-                        className={cn(
-                          'absolute top-1/2 h-5 -translate-y-1/2 touch-none rounded-sm border px-1 text-left text-[9px] shadow-sm transition-colors',
-                          track?.locked
-                            ? 'cursor-not-allowed opacity-55'
-                            : 'cursor-grab active:cursor-grabbing',
-                          selected
-                            ? 'border-foreground/80 bg-timeline-motion-segment/90 text-foreground'
-                            : 'border-timeline-motion-segment/80 bg-timeline-motion-segment/70 text-foreground hover:bg-timeline-motion-segment/85',
-                        )}
-                        style={{
-                          left: `${frameToMotionPercent(getPreviewFrom(item))}%`,
-                          width: `${Math.max(0.6, (getPreviewDuration(item) / visibleFrameRange) * 100)}%`,
-                        }}
-                        title={`${item.from}–${item.from + item.durationInFrames - 1}`}
-                      >
-                        {!track?.locked ? (
-                          <>
-                            <span
-                              role="slider"
-                              aria-label={`Trim ${item.label || item.type} start`}
-                              aria-valuemin={0}
-                              aria-valuemax={item.from + item.durationInFrames - 1}
-                              aria-valuenow={getPreviewFrom(item)}
-                              tabIndex={-1}
-                              data-testid={`motion-trim-start-${item.id}`}
-                              onPointerDown={(event) => beginSpanTrim(event, item, 'start')}
-                              onPointerMove={moveSpanTrim}
-                              onPointerUp={endSpanTrim}
-                              onPointerCancel={endSpanTrim}
-                              className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
-                            />
-                            <span
-                              role="slider"
-                              aria-label={`Trim ${item.label || item.type} end`}
-                              aria-valuemin={item.from + 1}
-                              aria-valuemax={durationInFrames}
-                              aria-valuenow={getPreviewFrom(item) + getPreviewDuration(item)}
-                              tabIndex={-1}
-                              data-testid={`motion-trim-end-${item.id}`}
-                              onPointerDown={(event) => beginSpanTrim(event, item, 'end')}
-                              onPointerMove={moveSpanTrim}
-                              onPointerUp={endSpanTrim}
-                              onPointerCancel={endSpanTrim}
-                              className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
-                            />
-                          </>
-                        ) : null}
-                        <span className="pointer-events-none block truncate px-1.5">
-                          {item.label || item.type}
-                        </span>
-                      </button>
-                      ) : null}
-                      </div>
-                    </div>
-                  </MotionRowContextMenu>
-
-                  {expanded ? (
-                    <MotionDopesheetLanes
-                      item={item}
-                      properties={properties}
-                      compositionDurationInFrames={durationInFrames}
-                      fps={fps}
-                      canvas={composition}
-                      propertyFilter={propertyFilter}
-                      timeViewport={timeViewport}
-                      inlineCurveProperty={
-                        activeInlineCurve?.itemId === item.id
-                          ? activeInlineCurve.property
-                          : null
-                      }
-                      onSelectItem={(itemId) => selectItems([itemId])}
-                      onInlineCurveChange={(property) => {
-                        setInlineCurve(
-                          property
-                            ? {
-                                compositionId: activeCompositionId,
-                                itemId: item.id,
-                                property,
-                              }
-                            : null,
-                        )
-                      }}
-                      onScrub={(frame) => {
-                        pause()
-                        setScrubFrame(frame)
-                      }}
-                      onTimeViewportChange={updateTimeViewport}
-                    />
-                  ) : null}
-                </div>
-              )
-            })
-          )}
+              })
+            )}
           </div>
         </div>
         {activeInlineCurve && activeCurveItem ? (

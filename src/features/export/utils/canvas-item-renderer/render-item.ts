@@ -23,7 +23,7 @@ import {
   resolveCornerPinForSize,
   resolveCornerPinTargetRect,
 } from '@/features/export/deps/composition-runtime'
-import { resolveAnimatedTextItem } from '@/features/export/deps/keyframes'
+import { resolveAnimatedShapeItem, resolveAnimatedTextItem } from '@/features/export/deps/keyframes'
 import type { EffectSourceMask } from '../canvas-effects'
 import { applyMasks } from '../canvas-masks'
 import { renderShape } from '../canvas-shapes'
@@ -79,7 +79,9 @@ export async function renderItem(
           ...resolveAnimatedTextItem(item, itemKeyframes, frame - item.from, rctx.canvasSettings),
           cornerPin: item.cornerPin,
         }
-      : item
+      : item.type === 'shape'
+        ? resolveAnimatedShapeItem(item, itemKeyframes, frame - item.from)
+        : item
   const frameResolvedItem = applyAnimatedCropToItem(animatedTextItem, frame, rctx, renderSpan)
   const resolvedTransform = resolveItemTransform(transform)
   const frameResolvedTransform =
@@ -159,8 +161,8 @@ async function renderItemContent(
       : item
 
   switch (effectiveItem.type) {
-    case 'video':
-      await renderVideoItem(
+    case 'video': {
+      const videoFrameDrawn = await renderVideoItem(
         ctx,
         effectiveItem as VideoItem,
         transform,
@@ -169,7 +171,14 @@ async function renderItemContent(
         sourceFrameOffset,
         renderSpan,
       )
+      if (!videoFrameDrawn) {
+        // Preview canvases are cleared before item rendering. A video item is
+        // complete only after one of its real frame sources was drawn; every
+        // other outcome must preserve the previous front buffer.
+        if (rctx.renderMode === 'preview') rctx.markActivePreviewFramePending?.()
+      }
       break
+    }
     case 'image':
       renderImageItem(ctx, effectiveItem as ImageItem, transform, rctx, frame)
       break

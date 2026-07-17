@@ -11,6 +11,10 @@ export {
   isTextAnimatableProperty,
 } from '@/features/keyframes/utils/animated-text-item'
 export {
+  getShapeAnimatableBaseValue,
+  isShapeAnimatableProperty,
+} from '@/features/keyframes/utils/animated-shape-item'
+export {
   BEZIER_PRESETS,
   areBezierPointsEqual,
   findMatchingBezierPreset,
@@ -27,7 +31,10 @@ export { DopesheetEditor } from '@/features/keyframes/components/dopesheet-edito
 export { CompactNavigator } from '@/features/keyframes/components/dopesheet-editor/compact-navigator'
 export { KEYFRAME_EDGE_INSET } from '@/features/keyframes/components/dopesheet-editor/layout'
 export { getAnimatablePropertiesForItem } from '@/features/keyframes/utils/animatable-properties'
-export type { ProceduralPreviewInput } from '@/features/keyframes/utils/procedural-preview'
+export {
+  getProceduralBands,
+  type ProceduralPreviewInput,
+} from '@/features/keyframes/utils/procedural-preview'
 export { buildBakeMotionPlan } from '@/features/keyframes/utils/bake-motion'
 export { getEffectPropertyBaseValue } from '@/features/keyframes/utils/effect-animatable-properties'
 export {

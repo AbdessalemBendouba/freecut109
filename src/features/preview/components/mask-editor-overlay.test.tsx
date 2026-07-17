@@ -220,6 +220,7 @@ describe('MaskEditorOverlay shape pen flow', () => {
     const shape = items[0] as ShapeItem
     expect(shape?.type).toBe('shape')
     expect(shape?.shapeType).toBe('path')
+    expect(shape?.pathClosed).toBe(true)
     expect(shape?.label).toBe('Path')
     expect(shape?.fillColor).toBe('#3b82f6')
     expect(shape?.isMask).toBe(false)
@@ -506,14 +507,13 @@ describe('MaskEditorOverlay shape pen flow', () => {
     expect(firstVertex?.outHandle).toEqual([0, 0])
   })
 
-  it('auto-closes the shape when the preview pen toolbar requests finish', async () => {
+  it('finishes the pen path as an open, stroke-first shape from the preview toolbar', async () => {
     useMaskEditorStore.getState().startShapePenMode()
 
     const { canvas } = renderMaskEditorOverlay()
 
     clickCanvasPoint(canvas, 20, 20, 1)
     clickCanvasPoint(canvas, 120, 20, 2)
-    clickCanvasPoint(canvas, 120, 80, 3)
 
     act(() => {
       useMaskEditorStore.getState().requestFinishPenMode()
@@ -527,6 +527,11 @@ describe('MaskEditorOverlay shape pen flow', () => {
     expect(shape?.type).toBe('shape')
     expect(shape?.shapeType).toBe('path')
     expect(shape?.isMask).toBe(false)
+    expect(shape?.pathClosed).toBe(false)
+    expect(shape?.fillEnabled).toBe(false)
+    expect(shape?.strokeEnabled).toBe(true)
+    expect(shape?.strokeLineCap).toBe('round')
+    expect(shape?.strokeLineJoin).toBe('round')
   })
 
   it('renders the closing segment while dragging the final bezier', async () => {
@@ -884,10 +889,10 @@ describe('MaskEditorOverlay edit mode', () => {
     expect(movedItem?.transform?.x).toBeCloseTo(20)
     expect(movedItem?.transform?.y).toBeCloseTo(15)
     expect(movedItem?.pathVertices).toEqual([
-      { position: [0, 0], inHandle: [0, 0], outHandle: [0, 0] },
-      { position: [1, 0], inHandle: [0, 0], outHandle: [0, 0] },
-      { position: [1, 1], inHandle: [0, 0], outHandle: [0, 0] },
-      { position: [0, 1], inHandle: [0, 0], outHandle: [0, 0] },
+      { position: [0, 0], inHandle: [0, 0], outHandle: [0, 0], tangentMode: 'corner' },
+      { position: [1, 0], inHandle: [0, 0], outHandle: [0, 0], tangentMode: 'corner' },
+      { position: [1, 1], inHandle: [0, 0], outHandle: [0, 0], tangentMode: 'corner' },
+      { position: [0, 1], inHandle: [0, 0], outHandle: [0, 0], tangentMode: 'corner' },
     ])
     expect(useMaskEditorStore.getState().selectedVertexIndices).toEqual([0, 1, 2, 3])
   })

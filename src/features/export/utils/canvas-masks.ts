@@ -96,7 +96,7 @@ function renderCornerPinnedMaskBitmap(
   }
 
   const localPath = getShapePath(
-    mask,
+    { ...mask, pathClosed: true },
     {
       x: 0,
       y: 0,
@@ -163,7 +163,7 @@ export function buildPreparedMask(
 
   // Generate SVG path
   let svgPath = getShapePath(
-    mask,
+    { ...mask, pathClosed: true },
     {
       x: transform.x,
       y: transform.y,

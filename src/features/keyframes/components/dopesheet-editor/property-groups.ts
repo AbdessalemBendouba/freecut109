@@ -41,6 +41,19 @@ const PROPERTY_GROUP_DEFINITIONS: Array<{
     label: 'Audio',
     properties: ['volume'],
   },
+  {
+    id: 'shape',
+    label: 'Shape',
+    properties: [
+      'trimPathStart',
+      'trimPathEnd',
+      'trimPathOffset',
+      'taperStartWidth',
+      'taperEndWidth',
+      'taperStartLength',
+      'taperEndLength',
+    ],
+  },
 ]
 
 export function getPropertyAccordionGroups(

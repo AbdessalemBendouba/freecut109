@@ -11,6 +11,13 @@ import {
 
 export { roundFrame, roundDuration, roundOptionalFrame, normalizeOptionalFps }
 
+const MIN_ENABLED_STROKE_WIDTH = 1
+
+function clampShapePercent(value: number | undefined, max = 100): number | undefined {
+  return value === undefined ? undefined : Math.max(0, Math.min(max, value))
+}
+
+// fallow-ignore-next-line complexity
 export function normalizeFrameFields<T extends TimelineItem>(item: T): T {
   // Start from a shallow copy so the optional-clamp loop can rewrite fields
   // in place without mutating the caller's object.
@@ -44,8 +51,35 @@ export function normalizeFrameFields<T extends TimelineItem>(item: T): T {
     }
   }
 
-  if (result.type === 'shape' && result.isMask) {
-    result.blendMode = 'normal'
+  if (result.type === 'shape') {
+    result.taperStartWidth = clampShapePercent(result.taperStartWidth, 200)
+    result.taperEndWidth = clampShapePercent(result.taperEndWidth, 200)
+    result.taperStartLength = clampShapePercent(result.taperStartLength)
+    result.taperEndLength = clampShapePercent(result.taperEndLength)
+    if (result.shapeType === 'path') {
+      result.pathClosed = result.isMask ? true : (result.pathClosed ?? true)
+      if (result.pathClosed === false) result.fillEnabled = false
+      else result.fillEnabled ??= true
+      result.strokeEnabled ??= true
+      result.strokeLineCap ??= 'butt'
+      result.strokeLineJoin ??= 'miter'
+      result.strokeMiterLimit ??= 4
+      result.pathVertices = result.pathVertices?.map((vertex) => ({
+        ...vertex,
+        tangentMode:
+          vertex.tangentMode ??
+          (vertex.inHandle[0] === 0 &&
+          vertex.inHandle[1] === 0 &&
+          vertex.outHandle[0] === 0 &&
+          vertex.outHandle[1] === 0
+            ? 'corner'
+            : 'smooth'),
+      }))
+    }
+    if (result.strokeEnabled === true && (result.strokeWidth ?? 0) < MIN_ENABLED_STROKE_WIDTH) {
+      result.strokeWidth = MIN_ENABLED_STROKE_WIDTH
+    }
+    if (result.isMask) result.blendMode = 'normal'
   }
 
   // Legacy split clips can have sourceEnd without sourceStart.
@@ -71,6 +105,14 @@ export function normalizeItemUpdates(updates: Partial<TimelineItem>): Partial<Ti
   }
 
   applyOptionalClamps(normalized)
+
+  if (
+    normalized.strokeEnabled === true &&
+    typeof normalized.strokeWidth === 'number' &&
+    normalized.strokeWidth < MIN_ENABLED_STROKE_WIDTH
+  ) {
+    normalized.strokeWidth = MIN_ENABLED_STROKE_WIDTH
+  }
 
   // Keep legacy end-only bounds explicit and stable.
   if (normalized.sourceEnd !== undefined && normalized.sourceStart === undefined) {

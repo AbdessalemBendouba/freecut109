@@ -6,6 +6,7 @@ export {
   KEYFRAME_EDGE_INSET,
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,
+  getProceduralBands,
 } from '@/features/timeline/deps/keyframe-editors'
 export { interpolatePropertyValue } from '@/features/timeline/deps/keyframes'
 export { captureSnapshot } from '@/features/timeline/stores/commands/snapshot'

@@ -126,6 +126,7 @@ export function fitShapePathToBounds(
 
   return {
     pathVertices: vertices.map((vertex) => ({
+      ...vertex,
       position: [
         (vertex.position[0] - bounds.minX) / spanX,
         (vertex.position[1] - bounds.minY) / spanY,

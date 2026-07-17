@@ -19,6 +19,8 @@ import {
   getTransitionBlockedRanges,
   interpolatePropertyValue,
   getTextAnimatableBaseValue,
+  getShapeAnimatableBaseValue,
+  isShapeAnimatableProperty,
   isTextAnimatableProperty,
   buildEasingConfig,
 } from '@/features/timeline/deps/keyframes'
@@ -177,6 +179,10 @@ function getBaseKeyframeValue(
 
   if (item.type === 'text' && isTextAnimatableProperty(property)) {
     return getTextAnimatableBaseValue(item, property)
+  }
+
+  if (item.type === 'shape' && isShapeAnimatableProperty(property)) {
+    return getShapeAnimatableBaseValue(item, property)
   }
 
   if (

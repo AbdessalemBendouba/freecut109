@@ -251,6 +251,10 @@ interface DopesheetEditorProps {
   selectedCurveVisibleExternally?: boolean
   /** Optional controlled property filter for embedded lane presentations. */
   propertyFilter?: 'all' | 'keyframed'
+  /** Absolute frame where a generated procedural band begins. */
+  proceduralFrameOffset?: number
+  /** Duration used for generated procedural bands. Defaults to the editor range. */
+  proceduralDurationInFrames?: number
   /** Parameter groups visible when this editor instance first opens. */
   initialVisibleGroupIds?: readonly string[]
   /** Render the playhead. Disable it when the parent owns one shared overlay. */
@@ -334,6 +338,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   singleCurveMode = false,
   selectedCurveVisibleExternally = false,
   propertyFilter,
+  proceduralFrameOffset = 0,
+  proceduralDurationInFrames = totalFrames,
   initialVisibleGroupIds,
   showPlayhead = true,
   shortcutsEnabled = false,
@@ -446,6 +452,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       ),
     [availableProperties, keyframesByProperty],
   )
+  const itemMotionModifiers = useItemsStore((s) => s.itemById[itemId]?.motionModifiers)
+  const proceduralBandByProperty = useMemo(
+    () =>
+      getProceduralBands(itemMotionModifiers, proceduralDurationInFrames, proceduralFrameOffset),
+    [itemMotionModifiers, proceduralDurationInFrames, proceduralFrameOffset],
+  )
   const {
     graphVisibleProperties,
     setGraphVisibleProperties,
@@ -491,13 +503,20 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         const groupId = propertyGroupIdByProperty.get(property)
         const groupVisible = groupId ? (visibleGroups[groupId] ?? true) : true
         if (!groupVisible) return false
-        if (filterKeyframedOnly && !keyframedPropertyIds.has(property)) return false
+        if (
+          filterKeyframedOnly &&
+          !keyframedPropertyIds.has(property) &&
+          !(propertyFilter === 'keyframed' && proceduralBandByProperty.has(property))
+        )
+          return false
         return true
       }),
     [
       availableProperties,
       keyframedPropertyIds,
+      proceduralBandByProperty,
       propertyGroupIdByProperty,
+      propertyFilter,
       filterKeyframedOnly,
       visibleGroups,
     ],
@@ -978,14 +997,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         (range) => currentFrame >= range.start && currentFrame < range.end,
       ),
     [transitionBlockedRanges, currentFrame],
-  )
-
-  // Procedural motion (drift / breath / shake) isn't keyed, so show it as a band
-  // per driven property instead of diamonds, until baked.
-  const itemMotionModifiers = useItemsStore((s) => s.itemById[itemId]?.motionModifiers)
-  const proceduralBandByProperty = useMemo(
-    () => getProceduralBands(itemMotionModifiers, totalFrames),
-    [itemMotionModifiers, totalFrames],
   )
 
   // Adds inside a transition region are rejected by the action layer; surface

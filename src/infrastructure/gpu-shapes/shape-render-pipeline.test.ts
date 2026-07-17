@@ -39,11 +39,11 @@ describe('ShapeRenderPipeline', () => {
 
     expect(rendered).toBe(true)
     expect(device.createBuffer).toHaveBeenCalledWith({
-      size: (24 + MAX_GPU_SHAPE_PATH_VERTICES * 4) * Float32Array.BYTES_PER_ELEMENT,
+      size: (32 + MAX_GPU_SHAPE_PATH_VERTICES * 4) * Float32Array.BYTES_PER_ELEMENT,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
     const uniformData = queue.writeBuffer.mock.calls[0]?.[2] as Float32Array
-    expect(uniformData.length).toBe(24 + MAX_GPU_SHAPE_PATH_VERTICES * 4)
+    expect(uniformData.length).toBe(32 + MAX_GPU_SHAPE_PATH_VERTICES * 4)
     expect(Array.from(uniformData.slice(0, 3))).toEqual([1920, 1080, 5])
     expect(uniformData[3]).toBeCloseTo(0.8)
     expect(Array.from(uniformData.slice(4, 19))).toEqual([
@@ -121,7 +121,7 @@ describe('ShapeRenderPipeline', () => {
     const uniformData = queue.writeBuffer.mock.calls[0]?.[2] as Float32Array
     expect(uniformData[2]).toBe(7)
     expect(uniformData[18]).toBe(3)
-    expect(Array.from(uniformData.slice(24, 36))).toEqual([
+    expect(Array.from(uniformData.slice(32, 44))).toEqual([
       -150, -120, 0, 0, 150, -120, 0, 0, 0, 120, 0, 0,
     ])
   })
@@ -151,5 +151,34 @@ describe('ShapeRenderPipeline', () => {
       0,
       0,
     ])
+  })
+
+  it('uses generated perimeter distance for analytic shape progress', () => {
+    const { outputTexture, pipeline, queue } = createPipelineHarness()
+    pipeline.renderShapeToTexture(outputTexture, {
+      outputWidth: 1920,
+      outputHeight: 1080,
+      shapeType: 'rectangle',
+      fillColor: [1, 1, 1, 1],
+      transformRect: { x: 0, y: 0, width: 200, height: 100 },
+    })
+    const rectangle = queue.writeBuffer.mock.calls[0]?.[2] as Float32Array
+    expect(Array.from(rectangle.slice(32, 35))).toEqual([-100, -50, 0])
+    expect(rectangle[38]).toBeCloseTo(1 / 3)
+
+    pipeline.renderShapeToTexture(outputTexture, {
+      outputWidth: 1920,
+      outputHeight: 1080,
+      shapeType: 'heart',
+      fillColor: [1, 1, 1, 1],
+      transformRect: { x: 0, y: 0, width: 220, height: 200 },
+    })
+    const heart = queue.writeBuffer.mock.calls[1]?.[2] as Float32Array
+    expect(heart[32]).toBeCloseTo(0)
+    expect(heart[33]).toBeGreaterThan(0)
+    expect(heart[36]).toBeLessThan(0)
+    const heartVertexCount = heart[21]!
+    const progress = Array.from({ length: heartVertexCount }, (_, index) => heart[34 + index * 4]!)
+    expect(progress.every((value, index) => index === 0 || value > progress[index - 1]!)).toBe(true)
   })
 })

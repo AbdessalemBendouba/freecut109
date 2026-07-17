@@ -8,6 +8,7 @@ const DEFAULT_BEZIER_HANDLE_SCALE = 0.25
 
 function cloneVertex(vertex: MaskVertex): MaskVertex {
   return {
+    ...vertex,
     position: [...vertex.position] as [number, number],
     inHandle: [...vertex.inHandle] as [number, number],
     outHandle: [...vertex.outHandle] as [number, number],
@@ -56,21 +57,52 @@ function getSmoothTangentDirection(
  * Insert a new vertex on the mask path segment between two existing vertices.
  * Returns a new vertices array with the vertex inserted at the midpoint.
  */
-export function insertVertexBetween(vertices: MaskVertex[], afterIndex: number): MaskVertex[] {
+export function insertVertexBetween(
+  vertices: MaskVertex[],
+  afterIndex: number,
+  t = 0.5,
+): MaskVertex[] {
   const curr = vertices[afterIndex]!
   const next = vertices[(afterIndex + 1) % vertices.length]!
 
-  // Midpoint position
-  const mx = (curr.position[0] + next.position[0]) / 2
-  const my = (curr.position[1] + next.position[1]) / 2
+  const clampedT = Math.max(0, Math.min(1, t))
+  const lerp = (a: readonly [number, number], b: readonly [number, number]): [number, number] => [
+    a[0] + (b[0] - a[0]) * clampedT,
+    a[1] + (b[1] - a[1]) * clampedT,
+  ]
+  const p0 = curr.position
+  const p1: [number, number] = [
+    curr.position[0] + curr.outHandle[0],
+    curr.position[1] + curr.outHandle[1],
+  ]
+  const p2: [number, number] = [
+    next.position[0] + next.inHandle[0],
+    next.position[1] + next.inHandle[1],
+  ]
+  const p3 = next.position
+  const q0 = lerp(p0, p1)
+  const q1 = lerp(p1, p2)
+  const q2 = lerp(p2, p3)
+  const r0 = lerp(q0, q1)
+  const r1 = lerp(q1, q2)
+  const split = lerp(r0, r1)
+  const hasCurve =
+    curr.outHandle[0] !== 0 ||
+    curr.outHandle[1] !== 0 ||
+    next.inHandle[0] !== 0 ||
+    next.inHandle[1] !== 0
 
   const newVertex: MaskVertex = {
-    position: [mx, my],
-    inHandle: [0, 0],
-    outHandle: [0, 0],
+    position: split,
+    inHandle: hasCurve ? [r0[0] - split[0], r0[1] - split[1]] : [0, 0],
+    outHandle: hasCurve ? [r1[0] - split[0], r1[1] - split[1]] : [0, 0],
+    tangentMode: hasCurve ? 'continuous' : 'corner',
   }
 
-  const result = [...vertices]
+  const result = vertices.map(cloneVertex)
+  result[afterIndex]!.outHandle = hasCurve ? [q0[0] - p0[0], q0[1] - p0[1]] : [0, 0]
+  const nextIndex = (afterIndex + 1) % vertices.length
+  result[nextIndex]!.inHandle = hasCurve ? [q2[0] - p3[0], q2[1] - p3[1]] : [0, 0]
   result.splice(afterIndex + 1, 0, newVertex)
   return result
 }
@@ -88,6 +120,7 @@ export function convertVertexToCorner(vertices: MaskVertex[], index: number): Ma
     ...result[index]!,
     inHandle: [0, 0],
     outHandle: [0, 0],
+    tangentMode: 'corner',
   }
   return result
 }
@@ -98,15 +131,22 @@ export function convertVertexToCorner(vertices: MaskVertex[], index: number): Ma
  * Existing handle lengths are preserved when present. If the knot is currently
  * a corner, new handle lengths are synthesized from neighboring segment lengths.
  */
-export function convertVertexToBezier(vertices: MaskVertex[], index: number): MaskVertex[] {
+// fallow-ignore-next-line complexity
+export function convertVertexToBezier(
+  vertices: MaskVertex[],
+  index: number,
+  closed = true,
+): MaskVertex[] {
   if (vertices.length < 2 || index < 0 || index >= vertices.length) {
     return vertices
   }
 
   const result = vertices.map(cloneVertex)
   const vertex = result[index]!
-  const prev = result[(index - 1 + result.length) % result.length]!
-  const next = result[(index + 1) % result.length]!
+  const prev =
+    !closed && index === 0 ? vertex : result[(index - 1 + result.length) % result.length]!
+  const next =
+    !closed && index === result.length - 1 ? vertex : result[(index + 1) % result.length]!
 
   const existingInLength = getVectorLength(vertex.inHandle)
   const existingOutLength = getVectorLength(vertex.outHandle)
@@ -147,6 +187,7 @@ export function convertVertexToBezier(vertices: MaskVertex[], index: number): Ma
 
   vertex.inHandle = [-direction[0] * inLength, -direction[1] * inLength]
   vertex.outHandle = [direction[0] * outLength, direction[1] * outLength]
+  vertex.tangentMode = 'continuous'
   return result
 }
 
@@ -154,8 +195,12 @@ export function convertVertexToBezier(vertices: MaskVertex[], index: number): Ma
  * Remove a vertex from the mask path.
  * Returns null if removing would leave fewer than 3 vertices.
  */
-export function removeVertex(vertices: MaskVertex[], index: number): MaskVertex[] | null {
-  if (vertices.length <= 3) return null
+export function removeVertex(
+  vertices: MaskVertex[],
+  index: number,
+  minimumVertices = 3,
+): MaskVertex[] | null {
+  if (vertices.length <= minimumVertices) return null
   const result = [...vertices]
   result.splice(index, 1)
   return result

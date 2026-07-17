@@ -351,7 +351,17 @@ export function usePreviewRenderPump({
 
     const captureCommittedPreviewSnapshot = (frame: number) => {
       const displayCanvas = scrubCanvasRef.current
-      if (!displayCanvas || usePreviewBridgeStore.getState().displayedFrame !== frame) return
+      if (
+        !displayCanvas ||
+        !showFastScrubOverlayRef.current ||
+        usePreviewBridgeStore.getState().displayedFrame !== frame
+      ) {
+        // A hidden scrub canvas is not the visible committed presentation.
+        // It may contain an old partial render even though its frame tag still
+        // matches the playhead. Never promote those pixels on gesture entry.
+        committedPreviewSnapshotFrame = null
+        return
+      }
       if (
         !committedPreviewSnapshotCanvas ||
         committedPreviewSnapshotCanvas.width !== displayCanvas.width ||
@@ -608,6 +618,7 @@ export function usePreviewRenderPump({
     let scrubPrewarmIdleDelayMs = 40
     let lastActivePreviewTargetAtMs = 0
     let lastActivePreviewSourceTimes = new Map<string, number>()
+    let scrubTargetsInGesture = 0
     const cancelScrubPrewarmIdleRestart = () => {
       if (scrubPrewarmIdleTimeoutId === null) return
       clearTimeout(scrubPrewarmIdleTimeoutId)
@@ -1892,11 +1903,17 @@ export function usePreviewRenderPump({
 
     const handleScrubTargetUpdate = (state: PlaybackStoreSnapshot, prev: PlaybackStoreSnapshot) => {
       if (state.previewFrame !== null && prev.previewFrame === null) {
+        scrubTargetsInGesture = 1
         // Snapshot at gesture entry, not only when the committed render first
         // completed. The preview controller can be rebuilt between those two
         // moments (resize/workspace/layout changes), while the visible canvas
         // remains the authoritative frame the hover must return to.
         captureCommittedPreviewSnapshot(prev.currentFrame)
+      } else if (
+        state.previewFrame !== null &&
+        state.previewFrame !== prev.previewFrame
+      ) {
+        scrubTargetsInGesture += 1
       }
       if (
         state.isPlaying ||
@@ -1908,7 +1925,9 @@ export function usePreviewRenderPump({
       }
       const settlingReleasedScrubFrame =
         state.previewFrame === null && prev.previewFrame !== null ? state.currentFrame : null
-      if (
+      const isSequentialSwipeRelease =
+        settlingReleasedScrubFrame !== null && scrubTargetsInGesture >= 3
+      const shouldRestoreCommittedSnapshot =
         committedPreviewSnapshotCanvas &&
         shouldRestoreCommittedPreviewSnapshot({
           previewFrame: state.previewFrame,
@@ -1916,12 +1935,20 @@ export function usePreviewRenderPump({
           currentFrame: state.currentFrame,
           snapshotFrame: committedPreviewSnapshotFrame,
         })
-      ) {
+      if (shouldRestoreCommittedSnapshot && committedPreviewSnapshotCanvas) {
         // Hover skimming may end on a nested frame whose sources were still
         // settling. Restore the last committed pixels synchronously instead
         // of leaving that transient frame visible while currentFrame rerenders.
         drawSourceToDisplay(committedPreviewSnapshotCanvas, state.currentFrame)
+      } else if (isSequentialSwipeRelease) {
+        // If the gesture began on the live Player, there is no authoritative
+        // canvas snapshot to restore. Hide the skim layer immediately and let
+        // the already-correct Player remain visible while an exact canvas
+        // render for the committed frame is prepared.
+        scrubOffscreenRenderedFrameRef.current = null
+        hideFastScrubOverlay()
       }
+      if (settlingReleasedScrubFrame !== null) scrubTargetsInGesture = 0
       const activePreviewPresentationTarget = resolveActivePreviewPresentationTarget({
         state,
         prev,

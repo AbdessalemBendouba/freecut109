@@ -2,7 +2,30 @@
 
 import { describe, expect, it } from 'vite-plus/test'
 import type { TimelineTrack } from '@/types/timeline'
-import { buildPreviewCompositionData } from './use-preview-composition-model'
+import { buildPreviewCompositionData, mergeLiveItemPreview } from './use-preview-composition-model'
+
+describe('mergeLiveItemPreview', () => {
+  it('merges live shape properties into the canvas renderer snapshot', () => {
+    const shape = {
+      id: 'shape-1',
+      trackId: 'track-1',
+      type: 'shape' as const,
+      shapeType: 'path' as const,
+      fillColor: '#000000',
+      label: 'Path',
+      from: 0,
+      durationInFrames: 100,
+      trimPathOffset: 0,
+    }
+
+    expect(
+      mergeLiveItemPreview(shape, {
+        properties: { trimPathOffset: 135, taperStartWidth: 20 },
+      }),
+    ).toMatchObject({ trimPathOffset: 135, taperStartWidth: 20 })
+    expect(shape.trimPathOffset).toBe(0)
+  })
+})
 
 describe('buildPreviewCompositionData', () => {
   it('derives playback and fast-scrub sources separately and computes boundaries', () => {

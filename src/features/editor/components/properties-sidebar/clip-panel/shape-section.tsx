@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { i18n } from '@/i18n'
 import {
   Shapes,
-  RotateCcw,
   ChevronUp,
   ChevronDown,
   ChevronLeft,
@@ -21,7 +20,15 @@ import {
 import type { ShapeItem, ShapeType, TimelineItem } from '@/types/timeline'
 import { useTimelineStore } from '@/features/editor/deps/timeline-store'
 import { useGizmoStore, useMaskEditorStore } from '@/features/editor/deps/preview'
-import { PropertySection, PropertyRow, NumberInput, SliderInput, ColorPicker } from '../components'
+import {
+  PropertySection,
+  PropertyRow,
+  NumberInput,
+  PropertySliderControl,
+  ColorPicker,
+} from '../components'
+import { reversePathVertices, rotateClosedPathStart } from '@/shared/graphics/shapes/bezier-path'
+import { getPathClosureUpdates, getShapeSectionControlVisibility } from './shape-section-visibility'
 
 // Shape type options
 const SHAPE_TYPE_OPTIONS: { value: ShapeType; labelKey: string }[] = [
@@ -33,6 +40,9 @@ const SHAPE_TYPE_OPTIONS: { value: ShapeType; labelKey: string }[] = [
   { value: 'polygon', labelKey: 'editor.shapeSection.typePolygon' },
   { value: 'heart', labelKey: 'editor.shapeSection.typeHeart' },
 ]
+
+const MIN_ENABLED_STROKE_WIDTH = 1
+const DEFAULT_STROKE_COLOR = '#3b82f6'
 
 // Triangle direction options
 const DIRECTION_OPTIONS: {
@@ -56,7 +66,8 @@ interface ShapeSectionProps {
 export function ShapeSection({ items }: ShapeSectionProps) {
   const { t } = useTranslation()
   const updateItem = useTimelineStore((s) => s.updateItem)
-  const { isEditing, editingItemId, penMode, startEditing, stopEditing } = useMaskEditorStore()
+  const { isEditing, editingItemId, penMode, selectedVertexIndex, startEditing, stopEditing } =
+    useMaskEditorStore()
 
   // Gizmo store for live property preview
   const setPropertiesPreviewNew = useGizmoStore((s) => s.setPropertiesPreviewNew)
@@ -83,11 +94,36 @@ export function ShapeSection({ items }: ShapeSectionProps) {
       fillColor: shapeItems.every((i) => i.fillColor === first.fillColor)
         ? first.fillColor
         : undefined,
+      fillEnabled: shapeItems.every((i) => (i.fillEnabled ?? true) === (first.fillEnabled ?? true))
+        ? (first.fillEnabled ?? true)
+        : ('mixed' as const),
       strokeColor: shapeItems.every((i) => (i.strokeColor ?? '') === (first.strokeColor ?? ''))
         ? (first.strokeColor ?? '')
         : undefined,
       strokeWidth: shapeItems.every((i) => (i.strokeWidth ?? 0) === (first.strokeWidth ?? 0))
         ? (first.strokeWidth ?? 0)
+        : ('mixed' as const),
+      strokeEnabled: shapeItems.every(
+        (i) =>
+          (i.strokeEnabled ?? ((i.strokeWidth ?? 0) > 0 && !!i.strokeColor)) ===
+          (first.strokeEnabled ?? ((first.strokeWidth ?? 0) > 0 && !!first.strokeColor)),
+      )
+        ? (first.strokeEnabled ?? ((first.strokeWidth ?? 0) > 0 && !!first.strokeColor))
+        : ('mixed' as const),
+      strokeLineCap: shapeItems.every(
+        (i) => (i.strokeLineCap ?? 'butt') === (first.strokeLineCap ?? 'butt'),
+      )
+        ? (first.strokeLineCap ?? 'butt')
+        : undefined,
+      strokeLineJoin: shapeItems.every(
+        (i) => (i.strokeLineJoin ?? 'miter') === (first.strokeLineJoin ?? 'miter'),
+      )
+        ? (first.strokeLineJoin ?? 'miter')
+        : undefined,
+      strokeMiterLimit: shapeItems.every(
+        (i) => (i.strokeMiterLimit ?? 4) === (first.strokeMiterLimit ?? 4),
+      )
+        ? (first.strokeMiterLimit ?? 4)
         : ('mixed' as const),
       cornerRadius: shapeItems.every((i) => (i.cornerRadius ?? 0) === (first.cornerRadius ?? 0))
         ? (first.cornerRadius ?? 0)
@@ -100,6 +136,40 @@ export function ShapeSection({ items }: ShapeSectionProps) {
         : ('mixed' as const),
       innerRadius: shapeItems.every((i) => (i.innerRadius ?? 0.5) === (first.innerRadius ?? 0.5))
         ? (first.innerRadius ?? 0.5)
+        : ('mixed' as const),
+      trimPathStart: shapeItems.every((i) => (i.trimPathStart ?? 0) === (first.trimPathStart ?? 0))
+        ? (first.trimPathStart ?? 0)
+        : ('mixed' as const),
+      trimPathEnd: shapeItems.every((i) => (i.trimPathEnd ?? 100) === (first.trimPathEnd ?? 100))
+        ? (first.trimPathEnd ?? 100)
+        : ('mixed' as const),
+      trimPathOffset: shapeItems.every(
+        (i) => (i.trimPathOffset ?? 0) === (first.trimPathOffset ?? 0),
+      )
+        ? (first.trimPathOffset ?? 0)
+        : ('mixed' as const),
+      taperStartWidth: shapeItems.every(
+        (i) => (i.taperStartWidth ?? 100) === (first.taperStartWidth ?? 100),
+      )
+        ? (first.taperStartWidth ?? 100)
+        : ('mixed' as const),
+      taperEndWidth: shapeItems.every(
+        (i) => (i.taperEndWidth ?? 100) === (first.taperEndWidth ?? 100),
+      )
+        ? (first.taperEndWidth ?? 100)
+        : ('mixed' as const),
+      taperStartLength: shapeItems.every(
+        (i) => (i.taperStartLength ?? 0) === (first.taperStartLength ?? 0),
+      )
+        ? (first.taperStartLength ?? 0)
+        : ('mixed' as const),
+      taperEndLength: shapeItems.every(
+        (i) => (i.taperEndLength ?? 0) === (first.taperEndLength ?? 0),
+      )
+        ? (first.taperEndLength ?? 0)
+        : ('mixed' as const),
+      pathClosed: shapeItems.every((i) => (i.pathClosed ?? true) === (first.pathClosed ?? true))
+        ? (first.pathClosed ?? true)
         : ('mixed' as const),
       // Mask properties
       isMask: shapeItems.every((i) => (i.isMask ?? false) === (first.isMask ?? false))
@@ -128,6 +198,7 @@ export function ShapeSection({ items }: ShapeSectionProps) {
     shapeItems.length === 1 && shapeItems[0]?.shapeType === 'path' ? shapeItems[0] : null
   const isEditingPathShape =
     !!singlePathShape && isEditing && !penMode && editingItemId === singlePathShape.id
+  const controlVisibility = getShapeSectionControlVisibility(shapeItems)
 
   // Update all selected shape items
   const updateShapeItems = useCallback(
@@ -192,13 +263,14 @@ export function ShapeSection({ items }: ShapeSectionProps) {
   // Stroke width handlers with live preview
   const handleStrokeWidthLiveChange = useCallback(
     (value: number) => {
+      const strokeWidth = Math.max(MIN_ENABLED_STROKE_WIDTH, value)
       const previews: Record<string, { strokeWidth: number; strokeColor?: string }> = {}
       itemIds.forEach((id) => {
         // Include default stroke color in preview if not already set
-        if (value > 0 && !sharedValues?.strokeColor) {
-          previews[id] = { strokeWidth: value, strokeColor: '#1e40af' }
+        if (!sharedValues?.strokeColor) {
+          previews[id] = { strokeWidth, strokeColor: DEFAULT_STROKE_COLOR }
         } else {
-          previews[id] = { strokeWidth: value }
+          previews[id] = { strokeWidth }
         }
       })
       setPropertiesPreviewNew(previews)
@@ -208,16 +280,81 @@ export function ShapeSection({ items }: ShapeSectionProps) {
 
   const handleStrokeWidthChange = useCallback(
     (value: number) => {
-      // When increasing stroke width from 0, also set default stroke color if not set
-      if (value > 0 && sharedValues?.strokeWidth === 0 && !sharedValues?.strokeColor) {
-        updateShapeItems({ strokeWidth: value, strokeColor: '#1e40af' })
+      const strokeWidth = Math.max(MIN_ENABLED_STROKE_WIDTH, value)
+      if (!sharedValues?.strokeColor) {
+        updateShapeItems({ strokeWidth, strokeColor: DEFAULT_STROKE_COLOR })
       } else {
-        updateShapeItems({ strokeWidth: value })
+        updateShapeItems({ strokeWidth })
       }
       queueMicrotask(() => clearPreview())
     },
-    [updateShapeItems, clearPreview, sharedValues?.strokeWidth, sharedValues?.strokeColor],
+    [updateShapeItems, clearPreview, sharedValues?.strokeColor],
   )
+
+  const handleFillEnabledChange = useCallback(
+    (enabled: boolean) => updateShapeItems({ fillEnabled: enabled }),
+    [updateShapeItems],
+  )
+
+  const handleStrokeEnabledChange = useCallback(
+    (enabled: boolean) => {
+      updateShapeItems({
+        strokeEnabled: enabled,
+        ...(enabled
+          ? {
+              strokeColor: sharedValues?.strokeColor || DEFAULT_STROKE_COLOR,
+              strokeWidth:
+                typeof sharedValues?.strokeWidth === 'number' && sharedValues.strokeWidth > 0
+                  ? Math.max(MIN_ENABLED_STROKE_WIDTH, sharedValues.strokeWidth)
+                  : 4,
+            }
+          : {}),
+      })
+    },
+    [sharedValues?.strokeColor, sharedValues?.strokeWidth, updateShapeItems],
+  )
+
+  const handleStrokeMiterLimitLiveChange = useCallback(
+    (value: number) => {
+      const previews: Record<string, { strokeMiterLimit: number }> = {}
+      itemIds.forEach((id) => {
+        previews[id] = { strokeMiterLimit: value }
+      })
+      setPropertiesPreviewNew(previews)
+    },
+    [itemIds, setPropertiesPreviewNew],
+  )
+
+  const handleStrokeMiterLimitChange = useCallback(
+    (value: number) => {
+      updateShapeItems({ strokeMiterLimit: value })
+      queueMicrotask(() => clearPreview())
+    },
+    [clearPreview, updateShapeItems],
+  )
+
+  const handlePathClosedChange = useCallback(
+    (closed: boolean) => {
+      if (!closed && singlePathShape?.isMask) return
+      if (!singlePathShape) return
+      updateItem(singlePathShape.id, getPathClosureUpdates(singlePathShape, closed))
+    },
+    [singlePathShape, updateItem],
+  )
+
+  const handleReversePath = useCallback(() => {
+    if (!singlePathShape?.pathVertices) return
+    updateItem(singlePathShape.id, {
+      pathVertices: reversePathVertices(singlePathShape.pathVertices),
+    })
+  }, [singlePathShape, updateItem])
+
+  const handleSetFirstVertex = useCallback(() => {
+    if (!singlePathShape?.pathVertices || selectedVertexIndex === null) return
+    updateItem(singlePathShape.id, {
+      pathVertices: rotateClosedPathStart(singlePathShape.pathVertices, selectedVertexIndex),
+    })
+  }, [selectedVertexIndex, singlePathShape, updateItem])
 
   // Corner radius handlers with live preview
   const handleCornerRadiusLiveChange = useCallback(
@@ -287,6 +424,57 @@ export function ShapeSection({ items }: ShapeSectionProps) {
     [updateShapeItems, clearPreview],
   )
 
+  type StrokePathProperty =
+    | 'trimPathStart'
+    | 'trimPathEnd'
+    | 'trimPathOffset'
+    | 'taperStartWidth'
+    | 'taperEndWidth'
+    | 'taperStartLength'
+    | 'taperEndLength'
+
+  const previewStrokePathProperty = useCallback(
+    (property: StrokePathProperty, value: number) => {
+      const previews: Record<string, Partial<Record<StrokePathProperty, number>>> = {}
+      itemIds.forEach((id) => {
+        previews[id] = { [property]: value }
+      })
+      setPropertiesPreviewNew(previews)
+    },
+    [itemIds, setPropertiesPreviewNew],
+  )
+
+  const commitStrokePathProperty = useCallback(
+    (property: StrokePathProperty, value: number) => {
+      updateShapeItems({ [property]: value })
+      queueMicrotask(() => clearPreview())
+    },
+    [clearPreview, updateShapeItems],
+  )
+
+  const resetNumericProperty = useCallback(
+    (
+      property:
+        | 'strokeWidth'
+        | 'strokeMiterLimit'
+        | 'cornerRadius'
+        | 'innerRadius'
+        | 'trimPathStart'
+        | 'trimPathEnd'
+        | 'trimPathOffset'
+        | 'taperStartWidth'
+        | 'taperEndWidth'
+        | 'taperStartLength'
+        | 'taperEndLength'
+        | 'maskFeather',
+      value: number,
+    ) => {
+      updateShapeItems({ [property]: value })
+      queueMicrotask(() => clearPreview())
+    },
+    [clearPreview, updateShapeItems],
+  )
+
   // Mask toggle handler
   const handleIsMaskChange = useCallback(
     (checked: boolean) => {
@@ -297,6 +485,7 @@ export function ShapeSection({ items }: ShapeSectionProps) {
         maskType: checked ? 'clip' : undefined,
         maskFeather: checked ? 0 : undefined,
         maskInvert: checked ? false : undefined,
+        pathClosed: checked ? true : undefined,
       })
     },
     [updateShapeItems],
@@ -339,10 +528,6 @@ export function ShapeSection({ items }: ShapeSectionProps) {
     [updateShapeItems, clearPreview],
   )
 
-  const handleResetMaskFeather = useCallback(() => {
-    updateShapeItems({ maskFeather: 10 })
-  }, [updateShapeItems])
-
   // Mask invert handler
   const handleMaskInvertChange = useCallback(
     (checked: boolean) => {
@@ -380,70 +565,238 @@ export function ShapeSection({ items }: ShapeSectionProps) {
       </PropertyRow>
 
       {singlePathShape && (
-        <PropertyRow label={t('editor.shapeSection.path')}>
-          <div className="flex items-center gap-2 w-full">
-            <Button
-              variant={isEditingPathShape ? 'default' : 'outline'}
-              size="sm"
-              className="h-7 text-xs gap-1.5"
-              onClick={() => {
-                if (isEditingPathShape) {
-                  stopEditing()
-                } else {
-                  startEditing(singlePathShape.id)
-                }
-              }}
-            >
-              <MousePointer2 className="w-3.5 h-3.5" />
-              {isEditingPathShape ? t('common.done') : t('editor.shapeSection.editPath')}
-            </Button>
-            <span className="text-[10px] text-muted-foreground">
-              {t('editor.shapeSection.editPathHint')}
-            </span>
-          </div>
+        <>
+          <PropertyRow label={t('editor.shapeSection.path')}>
+            <div className="flex items-center gap-2 w-full">
+              <Button
+                variant={isEditingPathShape ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 text-xs gap-1.5"
+                onClick={() => {
+                  if (isEditingPathShape) {
+                    stopEditing()
+                  } else {
+                    startEditing(singlePathShape.id)
+                  }
+                }}
+              >
+                <MousePointer2 className="w-3.5 h-3.5" />
+                {isEditingPathShape ? t('common.done') : t('editor.shapeSection.editPath')}
+              </Button>
+              {!controlVisibility.isMaskOnly && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={handleReversePath}
+                >
+                  {t('editor.shapeSection.reversePath')}
+                </Button>
+              )}
+            </div>
+          </PropertyRow>
+          {controlVisibility.showPathClosure && (
+            <>
+              <PropertyRow label={t('editor.shapeSection.pathClosure')}>
+                <div className="grid w-full grid-cols-2 gap-1">
+                  <Button
+                    variant={sharedValues.pathClosed === false ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => handlePathClosedChange(false)}
+                  >
+                    {t('editor.shapeSection.openPath')}
+                  </Button>
+                  <Button
+                    variant={sharedValues.pathClosed === true ? 'secondary' : 'ghost'}
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => handlePathClosedChange(true)}
+                  >
+                    {t('editor.shapeSection.closedPath')}
+                  </Button>
+                </div>
+              </PropertyRow>
+              <p className="px-1 pb-1 text-[10px] leading-4 text-muted-foreground">
+                {t(
+                  sharedValues.pathClosed === false
+                    ? 'editor.shapeSection.openPathHint'
+                    : 'editor.shapeSection.closedPathHint',
+                )}
+              </p>
+            </>
+          )}
+          {isEditingPathShape &&
+            !controlVisibility.isMaskOnly &&
+            sharedValues.pathClosed === true && (
+              <PropertyRow label={t('editor.shapeSection.firstVertex')}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={selectedVertexIndex === null}
+                  onClick={handleSetFirstVertex}
+                >
+                  {t('editor.shapeSection.setSelectedFirst')}
+                </Button>
+              </PropertyRow>
+            )}
+        </>
+      )}
+
+      {controlVisibility.showFill && (
+        <PropertyRow label={t('editor.shapeSection.fill')}>
+          <Button
+            variant={sharedValues.fillEnabled === true ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 text-xs flex-1"
+            disabled={sharedValues.fillEnabled === 'mixed'}
+            onClick={() => handleFillEnabledChange(sharedValues.fillEnabled !== true)}
+          >
+            {sharedValues.fillEnabled === true
+              ? t('editor.shapeSection.on')
+              : t('editor.shapeSection.off')}
+          </Button>
         </PropertyRow>
       )}
 
       {/* Fill Color */}
-      <ColorPicker
-        label={t('editor.shapeSection.fill')}
-        color={sharedValues.fillColor ?? '#3b82f6'}
-        onChange={handleFillColorChange}
-        onLiveChange={handleFillColorLiveChange}
-        onReset={() => handleFillColorChange('#3b82f6')}
-        defaultColor="#3b82f6"
-      />
+      {controlVisibility.showFill && sharedValues.fillEnabled !== false && (
+        <ColorPicker
+          label={t('editor.shapeSection.fillColor')}
+          color={sharedValues.fillColor ?? '#3b82f6'}
+          onChange={handleFillColorChange}
+          onLiveChange={handleFillColorLiveChange}
+          onReset={() => handleFillColorChange('#3b82f6')}
+          defaultColor="#3b82f6"
+        />
+      )}
+
+      {controlVisibility.showStroke && (
+        <PropertyRow label={t('editor.shapeSection.stroke')}>
+          <Button
+            variant={sharedValues.strokeEnabled === true ? 'secondary' : 'ghost'}
+            size="sm"
+            className="h-7 text-xs flex-1"
+            disabled={sharedValues.strokeEnabled === 'mixed'}
+            onClick={() => handleStrokeEnabledChange(sharedValues.strokeEnabled !== true)}
+          >
+            {sharedValues.strokeEnabled === true
+              ? t('editor.shapeSection.on')
+              : t('editor.shapeSection.off')}
+          </Button>
+        </PropertyRow>
+      )}
+
+      {controlVisibility.showNoAppearanceNotice && (
+        <div className="mx-1 my-1 flex items-center gap-2 rounded-md border border-border bg-muted/30 px-2 py-1.5">
+          <span className="min-w-0 flex-1 text-[10px] leading-4 text-muted-foreground">
+            {t('editor.shapeSection.noVisibleAppearance')}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-6 flex-shrink-0 px-2 text-[10px]"
+            onClick={() => handleStrokeEnabledChange(true)}
+          >
+            {t('editor.shapeSection.enableStroke')}
+          </Button>
+        </div>
+      )}
 
       {/* Stroke Width */}
-      <PropertyRow label={t('editor.shapeSection.strokeWidth')}>
-        <NumberInput
-          value={sharedValues.strokeWidth}
-          onChange={handleStrokeWidthChange}
-          onLiveChange={handleStrokeWidthLiveChange}
-          min={0}
-          max={50}
-          step={1}
-          unit="px"
-          className="flex-1 min-w-0"
-        />
-      </PropertyRow>
+      {controlVisibility.showStroke && sharedValues.strokeEnabled !== false && (
+        <PropertyRow label={t('editor.shapeSection.strokeWidth')}>
+          <PropertySliderControl
+            value={sharedValues.strokeWidth}
+            onChange={handleStrokeWidthChange}
+            onLiveChange={handleStrokeWidthLiveChange}
+            min={MIN_ENABLED_STROKE_WIDTH}
+            max={50}
+            step={1}
+            unit="px"
+            onReset={() => resetNumericProperty('strokeWidth', singlePathShape ? 4 : 1)}
+            resetLabel={t('editor.shapeSection.resetToDefault')}
+          />
+        </PropertyRow>
+      )}
 
       {/* Stroke Color - only show when stroke width > 0 */}
-      {(sharedValues.strokeWidth === 'mixed' || sharedValues.strokeWidth > 0) && (
-        <ColorPicker
-          label={t('editor.shapeSection.stroke')}
-          color={sharedValues.strokeColor || '#1e40af'}
-          onChange={handleStrokeColorChange}
-          onLiveChange={handleStrokeColorLiveChange}
-          onReset={() => handleStrokeColorChange('')}
-          defaultColor=""
-        />
+      {controlVisibility.showStroke &&
+        sharedValues.strokeEnabled !== false &&
+        (sharedValues.strokeWidth === 'mixed' || sharedValues.strokeWidth > 0) && (
+          <ColorPicker
+            label={t('editor.shapeSection.strokeColor')}
+            color={sharedValues.strokeColor || DEFAULT_STROKE_COLOR}
+            onChange={handleStrokeColorChange}
+            onLiveChange={handleStrokeColorLiveChange}
+            onReset={() => handleStrokeColorChange('')}
+            defaultColor=""
+          />
+        )}
+
+      {controlVisibility.showStroke && sharedValues.strokeEnabled !== false && (
+        <>
+          {controlVisibility.showLineCap && (
+            <PropertyRow label={t('editor.shapeSection.lineCap')}>
+              <Select
+                value={sharedValues.strokeLineCap}
+                onValueChange={(value) =>
+                  updateShapeItems({ strokeLineCap: value as ShapeItem['strokeLineCap'] })
+                }
+              >
+                <SelectTrigger className="h-7 text-xs flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="butt">{t('editor.shapeSection.capButt')}</SelectItem>
+                  <SelectItem value="round">{t('editor.shapeSection.capRound')}</SelectItem>
+                  <SelectItem value="square">{t('editor.shapeSection.capSquare')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </PropertyRow>
+          )}
+          {controlVisibility.showLineJoin && (
+            <PropertyRow label={t('editor.shapeSection.lineJoin')}>
+              <Select
+                value={sharedValues.strokeLineJoin}
+                onValueChange={(value) =>
+                  updateShapeItems({ strokeLineJoin: value as ShapeItem['strokeLineJoin'] })
+                }
+              >
+                <SelectTrigger className="h-7 text-xs flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="miter">{t('editor.shapeSection.joinMiter')}</SelectItem>
+                  <SelectItem value="round">{t('editor.shapeSection.joinRound')}</SelectItem>
+                  <SelectItem value="bevel">{t('editor.shapeSection.joinBevel')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </PropertyRow>
+          )}
+          {controlVisibility.showLineJoin && sharedValues.strokeLineJoin === 'miter' && (
+            <PropertyRow label={t('editor.shapeSection.miterLimit')}>
+              <PropertySliderControl
+                value={sharedValues.strokeMiterLimit}
+                onChange={handleStrokeMiterLimitChange}
+                onLiveChange={handleStrokeMiterLimitLiveChange}
+                min={1}
+                max={20}
+                step={0.5}
+                onReset={() => resetNumericProperty('strokeMiterLimit', 4)}
+                resetLabel={t('editor.shapeSection.resetToDefault')}
+              />
+            </PropertyRow>
+          )}
+        </>
       )}
 
       {/* Corner Radius - shown for rectangle, triangle, star, polygon */}
       {showCornerRadius && (
         <PropertyRow label={t('editor.shapeSection.radius')}>
-          <NumberInput
+          <PropertySliderControl
             value={sharedValues.cornerRadius}
             onChange={handleCornerRadiusChange}
             onLiveChange={handleCornerRadiusLiveChange}
@@ -451,7 +804,8 @@ export function ShapeSection({ items }: ShapeSectionProps) {
             max={100}
             step={1}
             unit="px"
-            className="flex-1 min-w-0"
+            onReset={() => resetNumericProperty('cornerRadius', 0)}
+            resetLabel={t('editor.shapeSection.resetToDefault')}
           />
         </PropertyRow>
       )}
@@ -494,16 +848,170 @@ export function ShapeSection({ items }: ShapeSectionProps) {
       {/* Inner Radius - shown for star only */}
       {showInnerRadius && (
         <PropertyRow label={t('editor.shapeSection.innerRadius')}>
-          <NumberInput
+          <PropertySliderControl
             value={sharedValues.innerRadius}
             onChange={handleInnerRadiusChange}
             onLiveChange={handleInnerRadiusLiveChange}
             min={0.1}
             max={0.9}
             step={0.05}
-            className="flex-1 min-w-0"
+            onReset={() => resetNumericProperty('innerRadius', 0.5)}
+            resetLabel={t('editor.shapeSection.resetToDefault')}
           />
         </PropertyRow>
+      )}
+
+      {controlVisibility.showTrimPaths && (
+        <>
+          <div className="border-t border-border my-3" />
+
+          <div className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t('editor.shapeSection.trimPaths')}
+          </div>
+          <PropertyRow label={t('editor.shapeSection.trimStart')}>
+            <PropertySliderControl
+              value={sharedValues.trimPathStart}
+              onChange={(value) => commitStrokePathProperty('trimPathStart', value)}
+              onLiveChange={(value) => previewStrokePathProperty('trimPathStart', value)}
+              min={0}
+              max={100}
+              step={1}
+              unit="%"
+              keyframe={{
+                itemIds,
+                property: 'trimPathStart',
+                currentValue:
+                  sharedValues.trimPathStart === 'mixed' ? 0 : sharedValues.trimPathStart,
+              }}
+              onReset={() => resetNumericProperty('trimPathStart', 0)}
+              resetLabel={t('editor.shapeSection.resetToDefault')}
+            />
+          </PropertyRow>
+          <PropertyRow label={t('editor.shapeSection.trimEnd')}>
+            <PropertySliderControl
+              value={sharedValues.trimPathEnd}
+              onChange={(value) => commitStrokePathProperty('trimPathEnd', value)}
+              onLiveChange={(value) => previewStrokePathProperty('trimPathEnd', value)}
+              min={0}
+              max={100}
+              step={1}
+              unit="%"
+              keyframe={{
+                itemIds,
+                property: 'trimPathEnd',
+                currentValue: sharedValues.trimPathEnd === 'mixed' ? 100 : sharedValues.trimPathEnd,
+              }}
+              onReset={() => resetNumericProperty('trimPathEnd', 100)}
+              resetLabel={t('editor.shapeSection.resetToDefault')}
+            />
+          </PropertyRow>
+          <PropertyRow label={t('editor.shapeSection.trimOffset')}>
+            <PropertySliderControl
+              value={sharedValues.trimPathOffset}
+              onChange={(value) => commitStrokePathProperty('trimPathOffset', value)}
+              onLiveChange={(value) => previewStrokePathProperty('trimPathOffset', value)}
+              min={-360}
+              max={360}
+              step={1}
+              unit="°"
+              liveChangeThrottleMs={0}
+              keyframe={{
+                itemIds,
+                property: 'trimPathOffset',
+                currentValue:
+                  sharedValues.trimPathOffset === 'mixed' ? 0 : sharedValues.trimPathOffset,
+              }}
+              onReset={() => resetNumericProperty('trimPathOffset', 0)}
+              resetLabel={t('editor.shapeSection.resetToDefault')}
+            />
+          </PropertyRow>
+        </>
+      )}
+
+      {controlVisibility.showTaper && (
+        <>
+          <div className="border-t border-border my-3" />
+
+          <div className="px-1 pb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t('editor.shapeSection.taper')}
+          </div>
+          <PropertyRow label={t('editor.shapeSection.taperStartWidth')}>
+            <PropertySliderControl
+              value={sharedValues.taperStartWidth}
+              onChange={(value) => commitStrokePathProperty('taperStartWidth', value)}
+              onLiveChange={(value) => previewStrokePathProperty('taperStartWidth', value)}
+              min={0}
+              max={200}
+              step={1}
+              unit="%"
+              keyframe={{
+                itemIds,
+                property: 'taperStartWidth',
+                currentValue:
+                  sharedValues.taperStartWidth === 'mixed' ? 100 : sharedValues.taperStartWidth,
+              }}
+              onReset={() => resetNumericProperty('taperStartWidth', 100)}
+              resetLabel={t('editor.shapeSection.resetToDefault')}
+            />
+          </PropertyRow>
+          <PropertyRow label={t('editor.shapeSection.taperStartLength')}>
+            <PropertySliderControl
+              value={sharedValues.taperStartLength}
+              onChange={(value) => commitStrokePathProperty('taperStartLength', value)}
+              onLiveChange={(value) => previewStrokePathProperty('taperStartLength', value)}
+              min={0}
+              max={100}
+              step={1}
+              unit="%"
+              keyframe={{
+                itemIds,
+                property: 'taperStartLength',
+                currentValue:
+                  sharedValues.taperStartLength === 'mixed' ? 0 : sharedValues.taperStartLength,
+              }}
+              onReset={() => resetNumericProperty('taperStartLength', 0)}
+              resetLabel={t('editor.shapeSection.resetToDefault')}
+            />
+          </PropertyRow>
+          <PropertyRow label={t('editor.shapeSection.taperEndWidth')}>
+            <PropertySliderControl
+              value={sharedValues.taperEndWidth}
+              onChange={(value) => commitStrokePathProperty('taperEndWidth', value)}
+              onLiveChange={(value) => previewStrokePathProperty('taperEndWidth', value)}
+              min={0}
+              max={200}
+              step={1}
+              unit="%"
+              keyframe={{
+                itemIds,
+                property: 'taperEndWidth',
+                currentValue:
+                  sharedValues.taperEndWidth === 'mixed' ? 100 : sharedValues.taperEndWidth,
+              }}
+              onReset={() => resetNumericProperty('taperEndWidth', 100)}
+              resetLabel={t('editor.shapeSection.resetToDefault')}
+            />
+          </PropertyRow>
+          <PropertyRow label={t('editor.shapeSection.taperEndLength')}>
+            <PropertySliderControl
+              value={sharedValues.taperEndLength}
+              onChange={(value) => commitStrokePathProperty('taperEndLength', value)}
+              onLiveChange={(value) => previewStrokePathProperty('taperEndLength', value)}
+              min={0}
+              max={100}
+              step={1}
+              unit="%"
+              keyframe={{
+                itemIds,
+                property: 'taperEndLength',
+                currentValue:
+                  sharedValues.taperEndLength === 'mixed' ? 0 : sharedValues.taperEndLength,
+              }}
+              onReset={() => resetNumericProperty('taperEndLength', 0)}
+              resetLabel={t('editor.shapeSection.resetToDefault')}
+            />
+          </PropertyRow>
+        </>
       )}
 
       {/* Mask Section Divider */}
@@ -559,27 +1067,17 @@ export function ShapeSection({ items }: ShapeSectionProps) {
           {/* Feather - only show for alpha mask type */}
           {sharedValues.maskType === 'alpha' && (
             <PropertyRow label={t('editor.shapeSection.feather')}>
-              <div className="flex items-center gap-1 w-full">
-                <SliderInput
-                  value={sharedValues.maskFeather}
-                  onChange={handleMaskFeatherChange}
-                  onLiveChange={handleMaskFeatherLiveChange}
-                  min={0}
-                  max={100}
-                  step={1}
-                  unit="px"
-                  className="flex-1 min-w-0"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 flex-shrink-0"
-                  onClick={handleResetMaskFeather}
-                  title={t('editor.shapeSection.resetFeather')}
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                </Button>
-              </div>
+              <PropertySliderControl
+                value={sharedValues.maskFeather}
+                onChange={handleMaskFeatherChange}
+                onLiveChange={handleMaskFeatherLiveChange}
+                min={0}
+                max={100}
+                step={1}
+                unit="px"
+                onReset={() => resetNumericProperty('maskFeather', 10)}
+                resetLabel={t('editor.shapeSection.resetToDefault')}
+              />
             </PropertyRow>
           )}
 

@@ -154,6 +154,7 @@ const maskVertexSchema = z.object({
   position: z.tuple([z.number(), z.number()]),
   inHandle: z.tuple([z.number(), z.number()]),
   outHandle: z.tuple([z.number(), z.number()]),
+  tangentMode: z.enum(['corner', 'smooth', 'continuous', 'broken']).optional(),
 })
 
 // ============================================================================
@@ -385,12 +386,25 @@ const timelineItemSchema = z
     // Shape fields
     shapeType: shapeTypeSchema.optional(),
     fillColor: z.string().optional(),
+    fillEnabled: z.boolean().optional(),
     strokeColor: z.string().optional(),
     strokeWidth: z.number().optional(),
+    strokeEnabled: z.boolean().optional(),
+    strokeLineCap: z.enum(['butt', 'round', 'square']).optional(),
+    strokeLineJoin: z.enum(['miter', 'round', 'bevel']).optional(),
+    strokeMiterLimit: z.number().positive().optional(),
+    trimPathStart: z.number().min(0).max(100).optional(),
+    trimPathEnd: z.number().min(0).max(100).optional(),
+    trimPathOffset: z.number().optional(),
+    taperStartWidth: z.number().min(0).max(200).optional(),
+    taperEndWidth: z.number().min(0).max(200).optional(),
+    taperStartLength: z.number().min(0).max(100).optional(),
+    taperEndLength: z.number().min(0).max(100).optional(),
     direction: directionSchema.optional(),
     points: z.number().optional(),
     innerRadius: z.number().optional(),
     pathVertices: z.array(maskVertexSchema).optional(),
+    pathClosed: z.boolean().optional(),
     // Mask fields
     isMask: z.boolean().optional(),
     maskType: maskTypeSchema.optional(),

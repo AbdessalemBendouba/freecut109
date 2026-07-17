@@ -5,6 +5,8 @@ import type { CropSettings } from './transform'
 import type { TextStylePresetId } from '@/shared/typography/text-style-preset-ids'
 import type { TextLayoutDrafts, TextSpan, TextStyleFields } from './text'
 import type { TextMotionSpec } from './text-motion'
+import type { MaskVertex } from './masks'
+import type { ShapeStyleFields } from './timeline'
 
 /**
  * Selects the editing surface a stored composition naturally opens in.
@@ -73,7 +75,7 @@ export interface ProjectTimeline {
   }>
   busAudioEq?: AudioEqSettings
   items: Array<
-    {
+    Partial<ShapeStyleFields> & {
       id: string
       trackId: string
       from: number
@@ -122,13 +124,24 @@ export interface ProjectTimeline {
       textLayoutDrafts?: TextLayoutDrafts
       /** Per-character/word/line animation (see ./text-motion). */
       textMotion?: TextMotionSpec
-      shapeType?: 'rectangle' | 'circle' | 'triangle' | 'ellipse' | 'star' | 'polygon'
-      fillColor?: string
-      strokeColor?: string
-      strokeWidth?: number
+      shapeType?:
+        | 'rectangle'
+        | 'circle'
+        | 'triangle'
+        | 'ellipse'
+        | 'star'
+        | 'polygon'
+        | 'heart'
+        | 'path'
       direction?: 'up' | 'down' | 'left' | 'right'
       points?: number
       innerRadius?: number
+      pathVertices?: MaskVertex[]
+      pathClosed?: boolean
+      isMask?: boolean
+      maskType?: 'clip' | 'alpha'
+      maskFeather?: number
+      maskInvert?: boolean
       speed?: number // Playback speed multiplier (default 1.0)
       // Composition item fields
       compositionId?: string // Reference to a sub-composition
