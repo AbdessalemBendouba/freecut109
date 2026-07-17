@@ -10,6 +10,7 @@
       "compositionPicker": "Composition Motion",
       "dropAssetsHint": "Déposez ici médias, textes, formes ou compositions",
       "compositionCycle": "Une composition ne peut pas se contenir elle-même.",
+      "propertyLinkCycle": "Cette liaison de propriété créerait une boucle.",
       "unsupportedDrop": "Cet élément ne peut pas être ajouté comme calque Motion.",
       "mediaDropFailed": "Impossible de charger le média déposé.",
       "openComposition": "Ouvrir {{name}}",

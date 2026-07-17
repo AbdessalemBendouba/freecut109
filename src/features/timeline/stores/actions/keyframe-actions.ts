@@ -2,7 +2,14 @@
  * Keyframe Actions - Animation keyframe operations with undo/redo support.
  */
 
-import type { AnimatableProperty, EasingType, Keyframe, KeyframeRef } from '@/types/keyframe'
+import type {
+  AnimatableProperty,
+  EasingType,
+  Keyframe,
+  KeyframeRef,
+  LinkableAnimatableProperty,
+  LinkedPropertyExpression,
+} from '@/types/keyframe'
 import type { KeyframeAddPayload, KeyframeUpdatePayload } from '../keyframes-store'
 import type { AutoKeyframeOperation } from '@/features/timeline/deps/keyframes'
 import { useKeyframesStore } from '../keyframes-store'
@@ -30,6 +37,39 @@ export function addKeyframe(
       return id
     },
     { itemId, property, frame },
+  )
+}
+
+export function setLinkedPropertyExpression(
+  itemId: string,
+  expression: LinkedPropertyExpression,
+): void {
+  execute(
+    'SET_LINKED_TRANSFORM_EXPRESSION',
+    () => {
+      useKeyframesStore.getState()._setLinkedPropertyExpression(itemId, expression)
+      useTimelineSettingsStore.getState().markDirty()
+    },
+    {
+      itemId,
+      property: expression.targetProperty,
+      sourceItemId: expression.sourceItemId,
+      sourceProperty: expression.sourceProperty,
+    },
+  )
+}
+
+export function removeLinkedPropertyExpression(
+  itemId: string,
+  property: LinkableAnimatableProperty,
+): void {
+  execute(
+    'REMOVE_LINKED_TRANSFORM_EXPRESSION',
+    () => {
+      useKeyframesStore.getState()._removeLinkedPropertyExpression(itemId, property)
+      useTimelineSettingsStore.getState().markDirty()
+    },
+    { itemId, property },
   )
 }
 

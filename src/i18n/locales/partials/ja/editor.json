@@ -10,6 +10,7 @@
       "compositionPicker": "Motionコンポジション",
       "dropAssetsHint": "メディア、テキスト、シェイプ、コンポジションをここにドロップ",
       "compositionCycle": "コンポジションにそれ自身を含めることはできません。",
+      "propertyLinkCycle": "このプロパティリンクは循環参照になります。",
       "unsupportedDrop": "この項目はMotionレイヤーとして追加できません。",
       "mediaDropFailed": "ドロップしたメディアを読み込めませんでした。",
       "openComposition": "{{name}}を開く",

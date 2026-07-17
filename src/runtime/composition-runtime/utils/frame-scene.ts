@@ -15,6 +15,7 @@ import {
   resolveAnimatedTextItem,
   applyMotionModifiers,
 } from '../deps/keyframes'
+import type { LinkedPropertyEvaluationContext } from '../deps/keyframes'
 import { resolveTransitionFrameState, type TransitionFrameState } from './transition-scene'
 import {
   hasFrameInvalidation,
@@ -68,17 +69,19 @@ export function resolveItemTransformAtRelativeFrame(
     relativeFrame,
     keyframes,
     previewTransform,
+    expressionContext,
   }: {
     canvas: CanvasSettings
     relativeFrame: number
     keyframes?: ItemKeyframes
     previewTransform?: TransformOverride
+    expressionContext?: LinkedPropertyEvaluationContext
   },
 ): ResolvedTransform {
   const baseResolved = resolveTransform(item, canvas, getSourceDimensions(item))
   const animatedResolved =
     keyframes && hasKeyframeAnimation(keyframes)
-      ? resolveAnimatedTransform(baseResolved, keyframes, relativeFrame)
+      ? resolveAnimatedTransform(baseResolved, keyframes, relativeFrame, expressionContext)
       : baseResolved
 
   // Procedural motion modifiers layer on top of the keyframe-resolved transform
@@ -107,11 +110,15 @@ export function resolveItemTransformAtFrame(
     frame,
     keyframes,
     previewTransform,
+    getItem,
+    getKeyframes,
   }: {
     canvas: CanvasSettings
     frame: number
     keyframes?: ItemKeyframes
     previewTransform?: TransformOverride
+    getItem?: (itemId: string) => TimelineItem | undefined
+    getKeyframes?: (itemId: string) => ItemKeyframes | undefined
   },
 ): ResolvedTransform {
   return resolveItemTransformAtRelativeFrame(item, {
@@ -119,6 +126,8 @@ export function resolveItemTransformAtFrame(
     relativeFrame: frame - item.from,
     keyframes,
     previewTransform,
+    expressionContext:
+      getItem && getKeyframes ? { globalFrame: frame, canvas, getItem, getKeyframes } : undefined,
   })
 }
 
@@ -128,12 +137,14 @@ export function resolveActiveShapeMasksAtFrame(
     canvas,
     frame,
     getKeyframes,
+    getItem,
     getPreviewTransform,
     getPreviewPathVertices,
   }: {
     canvas: CanvasSettings
     frame: number
     getKeyframes?: (itemId: string) => ItemKeyframes | undefined
+    getItem?: (itemId: string) => TimelineItem | undefined
     getPreviewTransform?: (itemId: string) => TransformOverride
     getPreviewPathVertices?: PreviewPathVerticesOverride
   },
@@ -158,6 +169,8 @@ export function resolveActiveShapeMasksAtFrame(
           frame,
           keyframes: getKeyframes?.(mask.id),
           previewTransform: getPreviewTransform?.(mask.id),
+          getItem,
+          getKeyframes,
         }),
       }
     })
@@ -168,6 +181,7 @@ export function resolveFrameCompositionScene({
   frame,
   canvas,
   getKeyframes,
+  getItem,
   getPreviewTransform,
   getPreviewPathVertices,
 }: {
@@ -175,6 +189,7 @@ export function resolveFrameCompositionScene({
   frame: number
   canvas: CanvasSettings
   getKeyframes?: (itemId: string) => ItemKeyframes | undefined
+  getItem?: (itemId: string) => TimelineItem | undefined
   getPreviewTransform?: (itemId: string) => TransformOverride
   getPreviewPathVertices?: PreviewPathVerticesOverride
 }): FrameCompositionScene {
@@ -184,6 +199,7 @@ export function resolveFrameCompositionScene({
       canvas,
       frame,
       getKeyframes,
+      getItem,
       getPreviewTransform,
       getPreviewPathVertices,
     }),
@@ -208,6 +224,7 @@ export function createFrameCompositionSceneCache(): FrameCompositionSceneCache {
   let cachedCanvasHeight = -1
   let cachedCanvasFps = -1
   let cachedGetKeyframes: ((itemId: string) => ItemKeyframes | undefined) | undefined
+  let cachedGetItem: ((itemId: string) => TimelineItem | undefined) | undefined
   let cachedGetPreviewTransform: ((itemId: string) => TransformOverride) | undefined
   let cachedGetPreviewPathVertices: PreviewPathVerticesOverride | undefined
 
@@ -219,6 +236,7 @@ export function createFrameCompositionSceneCache(): FrameCompositionSceneCache {
         cachedCanvasFps === params.canvas.fps
       const callbacksMatch =
         cachedGetKeyframes === params.getKeyframes &&
+        cachedGetItem === params.getItem &&
         cachedGetPreviewTransform === params.getPreviewTransform &&
         cachedGetPreviewPathVertices === params.getPreviewPathVertices
 
@@ -241,6 +259,7 @@ export function createFrameCompositionSceneCache(): FrameCompositionSceneCache {
       cachedCanvasHeight = params.canvas.height
       cachedCanvasFps = params.canvas.fps
       cachedGetKeyframes = params.getKeyframes
+      cachedGetItem = params.getItem
       cachedGetPreviewTransform = params.getPreviewTransform
       cachedGetPreviewPathVertices = params.getPreviewPathVertices
       return cachedScene
@@ -264,6 +283,7 @@ export function createFrameCompositionSceneCache(): FrameCompositionSceneCache {
       cachedCanvasHeight = -1
       cachedCanvasFps = -1
       cachedGetKeyframes = undefined
+      cachedGetItem = undefined
       cachedGetPreviewTransform = undefined
       cachedGetPreviewPathVertices = undefined
     },

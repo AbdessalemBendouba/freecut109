@@ -10,6 +10,7 @@
       "compositionPicker": "Motion kompozisyonu",
       "dropAssetsHint": "Medya, metin, şekil veya kompozisyonları buraya bırakın",
       "compositionCycle": "Bir kompozisyon kendisini içeremez.",
+      "propertyLinkCycle": "Bu özellik bağlantısı bir döngü oluşturur.",
       "unsupportedDrop": "Bu öğe Motion katmanı olarak eklenemez.",
       "mediaDropFailed": "Bırakılan medya yüklenemedi.",
       "openComposition": "{{name}} öğesini aç",

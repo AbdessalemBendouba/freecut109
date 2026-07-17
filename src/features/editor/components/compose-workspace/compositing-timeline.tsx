@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
@@ -52,7 +53,14 @@ import { usePlaybackStore } from '@/shared/state/playback'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useClipboardStore } from '@/shared/state/clipboard'
 import { useEditorStore } from '@/shared/state/editor'
-import type { AnimatableProperty, Keyframe, KeyframeRef } from '@/types/keyframe'
+import type {
+  AnimatableProperty,
+  ItemKeyframes,
+  Keyframe,
+  KeyframeRef,
+  LinkableAnimatableProperty,
+} from '@/types/keyframe'
+import { isShapeAnimatableProperty, isTransformAnimatableProperty } from '@/types/keyframe'
 import type { BlendMode } from '@/types/blend-modes'
 import { BLEND_MODE_GROUPS, BLEND_MODE_LABELS } from '@/types/blend-modes'
 import type { TimelineItem, TimelineTrack } from '@/types/timeline'
@@ -74,14 +82,19 @@ import {
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,
   getProceduralBands,
+  getPropertyAccordionGroups,
+  getShapeAnimatableBaseValue,
   getDroppedMediaDurationInFrames,
   isTimelineTemplateDragData,
   interpolatePropertyValue,
+  resolveAnimatedShapeItem,
+  GROUP_HEADER_HEIGHT,
   KEYFRAME_EDGE_INSET,
   moveItems,
   openComposition,
   removeKeyframes,
   removeItems,
+  ROW_HEIGHT,
   resolveDroppedMediaEntriesFromPayload,
   setTracks,
   trimItemEnd,
@@ -98,6 +111,7 @@ import {
   useTimelineSettingsStore,
   wouldCreateCompositionCycle,
 } from '@/features/editor/deps/timeline-motion'
+import { resolveItemTransformAtFrame } from '@/features/editor/deps/composition-runtime'
 import {
   beginTextMotionEdit,
   commitTextMotionEdit,
@@ -111,6 +125,8 @@ import {
 } from '@/features/editor/deps/media-library-contract'
 import { useComposeUiStore } from './compose-ui-store'
 import { NewCompositionDialog } from './new-composition-dialog'
+import { LinkedTransformPickWhipOverlay } from './linked-transform-pick-whip-overlay'
+import { useLinkedTransformPickWhip } from './use-linked-transform-pick-whip'
 
 const LAYER_COLUMN_WIDTH = 500
 const TIMELINE_CONTENT_LEFT = LAYER_COLUMN_WIDTH + 1
@@ -366,7 +382,14 @@ interface MotionMiddlePanState {
   startClientY: number
   startScrollTop: number
 }
-const MOTION_INLINE_PROPERTY_GROUP_IDS = ['transform', 'crop', 'audio', 'effects', 'other'] as const
+const MOTION_INLINE_PROPERTY_GROUP_IDS = ['crop', 'audio', 'effects', 'other'] as const
+const MOTION_GRAPH_INLINE_PROPERTY_GROUP_IDS = [
+  'transform',
+  ...MOTION_INLINE_PROPERTY_GROUP_IDS,
+] as const
+const MOTION_INLINE_PROPERTY_GROUP_ID_SET: ReadonlySet<string> = new Set(
+  MOTION_INLINE_PROPERTY_GROUP_IDS,
+)
 const logger = createLogger('MotionTimeline')
 
 const ALL_BLEND_MODES = BLEND_MODE_GROUPS.flatMap((group) => group.modes)
@@ -606,6 +629,12 @@ interface MotionDopesheetLanesProps {
   onInlineCurveChange: (property: AnimatableProperty | null) => void
   onScrub: (frame: number) => void
   onTimeViewportChange: (viewport: MotionTimeViewport) => void
+  onLinkedTransformPointerDown?: (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    itemId: string,
+    property: LinkableAnimatableProperty,
+  ) => void
+  onRemoveLinkedTransform?: (itemId: string, property: LinkableAnimatableProperty) => void
 }
 
 function areItemsEqualForMotionDopesheet(previous: TimelineItem, next: TimelineItem): boolean {
@@ -640,6 +669,8 @@ function areMotionDopesheetLanesPropsEqual(
     previous.timeViewport.endFrame === next.timeViewport.endFrame &&
     previous.inlineCurveProperty === next.inlineCurveProperty &&
     previous.paneMode === next.paneMode &&
+    previous.onLinkedTransformPointerDown === next.onLinkedTransformPointerDown &&
+    previous.onRemoveLinkedTransform === next.onRemoveLinkedTransform &&
     previous.properties.length === next.properties.length &&
     previous.properties.every((property, index) => property === next.properties[index])
   )
@@ -659,6 +690,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   onInlineCurveChange,
   onScrub,
   onTimeViewportChange,
+  onLinkedTransformPointerDown,
+  onRemoveLinkedTransform,
 }: MotionDopesheetLanesProps) {
   const currentFrame = useSettledMotionFrame()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -667,6 +700,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   const itemKeyframes = useKeyframesStore(
     useCallback((state) => state.keyframesByItemId[item.id], [item.id]),
   )
+  const allKeyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
+  const itemById = useItemsStore((state) => state.itemById)
   const _updateKeyframe = useKeyframesStore((state) => state._updateKeyframe)
   const selectedKeyframes = useKeyframeSelectionStore((state) => state.selectedKeyframes)
   const selectKeyframes = useKeyframeSelectionStore((state) => state.selectKeyframes)
@@ -731,29 +766,46 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   }, [item.id, originalKeyframesByProperty, selectedKeyframes])
   const propertyValues = useMemo(
     () =>
-      Object.fromEntries(
-        properties.map((property) => {
-          const baseValue = getBasePropertyValue(item, property, canvas)
-          const selectedValue = selectedKeyframeValueByProperty[property]
-          return [
-            property,
-            selectedValue ??
-              interpolatePropertyValue(
-                originalKeyframesByProperty[property] ?? [],
-                relativeFrame,
-                baseValue,
-              ),
-          ]
-        }),
-      ),
+      buildMotionPropertyValues({
+        item,
+        itemKeyframes,
+        properties,
+        canvas,
+        fps,
+        currentFrame,
+        relativeFrame,
+        itemById,
+        allKeyframesByItemId,
+        originalKeyframesByProperty,
+        selectedKeyframeValueByProperty,
+      }),
     [
+      allKeyframesByItemId,
       canvas,
+      currentFrame,
+      fps,
       item,
+      itemById,
+      itemKeyframes,
       originalKeyframesByProperty,
       properties,
       relativeFrame,
       selectedKeyframeValueByProperty,
     ],
+  )
+  const linkedTransformSourceLabels = useMemo(
+    () => buildLinkedTransformSourceLabels(itemKeyframes, itemById),
+    [itemById, itemKeyframes],
+  )
+  const linkedTransformHandlers = useMemo(
+    () =>
+      buildLinkedTransformHandlers({
+        itemId: item.id,
+        paneMode,
+        onPointerDown: onLinkedTransformPointerDown,
+        onRemove: onRemoveLinkedTransform,
+      }),
+    [item.id, onLinkedTransformPointerDown, onRemoveLinkedTransform, paneMode],
   )
   const selectedKeyframeIds = useMemo(
     () =>
@@ -769,14 +821,23 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       new Set(getProceduralBands(item.motionModifiers, item.durationInFrames, item.from).keys()),
     [item.durationInFrames, item.from, item.motionModifiers],
   )
-  const visiblePropertyCount =
+  const visibleProperties =
     propertyFilter === 'keyframed'
-      ? properties.filter(
-          (property) =>
-            (originalKeyframesByProperty[property]?.length ?? 0) > 0 ||
-            proceduralPropertyIds.has(property),
-        ).length
-      : properties.length
+      ? properties.filter((property) =>
+          isMotionPropertyVisible(
+            property,
+            originalKeyframesByProperty,
+            itemKeyframes,
+            proceduralPropertyIds,
+          ),
+        )
+      : properties
+  const visiblePropertyCount = visibleProperties.length
+  const visiblePropertyGroupHeaderCount = getPropertyAccordionGroups(visibleProperties).filter(
+    (group) => !MOTION_INLINE_PROPERTY_GROUP_ID_SET.has(group.id),
+  ).length
+  const laneContentHeight =
+    visiblePropertyCount * ROW_HEIGHT + visiblePropertyGroupHeaderCount * GROUP_HEADER_HEIGHT
 
   const handleSelectionChange = useCallback(
     (keyframeIds: Set<string>) => {
@@ -839,6 +900,10 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           itemId={item.id}
           keyframesByProperty={keyframesByProperty}
           propertyValues={propertyValues}
+          linkedTransformExpressions={itemKeyframes?.expressions}
+          linkedTransformSourceLabels={linkedTransformSourceLabels}
+          onLinkedTransformPointerDown={linkedTransformHandlers.onPointerDown}
+          onRemoveLinkedTransform={linkedTransformHandlers.onRemove}
           selectedProperty={inlineCurveProperty}
           selectedKeyframeIds={selectedKeyframeIds}
           currentFrame={currentFrame}
@@ -850,7 +915,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           height={
             paneMode === 'graph'
               ? Math.max(120, paneSize.height)
-              : Math.max(30, visiblePropertyCount * 30)
+              : Math.max(ROW_HEIGHT, laneContentHeight)
           }
           frameViewport={timeViewport}
           onFrameViewportChange={onTimeViewportChange}
@@ -945,7 +1010,11 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           proceduralFrameOffset={item.from}
           proceduralDurationInFrames={item.durationInFrames}
           showPlayhead={false}
-          inlinePropertyGroupIds={MOTION_INLINE_PROPERTY_GROUP_IDS}
+          inlinePropertyGroupIds={
+            paneMode === 'graph'
+              ? MOTION_GRAPH_INLINE_PROPERTY_GROUP_IDS
+              : MOTION_INLINE_PROPERTY_GROUP_IDS
+          }
           spacious
         />
       ) : null}
@@ -964,6 +1033,9 @@ function getBasePropertyValue(
 ): number {
   if (property === 'volume') return item.volume ?? 0
   if (property.startsWith('effect:')) return getEffectPropertyBaseValue(item, property) ?? 0
+  if (item.type === 'shape' && isShapeAnimatableProperty(property)) {
+    return getShapeAnimatableBaseValue(item, property)
+  }
   const transform = item.transform
   switch (property) {
     case 'x':
@@ -983,6 +1055,101 @@ function getBasePropertyValue(
     default:
       return 0
   }
+}
+
+function buildMotionPropertyValues(params: {
+  item: TimelineItem
+  itemKeyframes: ItemKeyframes | undefined
+  properties: AnimatableProperty[]
+  canvas: { width: number; height: number }
+  fps: number
+  currentFrame: number
+  relativeFrame: number
+  itemById: Record<string, TimelineItem>
+  allKeyframesByItemId: Record<string, ItemKeyframes>
+  originalKeyframesByProperty: Partial<Record<AnimatableProperty, Keyframe[]>>
+  selectedKeyframeValueByProperty: Partial<Record<AnimatableProperty, number>>
+}): Partial<Record<AnimatableProperty, number>> {
+  const resolvedTransform = resolveItemTransformAtFrame(params.item, {
+    canvas: { ...params.canvas, fps: params.fps },
+    frame: params.currentFrame,
+    keyframes: params.itemKeyframes,
+    getItem: (itemId) => params.itemById[itemId],
+    getKeyframes: (itemId) => params.allKeyframesByItemId[itemId],
+  })
+  const resolvedShape =
+    params.item.type === 'shape'
+      ? resolveAnimatedShapeItem(params.item, params.itemKeyframes, params.relativeFrame, {
+          globalFrame: params.currentFrame,
+          canvas: { ...params.canvas, fps: params.fps },
+          getItem: (itemId) => params.itemById[itemId],
+          getKeyframes: (itemId) => params.allKeyframesByItemId[itemId],
+        })
+      : null
+  return Object.fromEntries(
+    params.properties.map((property) => {
+      const selectedValue = params.selectedKeyframeValueByProperty[property]
+      const value = isTransformAnimatableProperty(property)
+        ? resolvedTransform[property]
+        : resolvedShape && isShapeAnimatableProperty(property)
+          ? getShapeAnimatableBaseValue(resolvedShape, property)
+          : interpolatePropertyValue(
+              params.originalKeyframesByProperty[property] ?? [],
+              params.relativeFrame,
+              getBasePropertyValue(params.item, property, params.canvas),
+            )
+      return [property, selectedValue ?? value]
+    }),
+  )
+}
+
+function buildLinkedTransformSourceLabels(
+  itemKeyframes: ItemKeyframes | undefined,
+  itemById: Record<string, TimelineItem>,
+): Partial<Record<LinkableAnimatableProperty, string>> {
+  return Object.fromEntries(
+    (itemKeyframes?.expressions ?? []).map((expression) => {
+      const sourceItem = itemById[expression.sourceItemId]
+      const sourceLabel = sourceItem?.label || sourceItem?.type || expression.sourceItemId
+      return [expression.targetProperty, `${sourceLabel} -> ${expression.sourceProperty}`]
+    }),
+  )
+}
+
+function isMotionPropertyVisible(
+  property: AnimatableProperty,
+  keyframesByProperty: Partial<Record<AnimatableProperty, Keyframe[]>>,
+  itemKeyframes: ItemKeyframes | undefined,
+  proceduralPropertyIds: ReadonlySet<AnimatableProperty>,
+): boolean {
+  const hasKeys = (keyframesByProperty[property]?.length ?? 0) > 0
+  const hasLink = itemKeyframes?.expressions?.some(
+    (expression) => expression.targetProperty === property,
+  )
+  return hasKeys || !!hasLink || proceduralPropertyIds.has(property)
+}
+
+function buildLinkedTransformHandlers(params: {
+  itemId: string
+  paneMode: MotionDopesheetLanesProps['paneMode']
+  onPointerDown: MotionDopesheetLanesProps['onLinkedTransformPointerDown']
+  onRemove: MotionDopesheetLanesProps['onRemoveLinkedTransform']
+}): {
+  onPointerDown?: (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    property: LinkableAnimatableProperty,
+  ) => void
+  onRemove?: (property: LinkableAnimatableProperty) => void
+} {
+  const onPointerDown =
+    params.paneMode === 'lanes' && params.onPointerDown
+      ? (event: ReactPointerEvent<HTMLButtonElement>, property: LinkableAnimatableProperty) =>
+          params.onPointerDown?.(event, params.itemId, property)
+      : undefined
+  const onRemove = params.onRemove
+    ? (property: LinkableAnimatableProperty) => params.onRemove?.(params.itemId, property)
+    : undefined
+  return { onPointerDown, onRemove }
 }
 
 function normalizeMotionTimeViewport(
@@ -1106,6 +1273,11 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const motionScrollAreaRef = useRef<HTMLDivElement>(null)
   const [rowReorderDrag, setRowReorderDrag] = useState<RowReorderDragState | null>(null)
   const rowReorderDragRef = useRef<RowReorderDragState | null>(null)
+  const {
+    drag: linkedExpressionDrag,
+    begin: beginLinkedTransformDrag,
+    remove: handleRemoveLinkedTransform,
+  } = useLinkedTransformPickWhip()
   const [timeViewport, setTimeViewport] = useState<MotionTimeViewport>({
     startFrame: 0,
     endFrame: 1,
@@ -3054,6 +3226,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                             setScrubFrame(frame)
                           }}
                           onTimeViewportChange={updateTimeViewport}
+                          onLinkedTransformPointerDown={beginLinkedTransformDrag}
+                          onRemoveLinkedTransform={handleRemoveLinkedTransform}
                         />
                       </>
                     ) : null}
@@ -3096,6 +3270,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                 setScrubFrame(frame)
               }}
               onTimeViewportChange={updateTimeViewport}
+              onRemoveLinkedTransform={handleRemoveLinkedTransform}
             />
           </div>
         ) : null}
@@ -3137,6 +3312,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       >
         {layerSheet}
       </section>
+      {linkedExpressionDrag ? <LinkedTransformPickWhipOverlay drag={linkedExpressionDrag} /> : null}
       <NewCompositionDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}

@@ -101,6 +101,64 @@ describe('frame scene', () => {
     expect(activeMasks[0]?.shape.pathVertices).toBe(previewVertices)
   })
 
+  it('resolves linked mask transforms at shared composition time', () => {
+    const source = {
+      id: 'source-shape',
+      type: 'shape' as const,
+      trackId: 'track-1',
+      from: 20,
+      durationInFrames: 60,
+      label: 'Source shape',
+      shapeType: 'rectangle' as const,
+      fillColor: '#fff',
+      transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1 },
+    }
+    const mask = {
+      ...source,
+      id: 'linked-mask',
+      from: 0,
+      label: 'Linked mask',
+      isMask: true,
+      transform: { ...source.transform, x: -40 },
+    }
+    const sourceKeyframes = {
+      itemId: source.id,
+      properties: [
+        {
+          property: 'x' as const,
+          keyframes: [
+            { id: 'source-x-1', frame: 0, value: 0, easing: 'linear' as const },
+            { id: 'source-x-2', frame: 20, value: 100, easing: 'linear' as const },
+          ],
+        },
+      ],
+    }
+    const maskKeyframes = {
+      itemId: mask.id,
+      properties: [],
+      expressions: [
+        {
+          type: 'link' as const,
+          targetProperty: 'x' as const,
+          sourceItemId: source.id,
+          sourceProperty: 'x' as const,
+          enabled: true,
+          timeOffsetFrames: 0,
+        },
+      ],
+    }
+
+    const activeMasks = resolveActiveShapeMasksAtFrame([mask], {
+      canvas: { width: 1280, height: 720, fps: 30 },
+      frame: 30,
+      getItem: (itemId) => (itemId === source.id ? source : itemId === mask.id ? mask : undefined),
+      getKeyframes: (itemId) =>
+        itemId === source.id ? sourceKeyframes : itemId === mask.id ? maskKeyframes : undefined,
+    })
+
+    expect(activeMasks[0]?.transform.x).toBeCloseTo(50, 5)
+  })
+
   it('combines active masks and transition frame state from the render plan', () => {
     const renderPlan = resolveCompositionRenderPlan({
       tracks: [

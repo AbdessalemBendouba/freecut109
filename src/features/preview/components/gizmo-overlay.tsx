@@ -301,6 +301,7 @@ export function GizmoOverlay({
       ),
     ),
   )
+  const keyframesByItemId = useKeyframesStore((s) => s.keyframesByItemId)
 
   // Associate keyframes with items by id rather than array position so
   // consumers stay correct if the selection ordering changes.
@@ -373,12 +374,15 @@ export function GizmoOverlay({
     )
       return []
     const canvas = { width: projectSize.width, height: projectSize.height, fps }
+    const itemsById = new Map(visualItems.map((item) => [item.id, item]))
     return selectedItemsRef.current.flatMap((item) => {
       const dragging = item.id === gizmoDragItemId && gizmoPreviewTransform
       const points = buildMotionPathPoints({
         item,
         itemKeyframes: selectedItemKeyframesById.get(item.id) ?? undefined,
         canvas,
+        getItem: (itemId) => itemsById.get(itemId),
+        getKeyframes: (itemId) => keyframesByItemId[itemId],
         preview: dragging
           ? {
               frame: frozenFrameRef.current - item.from,
@@ -409,6 +413,8 @@ export function GizmoOverlay({
     projectSize.height,
     projectSize.width,
     motionPathSignature,
+    visualItems,
+    keyframesByItemId,
     selectedItemKeyframesById,
     gizmoDragItemId,
     gizmoPreviewTransform,

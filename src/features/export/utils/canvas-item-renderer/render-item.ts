@@ -73,6 +73,15 @@ export async function renderItem(
   preCornerPinMasks: EffectSourceMask[] = [],
 ): Promise<void> {
   const itemKeyframes = rctx.getCurrentKeyframes?.(item.id) ?? rctx.keyframesMap.get(item.id)
+  const shapeExpressionContext =
+    rctx.canvasSettings.getExpressionItem && rctx.canvasSettings.getExpressionKeyframes
+      ? {
+          globalFrame: frame,
+          canvas: rctx.canvasSettings,
+          getItem: rctx.canvasSettings.getExpressionItem,
+          getKeyframes: rctx.canvasSettings.getExpressionKeyframes,
+        }
+      : undefined
   const animatedTextItem =
     item.type === 'text'
       ? {
@@ -80,7 +89,7 @@ export async function renderItem(
           cornerPin: item.cornerPin,
         }
       : item.type === 'shape'
-        ? resolveAnimatedShapeItem(item, itemKeyframes, frame - item.from)
+        ? resolveAnimatedShapeItem(item, itemKeyframes, frame - item.from, shapeExpressionContext)
         : item
   const frameResolvedItem = applyAnimatedCropToItem(animatedTextItem, frame, rctx, renderSpan)
   const resolvedTransform = resolveItemTransform(transform)

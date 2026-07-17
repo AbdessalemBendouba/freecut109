@@ -10,6 +10,7 @@
       "compositionPicker": "Motion 合成",
       "dropAssetsHint": "将媒体、文本、形状或合成拖放到此处",
       "compositionCycle": "合成不能包含自身。",
+      "propertyLinkCycle": "此属性链接会产生循环引用。",
       "unsupportedDrop": "此项目无法添加为 Motion 图层。",
       "mediaDropFailed": "无法加载拖放的媒体。",
       "openComposition": "打开 {{name}}",

@@ -320,6 +320,13 @@ export function createSubCompositionRenderContext(
   subData: SubCompRenderData,
   canvasSettings: CanvasSettings,
 ): ItemRenderContext {
+  const itemsById =
+    subData.itemsById ??
+    new Map(
+      subData.sortedTracks.flatMap((track) => track.items.map((item) => [item.id, item] as const)),
+    )
+  canvasSettings.getExpressionItem = (itemId) => itemsById.get(itemId)
+  canvasSettings.getExpressionKeyframes = (itemId) => subData.keyframesMap.get(itemId)
   return {
     ...rctx,
     fps: subData.fps,

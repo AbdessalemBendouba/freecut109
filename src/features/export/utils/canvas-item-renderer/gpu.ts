@@ -575,6 +575,14 @@ async function resolveGpuMediaParticipantSource(
       participant.item,
       itemKeyframes,
       frame - participant.item.from,
+      rctx.canvasSettings.getExpressionItem && rctx.canvasSettings.getExpressionKeyframes
+        ? {
+            globalFrame: frame,
+            canvas: rctx.canvasSettings,
+            getItem: rctx.canvasSettings.getExpressionItem,
+            getKeyframes: rctx.canvasSettings.getExpressionKeyframes,
+          }
+        : undefined,
     )
     if (getGpuShapeUnsupportedReason(shape, transform, participant.effects, rctx)) return null
     const resolvedPathVertices =
@@ -863,6 +871,7 @@ async function renderGpuSubCompChildrenToTexture(
   )
 
   const subCanvasSettings = { width, height, fps: subData.fps }
+  const subRctx = createSubCompositionRenderContext(rctx, subData, subCanvasSettings)
   const occlusionCutoffOrder = findSubCompOcclusionCutoffOrder(
     subData,
     localFrame,
@@ -932,7 +941,6 @@ async function renderGpuSubCompChildrenToTexture(
       GPUTextureUsage.RENDER_ATTACHMENT |
       GPUTextureUsage.COPY_DST,
   })
-  const subRctx = createSubCompositionRenderContext(rctx, subData, subCanvasSettings)
   try {
     let layerIndex = 0
     for (const visibleChild of visibleChildren) {

@@ -265,6 +265,82 @@ describe('useKeyframesStore', () => {
       const remaining = useKeyframesStore.getState().keyframes.map((ik) => ik.itemId)
       expect(remaining).toEqual(['item-2'])
     })
+
+    it('removes dependent links when their source item is deleted', () => {
+      useKeyframesStore.getState().setKeyframes([
+        {
+          itemId: 'source',
+          properties: [{ property: 'x', keyframes: [makeKeyframe('source-x', 0)] }],
+        },
+        {
+          itemId: 'target',
+          properties: [{ property: 'y', keyframes: [makeKeyframe('target-y', 0)] }],
+          expressions: [
+            {
+              type: 'link',
+              targetProperty: 'x',
+              sourceItemId: 'source',
+              sourceProperty: 'x',
+              enabled: true,
+              timeOffsetFrames: 0,
+            },
+          ],
+        },
+      ])
+
+      useKeyframesStore.getState()._removeKeyframesForItems(['source'])
+
+      expect(useKeyframesStore.getState().keyframesByItemId.source).toBeUndefined()
+      expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual([])
+      expect(useKeyframesStore.getState().keyframesByItemId.target?.properties).toHaveLength(1)
+    })
+  })
+
+  describe('linked property expressions', () => {
+    const expression = {
+      type: 'link' as const,
+      targetProperty: 'x' as const,
+      sourceItemId: 'source',
+      sourceProperty: 'rotation' as const,
+      enabled: true,
+      timeOffsetFrames: 0,
+    }
+
+    it('creates, replaces, and removes links without requiring keyframes', () => {
+      useKeyframesStore.getState()._setLinkedPropertyExpression('target', expression)
+      expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual([
+        expression,
+      ])
+
+      useKeyframesStore.getState()._setLinkedPropertyExpression('target', {
+        ...expression,
+        sourceProperty: 'y',
+      })
+      expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual([
+        { ...expression, sourceProperty: 'y' },
+      ])
+
+      useKeyframesStore.getState()._removeLinkedPropertyExpression('target', 'x')
+      expect(useKeyframesStore.getState().keyframesByItemId.target).toBeUndefined()
+    })
+
+    it('keeps expressions when clearing an item keyframes', () => {
+      useKeyframesStore.getState().setKeyframes([
+        {
+          itemId: 'target',
+          properties: [{ property: 'x', keyframes: [makeKeyframe('x', 0)] }],
+          expressions: [expression],
+        },
+      ])
+
+      useKeyframesStore.getState()._removeKeyframesForItem('target')
+
+      expect(useKeyframesStore.getState().keyframesByItemId.target).toEqual({
+        itemId: 'target',
+        properties: [],
+        expressions: [expression],
+      })
+    })
   })
 
   describe('keyframesByItemId index', () => {

@@ -5,7 +5,7 @@
  * Supports shape masks with feathering and inversion.
  */
 
-import type { ShapeItem, TimelineTrack } from '@/types/timeline'
+import type { ShapeItem, TimelineItem, TimelineTrack } from '@/types/timeline'
 import type { ItemKeyframes } from '@/types/keyframe'
 import type { ResolvedTransform } from '@/types/transform'
 import {
@@ -469,6 +469,7 @@ export function getActiveMasksForFrame(
   getPreviewTransformOverride?: (itemId: string) => Partial<ResolvedTransform> | undefined,
   getPreviewPathVerticesOverride?: PreviewPathVerticesOverride,
   getLiveItem?: (itemId: string) => ShapeItem | undefined,
+  getExpressionItem?: (itemId: string) => TimelineItem | undefined,
 ): Array<{
   path?: Path2D
   bitmapMask?: OffscreenCanvas
@@ -493,6 +494,7 @@ export function getActiveMasksForFrame(
     canvas,
     frame,
     getKeyframes: (itemId) => resolveMaskKeyframes(keyframes, itemId),
+    getItem: getExpressionItem,
     getPreviewTransform: getPreviewTransformOverride,
     getPreviewPathVertices: getPreviewPathVerticesOverride,
   })

@@ -51,6 +51,61 @@ describe('DopesheetEditor property groups', () => {
     ).toBeTruthy()
   })
 
+  it('renders linked property controls and removes a link from its popover', () => {
+    const onLinkedTransformPointerDown = vi.fn()
+    const onRemoveLinkedTransform = vi.fn()
+    renderEditor({
+      keyframesByProperty: { x: [] },
+      propertyValues: { x: 240 },
+      linkedTransformExpressions: [
+        {
+          type: 'link',
+          targetProperty: 'x',
+          sourceItemId: 'source-1',
+          sourceProperty: 'x',
+          enabled: true,
+          timeOffsetFrames: 0,
+        },
+      ],
+      linkedTransformSourceLabels: { x: 'Source layer → X Position' },
+      onLinkedTransformPointerDown,
+      onRemoveLinkedTransform,
+      onPropertyValueCommit: vi.fn(),
+    })
+
+    const linkButton = screen.getByRole('button', {
+      name: /linked to source layer → x position/i,
+    })
+    const valueInput = screen.getByRole('spinbutton', {
+      name: /x position value at playhead/i,
+    })
+
+    expect(valueInput).toBeDisabled()
+    fireEvent.pointerDown(linkButton, { button: 0, pointerId: 7 })
+    expect(onLinkedTransformPointerDown).toHaveBeenCalledWith(expect.anything(), 'x')
+
+    fireEvent.click(linkButton)
+    fireEvent.click(screen.getByRole('button', { name: /remove property link/i }))
+    expect(onRemoveLinkedTransform).toHaveBeenCalledWith('x')
+  })
+
+  it('exposes the pick whip for scalar Shape properties', () => {
+    const onLinkedTransformPointerDown = vi.fn()
+    renderEditor({
+      keyframesByProperty: { trimPathEnd: [] },
+      propertyValues: { trimPathEnd: 100 },
+      onLinkedTransformPointerDown,
+      onPropertyValueCommit: vi.fn(),
+    })
+
+    const linkButton = screen.getByRole('button', {
+      name: /drag to link trim paths end to another property/i,
+    })
+    fireEvent.pointerDown(linkButton, { button: 0, pointerId: 12 })
+
+    expect(onLinkedTransformPointerDown).toHaveBeenCalledWith(expect.anything(), 'trimPathEnd')
+  })
+
   it('keeps connectors when one endpoint is outside the zoomed viewport', () => {
     renderEditor({
       keyframesByProperty: {
@@ -454,6 +509,37 @@ describe('DopesheetEditor property groups', () => {
     )
     expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeDisabled()
     expect(screen.getByRole('spinbutton', { name: /y position value at playhead/i })).toBeDisabled()
+  })
+
+  it('keeps every group header action visible without hover', () => {
+    renderEditor({
+      keyframesByProperty: {
+        x: [{ id: 'kx-1', frame: 8, value: 100, easing: 'linear' }],
+        y: [{ id: 'ky-1', frame: 16, value: 200, easing: 'linear' }],
+      },
+      propertyValues: { x: 100, y: 200 },
+      onNavigateToKeyframe: vi.fn(),
+      onPropertyValueCommit: vi.fn(),
+    })
+
+    const curveButton = screen.getByRole('button', { name: /show all transform curves/i })
+    expect(curveButton.parentElement).not.toHaveClass('opacity-0', 'pointer-events-none')
+
+    const headerButtons = [
+      curveButton,
+      screen.getByRole('button', { name: /lock transform rows/i }),
+      screen.getByRole('button', { name: /enable auto-key for transform/i }),
+      screen.getByRole('button', { name: /previous transform keyframe/i }),
+      screen.getByRole('button', { name: /toggle transform keyframes at playhead/i }),
+      screen.getByRole('button', { name: /next transform keyframe/i }),
+      screen.getByRole('button', {
+        name: /reset all transform animations to their base values/i,
+      }),
+    ]
+
+    for (const button of headerButtons) {
+      expect(button).not.toHaveClass('opacity-0', 'pointer-events-none')
+    }
   })
 
   it('clears row and group keyframes', () => {

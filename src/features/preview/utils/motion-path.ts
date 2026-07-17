@@ -17,12 +17,18 @@ export interface MotionPathScreenPoint extends MotionPathPoint {
   screenY: number
 }
 
-function hasPositionKeyframes(itemKeyframes: ItemKeyframes | undefined): boolean {
+function hasPositionAnimation(itemKeyframes: ItemKeyframes | undefined): boolean {
   return (
     itemKeyframes?.properties.some(
       (property) =>
         (property.property === 'x' || property.property === 'y') && property.keyframes.length > 0,
-    ) ?? false
+    ) ||
+    itemKeyframes?.expressions?.some(
+      (expression) =>
+        expression.enabled &&
+        (expression.targetProperty === 'x' || expression.targetProperty === 'y'),
+    ) ||
+    false
   )
 }
 
@@ -129,6 +135,8 @@ export function buildMotionPathPoints(params: {
   itemKeyframes: ItemKeyframes | undefined
   canvas: CanvasSettings
   maxSamples?: number
+  getItem?: (itemId: string) => TimelineItem | undefined
+  getKeyframes?: (itemId: string) => ItemKeyframes | undefined
   /**
    * Live gizmo-drag position (item-relative frame + transform-space x/y). When
    * set, the path previews the drag by upserting a keyframe at that frame.
@@ -138,10 +146,10 @@ export function buildMotionPathPoints(params: {
   const { item, canvas, preview } = params
   const baseKeyframes = params.itemKeyframes
   const itemKeyframes =
-    preview && baseKeyframes && hasPositionKeyframes(baseKeyframes)
+    preview && baseKeyframes && hasPositionAnimation(baseKeyframes)
       ? applyPreviewKeyframe(baseKeyframes, preview)
       : baseKeyframes
-  if (!hasPositionKeyframes(itemKeyframes) && !hasPositionModifiers(item)) return []
+  if (!hasPositionAnimation(itemKeyframes) && !hasPositionModifiers(item)) return []
 
   const startFrame = item.from
   const endFrame = item.from + Math.max(0, item.durationInFrames - 1)
@@ -160,6 +168,8 @@ export function buildMotionPathPoints(params: {
         canvas,
         frame,
         keyframes: itemKeyframes,
+        getItem: params.getItem,
+        getKeyframes: params.getKeyframes,
       })
       return {
         frame,

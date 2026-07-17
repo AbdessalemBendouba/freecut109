@@ -1,8 +1,11 @@
-import { useCallback, useMemo } from 'react'
-import { useShallow } from 'zustand/react/shallow'
+import { useMemo } from 'react'
 import type { TimelineItem } from '@/types/timeline'
 import type { ResolvedTransform } from '@/types/transform'
-import { useKeyframesStore, useTimelineSettingsStore } from '@/features/preview/deps/timeline-store'
+import {
+  useItemsStore,
+  useKeyframesStore,
+  useTimelineSettingsStore,
+} from '@/features/preview/deps/timeline-store'
 import { resolveAnimatedTextItem } from '@/features/preview/deps/keyframes'
 import { useResolvedPlaybackFrame } from '@/shared/state/playback/use-resolved-playback-frame'
 import { useGizmoStore } from '@/features/preview/stores/gizmo-store'
@@ -37,12 +40,8 @@ export function useVisualTransforms(
   projectSize: ProjectSize,
 ): Map<string, ResolvedTransform> {
   const fps = useTimelineSettingsStore((s) => s.fps)
-  const itemIds = useMemo(() => items.map((item) => item.id), [items])
-  const itemKeyframes = useKeyframesStore(
-    useShallow(
-      useCallback((s) => itemIds.map((itemId) => s.keyframesByItemId[itemId] ?? null), [itemIds]),
-    ),
-  )
+  const allItems = useItemsStore((state) => state.items)
+  const keyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
   const activeGizmo = useGizmoStore((s) => s.activeGizmo)
   const gizmoPreviewTransform = useGizmoStore((s) => s.previewTransform)
   const preview = useGizmoStore((s) => s.preview)
@@ -51,9 +50,10 @@ export function useVisualTransforms(
   return useMemo(() => {
     const transforms = new Map<string, ResolvedTransform>()
     const canvas = { width: projectSize.width, height: projectSize.height, fps }
+    const itemsById = new Map(allItems.map((item) => [item.id, item]))
 
-    for (const [index, item] of items.entries()) {
-      const itemKeyframe = itemKeyframes[index] ?? undefined
+    for (const item of items) {
+      const itemKeyframe = keyframesByItemId[item.id]
       const previewProperties = preview?.[item.id]?.properties
       const animatedTextItem =
         item.type === 'text'
@@ -68,6 +68,8 @@ export function useVisualTransforms(
         canvas,
         frame: animationFrame,
         keyframes: itemKeyframe,
+        getItem: (itemId) => itemsById.get(itemId),
+        getKeyframes: (itemId) => keyframesByItemId[itemId],
       })
 
       if (activeGizmo?.itemId === item.id && gizmoPreviewTransform) {
@@ -111,7 +113,8 @@ export function useVisualTransforms(
     items,
     projectSize.height,
     projectSize.width,
-    itemKeyframes,
+    allItems,
+    keyframesByItemId,
     animationFrame,
     activeGizmo?.itemId,
     gizmoPreviewTransform,

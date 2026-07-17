@@ -9,7 +9,7 @@ import { useItemsStore } from './items-store'
 import { useCompositionsStore } from './compositions-store'
 import { useCompositionNavigationStore } from './composition-navigation-store'
 import { useKeyframesStore } from './keyframes-store'
-import { hydrateTimelineStoresFromProject } from './timeline-persistence'
+import { buildTimelineFromStores, hydrateTimelineStoresFromProject } from './timeline-persistence'
 
 const rootTrack = makeTimelineTrack({ id: 'root-track', name: 'Root', kind: 'video', order: 0 })
 const motionTrack = makeTimelineTrack({
@@ -120,6 +120,51 @@ describe('timeline project hydration', () => {
 
     expect(useKeyframesStore.getState().keyframes[0]?.properties[0]?.keyframes[0]?.value).toBe(
       rgbaKeyframeValue,
+    )
+  })
+
+  it('serializes and hydrates linked property expressions', async () => {
+    const item = makeTimelineVideoItem({ id: 'target', trackId: rootTrack.id })
+    useItemsStore.getState().setTracks([rootTrack])
+    useItemsStore.getState().setItems([item])
+    useKeyframesStore.getState().setKeyframes([
+      {
+        itemId: item.id,
+        properties: [],
+        expressions: [
+          {
+            type: 'link',
+            targetProperty: 'x',
+            sourceItemId: 'source',
+            sourceProperty: 'rotation',
+            enabled: true,
+            timeOffsetFrames: 4,
+          },
+        ],
+      },
+    ])
+
+    const timeline = buildTimelineFromStores()
+    expect(timeline.keyframes?.[0]?.expressions?.[0]).toMatchObject({
+      sourceItemId: 'source',
+      sourceProperty: 'rotation',
+      timeOffsetFrames: 4,
+    })
+
+    const project: Project = {
+      id: 'linked-project',
+      name: 'Linked project',
+      description: '',
+      createdAt: 1,
+      updatedAt: 1,
+      duration: 10,
+      metadata: { width: 1920, height: 1080, fps: 30 },
+      timeline,
+    }
+    await hydrateTimelineStoresFromProject(project)
+
+    expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual(
+      timeline.keyframes?.[0]?.expressions,
     )
   })
 })

@@ -44,6 +44,9 @@ export interface CanvasSettings {
   width: number
   height: number
   fps: number
+  /** Same-composition sources for deterministic scalar property expressions. */
+  getExpressionItem?: (itemId: string) => TimelineItem | undefined
+  getExpressionKeyframes?: (itemId: string) => ItemKeyframes | undefined
 }
 
 /**
@@ -235,6 +238,8 @@ export interface SubCompRenderData {
   }>
   /** O(1) keyframe lookup by item ID */
   keyframesMap: Map<string, ItemKeyframes>
+  /** O(1) expression-source lookup inside this composition. */
+  itemsById?: Map<string, TimelineItem>
   /** Adjustment layers from visible tracks, with their track orders */
   adjustmentLayers?: AdjustmentLayerWithTrackOrder[]
 }

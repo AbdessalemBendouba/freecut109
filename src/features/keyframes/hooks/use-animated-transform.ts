@@ -42,6 +42,7 @@ export function useAnimatedTransform(
   // The timeline facade memoizes by snapshot reference, so changing item.id due
   // to a different store (selection) can otherwise return stale keyframes.
   const allKeyframes = useTimelineStore((s) => s.keyframes)
+  const allItems = useTimelineStore((s) => s.items)
   const itemKeyframes = useMemo(
     () => allKeyframes.find((k) => k.itemId === item.id),
     [allKeyframes, item.id],
@@ -55,6 +56,10 @@ export function useAnimatedTransform(
   // Resolve the animated transform
   const transform = useMemo(() => {
     const canvas = { width: projectSize.width, height: projectSize.height, fps: 30 }
+    const itemsById = new Map(allItems.map((candidate) => [candidate.id, candidate]))
+    const keyframesByItemId = new Map(
+      allKeyframes.map((candidate) => [candidate.itemId, candidate]),
+    )
     const sourceDimensions = getSourceDimensions(item)
     const baseResolved = resolveTransform(item, canvas, sourceDimensions)
     const animatedTextItem =
@@ -64,7 +69,12 @@ export function useAnimatedTransform(
 
     // Apply keyframe animation if item has keyframes
     const resolvedTransform = itemKeyframes
-      ? resolveAnimatedTransform(baseResolved, itemKeyframes, relativeFrame)
+      ? resolveAnimatedTransform(baseResolved, itemKeyframes, relativeFrame, {
+          globalFrame: animationFrame,
+          canvas,
+          getItem: (itemId) => itemsById.get(itemId),
+          getKeyframes: (itemId) => keyframesByItemId.get(itemId),
+        })
       : baseResolved
 
     if (animatedTextItem && !hasCornerPin(item.cornerPin)) {
@@ -72,7 +82,7 @@ export function useAnimatedTransform(
     }
 
     return resolvedTransform
-  }, [item, projectSize, itemKeyframes, relativeFrame])
+  }, [allItems, allKeyframes, animationFrame, item, projectSize, itemKeyframes, relativeFrame])
 
   return {
     transform,
@@ -92,6 +102,7 @@ export function useAnimatedTransforms(
 ): Map<string, ResolvedTransform> {
   // Get all keyframes
   const allKeyframes = useTimelineStore((s) => s.keyframes)
+  const allItems = useTimelineStore((s) => s.items)
 
   const animationFrame = useResolvedPlaybackFrame()
 
@@ -99,6 +110,10 @@ export function useAnimatedTransforms(
   return useMemo(() => {
     const transforms = new Map<string, ResolvedTransform>()
     const canvas = { width: projectSize.width, height: projectSize.height, fps: 30 }
+    const itemsById = new Map(allItems.map((candidate) => [candidate.id, candidate]))
+    const keyframesByItemId = new Map(
+      allKeyframes.map((candidate) => [candidate.itemId, candidate]),
+    )
 
     for (const item of items) {
       const sourceDimensions = getSourceDimensions(item)
@@ -112,7 +127,12 @@ export function useAnimatedTransforms(
           ? resolveAnimatedTextItem(item, itemKeyframes, relativeFrame, canvas)
           : undefined
       const resolvedTransform = itemKeyframes
-        ? resolveAnimatedTransform(baseResolved, itemKeyframes, relativeFrame)
+        ? resolveAnimatedTransform(baseResolved, itemKeyframes, relativeFrame, {
+            globalFrame: animationFrame,
+            canvas,
+            getItem: (itemId) => itemsById.get(itemId),
+            getKeyframes: (itemId) => keyframesByItemId.get(itemId),
+          })
         : baseResolved
 
       if (animatedTextItem && !hasCornerPin(item.cornerPin)) {
@@ -131,5 +151,5 @@ export function useAnimatedTransforms(
     }
 
     return transforms
-  }, [items, projectSize, allKeyframes, animationFrame])
+  }, [items, projectSize, allItems, allKeyframes, animationFrame])
 }

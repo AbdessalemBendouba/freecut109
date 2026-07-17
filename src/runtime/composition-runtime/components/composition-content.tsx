@@ -27,6 +27,7 @@ import {
   hasKeyframeAnimation,
 } from '@/runtime/composition-runtime/deps/keyframes'
 import { KeyframesProvider } from '../contexts/keyframes-context'
+import { KeyframesContext } from '../contexts/keyframes-context-core'
 import { useRuntimeItemKeyframes } from './hooks/use-runtime-item-keyframes'
 import { useVisualFreezeFrame } from './hooks/use-visual-freeze-frame'
 import {
@@ -264,6 +265,7 @@ export const CompositionContent = React.memo<CompositionContentProps>(
     const itemPreview = useGizmoStore(useCallback((s) => s.preview?.[item.id], [item.id]))
 
     const itemKeyframes = useRuntimeItemKeyframes(item.id)
+    const keyframesContext = React.useContext(KeyframesContext)
     const hasAnimatedKeyframes = !!(itemKeyframes && hasKeyframeAnimation(itemKeyframes))
 
     const sequenceContext = useSequenceContext()
@@ -296,7 +298,19 @@ export const CompositionContent = React.memo<CompositionContentProps>(
       // Apply keyframe animation if present
       let animatedResolved = baseResolved
       if (hasAnimatedKeyframes) {
-        animatedResolved = resolveAnimatedTransform(baseResolved, itemKeyframes!, keyframeFrame)
+        animatedResolved = resolveAnimatedTransform(
+          baseResolved,
+          itemKeyframes!,
+          keyframeFrame,
+          keyframesContext
+            ? {
+                globalFrame: item.from + keyframeFrame,
+                canvas,
+                getItem: keyframesContext.getItem,
+                getKeyframes: keyframesContext.getItemKeyframes,
+              }
+            : undefined,
+        )
       }
 
       // Priority: unified preview > gizmo preview > keyframes > base
@@ -331,6 +345,7 @@ export const CompositionContent = React.memo<CompositionContentProps>(
       itemKeyframes,
       hasAnimatedKeyframes,
       keyframeFrame,
+      keyframesContext,
       itemPreview,
       isGizmoTarget,
       previewTransform,
@@ -440,6 +455,11 @@ export const CompositionContent = React.memo<CompositionContentProps>(
       [audioGainLiveItemIds, item.id],
     )
     const previousMaskInfosRef = React.useRef<MaskInfo[]>(EMPTY_MASK_INFOS)
+    const expressionCanvas = useMemo(
+      () =>
+        subComp ? { width: subComp.width, height: subComp.height, fps: subComp.fps } : undefined,
+      [subComp],
+    )
 
     React.useEffect(() => {
       if (renderMode !== 'audio-only') return
@@ -478,6 +498,7 @@ export const CompositionContent = React.memo<CompositionContentProps>(
           canvas,
           frame: subCompFrame,
           getKeyframes: (itemId) => keyframesById.get(itemId),
+          getItem: (itemId) => resolvedItems.find((candidate) => candidate.id === itemId),
         }),
       )
       const stableMaskInfos = reuseStableMaskInfos(previousMaskInfosRef.current, nextMaskInfos)
@@ -567,7 +588,11 @@ export const CompositionContent = React.memo<CompositionContentProps>(
             fps={subComp.fps}
             durationInFrames={subComp.durationInFrames}
           >
-            <KeyframesProvider keyframes={subComp.keyframes}>
+            <KeyframesProvider
+              keyframes={subComp.keyframes}
+              items={resolvedItems}
+              canvas={expressionCanvas}
+            >
               <AbsoluteFill>
                 <StableVideoSequence
                   items={videoItems}

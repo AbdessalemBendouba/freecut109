@@ -7,6 +7,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from '@testing-library/react'
 import type { MediaMetadata } from '@/types/storage'
 import { usePlaybackStore } from '@/shared/state/playback'
@@ -607,6 +608,19 @@ describe('CompositingTimeline', () => {
     expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
   })
 
+  it('shows Transform as a collapsible sibling property group', () => {
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    const transformHeader = screen.getByRole('button', { name: /collapse transform/i })
+    expect(transformHeader).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /collapse shape/i })).toBeInTheDocument()
+
+    fireEvent.click(transformHeader)
+    expect(screen.queryByRole('spinbutton', { name: /x position value at playhead/i })).toBeNull()
+    expect(screen.getByRole('button', { name: /collapse shape/i })).toBeInTheDocument()
+  })
+
   it('does not create a keyframe when a property input is only focused and blurred', () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
@@ -708,7 +722,7 @@ describe('CompositingTimeline', () => {
     expect(screen.getByTestId(`motion-layer-span-${shape.id}`)).toBeInTheDocument()
 
     const rowBefore = screen.getByText('X Position').closest('.group')
-    expect(rowBefore).not.toHaveClass('pl-6')
+    expect(rowBefore).toHaveClass('pl-6')
     expect(screen.getByTestId('motion-layer-scroll-area')).toHaveClass(
       'overflow-x-hidden',
       'overflow-y-auto',
@@ -735,7 +749,11 @@ describe('CompositingTimeline', () => {
     expect(screen.queryByText('Motion curves')).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: /sheet/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: /graph/i })).not.toBeInTheDocument()
-    expect(screen.getByText('X Position').closest('.group')).not.toHaveClass('pl-6')
+    expect(
+      within(screen.getByTestId('motion-graph-pane')).queryByRole('button', {
+        name: /collapse transform/i,
+      }),
+    ).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /show x position curve/i }))
     expect(screen.queryByTestId('dopesheet-graph-pane')).not.toBeInTheDocument()
@@ -752,8 +770,9 @@ describe('CompositingTimeline', () => {
       await screen.findByRole('button', { name: /toggle x position keyframe at playhead/i }),
     )
 
-    const easingTrigger = await screen.findByRole('button', { name: 'Easing' })
-    fireEvent.click(easingTrigger)
+    const easingTriggers = await screen.findAllByRole('button', { name: 'Easing' })
+    expect(easingTriggers.length).toBeGreaterThan(0)
+    fireEvent.click(easingTriggers[0]!)
     expect(await screen.findByText('Cubic Easing')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('combobox', { name: 'Property filter' }))

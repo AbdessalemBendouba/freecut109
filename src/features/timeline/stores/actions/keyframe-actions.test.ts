@@ -16,6 +16,8 @@ import {
   removeKeyframes,
   removeKeyframesForItem,
   removeKeyframesForProperty,
+  removeLinkedPropertyExpression,
+  setLinkedPropertyExpression,
   updateKeyframe,
 } from './keyframe-actions'
 
@@ -54,6 +56,40 @@ describe('keyframe actions', () => {
       .setItems([makeTimelineVideoItem({ id: 'a' }), makeTimelineVideoItem({ id: 'b', from: 60 })])
     useTransitionsStore.getState().setTransitions([])
     useKeyframesStore.getState().setKeyframes([])
+  })
+
+  describe('linked property expressions', () => {
+    it('creates and removes links through undo and redo', () => {
+      const expression = {
+        type: 'link' as const,
+        targetProperty: 'x' as const,
+        sourceItemId: 'b',
+        sourceProperty: 'x' as const,
+        enabled: true,
+        timeOffsetFrames: 0,
+      }
+
+      setLinkedPropertyExpression('a', expression)
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.expressions).toEqual([
+        expression,
+      ])
+
+      useTimelineCommandStore.getState().undo()
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')).toBeUndefined()
+
+      useTimelineCommandStore.getState().redo()
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.expressions).toEqual([
+        expression,
+      ])
+
+      removeLinkedPropertyExpression('a', 'x')
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')).toBeUndefined()
+
+      useTimelineCommandStore.getState().undo()
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.expressions).toEqual([
+        expression,
+      ])
+    })
   })
 
   describe('addKeyframe', () => {

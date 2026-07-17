@@ -6,6 +6,8 @@ import type {
   EasingType,
   EasingConfig,
   KeyframeRef,
+  LinkableAnimatableProperty,
+  LinkedPropertyExpression,
 } from '@/types/keyframe'
 
 /**
@@ -67,6 +69,8 @@ interface KeyframesActions {
   _removeKeyframesForItem: (itemId: string) => void
   _removeKeyframesForItems: (itemIds: string[]) => void
   _removeKeyframesForProperty: (itemId: string, property: AnimatableProperty) => void
+  _setLinkedPropertyExpression: (itemId: string, expression: LinkedPropertyExpression) => void
+  _removeLinkedPropertyExpression: (itemId: string, property: LinkableAnimatableProperty) => void
   _scaleKeyframesForItem: (itemId: string, oldDuration: number, newDuration: number) => void
 
   // Batch operations for multi-keyframe manipulation
@@ -120,6 +124,13 @@ function dedupeKeyframesByFrame(
   }
 
   return Array.from(frameMap.values()).sort((a, b) => a.frame - b.frame)
+}
+
+function hasStoredAnimation(itemKeyframes: ItemKeyframes): boolean {
+  return (
+    itemKeyframes.properties.some((property) => property.keyframes.length > 0) ||
+    (itemKeyframes.expressions?.length ?? 0) > 0
+  )
 }
 
 export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((set, get) => ({
@@ -363,7 +374,11 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
   // Remove all keyframes for an item
   _removeKeyframesForItem: (itemId) =>
     set((state) => ({
-      keyframes: state.keyframes.filter((k) => k.itemId !== itemId),
+      keyframes: state.keyframes
+        .map((itemKeyframes) =>
+          itemKeyframes.itemId === itemId ? { ...itemKeyframes, properties: [] } : itemKeyframes,
+        )
+        .filter(hasStoredAnimation),
     })),
 
   // Remove keyframes for multiple items (cascade delete)
@@ -371,7 +386,15 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
     set((state) => {
       const idsSet = new Set(itemIds)
       return {
-        keyframes: state.keyframes.filter((k) => !idsSet.has(k.itemId)),
+        keyframes: state.keyframes
+          .filter((itemKeyframes) => !idsSet.has(itemKeyframes.itemId))
+          .map((itemKeyframes) => ({
+            ...itemKeyframes,
+            expressions: itemKeyframes.expressions?.filter(
+              (expression) => !idsSet.has(expression.sourceItemId),
+            ),
+          }))
+          .filter(hasStoredAnimation),
       }
     }),
 
@@ -386,6 +409,48 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
             }
           : ik,
       ),
+    })),
+
+  _setLinkedPropertyExpression: (itemId, expression) =>
+    set((state) => {
+      const existing = state.keyframes.find((itemKeyframes) => itemKeyframes.itemId === itemId)
+      if (!existing) {
+        return {
+          keyframes: [...state.keyframes, { itemId, properties: [], expressions: [expression] }],
+        }
+      }
+
+      return {
+        keyframes: state.keyframes.map((itemKeyframes) =>
+          itemKeyframes.itemId === itemId
+            ? {
+                ...itemKeyframes,
+                expressions: [
+                  ...(itemKeyframes.expressions ?? []).filter(
+                    (candidate) => candidate.targetProperty !== expression.targetProperty,
+                  ),
+                  expression,
+                ],
+              }
+            : itemKeyframes,
+        ),
+      }
+    }),
+
+  _removeLinkedPropertyExpression: (itemId, property) =>
+    set((state) => ({
+      keyframes: state.keyframes
+        .map((itemKeyframes) =>
+          itemKeyframes.itemId === itemId
+            ? {
+                ...itemKeyframes,
+                expressions: itemKeyframes.expressions?.filter(
+                  (expression) => expression.targetProperty !== property,
+                ),
+              }
+            : itemKeyframes,
+        )
+        .filter(hasStoredAnimation),
     })),
 
   // Scale keyframes when item duration changes (rate stretch)

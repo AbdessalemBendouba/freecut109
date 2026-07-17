@@ -739,6 +739,9 @@ export function buildTimelineFromStores(): ProjectTimeline {
     ...(keyframesState.keyframes.length > 0 && {
       keyframes: keyframesState.keyframes.map((ik) => ({
         itemId: ik.itemId,
+        ...(ik.expressions?.length && {
+          expressions: ik.expressions.map((expression) => ({ ...expression })),
+        }),
         properties: ik.properties.map((pk) => ({
           property: pk.property,
           keyframes: pk.keyframes.map((k) => ({

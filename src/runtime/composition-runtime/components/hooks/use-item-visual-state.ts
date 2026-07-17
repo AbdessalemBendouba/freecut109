@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useContext } from 'react'
 import { useVideoConfig } from '../../hooks/use-player-compat'
 import { interpolate, useSequenceContext } from '@/runtime/composition-runtime/deps/player'
 import {
@@ -13,6 +13,7 @@ import { getShapePath, rotatePath } from '../../utils/shape-path'
 import { hasCornerPin } from '../../utils/corner-pin'
 import { useCompositionSpace } from '../../contexts/composition-space-context'
 import { useRuntimeItemKeyframes } from './use-runtime-item-keyframes'
+import { KeyframesContext } from '../../contexts/keyframes-context-core'
 import { useVisualFreezeFrame } from './use-visual-freeze-frame'
 import type { MaskInfo } from '../item'
 import type React from 'react'
@@ -120,6 +121,7 @@ export function useItemVisualState(
   const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id)
 
   const itemKeyframes = useRuntimeItemKeyframes(item.id)
+  const keyframesContext = useContext(KeyframesContext)
   const maskIds = useMemo(() => new Set(masks.map((mask) => mask.shape.id)), [masks])
   const previewMaskEditingItemId = useMaskEditorStore(
     useCallback(
@@ -164,6 +166,14 @@ export function useItemVisualState(
       canvas: logicalCanvas,
       relativeFrame: visualFrame,
       keyframes: itemKeyframes,
+      expressionContext: keyframesContext
+        ? {
+            globalFrame: item.from + visualFrame,
+            canvas: logicalCanvas,
+            getItem: keyframesContext.getItem,
+            getKeyframes: keyframesContext.getItemKeyframes,
+          }
+        : undefined,
     })
 
     // Priority: Unified preview (group/properties) > Single gizmo preview > Keyframe animation > Base
@@ -267,6 +277,7 @@ export function useItemVisualState(
     logicalCanvas,
     renderCanvas,
     itemKeyframes,
+    keyframesContext,
     visualFrame,
     fps,
     scaleX,

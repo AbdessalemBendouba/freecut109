@@ -18,6 +18,7 @@ export {
   resolveTransform,
   getSourceDimensions,
 } from '@/runtime/composition-runtime/utils/transform-resolver'
+export { resolveItemTransformAtFrame } from '@/runtime/composition-runtime/utils/frame-scene'
 export {
   resolveCornerPinTargetRect,
   resolveCornerPinForSize,

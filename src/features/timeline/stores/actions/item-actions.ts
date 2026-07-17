@@ -72,6 +72,12 @@ function copyKeyframesForDuplicatedItems(itemIds: string[], newItems: TimelineIt
   if (newItems.length === 0) return
 
   const keyframesState = useKeyframesStore.getState()
+  const duplicatedItemIdMap = new Map(
+    itemIds.flatMap((itemId, index) => {
+      const newItem = newItems[index]
+      return newItem ? [[itemId, newItem.id] as const] : []
+    }),
+  )
   const copiedKeyframes = itemIds.flatMap((itemId, index) => {
     const newItem = newItems[index]
     const source = keyframesState.keyframesByItemId[itemId]
@@ -80,6 +86,13 @@ function copyKeyframesForDuplicatedItems(itemIds: string[], newItems: TimelineIt
     return [
       {
         itemId: newItem.id,
+        ...(source.expressions?.length && {
+          expressions: source.expressions.map((expression) => ({
+            ...expression,
+            sourceItemId:
+              duplicatedItemIdMap.get(expression.sourceItemId) ?? expression.sourceItemId,
+          })),
+        }),
         properties: source.properties.map((property) => ({
           property: property.property,
           keyframes: property.keyframes.map((keyframe) => ({

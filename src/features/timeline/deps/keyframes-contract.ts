@@ -6,6 +6,7 @@
 export type { AutoKeyframeOperation } from '@/features/keyframes/utils/auto-keyframe'
 export { getCropPropertyValue } from '@/features/keyframes/utils/animated-crop-resolver'
 export { interpolatePropertyValue } from '@/features/keyframes/utils/interpolation'
+export { wouldCreateLinkedPropertyCycle } from '@/features/keyframes/utils/animated-transform-resolver'
 export {
   getTextAnimatableBaseValue,
   isTextAnimatableProperty,
@@ -13,6 +14,7 @@ export {
 export {
   getShapeAnimatableBaseValue,
   isShapeAnimatableProperty,
+  resolveAnimatedShapeItem,
 } from '@/features/keyframes/utils/animated-shape-item'
 export {
   BEZIER_PRESETS,
@@ -28,6 +30,11 @@ export {
   isFrameInTransitionRegion,
 } from '@/features/keyframes/utils/transition-region'
 export { DopesheetEditor } from '@/features/keyframes/components/dopesheet-editor'
+export {
+  GROUP_HEADER_HEIGHT,
+  ROW_HEIGHT,
+} from '@/features/keyframes/components/dopesheet-editor/dopesheet-constants'
+export { getPropertyAccordionGroups } from '@/features/keyframes/components/dopesheet-editor/property-groups'
 export { CompactNavigator } from '@/features/keyframes/components/dopesheet-editor/compact-navigator'
 export { KEYFRAME_EDGE_INSET } from '@/features/keyframes/components/dopesheet-editor/layout'
 export { getAnimatablePropertiesForItem } from '@/features/keyframes/utils/animatable-properties'

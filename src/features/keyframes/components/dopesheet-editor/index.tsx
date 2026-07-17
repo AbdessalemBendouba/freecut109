@@ -3,7 +3,15 @@
  * Shows keyframes across properties as draggable diamonds on a frame grid.
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useHotkeys } from 'react-hotkeys-hook'
@@ -12,23 +20,28 @@ import {
   ChevronLeft,
   ChevronRight,
   LineChart,
+  Link2,
   Lock,
   Sparkles,
   Timer,
   RotateCcw,
+  Unlink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/shared/ui/cn'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import type {
   AnimatableProperty,
   BezierControlPoints,
   EasingType,
   Keyframe,
   KeyframeRef,
+  LinkableAnimatableProperty,
+  LinkedPropertyExpression,
 } from '@/types/keyframe'
-import { isEffectAnimatableProperty } from '@/types/keyframe'
+import { isEffectAnimatableProperty, isLinkableAnimatableProperty } from '@/types/keyframe'
 import type { BlockedFrameRange } from '../../utils/transition-region'
 import { HOTKEY_OPTIONS } from '@/config/hotkeys'
 import { getFrameAxisX, getFrameFromAxisX, getVisibleKeyframeX } from './layout'
@@ -197,6 +210,17 @@ interface DopesheetEditorProps {
   ) => void
   /** Live no-undo value updates used while horizontally scrubbing an input. */
   onPropertyValuePreview?: (property: AnimatableProperty, value: number) => void
+  /** Existing post-keyframe scalar links for this item. */
+  linkedTransformExpressions?: readonly LinkedPropertyExpression[]
+  /** Human-readable source labels keyed by target property. */
+  linkedTransformSourceLabels?: Partial<Record<LinkableAnimatableProperty, string>>
+  /** Begin an AE-style pick-whip drag from a target property. */
+  onLinkedTransformPointerDown?: (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    property: LinkableAnimatableProperty,
+  ) => void
+  /** Remove a linked expression while preserving authored keyframes. */
+  onRemoveLinkedTransform?: (property: LinkableAnimatableProperty) => void
   /** Reset effect parameters to their definition defaults and clear their keyframes. */
   onResetPropertiesToDefault?: (properties: AnimatableProperty[]) => void
   /** Callback to remove selected keyframes */
@@ -313,6 +337,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   propertyValues = {},
   onPropertyValueCommit,
   onPropertyValuePreview,
+  linkedTransformExpressions = [],
+  linkedTransformSourceLabels = {},
+  onLinkedTransformPointerDown,
+  onRemoveLinkedTransform,
   onResetPropertiesToDefault,
   onRemoveKeyframes,
   onCopyKeyframes,
@@ -496,6 +524,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   })
   const filterKeyframedOnly =
     propertyFilter === undefined ? showKeyframedOnly : propertyFilter === 'keyframed'
+  const linkedTransformPropertyIds = useMemo(
+    () =>
+      new Set<AnimatableProperty>(
+        linkedTransformExpressions.map((expression) => expression.targetProperty),
+      ),
+    [linkedTransformExpressions],
+  )
 
   const filteredProperties = useMemo(
     () =>
@@ -506,6 +541,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         if (
           filterKeyframedOnly &&
           !keyframedPropertyIds.has(property) &&
+          !linkedTransformPropertyIds.has(property) &&
           !(propertyFilter === 'keyframed' && proceduralBandByProperty.has(property))
         )
           return false
@@ -514,6 +550,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     [
       availableProperties,
       keyframedPropertyIds,
+      linkedTransformPropertyIds,
       proceduralBandByProperty,
       propertyGroupIdByProperty,
       propertyFilter,
@@ -2325,6 +2362,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         : graphVisibleProperties.has(row.property)
       const rowLabel = getKeyframePropertyLabel(t, row.property)
       const rowDisplayLabel = getKeyframePropertyShortLabel(t, row.property)
+      const linkableProperty = isLinkableAnimatableProperty(row.property) ? row.property : null
+      const linkedExpression = linkableProperty
+        ? linkedTransformExpressions.find(
+            (expression) => expression.targetProperty === linkableProperty,
+          )
+        : undefined
       const canResetEffectProperty =
         isEffectAnimatableProperty(row.property) &&
         !!onResetPropertiesToDefault &&
@@ -2345,7 +2388,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             selectedProperty === row.property && 'bg-accent/55',
             showGraphPane && !rowLocked && 'cursor-pointer',
             rowLocked && 'opacity-70',
+            'data-[expression-link-hover=true]:bg-primary/20 data-[expression-link-hover=true]:ring-1 data-[expression-link-hover=true]:ring-inset data-[expression-link-hover=true]:ring-primary/70',
           )}
+          data-expression-item-id={linkableProperty ? itemId : undefined}
+          data-expression-property={linkableProperty ?? undefined}
           onClick={showGraphPane && !rowLocked ? () => activateProperty(row.property) : undefined}
         >
           <div className="flex items-center gap-px self-stretch">
@@ -2461,6 +2507,88 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             >
               <Timer className={MINI_ICON_CLASS} />
             </Button>
+            {linkableProperty && onLinkedTransformPointerDown ? (
+              linkedExpression ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        MINI_ICON_BUTTON_CLASS,
+                        'self-center text-orange-400 hover:bg-orange-500/10 hover:text-orange-300',
+                      )}
+                      onPointerDown={(event) => {
+                        event.stopPropagation()
+                        onLinkedTransformPointerDown(event, linkableProperty)
+                      }}
+                      title={t('timeline.keyframeEditor.linkedExpression', {
+                        source:
+                          linkedTransformSourceLabels[linkableProperty] ??
+                          linkedExpression.sourceProperty,
+                        defaultValue: `Linked to ${linkedTransformSourceLabels[linkableProperty] ?? linkedExpression.sourceProperty}. Drag to re-link or click for options.`,
+                      })}
+                      aria-label={t('timeline.keyframeEditor.linkedExpression', {
+                        source:
+                          linkedTransformSourceLabels[linkableProperty] ??
+                          linkedExpression.sourceProperty,
+                        defaultValue: `Linked to ${linkedTransformSourceLabels[linkableProperty] ?? linkedExpression.sourceProperty}`,
+                      })}
+                    >
+                      <Link2 className={MINI_ICON_CLASS} />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent side="right" align="start" className="w-56 space-y-2 p-2">
+                    <div className="text-[10px] font-medium text-foreground">
+                      {t('timeline.keyframeEditor.propertyLink', {
+                        defaultValue: 'Property link',
+                      })}
+                    </div>
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      {linkedTransformSourceLabels[linkableProperty] ??
+                        linkedExpression.sourceProperty}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 w-full justify-start px-2 text-[10px] text-destructive hover:text-destructive"
+                      onClick={() => onRemoveLinkedTransform?.(linkableProperty)}
+                    >
+                      <Unlink className="mr-1.5 h-3 w-3" />
+                      {t('timeline.keyframeEditor.removePropertyLink', {
+                        defaultValue: 'Remove property link',
+                      })}
+                    </Button>
+                  </PopoverContent>
+                </Popover>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    MINI_ICON_BUTTON_CLASS,
+                    'self-center touch-none text-muted-foreground opacity-30 hover:text-foreground hover:opacity-70',
+                  )}
+                  onPointerDown={(event) => {
+                    event.stopPropagation()
+                    onLinkedTransformPointerDown(event, linkableProperty)
+                  }}
+                  title={t('timeline.keyframeEditor.dragToLinkProperty', {
+                    property: rowLabel,
+                    defaultValue: `Drag to link ${rowLabel} to another property`,
+                  })}
+                  aria-label={t('timeline.keyframeEditor.dragToLinkProperty', {
+                    property: rowLabel,
+                    defaultValue: `Drag to link ${rowLabel} to another property`,
+                  })}
+                >
+                  <Link2 className={MINI_ICON_CLASS} />
+                </Button>
+              )
+            ) : null}
           </div>
           <div
             className="flex h-full min-w-0 flex-1 items-center truncate pl-[10px] pr-1 text-[9px] font-medium leading-none text-foreground/90"
@@ -2540,10 +2668,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                     ? 'w-[80px]'
                     : 'w-[44px]',
                 !isColorAnimatableProperty(row.property) && 'cursor-ew-resize select-none',
+                linkedExpression && 'text-orange-400',
               )}
               disabled={
                 disabled ||
                 rowLocked ||
+                !!linkedExpression ||
                 !onPropertyValueCommit ||
                 (!row.controls.hasKeyframeAtCurrentFrame && isCurrentFrameBlocked)
               }
@@ -2709,12 +2839,17 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       handleValueScrubEnd,
       handleValueScrubMove,
       handleValueScrubStart,
+      itemId,
       isPropertyLocked,
       isCurrentFrameBlocked,
       onAddKeyframe,
       onNavigateToKeyframe,
       onCurveVisibilityChange,
       onPropertyValueCommit,
+      linkedTransformExpressions,
+      linkedTransformSourceLabels,
+      onLinkedTransformPointerDown,
+      onRemoveLinkedTransform,
       onResetPropertiesToDefault,
       propertyValues,
       presentation,
@@ -2756,17 +2891,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       const hasUnlockedCurrentKeyframes = unlockedCurrentKeyframes.length > 0
       const canToggleCurrentFrame = hasUnlockedCurrentKeyframes ? !!onRemoveKeyframes : canAddAny
 
-      const showGroupLeftClusterAtRest = curveVisible || allRowsLocked || groupAutoKeyEnabled
-
       return (
         <div className="group flex h-full items-center gap-px border-y border-border/60 bg-muted/70 pl-3 pr-0.5">
-          <div
-            className={cn(
-              'flex items-center gap-px self-stretch',
-              !showGroupLeftClusterAtRest &&
-                'opacity-0 transition-opacity duration-100 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto',
-            )}
-          >
+          <div className="flex items-center gap-px self-stretch">
             <Button
               type="button"
               variant="ghost"
@@ -2918,11 +3045,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               type="button"
               variant="ghost"
               size="sm"
-              className={cn(
-                MINI_ICON_BUTTON_CLASS,
-                'text-muted-foreground hover:text-foreground',
-                'opacity-0 transition-opacity duration-100 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto',
-              )}
+              className={cn(MINI_ICON_BUTTON_CLASS, 'text-muted-foreground hover:text-foreground')}
               onClick={(event) => {
                 event.stopPropagation()
                 handleRowNavigate(
@@ -2997,11 +3120,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               type="button"
               variant="ghost"
               size="sm"
-              className={cn(
-                MINI_ICON_BUTTON_CLASS,
-                'text-muted-foreground hover:text-foreground',
-                'opacity-0 transition-opacity duration-100 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto focus-within:opacity-100 focus-within:pointer-events-auto',
-              )}
+              className={cn(MINI_ICON_BUTTON_CLASS, 'text-muted-foreground hover:text-foreground')}
               onClick={(event) => {
                 event.stopPropagation()
                 handleRowNavigate(
@@ -3209,7 +3328,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
 
         const groupOpen = expandedGroups[group.id] ?? true
         const elements: React.ReactNode[] = [
-          <div key={group.id} className="h-6 border-b border-border/60">
+          <div
+            key={group.id}
+            className="border-b border-border/60"
+            style={{ height: GROUP_HEADER_HEIGHT }}
+          >
             {renderGroupHeaderContent(group)}
           </div>,
         ]

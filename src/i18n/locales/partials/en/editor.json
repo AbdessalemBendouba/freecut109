@@ -10,6 +10,7 @@
       "compositionPicker": "Motion composition",
       "dropAssetsHint": "Drop media, text, shapes, or compositions here",
       "compositionCycle": "A composition cannot contain itself.",
+      "propertyLinkCycle": "That property link would create a cycle.",
       "unsupportedDrop": "This item cannot be added as a Motion layer.",
       "mediaDropFailed": "Could not load the dropped media.",
       "openComposition": "Open {{name}}",

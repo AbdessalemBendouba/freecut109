@@ -1,4 +1,9 @@
-import type { AnimatableProperty, EasingType, EasingConfig } from './keyframe'
+import type {
+  AnimatableProperty,
+  EasingType,
+  EasingConfig,
+  LinkedPropertyExpression,
+} from './keyframe'
 import type { AudioEqSettings } from './audio'
 import type { Transition } from './transition'
 import type { CropSettings } from './transform'
@@ -267,6 +272,7 @@ export interface ProjectTimeline {
   // Keyframe animations
   keyframes?: Array<{
     itemId: string
+    expressions?: LinkedPropertyExpression[]
     properties: Array<{
       property: AnimatableProperty
       keyframes: Array<{

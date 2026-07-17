@@ -10,6 +10,7 @@
       "compositionPicker": "Motion-Komposition",
       "dropAssetsHint": "Medien, Text, Formen oder Kompositionen hier ablegen",
       "compositionCycle": "Eine Komposition kann sich nicht selbst enthalten.",
+      "propertyLinkCycle": "Diese Eigenschaftsverknüpfung würde einen Zyklus erzeugen.",
       "unsupportedDrop": "Dieses Element kann nicht als Motion-Ebene hinzugefügt werden.",
       "mediaDropFailed": "Die abgelegten Medien konnten nicht geladen werden.",
       "openComposition": "{{name}} öffnen",

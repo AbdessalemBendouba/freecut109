@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useContext, useMemo } from 'react'
 import {
   Rect,
   Circle,
@@ -22,6 +22,7 @@ import { useCompositionSpace } from '../contexts/composition-space-context'
 import { useItemVisualTransform } from '../contexts/item-visual-transform-context'
 import { useSequenceContext } from '@/runtime/composition-runtime/deps/player'
 import { useItemKeyframesFromContext } from '../contexts/keyframes-context'
+import { KeyframesContext } from '../contexts/keyframes-context-core'
 import { resolveAnimatedShapeItem } from '@/runtime/composition-runtime/deps/keyframes'
 
 /**
@@ -38,6 +39,7 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
   const renderScale = compositionSpace?.scale ?? 1
   const visualTransform = useItemVisualTransform()
   const sequenceContext = useSequenceContext()
+  const keyframesContext = useContext(KeyframesContext)
   const contextKeyframes = useItemKeyframesFromContext(item.id)
   const storeKeyframes = useTimelineStore(
     useCallback((s) => s.keyframes.find((entry) => entry.itemId === item.id), [item.id]),
@@ -47,8 +49,21 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
     (sequenceContext ? item.from - (sequenceContext.from - sequenceContext.parentFrom) : 0)
   const relativeFrame = (sequenceContext?.localFrame ?? 0) - sequenceFrameOffset
   const resolvedItem = useMemo(
-    () => resolveAnimatedShapeItem(item, contextKeyframes ?? storeKeyframes, relativeFrame),
-    [contextKeyframes, item, relativeFrame, storeKeyframes],
+    () =>
+      resolveAnimatedShapeItem(
+        item,
+        contextKeyframes ?? storeKeyframes,
+        relativeFrame,
+        keyframesContext?.canvas
+          ? {
+              globalFrame: item.from + relativeFrame,
+              canvas: keyframesContext.canvas,
+              getItem: keyframesContext.getItem,
+              getKeyframes: keyframesContext.getItemKeyframes,
+            }
+          : undefined,
+      ),
+    [contextKeyframes, item, keyframesContext, relativeFrame, storeKeyframes],
   )
 
   const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id)

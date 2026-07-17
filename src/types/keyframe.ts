@@ -53,12 +53,79 @@ export type TransformAnimatableProperty =
   | 'opacity'
   | 'cornerRadius'
 
+const TRANSFORM_ANIMATABLE_PROPERTIES = new Set<TransformAnimatableProperty>([
+  'x',
+  'y',
+  'width',
+  'height',
+  'anchorX',
+  'anchorY',
+  'rotation',
+  'opacity',
+  'cornerRadius',
+])
+
+export function isTransformAnimatableProperty(
+  property: AnimatableProperty | string,
+): property is TransformAnimatableProperty {
+  return TRANSFORM_ANIMATABLE_PROPERTIES.has(property as TransformAnimatableProperty)
+}
+
+export type ShapeAnimatableProperty =
+  | 'trimPathStart'
+  | 'trimPathEnd'
+  | 'trimPathOffset'
+  | 'taperStartWidth'
+  | 'taperEndWidth'
+  | 'taperStartLength'
+  | 'taperEndLength'
+
+const SHAPE_ANIMATABLE_PROPERTIES = new Set<ShapeAnimatableProperty>([
+  'trimPathStart',
+  'trimPathEnd',
+  'trimPathOffset',
+  'taperStartWidth',
+  'taperEndWidth',
+  'taperStartLength',
+  'taperEndLength',
+])
+
+export function isShapeAnimatableProperty(
+  property: AnimatableProperty | string,
+): property is ShapeAnimatableProperty {
+  return SHAPE_ANIMATABLE_PROPERTIES.has(property as ShapeAnimatableProperty)
+}
+
+/** Scalar properties whose post-keyframe values can participate in links. */
+export type LinkableAnimatableProperty = TransformAnimatableProperty | ShapeAnimatableProperty
+
+export function isLinkableAnimatableProperty(
+  property: AnimatableProperty | string,
+): property is LinkableAnimatableProperty {
+  return isTransformAnimatableProperty(property) || isShapeAnimatableProperty(property)
+}
+
 export type CropAnimatableProperty =
   | 'cropLeft'
   | 'cropRight'
   | 'cropTop'
   | 'cropBottom'
   | 'cropSoftness'
+
+/**
+ * A deterministic, typed expression that makes one scalar property follow
+ * another scalar property in the same composition. Item IDs keep links stable when a
+ * layer is renamed; composition-time evaluation is handled by the resolver.
+ */
+export interface LinkedPropertyExpression {
+  type: 'link'
+  targetProperty: LinkableAnimatableProperty
+  sourceItemId: string
+  sourceProperty: LinkableAnimatableProperty
+  enabled: boolean
+  /** Reserved for AE-style delayed followers; zero is a direct pick-whip link. */
+  timeOffsetFrames: number
+}
 
 /**
  * Basic easing functions for interpolation between keyframes.
@@ -187,6 +254,8 @@ export interface ItemKeyframes {
   itemId: string
   /** Array of property keyframe groups */
   properties: PropertyKeyframes[]
+  /** Post-keyframe property expressions, keyed by their target property. */
+  expressions?: LinkedPropertyExpression[]
 }
 
 /**

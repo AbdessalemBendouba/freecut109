@@ -3,10 +3,16 @@
 export {
   CompactNavigator,
   DopesheetEditor,
+  GROUP_HEADER_HEIGHT,
   KEYFRAME_EDGE_INSET,
+  ROW_HEIGHT,
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,
   getProceduralBands,
+  getPropertyAccordionGroups,
+  getShapeAnimatableBaseValue,
+  resolveAnimatedShapeItem,
+  wouldCreateLinkedPropertyCycle,
 } from '@/features/timeline/deps/keyframe-editors'
 export { interpolatePropertyValue } from '@/features/timeline/deps/keyframes'
 export { captureSnapshot } from '@/features/timeline/stores/commands/snapshot'
@@ -29,7 +35,9 @@ export {
 } from '@/features/timeline/stores/actions/item-actions'
 export {
   addKeyframe,
+  removeLinkedPropertyExpression,
   removeKeyframes,
+  setLinkedPropertyExpression,
   updateKeyframe,
   updateKeyframes,
 } from '@/features/timeline/stores/actions/keyframe-actions'

@@ -229,4 +229,46 @@ describe('timeline duplicate item actions', () => {
       source.properties[0]!.keyframes[0]!.easingConfig?.bezier,
     )
   })
+
+  it('copies links and remaps their source when linked items are duplicated together', () => {
+    useItemsStore
+      .getState()
+      .setItems([makeVideoItem({ id: 'source' }), makeVideoItem({ id: 'target', from: 40 })])
+    useKeyframesStore.getState().setKeyframes([
+      {
+        itemId: 'source',
+        properties: [{ property: 'x', keyframes: [] }],
+      },
+      {
+        itemId: 'target',
+        properties: [],
+        expressions: [
+          {
+            type: 'link',
+            targetProperty: 'x',
+            sourceItemId: 'source',
+            sourceProperty: 'x',
+            enabled: true,
+            timeOffsetFrames: 0,
+          },
+        ],
+      },
+    ])
+
+    const copies = duplicateItems(
+      ['source', 'target'],
+      [
+        { from: 100, trackId: 'track-1' },
+        { from: 140, trackId: 'track-1' },
+      ],
+    )
+    const copiedTargetExpression =
+      useKeyframesStore.getState().keyframesByItemId[copies[1]!.id]?.expressions?.[0]
+
+    expect(copiedTargetExpression).toMatchObject({
+      sourceItemId: copies[0]!.id,
+      targetProperty: 'x',
+      sourceProperty: 'x',
+    })
+  })
 })
