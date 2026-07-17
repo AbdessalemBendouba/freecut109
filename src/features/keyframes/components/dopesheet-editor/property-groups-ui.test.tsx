@@ -51,6 +51,28 @@ describe('DopesheetEditor property groups', () => {
     ).toBeTruthy()
   })
 
+  it('expands and collapses sibling property groups with Shift-click', () => {
+    renderEditor()
+
+    fireEvent.click(screen.getByRole('button', { name: /collapse transform/i }), {
+      shiftKey: true,
+    })
+
+    expect(screen.getByRole('button', { name: /expand transform/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /expand audio/i })).toBeTruthy()
+    expect(screen.queryByRole('spinbutton', { name: /x position value at playhead/i })).toBeNull()
+    expect(
+      screen.queryByRole('spinbutton', { name: /volume \(db\) value at playhead/i }),
+    ).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /expand transform/i }), {
+      shiftKey: true,
+    })
+
+    expect(screen.getByRole('button', { name: /collapse transform/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /collapse audio/i })).toBeTruthy()
+  })
+
   it('renders linked property controls and removes a link from its popover', () => {
     const onLinkedTransformPointerDown = vi.fn()
     const onRemoveLinkedTransform = vi.fn()

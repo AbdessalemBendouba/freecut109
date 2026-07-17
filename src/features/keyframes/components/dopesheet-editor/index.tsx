@@ -3042,7 +3042,16 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           <button
             type="button"
             className="group flex min-w-0 flex-1 items-center gap-px rounded-sm px-0 text-left leading-none transition-colors hover:bg-background/40"
-            onClick={() => toggleGroup(group.id)}
+            onClick={(event) => {
+              if (event.shiftKey) {
+                setAllGroupsExpanded(!isOpen)
+                return
+              }
+              toggleGroup(group.id)
+            }}
+            title={t('timeline.keyframeEditor.shiftToggleAllGroups', {
+              defaultValue: 'Shift-click to expand or collapse all property groups',
+            })}
             aria-expanded={isOpen}
             aria-label={
               isOpen
@@ -3234,9 +3243,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       isCurrentFrameBlocked,
       onRemoveKeyframes,
       onNavigateToKeyframe,
-      onPropertyValueCommit,
-      onResetPropertiesToDefault,
-      setGroupLocked,
+        onPropertyValueCommit,
+        onResetPropertiesToDefault,
+        setAllGroupsExpanded,
+        setGroupLocked,
       t,
       toggleGroupCurves,
       toggleGroup,

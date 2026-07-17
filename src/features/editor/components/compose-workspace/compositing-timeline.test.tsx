@@ -116,6 +116,39 @@ describe('CompositingTimeline', () => {
     ).toBeInTheDocument()
   })
 
+  it('expands and collapses every layer with Shift-click', () => {
+    const secondTrack = makeTimelineTrack({
+      id: 'layer-track-2',
+      name: 'Circle',
+      kind: 'video',
+      order: 1,
+    })
+    const secondShape: ShapeItem = {
+      ...shape,
+      id: 'shape-2',
+      trackId: secondTrack.id,
+      label: 'Circle',
+    }
+    useItemsStore.getState().setTracks([track, secondTrack])
+    useItemsStore.getState().setItems([shape, secondShape])
+    render(<CompositingTimeline />)
+
+    const expandButtons = screen.getAllByRole('button', { name: 'Expand layer properties' })
+    fireEvent.click(expandButtons[0]!, { shiftKey: true })
+
+    expect(useComposeUiStore.getState().expandedLayerIdsByComposition['comp-1']).toEqual([
+      shape.id,
+      secondShape.id,
+    ])
+    expect(screen.getAllByRole('button', { name: 'Collapse layer properties' })).toHaveLength(2)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Collapse layer properties' })[0]!, {
+      shiftKey: true,
+    })
+
+    expect(useComposeUiStore.getState().expandedLayerIdsByComposition['comp-1']).toEqual([])
+  })
+
   it('uses a light border and readable text for the selected segment', () => {
     useSelectionStore.getState().selectItems([shape.id])
     render(<CompositingTimeline />)

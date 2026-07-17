@@ -1413,6 +1413,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     ),
   )
   const toggleLayerExpanded = useComposeUiStore((state) => state.toggleLayerExpanded)
+  const setAllLayersExpanded = useComposeUiStore((state) => state.setAllLayersExpanded)
   const pruneCompositionLayers = useComposeUiStore((state) => state.pruneCompositionLayers)
   const mediaItems = useMediaLibraryStore((state) => state.mediaItems)
   const canPasteLayers = useClipboardStore((state) => (state.itemsClipboard?.items.length ?? 0) > 0)
@@ -3031,8 +3032,21 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                           {hasVisibleChildProperties ? (
                             <button
                               type="button"
-                              onClick={() => toggleLayerExpanded(activeCompositionId, item.id)}
+                              onClick={(event) => {
+                                if (event.shiftKey) {
+                                  setAllLayersExpanded(
+                                    activeCompositionId,
+                                    layerEntries.map((entry) => entry.item.id),
+                                    !expanded,
+                                  )
+                                  return
+                                }
+                                toggleLayerExpanded(activeCompositionId, item.id)
+                              }}
                               className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              title={t('editor.compose.shiftToggleAllLayers', {
+                                defaultValue: 'Shift-click to expand or collapse all layers',
+                              })}
                               aria-label={
                                 expanded
                                   ? t('editor.compose.collapseLayerProperties')

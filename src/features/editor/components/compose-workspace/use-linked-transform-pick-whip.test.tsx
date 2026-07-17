@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { useKeyframesStore, useTimelineCommandStore } from '@/features/editor/deps/timeline-motion'
 import { useLinkedTransformPickWhip } from './use-linked-transform-pick-whip'
@@ -157,5 +157,55 @@ describe('useLinkedTransformPickWhip', () => {
     })
     fireEvent.pointerUp(window, { pointerId: 11, clientX: 16, clientY: 26 })
     Reflect.deleteProperty(document, 'elementFromPoint')
+  })
+
+  it('auto-scrolls when the pointer is held near a vertical viewport edge', () => {
+    const animationFrames: FrameRequestCallback[] = []
+    const requestFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        animationFrames.push(callback)
+        return animationFrames.length
+      })
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    render(<PickWhipHarness />)
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 500,
+      height: 300,
+      right: 500,
+      bottom: 300,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect)
+    Object.defineProperties(scrollArea, {
+      clientHeight: { configurable: true, value: 300 },
+      scrollHeight: { configurable: true, value: 900 },
+      scrollTop: { configurable: true, value: 100, writable: true },
+    })
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => null),
+    })
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Target X' }), {
+      button: 0,
+      pointerId: 12,
+      clientX: 100,
+      clientY: 150,
+    })
+    fireEvent.pointerMove(window, { pointerId: 12, clientX: 100, clientY: 292 })
+    expect(animationFrames).toHaveLength(1)
+
+    act(() => animationFrames.shift()?.(16))
+
+    expect(scrollArea.scrollTop).toBeGreaterThan(100)
+    fireEvent.pointerUp(window, { pointerId: 12, clientX: 100, clientY: 292 })
+    Reflect.deleteProperty(document, 'elementFromPoint')
+    requestFrame.mockRestore()
+    cancelFrame.mockRestore()
   })
 })

@@ -38,6 +38,33 @@ interface LinkedExpressionClipBounds {
   bottom: number
 }
 
+const AUTO_SCROLL_EDGE_PX = 48
+const AUTO_SCROLL_MAX_PX_PER_SECOND = 720
+
+function getPickWhipAutoScrollVelocity(
+  pointerX: number,
+  pointerY: number,
+  bounds: LinkedExpressionClipBounds,
+): number {
+  if (
+    pointerX < bounds.left ||
+    pointerX > bounds.right ||
+    pointerY < bounds.top ||
+    pointerY > bounds.bottom
+  ) {
+    return 0
+  }
+  const topDepth = AUTO_SCROLL_EDGE_PX - (pointerY - bounds.top)
+  if (topDepth > 0) {
+    return -AUTO_SCROLL_MAX_PX_PER_SECOND * (topDepth / AUTO_SCROLL_EDGE_PX)
+  }
+  const bottomDepth = AUTO_SCROLL_EDGE_PX - (bounds.bottom - pointerY)
+  if (bottomDepth > 0) {
+    return AUTO_SCROLL_MAX_PX_PER_SECOND * (bottomDepth / AUTO_SCROLL_EDGE_PX)
+  }
+  return 0
+}
+
 interface LinkedExpressionCandidate {
   row: HTMLElement
   itemId: string
@@ -144,6 +171,8 @@ export function useLinkedTransformPickWhip() {
   const originRef = useRef<HTMLElement | null>(null)
   const clipRootRef = useRef<HTMLElement | null>(null)
   const layoutFrameRef = useRef<number | null>(null)
+  const autoScrollFrameRef = useRef<number | null>(null)
+  const autoScrollTimeRef = useRef<number | null>(null)
 
   const begin = useCallback(
     (
@@ -211,6 +240,62 @@ export function useLinkedTransformPickWhip() {
       if (!dragRef.current || layoutFrameRef.current !== null) return
       layoutFrameRef.current = window.requestAnimationFrame(refreshFromLayout)
     }
+    const cancelAutoScroll = () => {
+      if (autoScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(autoScrollFrameRef.current)
+        autoScrollFrameRef.current = null
+      }
+      autoScrollTimeRef.current = null
+    }
+    const autoScroll = (timestamp: number) => {
+      autoScrollFrameRef.current = null
+      const current = dragRef.current
+      const clipRoot = clipRootRef.current
+      if (!current || !clipRoot) {
+        autoScrollTimeRef.current = null
+        return
+      }
+      const velocity = getPickWhipAutoScrollVelocity(
+        current.currentX,
+        current.currentY,
+        current.clipBounds,
+      )
+      if (velocity === 0) {
+        autoScrollTimeRef.current = null
+        return
+      }
+      const previousTimestamp = autoScrollTimeRef.current ?? timestamp - 1000 / 60
+      const elapsedSeconds = Math.min(32, Math.max(0, timestamp - previousTimestamp)) / 1000
+      autoScrollTimeRef.current = timestamp
+      const previousScrollTop = clipRoot.scrollTop
+      const maxScrollTop = Math.max(0, clipRoot.scrollHeight - clipRoot.clientHeight)
+      clipRoot.scrollTop = Math.min(
+        maxScrollTop,
+        Math.max(0, previousScrollTop + velocity * elapsedSeconds),
+      )
+      if (clipRoot.scrollTop === previousScrollTop) {
+        autoScrollTimeRef.current = null
+        return
+      }
+      scheduleLayoutRefresh()
+      autoScrollFrameRef.current = window.requestAnimationFrame(autoScroll)
+    }
+    const updateAutoScroll = () => {
+      const current = dragRef.current
+      if (
+        !current ||
+        getPickWhipAutoScrollVelocity(
+          current.currentX,
+          current.currentY,
+          current.clipBounds,
+        ) === 0
+      ) {
+        cancelAutoScroll()
+        return
+      }
+      if (autoScrollFrameRef.current !== null) return
+      autoScrollFrameRef.current = window.requestAnimationFrame(autoScroll)
+    }
     const move = (event: PointerEvent) => {
       const current = dragRef.current
       if (!current || current.pointerId !== event.pointerId) return
@@ -219,12 +304,14 @@ export function useLinkedTransformPickWhip() {
       const next = createNextDragState(current, event, candidate)
       dragRef.current = next
       setDrag(next)
+      updateAutoScroll()
     }
     const finish = (event: PointerEvent, commit: boolean) => {
       const current = dragRef.current
       if (!current || current.pointerId !== event.pointerId) return
       clear()
       cancelLayoutRefresh()
+      cancelAutoScroll()
       dragRef.current = null
       originRef.current = null
       clipRootRef.current = null
@@ -238,6 +325,7 @@ export function useLinkedTransformPickWhip() {
       if (event.key !== 'Escape' || !dragRef.current) return
       clear()
       cancelLayoutRefresh()
+      cancelAutoScroll()
       dragRef.current = null
       originRef.current = null
       clipRootRef.current = null
@@ -253,6 +341,7 @@ export function useLinkedTransformPickWhip() {
     return () => {
       clear()
       cancelLayoutRefresh()
+      cancelAutoScroll()
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', pointerUp)
       window.removeEventListener('pointercancel', pointerCancel)
