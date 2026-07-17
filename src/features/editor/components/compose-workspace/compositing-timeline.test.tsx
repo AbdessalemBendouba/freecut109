@@ -372,6 +372,13 @@ describe('CompositingTimeline', () => {
   })
 
   it('keeps ctrl-wheel zoom while leaving ordinary wheel input to vertical scrolling', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
     render(<CompositingTimeline />)
     const scrollArea = screen.getByTestId('motion-layer-scroll-area')
     vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
@@ -392,6 +399,8 @@ describe('CompositingTimeline', () => {
     expect(screen.getByText('4.0s')).toBeInTheDocument()
 
     fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
+    expect(frameCallbacks).toHaveLength(1)
+    act(() => frameCallbacks.shift()?.(performance.now()))
 
     expect(screen.getByText('0.4s')).toBeInTheDocument()
     expect(screen.getByText('3.6s')).toBeInTheDocument()
@@ -408,9 +417,17 @@ describe('CompositingTimeline', () => {
     expect(screen.getByText('0.4s')).toBeInTheDocument()
     expect(screen.getByText('3.6s')).toBeInTheDocument()
     expect(scrollArea).toHaveClass('overflow-y-auto')
+    animationFrameSpy.mockRestore()
   })
 
   it('does not pan the time viewport for ordinary mixed-axis wheel input', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
     render(<CompositingTimeline />)
     const scrollArea = screen.getByTestId('motion-layer-scroll-area')
     vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
@@ -427,6 +444,7 @@ describe('CompositingTimeline', () => {
     const navigator = screen.getByTestId('motion-time-navigator')
 
     fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
+    act(() => frameCallbacks.shift()?.(performance.now()))
     expect(navigator).toHaveAttribute('data-start-frame', '12')
     expect(navigator).toHaveAttribute('data-end-frame', '108')
 
@@ -441,9 +459,17 @@ describe('CompositingTimeline', () => {
     expect(wheelEvent.defaultPrevented).toBe(false)
     expect(navigator).toHaveAttribute('data-start-frame', '12')
     expect(navigator).toHaveAttribute('data-end-frame', '108')
+    animationFrameSpy.mockRestore()
   })
 
   it('accumulates shift-wheel horizontal panning without cross-axis reversal or frame jumps', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
     render(<CompositingTimeline />)
     const scrollArea = screen.getByTestId('motion-layer-scroll-area')
     vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
@@ -471,15 +497,75 @@ describe('CompositingTimeline', () => {
     fireEvent.wheel(scrollArea, { shiftKey: true, clientX: 750, deltaX: -1, deltaY: 1 })
 
     expect(firstPan.defaultPrevented).toBe(true)
+    expect(frameCallbacks).toHaveLength(1)
+    act(() => frameCallbacks.shift()?.(performance.now()))
     expect(Number(navigator.dataset.startFrame)).toBeCloseTo(12.384)
     expect(Number(navigator.dataset.endFrame)).toBeCloseTo(108.384)
 
     fireEvent.wheel(scrollArea, { shiftKey: true, clientX: 750, deltaX: -100, deltaY: 10 })
+    act(() => frameCallbacks.shift()?.(performance.now()))
     expect(Number(navigator.dataset.startFrame)).toBeCloseTo(14.304)
     expect(Number(navigator.dataset.endFrame)).toBeCloseTo(110.304)
+    animationFrameSpy.mockRestore()
+  })
+
+  it('coalesces dominant horizontal trackpad input into one viewport update per frame', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    render(<CompositingTimeline />)
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+    const navigator = screen.getByTestId('motion-time-navigator')
+
+    fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
+    expect(frameCallbacks).toHaveLength(1)
+    act(() => frameCallbacks.shift()?.(performance.now()))
+    expect(navigator).toHaveAttribute('data-start-frame', '12')
+    expect(navigator).toHaveAttribute('data-end-frame', '108')
+
+    const horizontalEvents = Array.from({ length: 4 }, () =>
+      createEvent.wheel(scrollArea, {
+        clientX: 750,
+        deltaX: 10,
+        deltaY: 1,
+        cancelable: true,
+      }),
+    )
+    for (const event of horizontalEvents) fireEvent(scrollArea, event)
+
+    expect(horizontalEvents.every((event) => event.defaultPrevented)).toBe(true)
+    expect(frameCallbacks).toHaveLength(1)
+    expect(navigator).toHaveAttribute('data-start-frame', '12')
+
+    act(() => frameCallbacks.shift()?.(performance.now()))
+    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(19.68)
+    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(115.68)
+    animationFrameSpy.mockRestore()
   })
 
   it('accumulates rapid mouse-wheel zoom around the cursor without treating horizontal input as zoom', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
     render(<CompositingTimeline />)
     const scrollArea = screen.getByTestId('motion-layer-scroll-area')
     vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
@@ -514,6 +600,8 @@ describe('CompositingTimeline', () => {
       )
     })
 
+    expect(frameCallbacks).toHaveLength(1)
+    act(() => frameCallbacks.shift()?.(performance.now()))
     expect(navigator).toHaveAttribute('data-start-frame', '22')
     expect(navigator).toHaveAttribute('data-end-frame', '99')
 
@@ -529,9 +617,17 @@ describe('CompositingTimeline', () => {
     expect(horizontalEvent.defaultPrevented).toBe(true)
     expect(navigator).toHaveAttribute('data-start-frame', '22')
     expect(navigator).toHaveAttribute('data-end-frame', '99')
+    animationFrameSpy.mockRestore()
   })
 
   it('handles ctrl-wheel zoom after the app-level browser zoom guard prevents the event', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
     render(<CompositingTimeline />)
     const scrollArea = screen.getByTestId('motion-layer-scroll-area')
     vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
@@ -557,10 +653,12 @@ describe('CompositingTimeline', () => {
     // Motion timeline receives this same event.
     guardedEvent.preventDefault()
     fireEvent(scrollArea, guardedEvent)
+    act(() => frameCallbacks.shift()?.(performance.now()))
 
     expect(guardedEvent.defaultPrevented).toBe(true)
     expect(navigator).toHaveAttribute('data-start-frame', '12')
     expect(navigator).toHaveAttribute('data-end-frame', '108')
+    animationFrameSpy.mockRestore()
   })
 
   it('uses middle-mouse drag to move the layer list vertically without changing selection', () => {

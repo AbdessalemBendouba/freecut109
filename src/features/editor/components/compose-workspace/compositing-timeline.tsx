@@ -141,6 +141,8 @@ interface MotionTimeViewport {
   endFrame: number
 }
 
+type MotionViewportUpdate = (viewport: MotionTimeViewport) => MotionTimeViewport
+
 interface TextMotionTimelineBand {
   slot: TextMotionSlot
   presetId: string
@@ -676,6 +678,51 @@ function areMotionDopesheetLanesPropsEqual(
   )
 }
 
+function useNearMotionScrollViewport(
+  rootRef: React.RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+): boolean {
+  const [isNearScrollViewport, setIsNearScrollViewport] = useState(true)
+  useEffect(() => {
+    if (!enabled) {
+      setIsNearScrollViewport(true)
+      return
+    }
+    const node = rootRef.current
+    if (!node || typeof IntersectionObserver === 'undefined') return
+    const motionScrollRoot = node.closest('[data-testid="motion-layer-scroll-area"]')
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return
+        if (!entry.isIntersecting && node.contains(document.activeElement)) return
+        setIsNearScrollViewport(entry.isIntersecting)
+      },
+      {
+        root: motionScrollRoot,
+        rootMargin: '160px 0px',
+      },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [enabled, rootRef])
+  return isNearScrollViewport
+}
+
+function getMotionDopesheetLaneHeight(
+  paneMode: 'lanes' | 'graph',
+  laneContentHeight: number,
+): number | undefined {
+  return paneMode === 'lanes' ? Math.max(ROW_HEIGHT, laneContentHeight) : undefined
+}
+
+function shouldRenderMotionDopesheet(
+  paneWidth: number,
+  paneMode: 'lanes' | 'graph',
+  isNearScrollViewport: boolean,
+): boolean {
+  return paneWidth > 0 && (paneMode === 'graph' || isNearScrollViewport)
+}
+
 const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   item,
   properties,
@@ -697,6 +744,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   const rootRef = useRef<HTMLDivElement>(null)
   const dragSnapshotRef = useRef<ReturnType<typeof captureSnapshot> | null>(null)
   const [paneSize, setPaneSize] = useState({ width: 0, height: 0 })
+  const isNearScrollViewport = useNearMotionScrollViewport(rootRef, paneMode === 'lanes')
   const itemKeyframes = useKeyframesStore(
     useCallback((state) => state.keyframesByItemId[item.id], [item.id]),
   )
@@ -885,6 +933,9 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     <div
       ref={rootRef}
       className={cn('w-full bg-background/35', paneMode === 'graph' && 'h-full')}
+      style={{
+        height: getMotionDopesheetLaneHeight(paneMode, laneContentHeight),
+      }}
       onPointerEnter={() => setKeyframeEditorShortcutScopeActive(true)}
       onPointerLeave={() => setKeyframeEditorShortcutScopeActive(false)}
       onFocusCapture={() => setKeyframeEditorShortcutScopeActive(true)}
@@ -895,7 +946,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         }
       }}
     >
-      {paneSize.width > 0 ? (
+      {shouldRenderMotionDopesheet(paneSize.width, paneMode, isNearScrollViewport) ? (
         <DopesheetEditor
           itemId={item.id}
           keyframesByProperty={keyframesByProperty}
@@ -1172,6 +1223,49 @@ function normalizeMotionTimeViewport(
   return { startFrame, endFrame: startFrame + visibleFrames }
 }
 
+function getMotionTimelinePanDelta(event: WheelEvent): number | null {
+  if (event.ctrlKey || event.metaKey) return null
+  if (event.shiftKey) return event.deltaY || event.deltaX || null
+  if (event.deltaX === 0 || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return null
+  return event.deltaX
+}
+
+function panMotionTimeViewport(
+  viewport: MotionTimeViewport,
+  panPixels: number,
+  timelineWidth: number,
+  totalFrames: number,
+): MotionTimeViewport {
+  const currentRange = Math.max(1, viewport.endFrame - viewport.startFrame)
+  const deltaFrames = (panPixels / Math.max(1, timelineWidth)) * currentRange
+  return normalizeMotionTimeViewport(
+    {
+      startFrame: viewport.startFrame + deltaFrames,
+      endFrame: viewport.endFrame + deltaFrames,
+    },
+    totalFrames,
+    false,
+  )
+}
+
+function zoomMotionTimeViewport(
+  viewport: MotionTimeViewport,
+  pivotRatio: number,
+  zoomFactor: number,
+  totalFrames: number,
+): MotionTimeViewport {
+  const currentRange = Math.max(1, viewport.endFrame - viewport.startFrame)
+  const pivotFrame = viewport.startFrame + pivotRatio * currentRange
+  const nextRange = Math.max(1, Math.min(totalFrames, Math.round(currentRange * zoomFactor)))
+  return normalizeMotionTimeViewport(
+    {
+      startFrame: pivotFrame - pivotRatio * nextRange,
+      endFrame: pivotFrame + (1 - pivotRatio) * nextRange,
+    },
+    totalFrames,
+  )
+}
+
 function formatFrameTime(frame: number, fps: number): string {
   const seconds = frame / Math.max(1, fps)
   if (seconds < 10) return `${seconds.toFixed(1)}s`
@@ -1282,6 +1376,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     startFrame: 0,
     endFrame: 1,
   })
+  const pendingMotionViewportUpdatesRef = useRef<MotionViewportUpdate[]>([])
+  const motionViewportAnimationFrameRef = useRef<number | null>(null)
   const middlePanRef = useRef<MotionMiddlePanState | null>(null)
   const pendingScrubFrameRef = useRef<number | null>(null)
   const latestScrubFrameRef = useRef<number | null>(null)
@@ -1343,6 +1439,32 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     (viewport: MotionTimeViewport) =>
       setTimeViewport(normalizeMotionTimeViewport(viewport, durationInFrames)),
     [durationInFrames],
+  )
+  const flushMotionViewportUpdates = useCallback(() => {
+    motionViewportAnimationFrameRef.current = null
+    const updates = pendingMotionViewportUpdatesRef.current
+    pendingMotionViewportUpdatesRef.current = []
+    if (updates.length === 0) return
+
+    setTimeViewport((current) => updates.reduce((viewport, update) => update(viewport), current))
+  }, [])
+  const queueMotionViewportUpdate = useCallback(
+    (update: MotionViewportUpdate) => {
+      pendingMotionViewportUpdatesRef.current.push(update)
+      if (motionViewportAnimationFrameRef.current === null) {
+        motionViewportAnimationFrameRef.current = requestAnimationFrame(flushMotionViewportUpdates)
+      }
+    },
+    [flushMotionViewportUpdates],
+  )
+  useEffect(
+    () => () => {
+      pendingMotionViewportUpdatesRef.current = []
+      if (motionViewportAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(motionViewportAnimationFrameRef.current)
+      }
+    },
+    [],
   )
   const visibleFrameRange = Math.max(1, timeViewport.endFrame - timeViewport.startFrame)
   const frameToMotionPercent = useCallback(
@@ -2245,8 +2367,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       // Ordinary wheel input belongs to the native vertical layer/property
       // scroller. Ctrl/Cmd zoom and Shift-pan are owned by the time viewport.
       const isZoomGesture = event.ctrlKey || event.metaKey
-      const isHorizontalPanGesture = event.shiftKey && !isZoomGesture
-      if (!isZoomGesture && !isHorizontalPanGesture) return
+      const panDelta = getMotionTimelinePanDelta(event)
+      if (!isZoomGesture && panDelta === null) return
       const scrollArea = motionScrollAreaRef.current
       if (!scrollArea) return
       const rect = scrollArea.getBoundingClientRect()
@@ -2259,46 +2381,23 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       event.stopPropagation()
       const timelineWidth = Math.max(1, rect.right - timelineLeft)
 
-      if (isHorizontalPanGesture) {
-        // Shift+wheel conventionally supplies its motion through deltaY. Only
-        // fall back to deltaX for devices/browsers that remap it themselves;
-        // this prevents small cross-axis noise from reversing the gesture.
-        const panDelta = event.deltaY !== 0 ? event.deltaY : event.deltaX
-        if (panDelta === 0) return
-        setTimeViewport((current) => {
-          const currentRange = Math.max(1, current.endFrame - current.startFrame)
-          const deltaFrames = (panDelta / timelineWidth) * currentRange
-          return normalizeMotionTimeViewport(
-            {
-              startFrame: current.startFrame + deltaFrames,
-              endFrame: current.endFrame + deltaFrames,
-            },
-            durationInFrames,
-            false,
-          )
-        })
+      if (panDelta !== null) {
+        // Shift+wheel conventionally supplies its motion through deltaY, while
+        // trackpads send a dominant deltaX. Cross-axis noise stays vertical.
+        queueMotionViewportUpdate((current) =>
+          panMotionTimeViewport(current, panDelta, timelineWidth, durationInFrames),
+        )
         return
       }
 
       if (event.deltaY === 0) return
       const pivotRatio = Math.max(0, Math.min(1, (event.clientX - timelineLeft) / timelineWidth))
-      setTimeViewport((current) => {
-        const currentRange = Math.max(1, current.endFrame - current.startFrame)
-        const pivotFrame = current.startFrame + pivotRatio * currentRange
-        const nextRange = Math.max(
-          1,
-          Math.min(durationInFrames, Math.round(currentRange * (event.deltaY > 0 ? 1.25 : 0.8))),
-        )
-        return normalizeMotionTimeViewport(
-          {
-            startFrame: pivotFrame - pivotRatio * nextRange,
-            endFrame: pivotFrame + (1 - pivotRatio) * nextRange,
-          },
-          durationInFrames,
-        )
-      })
+      const zoomFactor = event.deltaY > 0 ? 1.25 : 0.8
+      queueMotionViewportUpdate((current) =>
+        zoomMotionTimeViewport(current, pivotRatio, zoomFactor, durationInFrames),
+      )
     },
-    [durationInFrames],
+    [durationInFrames, queueMotionViewportUpdate],
   )
 
   useEffect(() => {

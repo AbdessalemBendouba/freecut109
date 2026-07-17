@@ -305,6 +305,40 @@ const EMPTY_STRUCTURE_ROWS: StructureRow[] = []
 const EMPTY_PROPERTY_GROUP_IDS: readonly string[] = []
 const EMPTY_FRAME_GROUPS: DopesheetPropertyGroupStructure<StructureRow>['frameGroups'] = []
 
+const TimelineViewportCuller = memo(function TimelineViewportCuller({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [isNearViewport, setIsNearViewport] = useState(true)
+
+  useEffect(() => {
+    const node = rootRef.current
+    if (!node || typeof IntersectionObserver === 'undefined') return
+    const motionScrollRoot = node.closest('[data-testid="motion-layer-scroll-area"]')
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return
+        if (!entry.isIntersecting && node.contains(document.activeElement)) return
+        setIsNearViewport(entry.isIntersecting)
+      },
+      {
+        root: motionScrollRoot,
+        rootMargin: '96px 0px',
+      },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  return (
+    <div ref={rootRef} className="min-w-0 overflow-hidden">
+      {isNearViewport ? children : null}
+    </div>
+  )
+})
+
 export const DopesheetEditor = memo(function DopesheetEditor({
   frameViewport,
   onFrameViewportChange,
@@ -920,7 +954,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       contentHeight: top,
     }
   }, [expandedGroups, groupedSheetRows, inlinePropertyGroupIdSet])
-  const keyframePoints = useMemo(
+  // Marquee points are only needed while a selection marquee is moving.
+  // Building them eagerly duplicated the viewport-sensitive keyframe position
+  // pass on every zoom frame, even when no marquee interaction was active.
+  const getKeyframePoints = useCallback(
     () =>
       renderedSheetEntries.entries.flatMap((entry) => {
         if (entry.type === 'group') {
@@ -956,8 +993,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       }),
     [getRenderedKeyframeX, isPropertyLocked, renderedKeyframeXById, renderedSheetEntries.entries],
   )
-  const keyframePointsRef = useRef(keyframePoints)
-  keyframePointsRef.current = keyframePoints
 
   const xToFrame = useCallback(
     (x: number) => getFrameFromAxisX(x, viewport, effectiveTimelineWidth),
@@ -1793,7 +1828,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     getMarqueeModeFromPointerEvent,
     beginMarqueeSelection,
   } = useDopesheetMarquee({
-    keyframePointsRef,
+    getKeyframePoints,
     scrollAreaRef,
     getTimelineXFromClientX,
     getContentYFromClientY,
@@ -3207,6 +3242,46 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       toggleGroup,
     ],
   )
+  // The property controls are substantially heavier than the timeline cells,
+  // but their output does not depend on the time viewport. Cache those React
+  // nodes separately so zooming only reconciles keyframe/tick geometry.
+  const sheetPropertyContentByProperty = useMemo(() => {
+    const content = new Map<AnimatableProperty, React.ReactNode>()
+    for (const entry of renderedSheetEntries.entries) {
+      if (entry.type !== 'row') continue
+      content.set(
+        entry.row.property,
+        renderPropertyRowContent(entry.row, { indented: entry.indented }),
+      )
+    }
+    return content
+  }, [renderPropertyRowContent, renderedSheetEntries.entries])
+  const sheetGroupContentById = useMemo(() => {
+    const content = new Map<string, React.ReactNode>()
+    for (const entry of renderedSheetEntries.entries) {
+      if (entry.type !== 'group') continue
+      content.set(entry.group.id, renderGroupHeaderContent(entry.group))
+    }
+    return content
+  }, [renderGroupHeaderContent, renderedSheetEntries.entries])
+  const groupTimelineRowStyle = useMemo(
+    () => ({
+      ...propertyGridStyle,
+      height: GROUP_HEADER_HEIGHT,
+      contentVisibility: presentation === 'lanes' ? ('auto' as const) : undefined,
+      containIntrinsicSize: presentation === 'lanes' ? `auto ${GROUP_HEADER_HEIGHT}px` : undefined,
+    }),
+    [presentation, propertyGridStyle],
+  )
+  const propertyTimelineRowStyle = useMemo(
+    () => ({
+      ...propertyGridStyle,
+      height: ROW_HEIGHT,
+      contentVisibility: presentation === 'lanes' ? ('auto' as const) : undefined,
+      containIntrinsicSize: presentation === 'lanes' ? `auto ${ROW_HEIGHT}px` : undefined,
+    }),
+    [presentation, propertyGridStyle],
+  )
   const rowElements = useMemo(
     () =>
       renderedSheetEntries.entries.map((entry) => {
@@ -3215,31 +3290,33 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             <div
               key={entry.group.id}
               className="grid w-full border-b border-border/60"
-              style={{ ...propertyGridStyle, height: GROUP_HEADER_HEIGHT }}
+              style={groupTimelineRowStyle}
             >
-              {renderGroupHeaderContent(entry.group)}
-              <GroupTimelineCell
-                itemId={itemId}
-                groupId={entry.group.id}
-                groupLabel={entry.group.label}
-                frameGroups={
-                  groupTimelineById.get(entry.group.id)?.frameGroups ?? EMPTY_FRAME_GROUPS
-                }
-                rows={groupTimelineById.get(entry.group.id)?.rows ?? EMPTY_STRUCTURE_ROWS}
-                ticks={ticks}
-                frameToX={frameToX}
-                getRenderedKeyframeX={getRenderedKeyframeX}
-                selectedKeyframeIds={selectedKeyframeIds}
-                disabled={disabled}
-                isPropertyLocked={isPropertyLocked}
-                onGroupKeyframePointerDown={handleGroupKeyframePointerDown}
-                onBackgroundPointerDown={handleTimelineBackgroundPointerDown}
-                onSegmentEasingChange={onSegmentEasingChange}
-                onSegmentDragStart={onDragStart}
-                onSegmentDragEnd={onDragEnd}
-                sheetPreviewFrames={sheetPreviewFrames}
-                sheetPreviewDuplicateKeyframeIds={sheetPreviewDuplicateKeyframeIds}
-              />
+              {sheetGroupContentById.get(entry.group.id)}
+              <TimelineViewportCuller>
+                <GroupTimelineCell
+                  itemId={itemId}
+                  groupId={entry.group.id}
+                  groupLabel={entry.group.label}
+                  frameGroups={
+                    groupTimelineById.get(entry.group.id)?.frameGroups ?? EMPTY_FRAME_GROUPS
+                  }
+                  rows={groupTimelineById.get(entry.group.id)?.rows ?? EMPTY_STRUCTURE_ROWS}
+                  ticks={ticks}
+                  frameToX={frameToX}
+                  getRenderedKeyframeX={getRenderedKeyframeX}
+                  selectedKeyframeIds={selectedKeyframeIds}
+                  disabled={disabled}
+                  isPropertyLocked={isPropertyLocked}
+                  onGroupKeyframePointerDown={handleGroupKeyframePointerDown}
+                  onBackgroundPointerDown={handleTimelineBackgroundPointerDown}
+                  onSegmentEasingChange={onSegmentEasingChange}
+                  onSegmentDragStart={onDragStart}
+                  onSegmentDragEnd={onDragEnd}
+                  sheetPreviewFrames={sheetPreviewFrames}
+                  sheetPreviewDuplicateKeyframeIds={sheetPreviewDuplicateKeyframeIds}
+                />
+              </TimelineViewportCuller>
             </div>
           )
         }
@@ -3250,45 +3327,48 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           <div
             key={row.property}
             className="grid border-b border-border/60"
-            style={{ ...propertyGridStyle, height: ROW_HEIGHT }}
+            style={propertyTimelineRowStyle}
           >
-            {renderPropertyRowContent(row, { indented: entry.indented })}
-            <PropertyTimelineCell
-              itemId={itemId}
-              property={row.property}
-              keyframes={rowKeyframesByProperty.get(row.property) ?? EMPTY_KEYFRAMES}
-              locked={rowLocked}
-              ticks={ticks}
-              frameToX={frameToX}
-              getRenderedKeyframeX={getRenderedKeyframeX}
-              renderedKeyframeXById={renderedKeyframeXById}
-              transitionBlockedRanges={transitionBlockedRanges}
-              proceduralBand={proceduralBandByProperty.get(row.property)}
-              selectedKeyframeIds={selectedKeyframeIds}
-              disabled={disabled}
-              onRowPointerDown={handleRowPointerDown}
-              onKeyframePointerDown={handleKeyframePointerDown}
-              onSegmentEasingChange={onSegmentEasingChange}
-              onSegmentDragStart={onDragStart}
-              onSegmentDragEnd={onDragEnd}
-              setKeyframeButtonRef={setKeyframeButtonRef}
-              keyframeMetaByIdRef={keyframeMetaByIdRef}
-              sheetPreviewFrames={sheetPreviewFrames}
-              sheetPreviewDuplicateKeyframeIds={sheetPreviewDuplicateKeyframeIds}
-            />
+            {sheetPropertyContentByProperty.get(row.property)}
+            <TimelineViewportCuller>
+              <PropertyTimelineCell
+                itemId={itemId}
+                property={row.property}
+                keyframes={rowKeyframesByProperty.get(row.property) ?? EMPTY_KEYFRAMES}
+                locked={rowLocked}
+                ticks={ticks}
+                frameToX={frameToX}
+                getRenderedKeyframeX={getRenderedKeyframeX}
+                renderedKeyframeXById={renderedKeyframeXById}
+                transitionBlockedRanges={transitionBlockedRanges}
+                proceduralBand={proceduralBandByProperty.get(row.property)}
+                selectedKeyframeIds={selectedKeyframeIds}
+                disabled={disabled}
+                onRowPointerDown={handleRowPointerDown}
+                onKeyframePointerDown={handleKeyframePointerDown}
+                onSegmentEasingChange={onSegmentEasingChange}
+                onSegmentDragStart={onDragStart}
+                onSegmentDragEnd={onDragEnd}
+                setKeyframeButtonRef={setKeyframeButtonRef}
+                keyframeMetaByIdRef={keyframeMetaByIdRef}
+                sheetPreviewFrames={sheetPreviewFrames}
+                sheetPreviewDuplicateKeyframeIds={sheetPreviewDuplicateKeyframeIds}
+              />
+            </TimelineViewportCuller>
           </div>
         )
       }),
     [
       renderedSheetEntries.entries,
-      propertyGridStyle,
+      groupTimelineRowStyle,
+      propertyTimelineRowStyle,
       groupTimelineById,
       rowKeyframesByProperty,
       handleRowPointerDown,
       handleTimelineBackgroundPointerDown,
       handleGroupKeyframePointerDown,
-      renderGroupHeaderContent,
-      renderPropertyRowContent,
+      sheetGroupContentById,
+      sheetPropertyContentByProperty,
       getRenderedKeyframeX,
       isPropertyLocked,
       disabled,

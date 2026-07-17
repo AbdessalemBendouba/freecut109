@@ -208,7 +208,7 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
 
   return (
     <div
-      className="relative border-l border-border/60 bg-muted/20 overflow-hidden"
+      className="relative h-full border-l border-border/60 bg-muted/20 overflow-hidden"
       onPointerDown={onBackgroundPointerDown}
     >
       {ticks.map((frame) => (
@@ -416,7 +416,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
 
   return (
     <div
-      className="relative border-l border-border/60 overflow-hidden"
+      className="relative h-full border-l border-border/60 overflow-hidden"
       onPointerDown={(event) => onRowPointerDown(property, event)}
     >
       {ticks.map((frame) => (

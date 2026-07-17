@@ -22,7 +22,7 @@ interface KeyframePoint {
 }
 
 interface UseDopesheetMarqueeOptions {
-  keyframePointsRef: React.RefObject<KeyframePoint[]>
+  getKeyframePoints: () => KeyframePoint[]
   scrollAreaRef: React.RefObject<HTMLDivElement | null>
   getTimelineXFromClientX: (clientX: number) => number
   getContentYFromClientY: (clientY: number) => number
@@ -46,7 +46,7 @@ export interface UseDopesheetMarqueeReturn {
 }
 
 export function useDopesheetMarquee({
-  keyframePointsRef,
+  getKeyframePoints,
   scrollAreaRef,
   getTimelineXFromClientX,
   getContentYFromClientY,
@@ -102,7 +102,7 @@ export function useDopesheetMarquee({
       // diamond (its rendered half-extent), not only when it covers the center.
       const r = KEYFRAME_EDGE_INSET
       const hitIds = new Set<string>()
-      for (const point of keyframePointsRef.current) {
+      for (const point of getKeyframePoints()) {
         if (
           point.x + r >= minX &&
           point.x - r <= maxX &&
@@ -123,7 +123,7 @@ export function useDopesheetMarquee({
         height: Math.max(1, maxY - minY),
       })
     },
-    [keyframePointsRef],
+    [getKeyframePoints],
   )
 
   useEffect(() => {
