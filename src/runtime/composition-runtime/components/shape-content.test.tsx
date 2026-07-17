@@ -2,6 +2,8 @@ import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vite-plus/test'
 import type { ShapeItem } from '@/types/timeline'
 import { ItemVisualTransformProvider } from '../contexts/item-visual-transform-context'
+import { KeyframesProvider } from '../contexts/keyframes-context'
+import { SequenceContext } from '@/runtime/composition-runtime/deps/player'
 import { ShapeContent } from './shape-content'
 import { useGizmoStore } from '@/runtime/composition-runtime/deps/stores'
 
@@ -88,6 +90,42 @@ describe('ShapeContent', () => {
       })
     })
     expect(container.querySelector('path')).toHaveAttribute('stroke-dashoffset', '-25')
+  })
+
+  it('derives a missing shared-sequence offset from the sequence context', () => {
+    const { container } = render(
+      <SequenceContext.Provider
+        value={{ from: 105, parentFrom: 100, localFrame: 25, durationInFrames: 120 }}
+      >
+        <KeyframesProvider
+          keyframes={[
+            {
+              itemId: shape.id,
+              properties: [
+                {
+                  property: 'trimPathEnd',
+                  keyframes: [
+                    { id: 'start', frame: 0, value: 0, easing: 'linear' },
+                    { id: 'end', frame: 30, value: 100, easing: 'linear' },
+                  ],
+                },
+              ],
+            },
+          ]}
+        >
+          <ShapeContent
+            item={{
+              ...shape,
+              from: 15,
+              strokeColor: '#ffffff',
+              strokeWidth: 4,
+            }}
+          />
+        </KeyframesProvider>
+      </SequenceContext.Provider>,
+    )
+
+    expect(container.querySelector('path')).toHaveAttribute('stroke-dasharray', '50 50')
   })
 
   it('renders an open custom path as stroke-only with its cap and join styling', () => {

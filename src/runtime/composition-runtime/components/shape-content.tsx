@@ -42,7 +42,10 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
   const storeKeyframes = useTimelineStore(
     useCallback((s) => s.keyframes.find((entry) => entry.itemId === item.id), [item.id]),
   )
-  const relativeFrame = (sequenceContext?.localFrame ?? 0) - (item._sequenceFrameOffset ?? 0)
+  const sequenceFrameOffset =
+    item._sequenceFrameOffset ??
+    (sequenceContext ? item.from - (sequenceContext.from - sequenceContext.parentFrom) : 0)
+  const relativeFrame = (sequenceContext?.localFrame ?? 0) - sequenceFrameOffset
   const resolvedItem = useMemo(
     () => resolveAnimatedShapeItem(item, contextKeyframes ?? storeKeyframes, relativeFrame),
     [contextKeyframes, item, relativeFrame, storeKeyframes],

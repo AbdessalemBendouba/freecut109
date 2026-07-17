@@ -236,7 +236,19 @@ describe('CompositingTimeline', () => {
     const duringDrag = useItemsStore.getState().itemById[shape.id]
     expect(duringDrag?.type === 'text' ? duringDrag.textMotion?.in?.durationFrames : null).toBe(14)
 
-    fireEvent.pointerUp(inBand, { pointerId: 21, clientX: 130 })
+    fireEvent.pointerCancel(inBand, { pointerId: 21, clientX: 130 })
+
+    expect(inBand).toHaveAttribute('title', expect.stringContaining('14f'))
+    const afterCancel = useItemsStore.getState().itemById[shape.id]
+    expect(afterCancel?.type === 'text' ? afterCancel.textMotion?.in?.durationFrames : null).toBe(
+      14,
+    )
+    expect(useTimelineCommandStore.getState().undoStack).toHaveLength(0)
+
+    fireEvent.pointerDown(inBand, { pointerId: 22, button: 0, clientX: 100 })
+    fireEvent.pointerMove(inBand, { pointerId: 22, buttons: 1, clientX: 130 })
+
+    fireEvent.pointerUp(inBand, { pointerId: 22, clientX: 130 })
 
     const updated = useItemsStore.getState().itemById[shape.id]
     expect(updated?.type === 'text' ? updated.textMotion?.in?.durationFrames : null).toBe(26)

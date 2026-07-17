@@ -152,4 +152,33 @@ describe('ShapeRenderPipeline', () => {
       0,
     ])
   })
+
+  it('uses generated perimeter distance for analytic shape progress', () => {
+    const { outputTexture, pipeline, queue } = createPipelineHarness()
+    pipeline.renderShapeToTexture(outputTexture, {
+      outputWidth: 1920,
+      outputHeight: 1080,
+      shapeType: 'rectangle',
+      fillColor: [1, 1, 1, 1],
+      transformRect: { x: 0, y: 0, width: 200, height: 100 },
+    })
+    const rectangle = queue.writeBuffer.mock.calls[0]?.[2] as Float32Array
+    expect(Array.from(rectangle.slice(32, 35))).toEqual([-100, -50, 0])
+    expect(rectangle[38]).toBeCloseTo(1 / 3)
+
+    pipeline.renderShapeToTexture(outputTexture, {
+      outputWidth: 1920,
+      outputHeight: 1080,
+      shapeType: 'heart',
+      fillColor: [1, 1, 1, 1],
+      transformRect: { x: 0, y: 0, width: 220, height: 200 },
+    })
+    const heart = queue.writeBuffer.mock.calls[1]?.[2] as Float32Array
+    expect(heart[32]).toBeCloseTo(0)
+    expect(heart[33]).toBeGreaterThan(0)
+    expect(heart[36]).toBeLessThan(0)
+    const heartVertexCount = heart[21]!
+    const progress = Array.from({ length: heartVertexCount }, (_, index) => heart[34 + index * 4]!)
+    expect(progress.every((value, index) => index === 0 || value > progress[index - 1]!)).toBe(true)
+  })
 })

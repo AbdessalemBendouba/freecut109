@@ -266,15 +266,15 @@ const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
     [visibleFrameRange],
   )
 
-  const endDurationDrag = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
+  const finishDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>, commit: boolean) => {
       const drag = dragRef.current
       if (!drag || drag.pointerId !== event.pointerId) return
       event.preventDefault()
       event.stopPropagation()
       dragRef.current = null
-      suppressClickRef.current = drag.before !== null && event.type === 'pointerup'
-      if (drag.before) {
+      suppressClickRef.current = commit && drag.before !== null
+      if (commit && drag.before) {
         updateTextMotionLive([itemId], drag.slot, {
           durationFrames: drag.currentDurationFrames,
         })
@@ -288,6 +288,15 @@ const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
       })
     },
     [itemId],
+  )
+
+  const endDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => finishDurationDrag(event, true),
+    [finishDurationDrag],
+  )
+  const cancelDurationDrag = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => finishDurationDrag(event, false),
+    [finishDurationDrag],
   )
 
   const openAnimationInspector = useCallback(
@@ -342,7 +351,7 @@ const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
                 onPointerDown={(event) => beginDurationDrag(event, band)}
                 onPointerMove={moveDurationDrag}
                 onPointerUp={endDurationDrag}
-                onPointerCancel={endDurationDrag}
+                onPointerCancel={cancelDurationDrag}
                 onClick={openAnimationInspector}
               />
             </div>

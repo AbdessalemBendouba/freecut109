@@ -6,6 +6,7 @@
 export {
   AbsoluteFill,
   Sequence,
+  SequenceContext,
   interpolate,
   useSequenceContext,
 } from '@/runtime/player/composition'
