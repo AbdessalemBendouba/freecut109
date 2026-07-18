@@ -41,9 +41,5 @@ export const KeyframesProvider: FC<KeyframesProviderProps> = ({
     [canvas, getItem, getItemKeyframes, keyframes],
   )
 
-  if (!keyframes || keyframes.length === 0) {
-    return <>{children}</>
-  }
-
   return <KeyframesContext.Provider value={value}>{children}</KeyframesContext.Provider>
 }

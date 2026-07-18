@@ -219,7 +219,7 @@ export function createDefaultControllerItem(params: VisualLayerPlacement): Contr
     trackId,
     from,
     durationInFrames,
-    label: 'Null Controller',
+    label: 'Null Object',
     transform: {
       x: 0,
       y: 0,

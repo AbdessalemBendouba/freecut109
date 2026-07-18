@@ -333,7 +333,7 @@ export type AdjustmentItem = BaseTimelineItem & {
   effectOpacity?: number // 0-1, defaults to 1
 }
 
-/** Invisible, animatable transform layer used to drive one or more children. */
+/** Invisible, animatable Null Object; `controller` remains the persisted legacy discriminator. */
 export type ControllerItem = BaseTimelineItem & {
   type: 'controller'
   controllerKind: 'null'

@@ -3,6 +3,8 @@
     "compose": {
       "title": "合成",
       "newComposition": "新建合成",
+      "newCompositionShort": "新建合成",
+      "addItem": "添加项目",
       "emptyTitle": "还没有合成",
       "emptyDescription": "创建合成以开始搭建分层场景。",
       "chooseTitle": "选择合成",

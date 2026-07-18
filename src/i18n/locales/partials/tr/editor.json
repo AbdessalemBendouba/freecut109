@@ -3,6 +3,8 @@
     "compose": {
       "title": "Kompozisyonlar",
       "newComposition": "Yeni kompozisyon",
+      "newCompositionShort": "Yeni kompozisyon",
+      "addItem": "Öğe ekle",
       "emptyTitle": "Henüz kompozisyon yok",
       "emptyDescription": "Katmanlı bir sahne oluşturmaya başlamak için kompozisyon oluşturun.",
       "chooseTitle": "Bir kompozisyon seçin",

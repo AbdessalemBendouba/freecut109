@@ -1,5 +1,10 @@
 import type { LoadTimelineOptions } from '../types'
-import { cloneVectorKeyframe, type ItemKeyframes } from '@/types/keyframe'
+import {
+  cloneVectorKeyframe,
+  getDirectPropertyLinks,
+  getPropertyExpressions,
+  type ItemKeyframes,
+} from '@/types/keyframe'
 import type { AudioItem, CompositionItem, TimelineItem, TimelineTrack } from '@/types/timeline'
 import type { Transition } from '@/types/transition'
 import type { CompositionEditorKind, ProjectTimeline, Project } from '@/types/project'
@@ -740,8 +745,11 @@ export function buildTimelineFromStores(): ProjectTimeline {
       keyframes: keyframesState.keyframes.map((ik) => ({
         itemId: ik.itemId,
         ...(ik.animationVersion && { animationVersion: ik.animationVersion }),
-        ...(ik.expressions?.length && {
-          expressions: ik.expressions.map((expression) => ({ ...expression })),
+        ...(getDirectPropertyLinks(ik).length > 0 && {
+          propertyLinks: getDirectPropertyLinks(ik).map((link) => ({ ...link })),
+        }),
+        ...(getPropertyExpressions(ik).length > 0 && {
+          expressions: getPropertyExpressions(ik).map((expression) => ({ ...expression })),
         }),
         properties: ik.properties.map((pk) => ({
           property: pk.property,

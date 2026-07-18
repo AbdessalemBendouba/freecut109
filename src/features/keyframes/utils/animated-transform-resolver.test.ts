@@ -5,7 +5,7 @@ import type { ItemKeyframes } from '@/types/keyframe'
 import type { ShapeItem, TimelineItem } from '@/types/timeline'
 import {
   resolveAnimatedTransform,
-  wouldCreateLinkedPropertyCycle,
+  wouldCreateDirectPropertyLinkCycle,
 } from './animated-transform-resolver'
 
 describe('resolveAnimatedTransform', () => {
@@ -188,6 +188,90 @@ describe('resolveAnimatedTransform', () => {
     expect(resolved.x).toBe(250)
   })
 
+  it('resolves Vector2 Position links as one coupled value', () => {
+    const source: ShapeItem = {
+      id: 'vector-source',
+      type: 'shape',
+      shapeType: 'rectangle',
+      trackId: 'track-source',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Vector source',
+      transform: { x: 10, y: 20, width: 100, height: 100 },
+      fillColor: '#fff',
+      strokeColor: '#fff',
+      strokeWidth: 1,
+    }
+    const target: ShapeItem = {
+      ...source,
+      id: 'vector-target',
+      trackId: 'track-target',
+      label: 'Vector target',
+      transform: { x: -50, y: -40, width: 100, height: 100 },
+    }
+    const sourceKeyframes: ItemKeyframes = {
+      itemId: source.id,
+      animationVersion: 2,
+      properties: [],
+      vectorProperties: [
+        {
+          property: 'position',
+          keyframes: [
+            { id: 'position-1', frame: 0, value: { x: 10, y: 20 }, easing: 'linear' },
+            { id: 'position-2', frame: 10, value: { x: 110, y: 220 }, easing: 'linear' },
+          ],
+        },
+      ],
+    }
+    const targetKeyframes: ItemKeyframes = {
+      itemId: target.id,
+      properties: [],
+      expressions: [
+        {
+          type: 'link',
+          targetProperty: 'position',
+          sourceItemId: source.id,
+          sourceProperty: 'position',
+          enabled: true,
+          timeOffsetFrames: 0,
+        },
+      ],
+    }
+    const items = new Map<string, TimelineItem>([
+      [source.id, source],
+      [target.id, target],
+    ])
+    const keyframes = new Map([
+      [source.id, sourceKeyframes],
+      [target.id, targetKeyframes],
+    ])
+
+    const resolved = resolveAnimatedTransform(
+      {
+        x: -50,
+        y: -40,
+        width: 100,
+        height: 100,
+        anchorX: 50,
+        anchorY: 50,
+        rotation: 0,
+        opacity: 1,
+        cornerRadius: 0,
+      },
+      targetKeyframes,
+      5,
+      {
+        globalFrame: 5,
+        canvas: { width: 1920, height: 1080, fps: 30 },
+        getItem: (itemId) => items.get(itemId),
+        getKeyframes: (itemId) => keyframes.get(itemId),
+      },
+    )
+
+    expect(resolved.x).toBe(60)
+    expect(resolved.y).toBe(120)
+  })
+
   it('falls back to the authored value for broken references and cycles', () => {
     const itemKeyframes: ItemKeyframes = {
       itemId: 'target',
@@ -223,6 +307,128 @@ describe('resolveAnimatedTransform', () => {
     })
 
     expect(resolved.x).toBe(42)
+  })
+
+  it('evaluates sandboxed expressions after keyframes and direct links', () => {
+    const itemKeyframes: ItemKeyframes = {
+      itemId: 'expression-target',
+      properties: [
+        {
+          property: 'x',
+          keyframes: [{ id: 'x-1', frame: 0, value: 25, easing: 'linear' }],
+        },
+      ],
+      expressions: [
+        {
+          type: 'expression',
+          targetProperty: 'x',
+          source: 'value * 2 + frame',
+          enabled: true,
+        },
+      ],
+    }
+
+    const resolved = resolveAnimatedTransform(
+      {
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        anchorX: 50,
+        anchorY: 50,
+        rotation: 0,
+        opacity: 1,
+        cornerRadius: 0,
+      },
+      itemKeyframes,
+      0,
+      {
+        globalFrame: 10,
+        canvas: { width: 1920, height: 1080, fps: 30 },
+        getItem: () => undefined,
+        getKeyframes: (itemId) => (itemId === itemKeyframes.itemId ? itemKeyframes : undefined),
+      },
+    )
+
+    expect(resolved.x).toBe(60)
+  })
+
+  it('resolves expression property references and safely breaks expression cycles', () => {
+    const source: ShapeItem = {
+      id: 'expression-source',
+      type: 'shape',
+      shapeType: 'rectangle',
+      trackId: 'track-source',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Expression source',
+      transform: { x: 20, y: 0, width: 100, height: 100 },
+      fillColor: '#fff',
+      strokeColor: '#fff',
+      strokeWidth: 1,
+    }
+    const target: ShapeItem = {
+      ...source,
+      id: 'expression-target',
+      trackId: 'track-target',
+      transform: { x: 10, y: 0, width: 100, height: 100 },
+    }
+    const sourceKeyframes: ItemKeyframes = {
+      itemId: source.id,
+      properties: [],
+      expressions: [
+        {
+          type: 'expression',
+          targetProperty: 'x',
+          source: 'prop("expression-target", "x")',
+          enabled: true,
+        },
+      ],
+    }
+    const targetKeyframes: ItemKeyframes = {
+      itemId: target.id,
+      properties: [],
+      expressions: [
+        {
+          type: 'expression',
+          targetProperty: 'x',
+          source: 'prop("expression-source", "x")',
+          enabled: true,
+        },
+      ],
+    }
+    const items = new Map<string, TimelineItem>([
+      [source.id, source],
+      [target.id, target],
+    ])
+    const keyframes = new Map([
+      [source.id, sourceKeyframes],
+      [target.id, targetKeyframes],
+    ])
+
+    const resolved = resolveAnimatedTransform(
+      {
+        x: 10,
+        y: 0,
+        width: 100,
+        height: 100,
+        anchorX: 50,
+        anchorY: 50,
+        rotation: 0,
+        opacity: 1,
+        cornerRadius: 0,
+      },
+      targetKeyframes,
+      0,
+      {
+        globalFrame: 0,
+        canvas: { width: 1920, height: 1080, fps: 30 },
+        getItem: (itemId) => items.get(itemId),
+        getKeyframes: (itemId) => keyframes.get(itemId),
+      },
+    )
+
+    expect(resolved.x).toBe(10)
   })
 
   it('resolves a transform property linked to a shape property', () => {
@@ -313,13 +519,13 @@ describe('resolveAnimatedTransform', () => {
     }
 
     expect(
-      wouldCreateLinkedPropertyCycle('target', 'x', 'target', 'x', (itemId) => byItem[itemId]),
+      wouldCreateDirectPropertyLinkCycle('target', 'x', 'target', 'x', (itemId) => byItem[itemId]),
     ).toBe(true)
     expect(
-      wouldCreateLinkedPropertyCycle('target', 'x', 'source', 'y', (itemId) => byItem[itemId]),
+      wouldCreateDirectPropertyLinkCycle('target', 'x', 'source', 'y', (itemId) => byItem[itemId]),
     ).toBe(true)
     expect(
-      wouldCreateLinkedPropertyCycle('target', 'x', 'source', 'x', (itemId) => byItem[itemId]),
+      wouldCreateDirectPropertyLinkCycle('target', 'x', 'source', 'x', (itemId) => byItem[itemId]),
     ).toBe(false)
   })
 })

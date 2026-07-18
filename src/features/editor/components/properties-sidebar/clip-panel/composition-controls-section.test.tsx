@@ -53,6 +53,14 @@ describe('CompositionControlsSection', () => {
               kind: 'text',
               defaultValue: 'Original',
             },
+            {
+              id: 'headline-color',
+              name: 'Headline color',
+              targetItemId: 'title',
+              property: 'text.color',
+              kind: 'color',
+              defaultValue: '#ffffff',
+            },
           ],
         },
       },
@@ -60,7 +68,7 @@ describe('CompositionControlsSection', () => {
     useItemsStore.getState().setItems([instance])
   })
 
-  it('edits and resets a value on only the selected composition instance', () => {
+  it('marks and resets one property override without changing the source', () => {
     const view = render(<CompositionControlsSection items={[instance]} />)
 
     const input = screen.getByRole('textbox', { name: 'Headline' })
@@ -74,7 +82,30 @@ describe('CompositionControlsSection', () => {
     view.rerender(
       <CompositionControlsSection items={[useItemsStore.getState().itemById.instance!]} />,
     )
-    fireEvent.click(screen.getByRole('button', { name: /reset all controls/i }))
+    expect(screen.getByText('Template overrides')).toBeInTheDocument()
+    expect(screen.getByLabelText('Headline is overridden')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Headline override' }))
+    expect(
+      (useItemsStore.getState().itemById.instance as CompositionItem).compositionControlOverrides,
+    ).toBeUndefined()
+    expect(sourceText.text).toBe('Original')
+  })
+
+  it('clears several visible overrides with Reset all', () => {
+    const overriddenInstance: CompositionItem = {
+      ...instance,
+      compositionControlOverrides: {
+        headline: 'Launch day',
+        'headline-color': '#ff0066',
+      },
+    }
+    useItemsStore.getState().setItems([overriddenInstance])
+    render(<CompositionControlsSection items={[overriddenInstance]} />)
+
+    expect(screen.getByLabelText('Headline is overridden')).toBeInTheDocument()
+    expect(screen.getByLabelText('Headline color is overridden')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /reset all overrides/i }))
+
     expect(
       (useItemsStore.getState().itemById.instance as CompositionItem).compositionControlOverrides,
     ).toBeUndefined()

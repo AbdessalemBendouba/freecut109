@@ -20,35 +20,34 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Braces,
   LineChart,
   Lock,
-  MoreHorizontal,
   Sparkles,
   Timer,
-  RotateCcw,
   Unlink,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/shared/ui/cn'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import type {
   AnimatableProperty,
   BezierControlPoints,
   EasingType,
   Keyframe,
   KeyframeRef,
-  LinkableAnimatableProperty,
-  LinkedPropertyExpression,
+  DirectLinkableProperty,
+  DirectPropertyLink,
+  PropertyExpression,
 } from '@/types/keyframe'
-import { isEffectAnimatableProperty, isLinkableAnimatableProperty } from '@/types/keyframe'
+import {
+  isDirectLinkableProperty,
+  isEffectAnimatableProperty,
+  isLinkableAnimatableProperty,
+} from '@/types/keyframe'
 import type { BlockedFrameRange } from '../../utils/transition-region'
 import { HOTKEY_OPTIONS } from '@/config/hotkeys'
 import { getFrameAxisX, getFrameFromAxisX, getVisibleKeyframeX } from './layout'
@@ -79,6 +78,13 @@ import {
 import { KeyframeTimingStrip } from './keyframe-timing-strip'
 import { PickWhipIcon } from './pick-whip-icon'
 import { setPointerCaptureSafely } from './dopesheet-utils'
+import { useMotionPickWhipDrag } from '@/shared/hooks/use-pick-whip-drag'
+import { PickWhipOverlay } from '@/shared/ui/pick-whip-overlay'
+import {
+  evaluatePropertyExpression,
+  isExpressionValueCompatible,
+  type ExpressionValue,
+} from '@/features/keyframes/utils/property-expression'
 import {
   arePreviewFramesEqual,
   buildGroupedPropertyRows,
@@ -244,17 +250,45 @@ interface DopesheetEditorProps {
   ) => void
   /** Live no-undo value updates used while horizontally scrubbing an input. */
   onPropertyValuePreview?: (property: AnimatableProperty, value: number) => void
-  /** Existing post-keyframe scalar links for this item. */
-  linkedTransformExpressions?: readonly LinkedPropertyExpression[]
+  /** Existing post-keyframe direct property links for this item. */
+  propertyLinks?: readonly DirectPropertyLink[]
   /** Human-readable source labels keyed by target property. */
-  linkedTransformSourceLabels?: Partial<Record<LinkableAnimatableProperty, string>>
+  propertyLinkSourceLabels?: Partial<Record<DirectLinkableProperty, string>>
   /** Begin an AE-style pick-whip drag from a target property. */
+  onPropertyLinkPointerDown?: (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    property: DirectLinkableProperty,
+  ) => void
+  /** Remove a direct property link while preserving authored keyframes. */
+  onRemovePropertyLink?: (property: DirectLinkableProperty) => void
+  /** @deprecated Use propertyLinks. */
+  linkedTransformExpressions?: readonly DirectPropertyLink[]
+  /** @deprecated Use propertyLinkSourceLabels. */
+  linkedTransformSourceLabels?: Partial<Record<DirectLinkableProperty, string>>
+  /** @deprecated Use onPropertyLinkPointerDown. */
   onLinkedTransformPointerDown?: (
     event: ReactPointerEvent<HTMLButtonElement>,
-    property: LinkableAnimatableProperty,
+    property: DirectLinkableProperty,
   ) => void
-  /** Remove a linked expression while preserving authored keyframes. */
-  onRemoveLinkedTransform?: (property: LinkableAnimatableProperty) => void
+  /** @deprecated Use onRemovePropertyLink. */
+  onRemoveLinkedTransform?: (property: DirectLinkableProperty) => void
+  /** Sandboxed expressions keyed by their target property. */
+  propertyExpressions?: readonly PropertyExpression[]
+  /** Values after keyframes/direct links but before expressions. */
+  preExpressionPropertyValues?: Partial<Record<AnimatableProperty, number>>
+  /** Resolve references used by expression previews and error reporting. */
+  resolveExpressionReference?: (
+    itemId: string,
+    property: DirectLinkableProperty,
+  ) => ExpressionValue | null
+  /** Create or update a sandboxed property expression. */
+  onSetPropertyExpression?: (
+    property: DirectLinkableProperty,
+    source: string,
+    enabled: boolean,
+  ) => void
+  /** Remove a sandboxed property expression. */
+  onRemovePropertyExpression?: (property: DirectLinkableProperty) => void
   /** Reset effect parameters to their definition defaults and clear their keyframes. */
   onResetPropertiesToDefault?: (properties: AnimatableProperty[]) => void
   /** Callback to remove selected keyframes */
@@ -347,7 +381,39 @@ const EMPTY_HIDDEN_PROPERTIES: readonly AnimatableProperty[] = []
 const EMPTY_COMPOUND_ROWS: Partial<Record<AnimatableProperty, CompoundPropertyInputConfig>> = {}
 const EMPTY_COMPOUND_SECONDARIES: Partial<Record<AnimatableProperty, AnimatableProperty>> = {}
 
-function DopesheetResetMenu({
+interface ExpressionReferenceDragOrigin {
+  itemId: string
+  property: DirectLinkableProperty
+  selectionStart: number
+  selectionEnd: number
+}
+
+interface ExpressionReferenceCandidate {
+  itemId: string
+  property: DirectLinkableProperty
+}
+
+function resolveExpressionReferenceCandidate(
+  clientX: number,
+  clientY: number,
+  origin: ExpressionReferenceDragOrigin,
+) {
+  const element = document.elementFromPoint(clientX, clientY)
+  const row = element?.closest<HTMLElement>('[data-expression-item-id][data-expression-property]')
+  const itemId = row?.dataset.expressionItemId
+  const property = row?.dataset.expressionProperty
+  if (!row || !itemId || !property || !isDirectLinkableProperty(property)) return null
+  if (itemId === origin.itemId && property === origin.property) return null
+  return { row, value: { itemId, property } }
+}
+
+function formatExpressionValue(value: ExpressionValue | undefined): string {
+  if (value === undefined) return '—'
+  if (typeof value === 'number') return Number.isFinite(value) ? value.toFixed(2) : '—'
+  return `[${value.x.toFixed(2)}, ${value.y.toFixed(2)}]`
+}
+
+function DopesheetResetButton({
   label,
   onReset,
 }: {
@@ -355,34 +421,20 @@ function DopesheetResetMenu({
   onReset: () => void
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className={cn(
-            MINI_ICON_BUTTON_CLASS,
-            'text-muted-foreground opacity-0 transition-opacity hover:text-foreground',
-            'group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100',
-          )}
-          onClick={(event) => event.stopPropagation()}
-          aria-label={label}
-          title={label}
-        >
-          <MoreHorizontal className={MINI_ICON_CLASS} />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-44">
-        <DropdownMenuItem
-          className="text-xs"
-          onSelect={onReset}
-        >
-          <RotateCcw className="mr-2 h-3 w-3" />
-          {label}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className={cn(MINI_ICON_BUTTON_CLASS, 'text-muted-foreground hover:text-foreground')}
+      onClick={(event) => {
+        event.stopPropagation()
+        onReset()
+      }}
+      aria-label={label}
+      title={label}
+    >
+      <X className={MINI_ICON_CLASS} />
+    </Button>
   )
 }
 const EMPTY_FRAME_GROUPS: DopesheetPropertyGroupStructure<StructureRow>['frameGroups'] = []
@@ -499,10 +551,19 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   compoundSecondaryProperties = EMPTY_COMPOUND_SECONDARIES,
   onPropertyValueCommit,
   onPropertyValuePreview,
+  propertyLinks,
+  propertyLinkSourceLabels,
+  onPropertyLinkPointerDown,
+  onRemovePropertyLink,
   linkedTransformExpressions = [],
   linkedTransformSourceLabels = {},
   onLinkedTransformPointerDown,
   onRemoveLinkedTransform,
+  propertyExpressions = [],
+  preExpressionPropertyValues = {},
+  resolveExpressionReference,
+  onSetPropertyExpression,
+  onRemovePropertyExpression,
   onResetPropertiesToDefault,
   onRemoveKeyframes,
   onCopyKeyframes,
@@ -540,6 +601,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   className,
 }: DopesheetEditorProps) {
   const { t } = useTranslation()
+  const resolvedPropertyLinks = propertyLinks ?? linkedTransformExpressions
+  const resolvedPropertyLinkSourceLabels =
+    propertyLinkSourceLabels ?? linkedTransformSourceLabels
+  const beginPropertyLink = onPropertyLinkPointerDown ?? onLinkedTransformPointerDown
+  const removePropertyLink = onRemovePropertyLink ?? onRemoveLinkedTransform
   // `split` shows both panes at once. Derive per-pane visibility so the many
   // mode branches below read intent ("is the graph showing?") rather than an
   // exact mode, and the exclusive `dopesheet`/`graph` modes stay unchanged.
@@ -556,6 +622,46 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const snapEnabled = true
   const [valueDrafts, setValueDrafts] = useState<Partial<Record<AnimatableProperty, string>>>({})
   const [editingValueProperty, setEditingValueProperty] = useState<AnimatableProperty | null>(null)
+  const [expressionEditor, setExpressionEditor] = useState<{
+    property: DirectLinkableProperty
+    source: string
+    enabled: boolean
+    selectionStart: number
+    selectionEnd: number
+  } | null>(null)
+  const expressionTextareaRef = useRef<HTMLTextAreaElement>(null)
+  const pickWhipRootRef = useRef<HTMLDivElement>(null)
+  const { drag: expressionReferenceDrag, begin: beginExpressionReferenceDrag } =
+    useMotionPickWhipDrag<ExpressionReferenceDragOrigin, ExpressionReferenceCandidate>({
+      hoverAttribute: 'data-expression-reference-hover',
+      getClipRoot: () =>
+        pickWhipRootRef.current?.closest<HTMLElement>(
+          '[data-pick-whip-scroll-area], [data-testid="motion-layer-scroll-area"]',
+        ) ?? pickWhipRootRef.current,
+      resolveCandidate: resolveExpressionReferenceCandidate,
+      onCommit: (origin, candidate) => {
+        const reference = `prop(${JSON.stringify(candidate.itemId)}, ${JSON.stringify(candidate.property)})`
+        setExpressionEditor((current) => {
+          if (!current || current.property !== origin.property) return current
+          const source =
+            current.source.slice(0, origin.selectionStart) +
+            reference +
+            current.source.slice(origin.selectionEnd)
+          const cursor = origin.selectionStart + reference.length
+          requestAnimationFrame(() => {
+            const textarea = expressionTextareaRef.current
+            textarea?.focus()
+            textarea?.setSelectionRange(cursor, cursor)
+          })
+          return {
+            ...current,
+            source,
+            selectionStart: cursor,
+            selectionEnd: cursor,
+          }
+        })
+      },
+    })
   const autoKeyEnabledByProperty = useAutoKeyframeStore(
     useCallback(
       (state) => state.enabledByItem[itemId] ?? EMPTY_AUTO_KEY_ENABLED_BY_PROPERTY,
@@ -695,10 +801,15 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     propertyFilter === undefined ? showKeyframedOnly : propertyFilter === 'keyframed'
   const linkedTransformPropertyIds = useMemo(
     () =>
-      new Set<AnimatableProperty>(
-        linkedTransformExpressions.map((expression) => expression.targetProperty),
+      new Set<string>(
+        resolvedPropertyLinks.map((link) => {
+          if (link.targetProperty === 'position') return 'x'
+          if (link.targetProperty === 'scale') return 'width'
+          if (link.targetProperty === 'anchor') return 'anchorX'
+          return link.targetProperty
+        }),
       ),
-    [linkedTransformExpressions],
+    [resolvedPropertyLinks],
   )
 
   const filteredProperties = useMemo(
@@ -2556,13 +2667,49 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         : graphVisibleProperties.has(row.property)
       const rowLabel = compoundRow?.label ?? getKeyframePropertyLabel(t, row.property)
       const rowDisplayLabel = compoundRow?.label ?? getKeyframePropertyShortLabel(t, row.property)
-      const linkableProperty =
-        !compoundRow && isLinkableAnimatableProperty(row.property) ? row.property : null
-      const linkedExpression = linkableProperty
-        ? linkedTransformExpressions.find(
+      const linkableProperty: DirectLinkableProperty | null =
+        compoundRow?.linkProperty ??
+        (isLinkableAnimatableProperty(row.property) ? row.property : null)
+      const propertyLink = linkableProperty
+        ? resolvedPropertyLinks.find(
+            (link) => link.targetProperty === linkableProperty,
+          )
+        : undefined
+      const propertyExpression = linkableProperty
+        ? propertyExpressions.find(
             (expression) => expression.targetProperty === linkableProperty,
           )
         : undefined
+      const preExpressionValue: ExpressionValue | undefined = compoundRow
+        ? (compoundRow.preExpressionValue ?? compoundRow.value)
+        : preExpressionPropertyValues[row.property] ?? propertyValues[row.property]
+      const postExpressionValue: ExpressionValue | undefined = compoundRow
+        ? compoundRow.value
+        : propertyValues[row.property]
+      const editedExpression =
+        linkableProperty && expressionEditor?.property === linkableProperty
+          ? expressionEditor
+          : null
+      const expressionPreview =
+        linkableProperty && preExpressionValue !== undefined && (editedExpression || propertyExpression)
+          ? evaluatePropertyExpression(
+              editedExpression?.source ?? propertyExpression?.source ?? 'value',
+              {
+                preValue: preExpressionValue,
+                globalFrame: globalFrame ?? itemFrom + currentFrame,
+                fps,
+                resolveProperty: (sourceItemId, sourceProperty) =>
+                  resolveExpressionReference?.(sourceItemId, sourceProperty) ?? null,
+              },
+            )
+          : undefined
+      const expressionError =
+        expressionPreview?.error ??
+        (linkableProperty &&
+        expressionPreview &&
+        !isExpressionValueCompatible(linkableProperty, expressionPreview.value)
+          ? 'Expression result has the wrong value type'
+          : undefined)
       const canResetEffectProperty =
         isEffectAnimatableProperty(row.property) &&
         !!onResetPropertiesToDefault &&
@@ -2596,6 +2743,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             showGraphPane && !rowLocked && 'cursor-pointer',
             rowLocked && 'opacity-70',
             'data-[expression-link-hover=true]:bg-primary/20 data-[expression-link-hover=true]:ring-1 data-[expression-link-hover=true]:ring-inset data-[expression-link-hover=true]:ring-primary/70',
+            'data-[expression-reference-hover=true]:bg-sky-500/15 data-[expression-reference-hover=true]:ring-1 data-[expression-reference-hover=true]:ring-inset data-[expression-reference-hover=true]:ring-sky-400/70',
           )}
           data-expression-item-id={linkableProperty ? itemId : undefined}
           data-expression-property={linkableProperty ?? undefined}
@@ -2714,8 +2862,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             >
               <Timer className={MINI_ICON_CLASS} />
             </Button>
-            {linkableProperty && onLinkedTransformPointerDown ? (
-              linkedExpression ? (
+            {linkableProperty && beginPropertyLink ? (
+              propertyLink ? (
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -2728,19 +2876,19 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                       )}
                       onPointerDown={(event) => {
                         event.stopPropagation()
-                        onLinkedTransformPointerDown(event, linkableProperty)
+                        beginPropertyLink(event, linkableProperty)
                       }}
                       title={t('timeline.keyframeEditor.linkedExpression', {
                         source:
-                          linkedTransformSourceLabels[linkableProperty] ??
-                          linkedExpression.sourceProperty,
-                        defaultValue: `Linked to ${linkedTransformSourceLabels[linkableProperty] ?? linkedExpression.sourceProperty}. Drag to re-link or click for options.`,
+                          resolvedPropertyLinkSourceLabels[linkableProperty] ??
+                          propertyLink.sourceProperty,
+                        defaultValue: `Linked to ${resolvedPropertyLinkSourceLabels[linkableProperty] ?? propertyLink.sourceProperty}. Drag to re-link or click for options.`,
                       })}
                       aria-label={t('timeline.keyframeEditor.linkedExpression', {
                         source:
-                          linkedTransformSourceLabels[linkableProperty] ??
-                          linkedExpression.sourceProperty,
-                        defaultValue: `Linked to ${linkedTransformSourceLabels[linkableProperty] ?? linkedExpression.sourceProperty}`,
+                          resolvedPropertyLinkSourceLabels[linkableProperty] ??
+                          propertyLink.sourceProperty,
+                        defaultValue: `Linked to ${resolvedPropertyLinkSourceLabels[linkableProperty] ?? propertyLink.sourceProperty}`,
                       })}
                     >
                       <PickWhipIcon className={MINI_ICON_CLASS} data-testid="pick-whip-icon" />
@@ -2753,15 +2901,15 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                       })}
                     </div>
                     <div className="truncate text-[10px] text-muted-foreground">
-                      {linkedTransformSourceLabels[linkableProperty] ??
-                        linkedExpression.sourceProperty}
+                      {resolvedPropertyLinkSourceLabels[linkableProperty] ??
+                        propertyLink.sourceProperty}
                     </div>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       className="h-7 w-full justify-start px-2 text-[10px] text-destructive hover:text-destructive"
-                      onClick={() => onRemoveLinkedTransform?.(linkableProperty)}
+                      onClick={() => removePropertyLink?.(linkableProperty)}
                     >
                       <Unlink className="mr-1.5 h-3 w-3" />
                       {t('timeline.keyframeEditor.removePropertyLink', {
@@ -2781,7 +2929,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                   )}
                   onPointerDown={(event) => {
                     event.stopPropagation()
-                    onLinkedTransformPointerDown(event, linkableProperty)
+                    beginPropertyLink(event, linkableProperty)
                   }}
                   title={t('timeline.keyframeEditor.dragToLinkProperty', {
                     property: rowLabel,
@@ -2796,11 +2944,232 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 </Button>
               )
             ) : null}
+            {linkableProperty && onSetPropertyExpression ? (
+              <Popover
+                open={expressionEditor?.property === linkableProperty}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    setExpressionEditor((current) =>
+                      current?.property === linkableProperty ? null : current,
+                    )
+                    return
+                  }
+                  const source = propertyExpression?.source ?? 'value'
+                  setExpressionEditor({
+                    property: linkableProperty,
+                    source,
+                    enabled: propertyExpression?.enabled ?? true,
+                    selectionStart: source.length,
+                    selectionEnd: source.length,
+                  })
+                }}
+              >
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      MINI_ICON_BUTTON_CLASS,
+                      'self-center hover:bg-sky-500/10 hover:text-sky-300',
+                      propertyExpression
+                        ? expressionError
+                          ? 'text-red-400'
+                          : propertyExpression.enabled
+                            ? 'text-sky-400'
+                            : 'text-muted-foreground opacity-50'
+                        : 'text-muted-foreground opacity-30 hover:opacity-70',
+                    )}
+                    title={
+                      propertyExpression
+                        ? `Edit ${rowLabel} expression`
+                        : `Add ${rowLabel} expression`
+                    }
+                    aria-label={
+                      propertyExpression
+                        ? `Edit ${rowLabel} expression`
+                        : `Add ${rowLabel} expression`
+                    }
+                  >
+                    <Braces className={MINI_ICON_CLASS} />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent side="right" align="start" className="w-80 space-y-2 p-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-[11px] font-medium text-foreground">
+                        {rowLabel} expression
+                      </div>
+                      <div className="text-[9px] text-muted-foreground">
+                        Sandboxed and deterministic
+                      </div>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className={cn(
+                        'h-6 px-2 text-[10px]',
+                        editedExpression?.enabled ? 'text-sky-300' : 'text-muted-foreground',
+                      )}
+                      aria-pressed={editedExpression?.enabled ?? false}
+                      onClick={() =>
+                        setExpressionEditor((current) =>
+                          current?.property === linkableProperty
+                            ? { ...current, enabled: !current.enabled }
+                            : current,
+                        )
+                      }
+                    >
+                      {editedExpression?.enabled ? 'Enabled' : 'Disabled'}
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 text-[9px]">
+                    <div className="rounded border border-border/70 bg-background/70 px-2 py-1">
+                      <div className="text-muted-foreground">Pre-expression</div>
+                      <div className="truncate font-mono text-foreground">
+                        {formatExpressionValue(preExpressionValue)}
+                      </div>
+                    </div>
+                    <div className="rounded border border-border/70 bg-background/70 px-2 py-1">
+                      <div className="text-muted-foreground">Post-expression</div>
+                      <div className="truncate font-mono text-foreground">
+                        {formatExpressionValue(postExpressionValue)}
+                      </div>
+                    </div>
+                  </div>
+                  <textarea
+                    ref={expressionTextareaRef}
+                    autoFocus
+                    spellCheck={false}
+                    value={editedExpression?.source ?? ''}
+                    onChange={(event) => {
+                      const source = event.target.value
+                      setExpressionEditor((current) =>
+                        current?.property === linkableProperty
+                          ? {
+                              ...current,
+                              source,
+                              selectionStart: event.target.selectionStart,
+                              selectionEnd: event.target.selectionEnd,
+                            }
+                          : current,
+                      )
+                    }}
+                    onSelect={(event) => {
+                      const target = event.currentTarget
+                      setExpressionEditor((current) =>
+                        current?.property === linkableProperty
+                          ? {
+                              ...current,
+                              selectionStart: target.selectionStart,
+                              selectionEnd: target.selectionEnd,
+                            }
+                          : current,
+                      )
+                    }}
+                    onKeyDown={(event) => {
+                      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                        event.preventDefault()
+                        if (!editedExpression || expressionError) return
+                        onSetPropertyExpression(
+                          linkableProperty,
+                          editedExpression.source,
+                          editedExpression.enabled,
+                        )
+                        setExpressionEditor(null)
+                      }
+                    }}
+                    className={cn(
+                      'h-24 w-full resize-y rounded border bg-background px-2 py-1.5 font-mono text-[10px] leading-4 text-foreground outline-none focus:border-sky-500/70',
+                      expressionError ? 'border-red-500/60' : 'border-border',
+                    )}
+                    aria-label={`${rowLabel} expression source`}
+                  />
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-[10px] text-muted-foreground hover:text-sky-300"
+                      onPointerDown={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        const textarea = expressionTextareaRef.current
+                        beginExpressionReferenceDrag(event, {
+                          itemId,
+                          property: linkableProperty,
+                          selectionStart:
+                            textarea?.selectionStart ?? editedExpression?.selectionStart ?? 0,
+                          selectionEnd:
+                            textarea?.selectionEnd ?? editedExpression?.selectionEnd ?? 0,
+                        })
+                      }}
+                      aria-label={`Expression pick whip for ${rowLabel}`}
+                      title="Drag to a property to insert its reference at the cursor"
+                    >
+                      <PickWhipIcon className="h-3 w-3" />
+                      Insert reference
+                    </Button>
+                    <span className="ml-auto text-[9px] text-muted-foreground">
+                      Ctrl/Cmd+Enter to apply
+                    </span>
+                  </div>
+                  {expressionError ? (
+                    <div className="rounded border border-red-500/40 bg-red-500/10 px-2 py-1 text-[9px] text-red-300">
+                      {expressionError}
+                    </div>
+                  ) : null}
+                  <div className="flex items-center justify-end gap-1 border-t border-border/60 pt-2">
+                    {propertyExpression ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="mr-auto h-7 px-2 text-[10px] text-destructive hover:text-destructive"
+                        onClick={() => {
+                          onRemovePropertyExpression?.(linkableProperty)
+                          setExpressionEditor(null)
+                        }}
+                      >
+                        Remove
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-[10px]"
+                      onClick={() => setExpressionEditor(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-7 px-2 text-[10px]"
+                      disabled={!editedExpression || !!expressionError}
+                      onClick={() => {
+                        if (!editedExpression) return
+                        onSetPropertyExpression(
+                          linkableProperty,
+                          editedExpression.source,
+                          editedExpression.enabled,
+                        )
+                        setExpressionEditor(null)
+                      }}
+                    >
+                      Apply
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            ) : null}
           </div>
           <div
             className={cn(
               'flex h-full min-w-0 items-center truncate pr-1 text-[9px] font-medium leading-none text-foreground/90',
-              compoundRow ? 'w-[52px] shrink-0 pl-1' : 'flex-1 pl-[10px]',
+              compoundRow ? 'w-[54px] shrink-0 pl-1' : 'flex-1 pl-[10px]',
             )}
             title={rowLabel}
           >
@@ -2809,13 +3178,16 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           <div className="ml-auto flex items-center gap-0">
             {compoundRow ? (
               <CompoundPropertyInputs
+                spacious={spacious}
                 config={{
                   ...compoundRow,
                   disabled:
                     compoundRow.disabled ||
                     disabled ||
                     rowLocked ||
+                    !!propertyLink ||
                     (!row.controls.hasKeyframeAtCurrentFrame && isCurrentFrameBlocked),
+                  linked: !!propertyLink,
                   allowCreateOnBlur: autoKeyEnabledByProperty[row.property] ?? false,
                 }}
               />
@@ -2898,12 +3270,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                       ? 'w-[80px]'
                       : 'w-[44px]',
                   !isColorAnimatableProperty(row.property) && 'cursor-ew-resize select-none',
-                  linkedExpression && 'text-orange-400',
+                  propertyLink && 'text-orange-400',
                 )}
                 disabled={
                   disabled ||
                   rowLocked ||
-                  !!linkedExpression ||
+                  !!propertyLink ||
                   !onPropertyValueCommit ||
                   (!row.controls.hasKeyframeAtCurrentFrame && isCurrentFrameBlocked)
                 }
@@ -3012,7 +3384,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               </Button>
             </div>
             {canResetRow ? (
-              <DopesheetResetMenu
+              <DopesheetResetButton
                 label={resetRowLabel}
                 onReset={() => {
                   if (canResetEffectProperty) {
@@ -3022,7 +3394,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                   }
                 }}
               />
-            ) : null}
+            ) : (
+              <span
+                aria-hidden="true"
+                className={MINI_ICON_BUTTON_CLASS}
+                data-testid={`dopesheet-row-reset-spacer-${row.property}`}
+              />
+            )}
           </div>
         </div>
       )
@@ -3051,10 +3429,21 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onNavigateToKeyframe,
       onCurveVisibilityChange,
       onPropertyValueCommit,
-      linkedTransformExpressions,
-      linkedTransformSourceLabels,
-      onLinkedTransformPointerDown,
-      onRemoveLinkedTransform,
+      resolvedPropertyLinks,
+      resolvedPropertyLinkSourceLabels,
+      beginPropertyLink,
+      removePropertyLink,
+      propertyExpressions,
+      preExpressionPropertyValues,
+      expressionEditor,
+      resolveExpressionReference,
+      globalFrame,
+      itemFrom,
+      currentFrame,
+      fps,
+      onSetPropertyExpression,
+      onRemovePropertyExpression,
+      beginExpressionReferenceDrag,
       onResetPropertiesToDefault,
       propertyValues,
       presentation,
@@ -3367,7 +3756,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               <ChevronRight className={MINI_ICON_CLASS} />
             </Button>
             {canResetGroup ? (
-              <DopesheetResetMenu
+              <DopesheetResetButton
                 label={resetGroupLabel}
                 onReset={() => {
                   if (canResetEffectGroup) {
@@ -3377,7 +3766,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                   }
                 }}
               />
-            ) : null}
+            ) : (
+              <span
+                aria-hidden="true"
+                className={MINI_ICON_BUTTON_CLASS}
+                data-testid={`dopesheet-group-reset-spacer-${group.id}`}
+              />
+            )}
           </div>
         </div>
       )
@@ -3745,6 +4140,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   if (presentation === 'lanes') {
     return (
       <div
+        ref={pickWhipRootRef}
         className={cn(
           'relative overflow-hidden',
           disabled && 'opacity-60 pointer-events-none',
@@ -3761,12 +4157,22 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         />
         {showGraphPane ? graphPaneElement : sheetBodyElement}
         {showSheetPane ? playheadOverlayElement : null}
+        {expressionReferenceDrag ? (
+          <PickWhipOverlay
+            drag={{
+              ...expressionReferenceDrag,
+              valid: Boolean(expressionReferenceDrag.candidate),
+            }}
+            testId="expression-reference-pick-whip"
+          />
+        ) : null}
       </div>
     )
   }
 
   return (
     <div
+      ref={pickWhipRootRef}
       className={cn('flex h-full flex-col gap-0.5 overflow-hidden', className)}
       style={{ height, width }}
     >
@@ -4001,6 +4407,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           />
         </div>
       </div>
+      {expressionReferenceDrag ? (
+        <PickWhipOverlay
+          drag={{ ...expressionReferenceDrag, valid: Boolean(expressionReferenceDrag.candidate) }}
+          testId="expression-reference-pick-whip"
+        />
+      ) : null}
     </div>
   )
 })

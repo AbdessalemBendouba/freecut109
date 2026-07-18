@@ -106,6 +106,7 @@ interface CanvasRenderSettings {
   fps: number
   getExpressionItem?: (itemId: string) => TimelineItem | undefined
   getExpressionKeyframes?: (itemId: string) => ItemKeyframes | undefined
+  getPreviewTransform?: (itemId: string) => Partial<ResolvedTransform> | undefined
 }
 
 function getCropSourceDimensions(
@@ -149,6 +150,7 @@ export function getAnimatedTransform(
     keyframes,
     getItem: canvas.getExpressionItem,
     getKeyframes: canvas.getExpressionKeyframes,
+    getPreviewTransform: canvas.getPreviewTransform,
   })
 
   const fadeOpacity = getVisualFadeOpacity(resolvedItem, frame, canvas.fps)

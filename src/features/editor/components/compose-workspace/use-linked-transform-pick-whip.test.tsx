@@ -1,10 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { useKeyframesStore, useTimelineCommandStore } from '@/features/editor/deps/timeline-motion'
-import { useLinkedTransformPickWhip } from './use-linked-transform-pick-whip'
+import { usePropertyLinkPickWhip } from '@/features/editor/deps/timeline-motion'
 
 function PickWhipHarness() {
-  const { drag, begin } = useLinkedTransformPickWhip()
+  const { drag, begin } = usePropertyLinkPickWhip()
   return (
     <div data-testid="motion-layer-scroll-area">
       <div data-expression-item-id="target" data-expression-property="x">
@@ -14,6 +14,18 @@ function PickWhipHarness() {
       </div>
       <div data-testid="source-row" data-expression-item-id="source" data-expression-property="y">
         Source Y
+      </div>
+      <div data-expression-item-id="vector-target" data-expression-property="position">
+        <button type="button" onPointerDown={(event) => begin(event, 'vector-target', 'position')}>
+          Target Position
+        </button>
+      </div>
+      <div
+        data-testid="vector-source-row"
+        data-expression-item-id="vector-source"
+        data-expression-property="scale"
+      >
+        Source Scale
       </div>
       <div
         data-testid="shape-source-row"
@@ -35,7 +47,7 @@ function PickWhipHarness() {
   )
 }
 
-describe('useLinkedTransformPickWhip', () => {
+describe('usePropertyLinkPickWhip', () => {
   beforeEach(() => {
     useTimelineCommandStore.getState().clearHistory()
     useKeyframesStore.getState().setKeyframes([])
@@ -61,7 +73,7 @@ describe('useLinkedTransformPickWhip', () => {
     expect(sourceRow.getAttribute('data-expression-link-hover')).toBe('true')
     fireEvent.pointerUp(window, { pointerId: 9, clientX: 24, clientY: 24 })
 
-    expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual([
+    expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks).toEqual([
       {
         type: 'link',
         targetProperty: 'x',
@@ -93,11 +105,52 @@ describe('useLinkedTransformPickWhip', () => {
     fireEvent.pointerMove(window, { pointerId: 10, clientX: 24, clientY: 24 })
     fireEvent.pointerUp(window, { pointerId: 10, clientX: 24, clientY: 24 })
 
-    expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions?.[0]).toMatchObject({
+    expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks?.[0]).toMatchObject({
       targetProperty: 'x',
       sourceItemId: 'shape-source',
       sourceProperty: 'trimPathEnd',
     })
+    Reflect.deleteProperty(document, 'elementFromPoint')
+  })
+
+  it('links Vector2 rows and rejects scalar-to-vector targets', () => {
+    render(<PickWhipHarness />)
+    const vectorSource = screen.getByTestId('vector-source-row')
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => vectorSource),
+    })
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Target Position' }), {
+      button: 0,
+      pointerId: 15,
+      clientX: 0,
+      clientY: 0,
+    })
+    fireEvent.pointerMove(window, { pointerId: 15, clientX: 24, clientY: 24 })
+    fireEvent.pointerUp(window, { pointerId: 15, clientX: 24, clientY: 24 })
+
+    expect(useKeyframesStore.getState().keyframesByItemId['vector-target']?.propertyLinks).toEqual([
+      {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'vector-source',
+        sourceProperty: 'scale',
+        enabled: true,
+        timeOffsetFrames: 0,
+      },
+    ])
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Target X' }), {
+      button: 0,
+      pointerId: 16,
+      clientX: 0,
+      clientY: 0,
+    })
+    fireEvent.pointerMove(window, { pointerId: 16, clientX: 24, clientY: 24 })
+    fireEvent.pointerUp(window, { pointerId: 16, clientX: 24, clientY: 24 })
+
+    expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks).toBeUndefined()
     Reflect.deleteProperty(document, 'elementFromPoint')
   })
 

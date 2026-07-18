@@ -16,8 +16,10 @@ import {
   removeKeyframes,
   removeKeyframesForItem,
   removeKeyframesForProperty,
-  removeLinkedPropertyExpression,
-  setLinkedPropertyExpression,
+  removeDirectPropertyLink,
+  removePropertyExpression,
+  setDirectPropertyLink,
+  setPropertyExpression,
   updateKeyframe,
 } from './keyframe-actions'
 
@@ -58,7 +60,7 @@ describe('keyframe actions', () => {
     useKeyframesStore.getState().setKeyframes([])
   })
 
-  describe('linked property expressions', () => {
+  describe('direct property links', () => {
     it('creates and removes links through undo and redo', () => {
       const expression = {
         type: 'link' as const,
@@ -69,8 +71,8 @@ describe('keyframe actions', () => {
         timeOffsetFrames: 0,
       }
 
-      setLinkedPropertyExpression('a', expression)
-      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.expressions).toEqual([
+      setDirectPropertyLink('a', expression)
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.propertyLinks).toEqual([
         expression,
       ])
 
@@ -78,16 +80,67 @@ describe('keyframe actions', () => {
       expect(useKeyframesStore.getState().getKeyframesForItem('a')).toBeUndefined()
 
       useTimelineCommandStore.getState().redo()
-      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.expressions).toEqual([
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.propertyLinks).toEqual([
         expression,
       ])
 
-      removeLinkedPropertyExpression('a', 'x')
+      removeDirectPropertyLink('a', 'x')
       expect(useKeyframesStore.getState().getKeyframesForItem('a')).toBeUndefined()
 
       useTimelineCommandStore.getState().undo()
-      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.expressions).toEqual([
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.propertyLinks).toEqual([
         expression,
+      ])
+    })
+
+    it('replaces scalar component links when a Vector2 link owns the channel pair', () => {
+      setDirectPropertyLink('a', {
+        type: 'link',
+        targetProperty: 'x',
+        sourceItemId: 'b',
+        sourceProperty: 'x',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+      setDirectPropertyLink('a', {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'b',
+        sourceProperty: 'position',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.propertyLinks).toEqual([
+        expect.objectContaining({ targetProperty: 'position' }),
+      ])
+    })
+  })
+
+  describe('property expressions', () => {
+    it('creates, disables, removes, and restores expressions through history', () => {
+      setPropertyExpression('a', {
+        type: 'expression',
+        targetProperty: 'x',
+        source: 'value * 2',
+        enabled: true,
+      })
+      setPropertyExpression('a', {
+        type: 'expression',
+        targetProperty: 'x',
+        source: 'value * 2',
+        enabled: false,
+      })
+
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.expressions).toEqual([
+        expect.objectContaining({ targetProperty: 'x', enabled: false }),
+      ])
+
+      removePropertyExpression('a', 'x')
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')).toBeUndefined()
+      useTimelineCommandStore.getState().undo()
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.expressions).toEqual([
+        expect.objectContaining({ source: 'value * 2', enabled: false }),
       ])
     })
   })

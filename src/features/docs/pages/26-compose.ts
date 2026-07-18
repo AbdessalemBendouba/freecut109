@@ -55,6 +55,64 @@ const page = {
       ],
     },
     {
+      title: 'Parent layers with a Null Object',
+      blocks: [
+        {
+          kind: 'steps',
+          items: [
+            'Click **Null Object** in the Motion layer toolbar. A Null Object is an invisible transform layer: it organizes motion but never appears in the final render.',
+            'In the Motion layer stack, choose a parent from the **Parent** menu or drag the spiral Parent pick whip onto another layer. Normal assignment preserves the child layer canvas pose.',
+            'Hold **Shift** while releasing the Parent pick whip to snap the child position to the parent. Hold **Alt/Option** to use the child authored local pose instead.',
+            'Ctrl-click or Command-click a child Parent pick whip to detach it while preserving its current pose. Add **Alt/Option** to detach without compensation and return to the authored local pose.',
+            'Select one or more layers you want it to drive, open the inspector’s **Motion** tab, and choose the Null Object under **Parenting**. A multi-layer selection is parented in one operation and one undo step.',
+            'For a faster setup, choose **Parent selection to new Null**. Motion creates a Null spanning the selected layers, parents them without changing their pose, and selects the new rig for animation—all as one undoable action.',
+            'Move, scale, rotate, or keyframe the Null Object to control every layer parented to it as one rig.',
+            'A parent chip appears on each child layer in the Motion stack. Click it to jump directly to the parent layer.',
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'Parenting is shown up front in Motion. In the regular Edit workspace it stays out of the way unless the selected clip is already parented, where it remains available for inspection or detaching.',
+        },
+      ],
+    },
+    {
+      title: 'Link properties or write an expression',
+      blocks: [
+        {
+          kind: 'list',
+          items: [
+            'The spiral beside **Parent** is the Parent pick whip: it creates a layer hierarchy. The spiral beside a property is the **Property Link** pick whip: it makes one property follow another without changing layer hierarchy.',
+            'Drag a Property Link pick whip to another visible property row in Motion, the classic dope sheet, or the graph. Scalar values can link to scalar values; Position, Scale, and Anchor link as complete Vector2 values.',
+            'A linked value stays orange and read-only until the link is removed. Missing sources and imported cycles fall back to the authored value instead of breaking preview or export.',
+            'Click the braces button beside a property to add a sandboxed expression. The editor shows the value before and after the expression, validates errors before Apply, and lets you enable, disable, or remove the expression without deleting keyframes.',
+            'Inside the expression editor, drag its separate pick whip to a property row. Motion inserts a `prop("layer-id", "property")` reference at the current text cursor instead of creating a direct link.',
+            'Expressions support `value`, `preValue`, `frame`, `time`, scalar and `[x, y]` values, `+ - * /`, and deterministic `abs`, `sin`, `cos`, `min`, `max`, `clamp`, and `lerp` functions. They cannot access browser globals or run arbitrary JavaScript.',
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'Evaluation order is keyframes, then Property Link, then expression. Preview and export use the same resolver.',
+        },
+      ],
+    },
+    {
+      title: 'Choose what stays editable when reused',
+      blocks: [
+        {
+          kind: 'steps',
+          items: [
+            'Inside a reusable 2D composition, open **Exposed properties** and choose the text or colors an editor should be able to change.',
+            'Place the composition in a regular sequence and select that instance.',
+            'Edit those values under **Template overrides**. Each placed instance keeps its own values without changing the source composition.',
+            'A blue dot marks each value that differs from the source. Reset one override beside that value, or use **Reset all overrides** to return the entire instance to its exposed source values.',
+          ],
+        },
+      ],
+    },
+    {
       title: 'Use a composition in a regular edit',
       blocks: [
         {

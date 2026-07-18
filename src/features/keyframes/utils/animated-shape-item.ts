@@ -2,7 +2,10 @@ import type { ItemKeyframes } from '@/types/keyframe'
 import type { ShapeItem } from '@/types/timeline'
 import { getPropertyKeyframes, interpolatePropertyValue } from './interpolation'
 import type { LinkedPropertyEvaluationContext } from './animated-transform-resolver'
-import { resolveLinkedPropertyValue } from './animated-transform-resolver'
+import {
+  resolveLinkedPropertyValue,
+  resolvePropertyExpressionValue,
+} from './animated-transform-resolver'
 import {
   getShapeAnimatableBaseValue,
   SHAPE_ANIMATABLE_PROPERTIES,
@@ -27,12 +30,19 @@ export function resolveAnimatedShapeItem(
     const baseValue = getShapeAnimatableBaseValue(item, property)
     const preExpressionValue = interpolatePropertyValue(keyframes, frame, baseValue)
     if (expressionContext) {
-      resolved[property] = resolveLinkedPropertyValue(
+      const postLinkValue = resolveLinkedPropertyValue(
         item.id,
         property,
         preExpressionValue,
         expressionContext,
       )
+      const expressionValue = resolvePropertyExpressionValue(
+        item.id,
+        property,
+        postLinkValue,
+        expressionContext,
+      ).value
+      resolved[property] = typeof expressionValue === 'number' ? expressionValue : postLinkValue
     } else if (keyframes.length > 0) {
       resolved[property] = preExpressionValue
     }

@@ -7,8 +7,9 @@ import type {
   EasingType,
   Keyframe,
   KeyframeRef,
-  LinkableAnimatableProperty,
-  LinkedPropertyExpression,
+  DirectLinkableProperty,
+  DirectPropertyLink,
+  PropertyExpression,
   VectorAnimatableProperty,
   VectorKeyframe,
   VectorPropertyKeyframes,
@@ -48,33 +49,58 @@ export function addKeyframe(
   )
 }
 
-export function setLinkedPropertyExpression(
+export function setDirectPropertyLink(
   itemId: string,
-  expression: LinkedPropertyExpression,
+  link: DirectPropertyLink,
 ): void {
   execute(
-    'SET_LINKED_TRANSFORM_EXPRESSION',
+    'SET_DIRECT_PROPERTY_LINK',
     () => {
-      useKeyframesStore.getState()._setLinkedPropertyExpression(itemId, expression)
+      useKeyframesStore.getState()._setDirectPropertyLink(itemId, link)
       useTimelineSettingsStore.getState().markDirty()
     },
     {
       itemId,
-      property: expression.targetProperty,
-      sourceItemId: expression.sourceItemId,
-      sourceProperty: expression.sourceProperty,
+      property: link.targetProperty,
+      sourceItemId: link.sourceItemId,
+      sourceProperty: link.sourceProperty,
     },
   )
 }
 
-export function removeLinkedPropertyExpression(
+export function removeDirectPropertyLink(
   itemId: string,
-  property: LinkableAnimatableProperty,
+  property: DirectLinkableProperty,
 ): void {
   execute(
-    'REMOVE_LINKED_TRANSFORM_EXPRESSION',
+    'REMOVE_DIRECT_PROPERTY_LINK',
     () => {
-      useKeyframesStore.getState()._removeLinkedPropertyExpression(itemId, property)
+      useKeyframesStore.getState()._removeDirectPropertyLink(itemId, property)
+      useTimelineSettingsStore.getState().markDirty()
+    },
+    { itemId, property },
+  )
+}
+
+export function setPropertyExpression(itemId: string, expression: PropertyExpression): void {
+  execute(
+    'SET_PROPERTY_EXPRESSION',
+    () => {
+      useKeyframesStore.getState()._setPropertyExpression(itemId, expression)
+      useTimelineSettingsStore.getState().markDirty()
+    },
+    { itemId, property: expression.targetProperty, enabled: expression.enabled },
+  )
+}
+
+export function removePropertyExpression(
+  itemId: string,
+  property: DirectLinkableProperty,
+): void {
+  execute(
+    'REMOVE_PROPERTY_EXPRESSION',
+    () => {
+      useKeyframesStore.getState()._removePropertyExpression(itemId, property)
       useTimelineSettingsStore.getState().markDirty()
     },
     { itemId, property },

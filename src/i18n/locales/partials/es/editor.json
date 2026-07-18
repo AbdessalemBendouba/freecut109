@@ -3,6 +3,8 @@
     "compose": {
       "title": "Composiciones",
       "newComposition": "Nueva composición",
+      "newCompositionShort": "Nueva comp.",
+      "addItem": "Añadir elemento",
       "emptyTitle": "Aún no hay composiciones",
       "emptyDescription": "Crea una composición para empezar a construir una escena por capas.",
       "chooseTitle": "Elige una composición",

@@ -203,6 +203,12 @@ export const ItemContent = React.memo<ItemProps>(
       [item.audioPitchSemitones, item.audioPitchCents, itemPreviewProperties],
     )
 
+    // Null Objects participate in transform hierarchy and canvas gizmo
+    // interactions, but intentionally contribute no pixels of their own.
+    if (item.type === 'controller') {
+      return null
+    }
+
     if (item.type === 'video') {
       item = resolveReverseConformedVideoItem(item, timelineFps, {
         useProxy: nestedMediaResolutionMode === 'proxy',

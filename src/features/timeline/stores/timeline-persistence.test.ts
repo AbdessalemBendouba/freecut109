@@ -124,7 +124,7 @@ describe('timeline project hydration', () => {
     )
   })
 
-  it('serializes and hydrates linked property expressions', async () => {
+  it('serializes and hydrates direct Vector2 property links', async () => {
     const item = makeTimelineVideoItem({ id: 'target', trackId: rootTrack.id })
     useItemsStore.getState().setTracks([rootTrack])
     useItemsStore.getState().setItems([item])
@@ -132,24 +132,38 @@ describe('timeline project hydration', () => {
       {
         itemId: item.id,
         properties: [],
-        expressions: [
+        propertyLinks: [
           {
             type: 'link',
-            targetProperty: 'x',
+            targetProperty: 'position',
             sourceItemId: 'source',
-            sourceProperty: 'rotation',
+            sourceProperty: 'scale',
             enabled: true,
             timeOffsetFrames: 4,
+          },
+        ],
+        expressions: [
+          {
+            type: 'expression',
+            targetProperty: 'rotation',
+            source: 'value + sin(time) * 10',
+            enabled: true,
           },
         ],
       },
     ])
 
     const timeline = buildTimelineFromStores()
-    expect(timeline.keyframes?.[0]?.expressions?.[0]).toMatchObject({
+    expect(timeline.keyframes?.[0]?.propertyLinks?.[0]).toMatchObject({
       sourceItemId: 'source',
-      sourceProperty: 'rotation',
+      targetProperty: 'position',
+      sourceProperty: 'scale',
       timeOffsetFrames: 4,
+    })
+    expect(timeline.keyframes?.[0]?.expressions?.[0]).toMatchObject({
+      type: 'expression',
+      targetProperty: 'rotation',
+      source: 'value + sin(time) * 10',
     })
 
     const project: Project = {
@@ -164,6 +178,9 @@ describe('timeline project hydration', () => {
     }
     await hydrateTimelineStoresFromProject(project)
 
+    expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks).toEqual(
+      timeline.keyframes?.[0]?.propertyLinks,
+    )
     expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual(
       timeline.keyframes?.[0]?.expressions,
     )

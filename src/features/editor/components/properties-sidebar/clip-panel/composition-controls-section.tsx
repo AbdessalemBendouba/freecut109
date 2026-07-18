@@ -11,7 +11,15 @@ import { ColorPicker, PropertyRow, PropertySection } from '../components'
 
 const EMPTY_CONTROLS: CompositionControlDefinition[] = []
 
-function TextControlInput({ value, onCommit, label }: { value: string; onCommit: (value: string) => void; label: string }) {
+function TextControlInput({
+  value,
+  onCommit,
+  label,
+}: {
+  value: string
+  onCommit: (value: string) => void
+  label: string
+}) {
   const [draft, setDraft] = useState(value)
   useEffect(() => setDraft(value), [value])
   return (
@@ -32,13 +40,72 @@ function TextControlInput({ value, onCommit, label }: { value: string; onCommit:
   )
 }
 
+function CompositionOverrideRow({
+  control,
+  value,
+  sourceValue,
+  isOverridden,
+  onChange,
+}: {
+  control: CompositionControlDefinition
+  value: string
+  sourceValue: string
+  isOverridden: boolean
+  onChange: (value: string) => void
+}) {
+  const { t } = useTranslation()
+  const resetLabel = t('editor.compositionControls.resetOverride', {
+    defaultValue: 'Reset {{name}} override',
+    name: control.name,
+  })
+
+  return (
+    <PropertyRow label={control.name}>
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        <span
+          className={
+            isOverridden ? 'h-1.5 w-1.5 shrink-0 rounded-full bg-primary' : 'h-1.5 w-1.5 shrink-0'
+          }
+          aria-label={
+            isOverridden
+              ? t('editor.compositionControls.overridden', {
+                  defaultValue: '{{name}} is overridden',
+                  name: control.name,
+                })
+              : undefined
+          }
+          aria-hidden={isOverridden ? undefined : true}
+        />
+        <div className="min-w-0 flex-1">
+          {control.kind === 'text' ? (
+            <TextControlInput value={value} label={control.name} onCommit={onChange} />
+          ) : (
+            <ColorPicker color={value} onChange={onChange} />
+          )}
+        </div>
+        {isOverridden && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground"
+            onClick={() => onChange(sourceValue)}
+            title={resetLabel}
+            aria-label={resetLabel}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
+    </PropertyRow>
+  )
+}
+
 export function CompositionControlsSection({ items }: { items: TimelineItem[] }) {
   const { t } = useTranslation()
   const updateItem = useTimelineStore((state) => state.updateItem)
   const compositionItem =
-    items.length === 1 && items[0]?.type === 'composition'
-      ? (items[0] as CompositionItem)
-      : null
+    items.length === 1 && items[0]?.type === 'composition' ? (items[0] as CompositionItem) : null
   const composition = useCompositionsStore((state) =>
     compositionItem ? state.compositionById[compositionItem.compositionId] : undefined,
   )
@@ -68,30 +135,32 @@ export function CompositionControlsSection({ items }: { items: TimelineItem[] })
 
   return (
     <PropertySection
-      title={t('editor.compositionControls.instanceTitle', { defaultValue: 'Template controls' })}
+      title={t('editor.compositionControls.instanceTitle', { defaultValue: 'Template overrides' })}
       icon={SlidersHorizontal}
       defaultOpen
     >
+      <p className="px-1 pb-2 text-[11px] leading-snug text-muted-foreground">
+        {t('editor.compositionControls.instanceHint', {
+          defaultValue:
+            'Changes apply only to this instance. A blue dot marks values that differ from the source.',
+        })}
+      </p>
       {controls.map((control) => {
         const sourceValue = sourceValueById.get(control.id) ?? control.defaultValue
         const value = compositionItem.compositionControlOverrides?.[control.id] ?? sourceValue
+        const isOverridden = Object.prototype.hasOwnProperty.call(
+          compositionItem.compositionControlOverrides ?? {},
+          control.id,
+        )
         return (
-          <PropertyRow key={control.id} label={control.name}>
-            {control.kind === 'text' ? (
-              <TextControlInput
-                value={value}
-                label={control.name}
-                onCommit={(next) => setControlValue(control, next)}
-              />
-            ) : (
-              <ColorPicker
-                color={value}
-                onChange={(next) => setControlValue(control, next)}
-                onReset={() => setControlValue(control, sourceValue)}
-                defaultColor={sourceValue}
-              />
-            )}
-          </PropertyRow>
+          <CompositionOverrideRow
+            key={control.id}
+            control={control}
+            value={value}
+            sourceValue={sourceValue}
+            isOverridden={isOverridden}
+            onChange={(next) => setControlValue(control, next)}
+          />
         )
       })}
       {compositionItem.compositionControlOverrides && (
@@ -103,7 +172,7 @@ export function CompositionControlsSection({ items }: { items: TimelineItem[] })
           onClick={() => updateItem(compositionItem.id, { compositionControlOverrides: undefined })}
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          {t('editor.compositionControls.resetAll', { defaultValue: 'Reset all controls' })}
+          {t('editor.compositionControls.resetAll', { defaultValue: 'Reset all overrides' })}
         </Button>
       )}
     </PropertySection>

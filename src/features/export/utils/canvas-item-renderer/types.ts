@@ -51,6 +51,8 @@ export interface CanvasSettings {
   /** Same-composition sources for deterministic scalar property expressions. */
   getExpressionItem?: (itemId: string) => TimelineItem | undefined
   getExpressionKeyframes?: (itemId: string) => ItemKeyframes | undefined
+  /** Live transform overrides used by the interactive preview renderer. */
+  getPreviewTransform?: (itemId: string) => Partial<ResolvedTransform> | undefined
 }
 
 /**

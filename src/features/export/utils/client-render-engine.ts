@@ -354,6 +354,7 @@ export async function createCompositionRenderer(
     width: canvas.width,
     height: canvas.height,
     fps,
+    getPreviewTransform: renderMode === 'preview' ? getPreviewTransformOverride : undefined,
   }
   const frameSceneCache = createFrameCompositionSceneCache()
   let frameSceneRevision = 0

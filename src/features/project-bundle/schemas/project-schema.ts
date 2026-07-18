@@ -97,11 +97,27 @@ const vectorPropertyKeyframesSchema = z.object({
 
 const linkedPropertyExpressionSchema = z.object({
   type: z.literal('link'),
-  targetProperty: animatablePropertySchema,
+  targetProperty: z.union([
+    animatablePropertySchema,
+    z.enum(['position', 'scale', 'anchor']),
+  ]),
   sourceItemId: z.string().min(1),
-  sourceProperty: animatablePropertySchema,
+  sourceProperty: z.union([
+    animatablePropertySchema,
+    z.enum(['position', 'scale', 'anchor']),
+  ]),
   enabled: z.boolean(),
   timeOffsetFrames: z.number(),
+})
+
+const propertyExpressionSchema = z.object({
+  type: z.literal('expression'),
+  targetProperty: z.union([
+    animatablePropertySchema,
+    z.enum(['position', 'scale', 'anchor']),
+  ]),
+  source: z.string(),
+  enabled: z.boolean(),
 })
 
 const itemKeyframesSchema = z.object({
@@ -109,7 +125,10 @@ const itemKeyframesSchema = z.object({
   animationVersion: z.literal(2).optional(),
   properties: z.array(propertyKeyframesSchema),
   vectorProperties: z.array(vectorPropertyKeyframesSchema).optional(),
-  expressions: z.array(linkedPropertyExpressionSchema).optional(),
+  propertyLinks: z.array(linkedPropertyExpressionSchema).optional(),
+  expressions: z
+    .array(z.union([propertyExpressionSchema, linkedPropertyExpressionSchema]))
+    .optional(),
 })
 
 // ============================================================================

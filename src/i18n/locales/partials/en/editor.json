@@ -3,6 +3,8 @@
     "compose": {
       "title": "Compositions",
       "newComposition": "New composition",
+      "newCompositionShort": "New Comp",
+      "addItem": "Add Item",
       "emptyTitle": "No compositions yet",
       "emptyDescription": "Create a composition to start building a layered scene.",
       "chooseTitle": "Choose a composition",

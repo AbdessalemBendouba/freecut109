@@ -74,12 +74,12 @@ describe('DopesheetEditor property groups', () => {
   })
 
   it('renders linked property controls and removes a link from its popover', () => {
-    const onLinkedTransformPointerDown = vi.fn()
-    const onRemoveLinkedTransform = vi.fn()
+    const onPropertyLinkPointerDown = vi.fn()
+    const onRemovePropertyLink = vi.fn()
     renderEditor({
       keyframesByProperty: { x: [] },
       propertyValues: { x: 240 },
-      linkedTransformExpressions: [
+      propertyLinks: [
         {
           type: 'link',
           targetProperty: 'x',
@@ -90,8 +90,8 @@ describe('DopesheetEditor property groups', () => {
         },
       ],
       linkedTransformSourceLabels: { x: 'Source layer → X Position' },
-      onLinkedTransformPointerDown,
-      onRemoveLinkedTransform,
+      onPropertyLinkPointerDown,
+      onRemovePropertyLink,
       onPropertyValueCommit: vi.fn(),
     })
 
@@ -104,19 +104,19 @@ describe('DopesheetEditor property groups', () => {
 
     expect(valueInput).toBeDisabled()
     fireEvent.pointerDown(linkButton, { button: 0, pointerId: 7 })
-    expect(onLinkedTransformPointerDown).toHaveBeenCalledWith(expect.anything(), 'x')
+    expect(onPropertyLinkPointerDown).toHaveBeenCalledWith(expect.anything(), 'x')
 
     fireEvent.click(linkButton)
     fireEvent.click(screen.getByRole('button', { name: /remove property link/i }))
-    expect(onRemoveLinkedTransform).toHaveBeenCalledWith('x')
+    expect(onRemovePropertyLink).toHaveBeenCalledWith('x')
   })
 
   it('exposes the pick whip for scalar Shape properties', () => {
-    const onLinkedTransformPointerDown = vi.fn()
+    const onPropertyLinkPointerDown = vi.fn()
     renderEditor({
       keyframesByProperty: { trimPathEnd: [] },
       propertyValues: { trimPathEnd: 100 },
-      onLinkedTransformPointerDown,
+      onPropertyLinkPointerDown,
       onPropertyValueCommit: vi.fn(),
     })
 
@@ -126,7 +126,87 @@ describe('DopesheetEditor property groups', () => {
     expect(linkButton.querySelector('[data-testid="pick-whip-icon"]')).toBeTruthy()
     fireEvent.pointerDown(linkButton, { button: 0, pointerId: 12 })
 
-    expect(onLinkedTransformPointerDown).toHaveBeenCalledWith(expect.anything(), 'trimPathEnd')
+    expect(onPropertyLinkPointerDown).toHaveBeenCalledWith(expect.anything(), 'trimPathEnd')
+  })
+
+  it('keeps Property Link controls available in graph mode', () => {
+    const onPropertyLinkPointerDown = vi.fn()
+    renderEditor({
+      visualizationMode: 'graph',
+      keyframesByProperty: { x: [], y: [] },
+      propertyValues: { x: 100, y: 200 },
+      onPropertyLinkPointerDown,
+    })
+
+    const pickWhip = screen.getByRole('button', {
+      name: /drag to link x position to another property/i,
+    })
+    fireEvent.pointerDown(pickWhip, { button: 0, pointerId: 13 })
+
+    expect(onPropertyLinkPointerDown).toHaveBeenCalledWith(expect.anything(), 'x')
+  })
+
+  it('edits, validates, enables, and applies a sandboxed expression', () => {
+    const onSetPropertyExpression = vi.fn()
+    renderEditor({
+      keyframesByProperty: { x: [] },
+      propertyValues: { x: 200 },
+      preExpressionPropertyValues: { x: 100 },
+      onSetPropertyExpression,
+      onRemovePropertyExpression: vi.fn(),
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /add x position expression/i }))
+    const editor = screen.getByRole('textbox', {
+      name: /x position expression source/i,
+    }) as HTMLTextAreaElement
+    expect(screen.getByText('Pre-expression').parentElement).toHaveTextContent('100.00')
+    expect(screen.getByText('Post-expression').parentElement).toHaveTextContent('200.00')
+
+    fireEvent.change(editor, { target: { value: 'value / 0' } })
+    expect(screen.getByText('Division by zero')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled()
+
+    fireEvent.change(editor, { target: { value: 'value * 2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Enabled' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    expect(onSetPropertyExpression).toHaveBeenCalledWith('x', 'value * 2', false)
+  })
+
+  it('inserts an Expression pick-whip reference at the editor cursor', () => {
+    renderEditor({
+      keyframesByProperty: { x: [], y: [] },
+      propertyValues: { x: 100, y: 200 },
+      onSetPropertyExpression: vi.fn(),
+      onRemovePropertyExpression: vi.fn(),
+      resolveExpressionReference: (_itemId, property) => (property === 'y' ? 200 : 100),
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /add x position expression/i }))
+    const editor = screen.getByRole('textbox', {
+      name: /x position expression source/i,
+    }) as HTMLTextAreaElement
+    fireEvent.change(editor, { target: { value: 'value + ' } })
+    editor.setSelectionRange(8, 8)
+    const yRow = screen
+      .getByText('Y Position')
+      .closest<HTMLElement>('[data-expression-item-id][data-expression-property]')!
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => yRow),
+    })
+
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: /expression pick whip for x position/i }),
+      { button: 0, pointerId: 21, clientX: 0, clientY: 0 },
+    )
+    expect(screen.getByTestId('expression-reference-pick-whip')).toBeInTheDocument()
+    fireEvent.pointerMove(window, { pointerId: 21, clientX: 30, clientY: 30 })
+    fireEvent.pointerUp(window, { pointerId: 21, clientX: 30, clientY: 30 })
+
+    expect(editor).toHaveValue('value + prop("item-1", "y")')
+    Reflect.deleteProperty(document, 'elementFromPoint')
   })
 
   it('keeps connectors when one endpoint is outside the zoomed viewport', () => {
@@ -315,6 +395,50 @@ describe('DopesheetEditor property groups', () => {
     fireEvent.change(screen.getByLabelText('Position Y'), { target: { value: '48' } })
     fireEvent.blur(screen.getByLabelText('Position Y'))
     expect(onPositionCommit).toHaveBeenCalledWith('y', 48, { allowCreate: false })
+  })
+
+  it('exposes one Vector2 Property Link for a compound Position row', () => {
+    const onPropertyLinkPointerDown = vi.fn()
+    renderEditor({
+      keyframesByProperty: { x: [], y: [] },
+      propertyValues: { x: 10, y: 20 },
+      hiddenPropertyRows: ['y'],
+      compoundPropertyRows: {
+        x: {
+          label: 'Position',
+          value: { x: 10, y: 20 },
+          unit: 'px',
+          linkProperty: 'position',
+          onCommit: vi.fn(),
+        },
+      },
+      propertyLinks: [
+        {
+          type: 'link',
+          targetProperty: 'position',
+          sourceItemId: 'source-layer',
+          sourceProperty: 'position',
+          enabled: true,
+          timeOffsetFrames: 0,
+        },
+      ],
+      propertyLinkSourceLabels: { position: 'Source layer -> Position' },
+      onPropertyLinkPointerDown,
+      onRemovePropertyLink: vi.fn(),
+    })
+
+    const linkButton = screen.getByRole('button', {
+      name: /linked to source layer -> position/i,
+    })
+    fireEvent.pointerDown(linkButton, { button: 0, pointerId: 14 })
+
+    expect(onPropertyLinkPointerDown).toHaveBeenCalledWith(expect.anything(), 'position')
+    expect(screen.getByLabelText('Position X')).toBeDisabled()
+    expect(screen.getByLabelText('Position Y')).toBeDisabled()
+    expect(linkButton.closest('[data-expression-property]')).toHaveAttribute(
+      'data-expression-property',
+      'position',
+    )
   })
 
   it('switches the existing main graph between value and speed semantics', () => {
@@ -669,7 +793,7 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.getByRole('spinbutton', { name: /y position value at playhead/i })).toBeDisabled()
   })
 
-  it('keeps keyframe controls visible while tucking reset into the overflow menu', () => {
+  it('keeps keyframe controls visible with reset in the fixed trailing slot', () => {
     renderEditor({
       keyframesByProperty: {
         x: [{ id: 'kx-1', frame: 8, value: 100, easing: 'linear' }],
@@ -701,7 +825,16 @@ describe('DopesheetEditor property groups', () => {
       screen.getByRole('button', {
         name: /reset all transform animations to their base values/i,
       }),
-    ).toHaveClass('opacity-0')
+    ).not.toHaveClass('opacity-0')
+  })
+
+  it('reserves the reset column when row and group reset menus are unavailable', () => {
+    renderEditor()
+
+    expect(screen.getByTestId('dopesheet-row-reset-spacer-x')).toHaveClass('w-5')
+    expect(screen.getByTestId('dopesheet-row-reset-spacer-volume')).toHaveClass('w-5')
+    expect(screen.getByTestId('dopesheet-group-reset-spacer-transform')).toHaveClass('w-5')
+    expect(screen.getByTestId('dopesheet-group-reset-spacer-audio')).toHaveClass('w-5')
   })
 
   it('clears row and group keyframes', () => {
@@ -715,21 +848,11 @@ describe('DopesheetEditor property groups', () => {
       onRemoveKeyframes,
     })
 
-    fireEvent.pointerDown(
+    fireEvent.click(
       screen.getByRole('button', { name: /reset x position animation to its base value/i }),
-      { button: 0, ctrlKey: false },
     )
     fireEvent.click(
-      screen.getByRole('menuitem', { name: /reset x position animation to its base value/i }),
-    )
-    fireEvent.pointerDown(
       screen.getByRole('button', { name: /reset all transform animations to their base values/i }),
-      { button: 0, ctrlKey: false },
-    )
-    fireEvent.click(
-      screen.getByRole('menuitem', {
-        name: /reset all transform animations to their base values/i,
-      }),
     )
 
     expect(onRemoveKeyframes).toHaveBeenNthCalledWith(1, [
@@ -752,14 +875,8 @@ describe('DopesheetEditor property groups', () => {
       onResetPropertiesToDefault,
     })
 
-    fireEvent.pointerDown(
-      screen.getByRole('button', {
-        name: /reset color wheels: exposure \(ev\) to its default value/i,
-      }),
-      { button: 0, ctrlKey: false },
-    )
     fireEvent.click(
-      screen.getByRole('menuitem', {
+      screen.getByRole('button', {
         name: /reset color wheels: exposure \(ev\) to its default value/i,
       }),
     )
@@ -768,13 +885,8 @@ describe('DopesheetEditor property groups', () => {
     const groupReset = screen.getByRole('button', {
       name: /reset all color wheels properties to their default values/i,
     })
-    expect(groupReset).toHaveClass('opacity-0')
-    fireEvent.pointerDown(groupReset, { button: 0, ctrlKey: false })
-    fireEvent.click(
-      screen.getByRole('menuitem', {
-        name: /reset all color wheels properties to their default values/i,
-      }),
-    )
+    expect(groupReset).not.toHaveClass('opacity-0')
+    fireEvent.click(groupReset)
     expect(onResetPropertiesToDefault).toHaveBeenLastCalledWith([property])
   })
 

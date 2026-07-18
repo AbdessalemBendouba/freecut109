@@ -15,7 +15,7 @@ import {
   updateItemsTransform,
   updateItemsTransformMap,
 } from './transform-actions'
-import { setTransformParent } from './item-actions'
+import { createNullParentForItems, setTransformParent, setTransformParents } from './item-actions'
 
 function makeClip(id: string, overrides: Record<string, unknown> = {}) {
   return makeTimelineVideoItem({ id, transform: {}, ...overrides })
@@ -98,17 +98,20 @@ describe('transform actions', () => {
     const canvas = { width: 1920, height: 1080, fps: 30 }
 
     beforeEach(() => {
-      useItemsStore.getState().setItems([
-        makeClip('a', { transform: { x: 10, y: 0, width: 20, height: 20 } }),
-        makeClip('b', { transform: { x: 0, y: 0, width: 100, height: 100 } }),
-      ])
+      useItemsStore
+        .getState()
+        .setItems([
+          makeClip('a', { transform: { x: 10, y: 0, width: 20, height: 20 } }),
+          makeClip('b', { transform: { x: 0, y: 0, width: 100, height: 100 } }),
+          makeClip('c', { transform: { x: 30, y: 5, width: 40, height: 40 } }),
+        ])
     })
 
     it('attaches in one undo step and preserves the current pose', () => {
       const undoDepth = useTimelineCommandStore.getState().undoStack.length
-      expect(
-        setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas }),
-      ).toBe(true)
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        true,
+      )
 
       const child = useItemsStore.getState().itemById['a']!
       expect(child.transformParent?.parentItemId).toBe('b')
@@ -128,10 +131,105 @@ describe('transform actions', () => {
       expect(detached.transformParent?.childWorldReference.x).toBeCloseTo(60)
 
       setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })
-      expect(
-        setTransformParent({ childItemId: 'b', parentItemId: 'a', frame: 0, canvas }),
-      ).toBe(false)
+      expect(setTransformParent({ childItemId: 'b', parentItemId: 'a', frame: 0, canvas })).toBe(
+        false,
+      )
       expect(useItemsStore.getState().itemById['b']?.transformParent).toBeUndefined()
+    })
+
+    it('snaps to the parent position when explicitly requested', () => {
+      updateItemTransform('b', { x: 80, y: -40 })
+
+      expect(
+        setTransformParent({
+          childItemId: 'a',
+          parentItemId: 'b',
+          behavior: 'snap-to-parent',
+          frame: 0,
+          canvas,
+        }),
+      ).toBe(true)
+
+      expect(useItemsStore.getState().itemById['a']?.transformParent).toMatchObject({
+        parentItemId: 'b',
+        childWorldReference: { x: 80, y: -40, width: 20, height: 20 },
+      })
+    })
+
+    it('can detach without compensation and restore the authored local pose', () => {
+      setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })
+      updateItemTransform('b', { x: 50 })
+
+      expect(
+        setTransformParent({
+          childItemId: 'a',
+          behavior: 'restore-local',
+          frame: 0,
+          canvas,
+        }),
+      ).toBe(true)
+
+      expect(useItemsStore.getState().itemById['a']?.transformParent).toBeUndefined()
+      expect(getTransform('a')).toMatchObject({ x: 10, y: 0, width: 20, height: 20 })
+    })
+
+    it('parents several layers atomically with one undo entry', () => {
+      const undoDepth = useTimelineCommandStore.getState().undoStack.length
+
+      expect(
+        setTransformParents({
+          childItemIds: ['a', 'c'],
+          parentItemId: 'b',
+          frame: 0,
+          canvas,
+        }),
+      ).toBe(true)
+
+      expect(useItemsStore.getState().itemById['a']?.transformParent).toMatchObject({
+        parentItemId: 'b',
+        childWorldReference: { x: 10, y: 0 },
+      })
+      expect(useItemsStore.getState().itemById['c']?.transformParent).toMatchObject({
+        parentItemId: 'b',
+        childWorldReference: { x: 30, y: 5 },
+      })
+      expect(useTimelineCommandStore.getState().undoStack.length).toBe(undoDepth + 1)
+
+      useTimelineCommandStore.getState().undo()
+      expect(useItemsStore.getState().itemById['a']?.transformParent).toBeUndefined()
+      expect(useItemsStore.getState().itemById['c']?.transformParent).toBeUndefined()
+    })
+
+    it('creates a Null parent and attaches the selection in one undo entry', () => {
+      const originalTrackCount = useItemsStore.getState().tracks.length
+      const undoDepth = useTimelineCommandStore.getState().undoStack.length
+
+      const parent = createNullParentForItems({ childItemIds: ['a', 'c'], frame: 0, canvas })
+
+      expect(parent).toMatchObject({
+        type: 'controller',
+        controllerKind: 'null',
+        label: 'Null Object',
+      })
+      expect(useItemsStore.getState().itemById['a']?.transformParent?.parentItemId).toBe(parent?.id)
+      expect(useItemsStore.getState().itemById['c']?.transformParent?.parentItemId).toBe(parent?.id)
+      expect(useItemsStore.getState().tracks).toHaveLength(originalTrackCount + 1)
+      expect(
+        useItemsStore.getState().tracks.find((track) => track.id === parent?.trackId)?.order,
+      ).toBe(0)
+      expect(useItemsStore.getState().tracks.find((track) => track.id === 'track-v1')?.order).toBe(
+        1,
+      )
+      expect(useTimelineCommandStore.getState().undoStack.length).toBe(undoDepth + 1)
+
+      useTimelineCommandStore.getState().undo()
+      expect(useItemsStore.getState().itemById[parent!.id]).toBeUndefined()
+      expect(useItemsStore.getState().itemById['a']?.transformParent).toBeUndefined()
+      expect(useItemsStore.getState().itemById['c']?.transformParent).toBeUndefined()
+      expect(useItemsStore.getState().tracks).toHaveLength(originalTrackCount)
+      expect(useItemsStore.getState().tracks.find((track) => track.id === 'track-v1')?.order).toBe(
+        0,
+      )
     })
   })
 

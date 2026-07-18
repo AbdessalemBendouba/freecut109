@@ -397,7 +397,7 @@ describe('useKeyframesStore', () => {
     })
   })
 
-  describe('linked property expressions', () => {
+  describe('direct property links', () => {
     const expression = {
       type: 'link' as const,
       targetProperty: 'x' as const,
@@ -408,29 +408,29 @@ describe('useKeyframesStore', () => {
     }
 
     it('creates, replaces, and removes links without requiring keyframes', () => {
-      useKeyframesStore.getState()._setLinkedPropertyExpression('target', expression)
-      expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual([
+      useKeyframesStore.getState()._setDirectPropertyLink('target', expression)
+      expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks).toEqual([
         expression,
       ])
 
-      useKeyframesStore.getState()._setLinkedPropertyExpression('target', {
+      useKeyframesStore.getState()._setDirectPropertyLink('target', {
         ...expression,
         sourceProperty: 'y',
       })
-      expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual([
+      expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks).toEqual([
         { ...expression, sourceProperty: 'y' },
       ])
 
-      useKeyframesStore.getState()._removeLinkedPropertyExpression('target', 'x')
+      useKeyframesStore.getState()._removeDirectPropertyLink('target', 'x')
       expect(useKeyframesStore.getState().keyframesByItemId.target).toBeUndefined()
     })
 
-    it('keeps expressions when clearing an item keyframes', () => {
+    it('keeps direct links when clearing an item keyframes', () => {
       useKeyframesStore.getState().setKeyframes([
         {
           itemId: 'target',
           properties: [{ property: 'x', keyframes: [makeKeyframe('x', 0)] }],
-          expressions: [expression],
+          propertyLinks: [expression],
         },
       ])
 
@@ -439,7 +439,7 @@ describe('useKeyframesStore', () => {
       expect(useKeyframesStore.getState().keyframesByItemId.target).toEqual({
         itemId: 'target',
         properties: [],
-        expressions: [expression],
+        propertyLinks: [expression],
       })
     })
   })

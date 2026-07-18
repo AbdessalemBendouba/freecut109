@@ -1,5 +1,6 @@
 import {
   ANIMATION_CORE_VERSION,
+  getDirectPropertyLinks,
   type ItemKeyframes,
   type Keyframe,
   type PropertyKeyframes,
@@ -38,10 +39,12 @@ function hasPositionAnimation(itemKeyframes: ItemKeyframes | undefined): boolean
       (property) =>
         (property.property === 'x' || property.property === 'y') && property.keyframes.length > 0,
     ) ||
-    itemKeyframes?.expressions?.some(
-      (expression) =>
-        expression.enabled &&
-        (expression.targetProperty === 'x' || expression.targetProperty === 'y'),
+    getDirectPropertyLinks(itemKeyframes).some(
+      (link) =>
+        link.enabled &&
+        (link.targetProperty === 'x' ||
+          link.targetProperty === 'y' ||
+          link.targetProperty === 'position'),
     ) ||
     false
   )

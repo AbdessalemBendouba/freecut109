@@ -47,6 +47,16 @@ export const ANIMATION_CORE_VERSION = 2 as const
 /** Coupled transform channels that must share timing and spatial interpolation. */
 export type VectorAnimatableProperty = 'position' | 'scale' | 'anchor'
 
+const VECTOR_ANIMATABLE_PROPERTIES = new Set<VectorAnimatableProperty>([
+  'position',
+  'scale',
+  'anchor',
+])
+
+export function isVectorAnimatableProperty(property: string): property is VectorAnimatableProperty {
+  return VECTOR_ANIMATABLE_PROPERTIES.has(property as VectorAnimatableProperty)
+}
+
 export interface Vector2 {
   x: number
   y: number
@@ -107,13 +117,44 @@ export function isShapeAnimatableProperty(
   return SHAPE_ANIMATABLE_PROPERTIES.has(property as ShapeAnimatableProperty)
 }
 
-/** Scalar properties whose post-keyframe values can participate in links. */
+/** Scalar properties whose post-keyframe values can participate in direct links. */
 export type LinkableAnimatableProperty = TransformAnimatableProperty | ShapeAnimatableProperty
 
 export function isLinkableAnimatableProperty(
   property: AnimatableProperty | string,
 ): property is LinkableAnimatableProperty {
   return isTransformAnimatableProperty(property) || isShapeAnimatableProperty(property)
+}
+
+/** Direct links are deliberately limited to equal-shaped numeric values. */
+export type DirectLinkableProperty = LinkableAnimatableProperty | VectorAnimatableProperty
+
+export function isDirectLinkableProperty(property: string): property is DirectLinkableProperty {
+  return isLinkableAnimatableProperty(property) || isVectorAnimatableProperty(property)
+}
+
+export function areDirectLinkPropertiesCompatible(
+  target: DirectLinkableProperty,
+  source: DirectLinkableProperty,
+): boolean {
+  return isVectorAnimatableProperty(target) === isVectorAnimatableProperty(source)
+}
+
+const VECTOR_LINK_COMPONENTS: Record<VectorAnimatableProperty, readonly LinkableAnimatableProperty[]> = {
+  position: ['x', 'y'],
+  scale: ['width', 'height'],
+  anchor: ['anchorX', 'anchorY'],
+}
+
+/** Scalar component and vector links are mutually exclusive on the same channels. */
+export function doDirectLinkTargetsConflict(
+  left: DirectLinkableProperty,
+  right: DirectLinkableProperty,
+): boolean {
+  if (left === right) return true
+  if (isVectorAnimatableProperty(left)) return VECTOR_LINK_COMPONENTS[left].includes(right as LinkableAnimatableProperty)
+  if (isVectorAnimatableProperty(right)) return VECTOR_LINK_COMPONENTS[right].includes(left)
+  return false
 }
 
 export type CropAnimatableProperty =
@@ -124,18 +165,47 @@ export type CropAnimatableProperty =
   | 'cropSoftness'
 
 /**
- * A deterministic, typed expression that makes one scalar property follow
+ * A deterministic, typed direct link that makes one scalar property follow
  * another scalar property in the same composition. Item IDs keep links stable when a
  * layer is renamed; composition-time evaluation is handled by the resolver.
  */
-export interface LinkedPropertyExpression {
+export interface DirectPropertyLink {
   type: 'link'
-  targetProperty: LinkableAnimatableProperty
+  targetProperty: DirectLinkableProperty
   sourceItemId: string
-  sourceProperty: LinkableAnimatableProperty
+  sourceProperty: DirectLinkableProperty
   enabled: boolean
   /** Reserved for AE-style delayed followers; zero is a direct pick-whip link. */
   timeOffsetFrames: number
+}
+
+/** Deterministic expression source evaluated by FreeCut's sandboxed DSL. */
+export interface PropertyExpression {
+  type: 'expression'
+  targetProperty: DirectLinkableProperty
+  source: string
+  enabled: boolean
+}
+
+/** Legacy projects may still contain direct links in the expressions collection. */
+export type StoredPropertyExpression = PropertyExpression | DirectPropertyLink
+
+export function getDirectPropertyLinks(
+  itemKeyframes: Pick<ItemKeyframes, 'propertyLinks' | 'expressions'> | undefined,
+): readonly DirectPropertyLink[] {
+  if (!itemKeyframes) return []
+  const legacyLinks = (itemKeyframes.expressions ?? []).filter(
+    (entry): entry is DirectPropertyLink => entry.type === 'link',
+  )
+  return [...(itemKeyframes.propertyLinks ?? []), ...legacyLinks]
+}
+
+export function getPropertyExpressions(
+  itemKeyframes: Pick<ItemKeyframes, 'expressions'> | undefined,
+): readonly PropertyExpression[] {
+  return (itemKeyframes?.expressions ?? []).filter(
+    (entry): entry is PropertyExpression => entry.type === 'expression',
+  )
 }
 
 /**
@@ -338,8 +408,10 @@ export interface ItemKeyframes {
   properties: PropertyKeyframes[]
   /** Coupled Position, Scale, and Anchor lanes introduced by Animation Core v2. */
   vectorProperties?: VectorPropertyKeyframes[]
-  /** Post-keyframe property expressions, keyed by their target property. */
-  expressions?: LinkedPropertyExpression[]
+  /** Typed direct property links, keyed by their target property. */
+  propertyLinks?: DirectPropertyLink[]
+  /** Sandboxed expressions. Legacy imports may temporarily include type=link records. */
+  expressions?: StoredPropertyExpression[]
 }
 
 /**

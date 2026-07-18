@@ -262,6 +262,8 @@ export const ClipPanel = memo(function ClipPanel() {
   const showVideoTab = layoutFillItems.length > 0
   const showAudioTab = hasAudioItems
   const showMotionTab = workspace === 'motion' && hasVisualItems
+  const showMotionParenting =
+    selectedItems.length > 0 && layoutFillItems.length === selectedItems.length
   // Motion's library already includes the text-motion stage, so a text layer
   // gets one purposeful Motion surface instead of adjacent Animation/Motion tabs.
   const showSecondTab = showAudioTab || (isOnlyText && !showMotionTab)
@@ -308,7 +310,7 @@ export const ClipPanel = memo(function ClipPanel() {
       if (isOnlyShape) return { label: t('editor.clipPanel.tabShape'), icon: Shapes }
       if (isOnlyController) {
         return {
-          label: t('editor.clipPanel.tabController', { defaultValue: 'Controller' }),
+          label: t('editor.clipPanel.tabController', { defaultValue: 'Null Object' }),
           icon: Crosshair,
         }
       }
@@ -370,7 +372,13 @@ export const ClipPanel = memo(function ClipPanel() {
                   onAspectLockToggle={handleAspectLockToggle}
                 />
               )}
-              <TransformHierarchySection items={selectedItems} allItems={allItems} canvas={canvas} />
+              {workspace !== 'motion' && (
+                <TransformHierarchySection
+                  items={selectedItems}
+                  allItems={allItems}
+                  canvas={canvas}
+                />
+              )}
               <CompositionControlsSection items={selectedItems} />
               {hasVideoItems && <VideoSection items={selectedItems} />}
               {paintableLayoutItems.length > 0 && (
@@ -407,14 +415,26 @@ export const ClipPanel = memo(function ClipPanel() {
 
         {/* Motion Tab — the composition's single preset, procedural, text
             motion, bake, and saved-animation surface. */}
-        <TabsContent
-          value="motion"
-          className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
-        >
+        <TabsContent value="motion" className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden">
           {showMotionTab && activeTab === 'motion' ? (
-            <Suspense fallback={<div className="h-full rounded-md bg-muted/20" />}>
-              <LazyAnimationPresetLibrary canvas={canvas} embedded />
-            </Suspense>
+            <div className="flex h-full min-h-0 flex-col">
+              {showMotionParenting && (
+                <div className="shrink-0 border-b border-border pb-2">
+                  <TransformHierarchySection
+                    items={selectedItems}
+                    allItems={allItems}
+                    canvas={canvas}
+                    showUnparented
+                    allowCreateNullParent
+                  />
+                </div>
+              )}
+              <div className="min-h-0 flex-1 pt-2">
+                <Suspense fallback={<div className="h-full rounded-md bg-muted/20" />}>
+                  <LazyAnimationPresetLibrary canvas={canvas} embedded />
+                </Suspense>
+              </div>
+            </div>
           ) : null}
         </TabsContent>
 

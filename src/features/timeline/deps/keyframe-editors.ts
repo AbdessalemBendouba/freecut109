@@ -4,6 +4,8 @@
 
 export {
   DopesheetEditor,
+  PickWhipIcon,
+  PropertyLinkPickWhipOverlay,
   CompactNavigator,
   GROUP_HEADER_HEIGHT,
   KEYFRAME_EDGE_INSET,
@@ -12,11 +14,13 @@ export {
   getEffectPropertyBaseValue,
   getProceduralBands,
   getPropertyAccordionGroups,
+  buildVectorPromotionPlan,
+  resolveAnimatedTransform,
   getShapeAnimatableBaseValue,
   resolveAnimatedShapeItem,
+  resolveExpressionReferenceValue,
   captureAnimationFromItem,
   getPresetCompatibility,
   buildBakeMotionPlan,
-  wouldCreateLinkedPropertyCycle,
 } from './keyframes-contract'
 export type { PresetIncompatibilityReason, ProceduralPreviewInput } from './keyframes-contract'

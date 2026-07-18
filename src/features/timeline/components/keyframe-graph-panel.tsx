@@ -5,7 +5,16 @@
  * Integrates with the timeline to provide visual keyframe editing.
  */
 
-import { memo, useState, useCallback, useMemo, useRef, useEffect, type RefObject } from 'react'
+import {
+  memo,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+  useEffect,
+  type RefObject,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useHotkeys } from 'react-hotkeys-hook'
@@ -26,14 +35,17 @@ import {
   buildEasingConfig,
   buildVectorPromotionPlan,
   resolveAnimatedTransform,
+  resolveExpressionReferenceValue,
 } from '@/features/timeline/deps/keyframes'
 import {
   DopesheetEditor,
+  PropertyLinkPickWhipOverlay,
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,
   buildBakeMotionPlan,
   type ProceduralPreviewInput,
 } from '@/features/timeline/deps/keyframe-editors'
+import { usePropertyLinkPickWhip } from '@/features/timeline/hooks/use-property-link-pick-whip'
 import { bakeMotionToKeyframes } from '../stores/actions/motion-modifier-actions'
 import { resolveTransform, getSourceDimensions } from '@/features/timeline/deps/composition-runtime'
 import { useProjectStore } from '@/features/timeline/deps/projects'
@@ -62,16 +74,18 @@ import type {
   KeyframeClipboard,
   Keyframe,
   KeyframeRef,
+  DirectLinkableProperty,
   TemporalEase,
   VectorAnimatableProperty,
   VectorKeyframe,
 } from '@/types/keyframe'
-import type { CanvasSettings } from '@/types/transform'
+import type { CanvasSettings, ResolvedTransform } from '@/types/transform'
 import type { TimelineItem } from '@/types/timeline'
 import * as timelineActions from '../stores/timeline-actions'
 import { HOTKEY_OPTIONS } from '@/config/hotkeys'
 import { useResolvedHotkeys } from '@/features/timeline/deps/settings'
 import { isEffectAnimatableProperty } from '@/types/keyframe'
+import { getDirectPropertyLinks, isTransformAnimatableProperty } from '@/types/keyframe'
 import { buildEffectPropertyResetPlan } from '@/features/timeline/utils/effect-property-reset'
 import { VectorSpeedGraph } from './vector-speed-graph'
 
@@ -554,6 +568,7 @@ interface VectorEditorRow {
   secondaryProxyProperty: 'y' | 'height' | 'anchorY'
   label: string
   value: { x: number; y: number }
+  preExpressionValue: { x: number; y: number }
   unit: string
   keyframes: NonNullable<ItemKeyframes['vectorProperties']>[number]['keyframes']
   currentKeyframeId?: string
@@ -614,6 +629,47 @@ function getBaseKeyframeValue(
 
   const resolved = resolveTransform(item, canvas, getSourceDimensions(item))
   return property in resolved ? resolved[property as keyof typeof resolved] : 0
+}
+
+type SelectedEditorKeyframe = { ref: KeyframeRef; keyframe: Keyframe }
+
+function findSelectedPropertyValue(
+  selectedKeyframes: SelectedEditorKeyframe[],
+  property: AnimatableProperty,
+): number | undefined {
+  for (let index = selectedKeyframes.length - 1; index >= 0; index -= 1) {
+    const selected = selectedKeyframes[index]!
+    if (selected.ref.property === property) return selected.keyframe.value
+  }
+  return undefined
+}
+
+function buildCurrentPropertyValues(params: {
+  item: TimelineItem
+  properties: AnimatableProperty[]
+  keyframesByProperty: Partial<Record<AnimatableProperty, Keyframe[]>>
+  selectedKeyframes: SelectedEditorKeyframe[]
+  resolvedTransform: ResolvedTransform | null | undefined
+  relativeFrame: number
+  canvas: CanvasSettings
+}): Partial<Record<AnimatableProperty, number>> {
+  const values: Partial<Record<AnimatableProperty, number>> = {}
+  for (const property of params.properties) {
+    const selectedValue = findSelectedPropertyValue(params.selectedKeyframes, property)
+    const resolvedTransformValue =
+      params.resolvedTransform && isTransformAnimatableProperty(property)
+        ? params.resolvedTransform[property]
+        : undefined
+    values[property] =
+      selectedValue ??
+      resolvedTransformValue ??
+      interpolatePropertyValue(
+        params.keyframesByProperty[property] ?? [],
+        params.relativeFrame,
+        getBaseKeyframeValue(params.item, property, params.canvas),
+      )
+  }
+  return values
 }
 
 function useKeyframeEditorPlaybackFrame(
@@ -865,6 +921,36 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
   )
   const allItemsById = useItemsStore((s) => s.itemById)
   const allKeyframesByItemId = useKeyframesStore((s) => s.keyframesByItemId)
+  const {
+    drag: propertyLinkDrag,
+    begin: beginPropertyLinkDrag,
+    remove: removePropertyLink,
+  } = usePropertyLinkPickWhip()
+  const propertyLinkSourceLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        getDirectPropertyLinks(selectedItemKeyframes ?? undefined).map((link) => {
+          const source = allItemsById[link.sourceItemId]
+          const sourceLabel = source?.label || source?.type || link.sourceItemId
+          return [link.targetProperty, `${sourceLabel} -> ${link.sourceProperty}`]
+        }),
+      ) as Partial<Record<DirectLinkableProperty, string>>,
+    [allItemsById, selectedItemKeyframes],
+  )
+  const handlePropertyLinkPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>, property: DirectLinkableProperty) => {
+      if (!selectedItemForEditor) return
+      beginPropertyLinkDrag(event, selectedItemForEditor.id, property)
+    },
+    [beginPropertyLinkDrag, selectedItemForEditor],
+  )
+  const handleRemovePropertyLink = useCallback(
+    (property: DirectLinkableProperty) => {
+      if (!selectedItemForEditor) return
+      removePropertyLink(selectedItemForEditor.id, property)
+    },
+    [removePropertyLink, selectedItemForEditor],
+  )
   const selectedItemTransitions = useTransitionsStore(
     useShallow(
       useCallback(
@@ -1196,9 +1282,39 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     selectedItemKeyframes,
     vectorBaseTransform,
   ])
+  const vectorPreExpressionTransform = useMemo(() => {
+    if (!selectedItemForEditor || !vectorBaseTransform) return null
+    const keyframesWithoutExpressions = selectedItemKeyframes
+      ? {
+          ...selectedItemKeyframes,
+          propertyLinks: [...getDirectPropertyLinks(selectedItemKeyframes)],
+          expressions: [],
+        }
+      : undefined
+    return resolveAnimatedTransform(
+      vectorBaseTransform,
+      keyframesWithoutExpressions,
+      relativeFrame,
+      {
+        globalFrame: currentFrame,
+        canvas,
+        getItem: (itemId) => allItemsById[itemId],
+        getKeyframes: (itemId) => allKeyframesByItemId[itemId],
+      },
+    )
+  }, [
+    allItemsById,
+    allKeyframesByItemId,
+    canvas,
+    currentFrame,
+    relativeFrame,
+    selectedItemForEditor,
+    selectedItemKeyframes,
+    vectorBaseTransform,
+  ])
 
   const vectorControlRows = useMemo<VectorEditorRow[]>(() => {
-    if (!vectorBaseTransform || !vectorResolvedTransform) return []
+    if (!vectorBaseTransform || !vectorResolvedTransform || !vectorPreExpressionTransform) return []
     const getPersistedLane = (property: VectorAnimatableProperty) =>
       selectedItemKeyframes?.vectorProperties?.find((candidate) => candidate.property === property)
     const getEditorLane = (property: VectorAnimatableProperty) =>
@@ -1219,6 +1335,10 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
         secondaryProxyProperty: 'y',
         label: t('editor.layoutSection.position', { defaultValue: 'Position' }),
         value: { x: vectorResolvedTransform.x, y: vectorResolvedTransform.y },
+        preExpressionValue: {
+          x: vectorPreExpressionTransform.x,
+          y: vectorPreExpressionTransform.y,
+        },
         unit: 'px',
         keyframes: positionLane.keyframes,
         currentKeyframeId: positionLane.keyframes.find(
@@ -1235,6 +1355,10 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
           x: toScalePercent(vectorResolvedTransform.width, vectorBaseTransform.width),
           y: toScalePercent(vectorResolvedTransform.height, vectorBaseTransform.height),
         },
+        preExpressionValue: {
+          x: toScalePercent(vectorPreExpressionTransform.width, vectorBaseTransform.width),
+          y: toScalePercent(vectorPreExpressionTransform.height, vectorBaseTransform.height),
+        },
         unit: '%',
         keyframes: scaleLane.keyframes,
         currentKeyframeId: scaleLane.keyframes.find((keyframe) => keyframe.frame === relativeFrame)
@@ -1250,6 +1374,10 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
           x: vectorResolvedTransform.anchorX,
           y: vectorResolvedTransform.anchorY,
         },
+        preExpressionValue: {
+          x: vectorPreExpressionTransform.anchorX,
+          y: vectorPreExpressionTransform.anchorY,
+        },
         unit: 'px',
         keyframes: anchorLane.keyframes,
         currentKeyframeId: anchorLane.keyframes.find(
@@ -1258,7 +1386,14 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
         persisted: Boolean(getPersistedLane('anchor')),
       },
     ]
-  }, [relativeFrame, selectedItemKeyframes, t, vectorBaseTransform, vectorResolvedTransform])
+  }, [
+    relativeFrame,
+    selectedItemKeyframes,
+    t,
+    vectorBaseTransform,
+    vectorPreExpressionTransform,
+    vectorResolvedTransform,
+  ])
 
   const isVectorFrameBlocked = useCallback(
     (frame = relativeFrame) =>
@@ -1501,7 +1636,9 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
           {
             label: row.label,
             value: row.value,
+            preExpressionValue: row.preExpressionValue,
             unit: row.unit,
+            linkProperty: row.property,
             onCommit: (
               axis: 'x' | 'y',
               value: number,
@@ -2136,23 +2273,15 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
 
   const propertyValues = useMemo(() => {
     if (!selectedItemForEditor) return {}
-
-    const values: Partial<Record<AnimatableProperty, number>> = {}
-    for (const property of availableProperties) {
-      const propKeyframes = keyframesByProperty[property] ?? []
-      let selectedValue: number | undefined
-      for (let index = selectedEditorKeyframes.length - 1; index >= 0; index -= 1) {
-        const selected = selectedEditorKeyframes[index]!
-        if (selected.ref.property === property) {
-          selectedValue = selected.keyframe.value
-          break
-        }
-      }
-      const baseValue = getBaseKeyframeValue(selectedItemForEditor, property, canvas)
-      values[property] =
-        selectedValue ?? interpolatePropertyValue(propKeyframes, relativeFrame, baseValue)
-    }
-    return values
+    return buildCurrentPropertyValues({
+      item: selectedItemForEditor,
+      properties: availableProperties,
+      keyframesByProperty,
+      selectedKeyframes: selectedEditorKeyframes,
+      resolvedTransform: vectorResolvedTransform,
+      relativeFrame,
+      canvas,
+    })
   }, [
     availableProperties,
     canvas,
@@ -2160,7 +2289,49 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     relativeFrame,
     selectedEditorKeyframes,
     selectedItemForEditor,
+    vectorResolvedTransform,
   ])
+  const preExpressionPropertyValues = useMemo(() => {
+    if (!selectedItemForEditor) return {}
+    const values: Partial<Record<AnimatableProperty, number>> = {}
+    for (const property of availableProperties) {
+      if (vectorPreExpressionTransform && isTransformAnimatableProperty(property)) {
+        values[property] = vectorPreExpressionTransform[property]
+      } else {
+        values[property] = propertyValues[property]
+      }
+    }
+    return values
+  }, [availableProperties, propertyValues, selectedItemForEditor, vectorPreExpressionTransform])
+  const resolveExpressionReference = useCallback(
+    (itemId: string, property: DirectLinkableProperty) =>
+      resolveExpressionReferenceValue(itemId, property, {
+        globalFrame: currentFrame,
+        canvas,
+        getItem: (candidateId) => allItemsById[candidateId],
+        getKeyframes: (candidateId) => allKeyframesByItemId[candidateId],
+      }),
+    [allItemsById, allKeyframesByItemId, canvas, currentFrame],
+  )
+  const handleSetPropertyExpression = useCallback(
+    (property: DirectLinkableProperty, source: string, enabled: boolean) => {
+      if (!selectedItemForEditor) return
+      timelineActions.setPropertyExpression(selectedItemForEditor.id, {
+        type: 'expression',
+        targetProperty: property,
+        source,
+        enabled,
+      })
+    },
+    [selectedItemForEditor],
+  )
+  const handleRemovePropertyExpression = useCallback(
+    (property: DirectLinkableProperty) => {
+      if (!selectedItemForEditor) return
+      timelineActions.removePropertyExpression(selectedItemForEditor.id, property)
+    },
+    [selectedItemForEditor],
+  )
 
   const handlePropertyValueCommit = useCallback(
     (property: AnimatableProperty, value: number, options?: { allowCreate?: boolean }) => {
@@ -2393,6 +2564,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
   return (
     <div
       ref={panelRef}
+      data-pick-whip-scroll-area
       tabIndex={-1}
       onPointerEnter={(event) => {
         setIsPointerWithinEditor(true)
@@ -2566,6 +2738,17 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   itemId={selectedItemForEditor.id}
                   keyframesByProperty={keyframesByProperty}
                   propertyValues={propertyValues}
+                  preExpressionPropertyValues={preExpressionPropertyValues}
+                  propertyLinks={getDirectPropertyLinks(selectedItemKeyframes ?? undefined)}
+                  propertyExpressions={selectedItemKeyframes?.expressions?.filter(
+                    (expression) => expression.type === 'expression',
+                  )}
+                  propertyLinkSourceLabels={propertyLinkSourceLabels}
+                  onPropertyLinkPointerDown={handlePropertyLinkPointerDown}
+                  onRemovePropertyLink={handleRemovePropertyLink}
+                  resolveExpressionReference={resolveExpressionReference}
+                  onSetPropertyExpression={handleSetPropertyExpression}
+                  onRemovePropertyExpression={handleRemovePropertyExpression}
                   hiddenPropertyRows={
                     supportsVectorTransform(selectedItemForEditor)
                       ? ['y', 'height', 'anchorY']
@@ -2650,6 +2833,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       )}
 
       {placement === 'top' && resizeHandle}
+      {propertyLinkDrag ? <PropertyLinkPickWhipOverlay drag={propertyLinkDrag} /> : null}
     </div>
   )
 })

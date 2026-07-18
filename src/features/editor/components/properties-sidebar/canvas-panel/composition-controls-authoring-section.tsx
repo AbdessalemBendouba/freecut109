@@ -4,7 +4,10 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import type { CompositionControlDefinition, CompositionControlProperty } from '@/types/composition-controls'
+import type {
+  CompositionControlDefinition,
+  CompositionControlProperty,
+} from '@/types/composition-controls'
 import {
   addCompositionControl,
   removeCompositionControl,
@@ -89,22 +92,22 @@ export function CompositionControlsAuthoringSection() {
       ),
     [existingTargets, items],
   )
-  const itemLabelById = useMemo(
-    () => new Map(items.map((item) => [item.id, item.label])),
-    [items],
-  )
+  const itemLabelById = useMemo(() => new Map(items.map((item) => [item.id, item.label])), [items])
 
   if (!activeCompositionId || composition?.editorKind !== 'composite-2d') return null
 
   return (
     <PropertySection
-      title={t('editor.compositionControls.authoringTitle', { defaultValue: 'Template controls' })}
+      title={t('editor.compositionControls.authoringTitle', {
+        defaultValue: 'Exposed properties',
+      })}
       icon={SlidersHorizontal}
       defaultOpen
     >
       <p className="px-1 pb-2 text-[11px] leading-snug text-muted-foreground">
         {t('editor.compositionControls.authoringHint', {
-          defaultValue: 'Expose the text and colors people should customize on each instance.',
+          defaultValue:
+            'Choose the text and colors that stay editable when this composition is reused.',
         })}
       </p>
 
@@ -139,25 +142,23 @@ export function CompositionControlsAuthoringSection() {
         </div>
       ))}
 
-      {controls.length === 0 && (
-        <div className="rounded-md border border-dashed border-border/70 px-2 py-3 text-center text-[11px] text-muted-foreground">
-          {t('editor.compositionControls.empty', {
-            defaultValue: 'No controls exposed yet.',
-          })}
-        </div>
-      )}
-
       <Popover open={addOpen} onOpenChange={setAddOpen}>
         <PopoverTrigger asChild>
           <Button
             type="button"
             variant="outline"
             size="sm"
-            className="mt-2 h-7 w-full gap-1.5 text-xs"
+            className={
+              controls.length > 0 ? 'mt-2 h-7 w-full gap-1.5 text-xs' : 'h-8 w-full gap-1.5 text-xs'
+            }
             disabled={availableCandidates.length === 0}
           >
             <Plus className="h-3.5 w-3.5" />
-            {t('editor.compositionControls.add', { defaultValue: 'Add control' })}
+            {controls.length > 0
+              ? t('editor.compositionControls.addAnother', {
+                  defaultValue: 'Expose another property',
+                })
+              : t('editor.compositionControls.add', { defaultValue: 'Expose property' })}
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" side="left" className="w-64 p-1.5">
@@ -191,6 +192,17 @@ export function CompositionControlsAuthoringSection() {
           </div>
         </PopoverContent>
       </Popover>
+      {availableCandidates.length === 0 && (
+        <p className="px-1 pt-2 text-[10px] leading-snug text-muted-foreground/80">
+          {controls.length > 0
+            ? t('editor.compositionControls.allExposed', {
+                defaultValue: 'All supported properties are exposed.',
+              })
+            : t('editor.compositionControls.noCandidates', {
+                defaultValue: 'Add a text or shape layer to expose editable properties.',
+              })}
+        </p>
+      )}
     </PropertySection>
   )
 }

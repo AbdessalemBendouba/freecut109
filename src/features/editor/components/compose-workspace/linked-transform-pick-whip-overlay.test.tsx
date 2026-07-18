@@ -1,11 +1,11 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vite-plus/test'
-import { LinkedTransformPickWhipOverlay } from './linked-transform-pick-whip-overlay'
+import { PropertyLinkPickWhipOverlay } from '@/features/editor/deps/timeline-motion'
 
-describe('LinkedTransformPickWhipOverlay', () => {
+describe('PropertyLinkPickWhipOverlay', () => {
   it('clips the cable to the motion scroll viewport', () => {
     render(
-      <LinkedTransformPickWhipOverlay
+      <PropertyLinkPickWhipOverlay
         drag={{
           startX: 40,
           startY: 80,

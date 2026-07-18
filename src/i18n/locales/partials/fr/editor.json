@@ -3,6 +3,8 @@
     "compose": {
       "title": "Compositions",
       "newComposition": "Nouvelle composition",
+      "newCompositionShort": "Nouvelle comp.",
+      "addItem": "Ajouter un élément",
       "emptyTitle": "Aucune composition",
       "emptyDescription": "Créez une composition pour construire une scène en calques.",
       "chooseTitle": "Choisir une composition",

@@ -3,6 +3,8 @@
 export {
   CompactNavigator,
   DopesheetEditor,
+  PickWhipIcon,
+  PropertyLinkPickWhipOverlay,
   GROUP_HEADER_HEIGHT,
   KEYFRAME_EDGE_INSET,
   ROW_HEIGHT,
@@ -10,10 +12,13 @@ export {
   getEffectPropertyBaseValue,
   getProceduralBands,
   getPropertyAccordionGroups,
+  buildVectorPromotionPlan,
+  resolveAnimatedTransform,
   getShapeAnimatableBaseValue,
   resolveAnimatedShapeItem,
-  wouldCreateLinkedPropertyCycle,
+  resolveExpressionReferenceValue,
 } from '@/features/timeline/deps/keyframe-editors'
+export { usePropertyLinkPickWhip } from '@/features/timeline/hooks/use-property-link-pick-whip'
 export { interpolatePropertyValue } from '@/features/timeline/deps/keyframes'
 export { captureSnapshot } from '@/features/timeline/stores/commands/snapshot'
 export { useItemsStore } from '@/features/timeline/stores/items-store'
@@ -26,21 +31,26 @@ export { useTimelineSettingsStore } from '@/features/timeline/stores/timeline-se
 export {
   addItemOnNewTrack,
   addItemsOnNewTracks,
+  createNullParentForItems,
   duplicateItemsWithTrackChanges,
   moveItems,
   removeItems,
-  setTransformParent,
+  setTransformParents,
   trimItemEnd,
   trimItemStart,
   updateItem,
 } from '@/features/timeline/stores/actions/item-actions'
 export {
   addKeyframe,
-  removeLinkedPropertyExpression,
+  promoteTransformToVector,
+  removeVectorKeyframe,
+  removePropertyExpression,
   removeKeyframes,
-  setLinkedPropertyExpression,
+  setPropertyExpression,
   updateKeyframe,
   updateKeyframes,
+  updateVectorKeyframe,
+  upsertVectorKeyframe,
 } from '@/features/timeline/stores/actions/keyframe-actions'
 export { setTracks } from '@/features/timeline/stores/actions/track-actions'
 export {

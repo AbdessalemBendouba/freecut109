@@ -115,6 +115,62 @@ describe('canvas-keyframes transform parenting', () => {
     })
     expect(resolved.x).toBeCloseTo(60)
   })
+
+  it('moves a child through its controller live preview before commit', () => {
+    const parentBase = {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      anchorX: 50,
+      anchorY: 50,
+      rotation: 0,
+      opacity: 1,
+      cornerRadius: 0,
+    }
+    const childBase = { ...parentBase, x: 10, width: 20, height: 20, anchorX: 10, anchorY: 10 }
+    const parent: ControllerItem = {
+      id: 'controller-live',
+      type: 'controller',
+      controllerKind: 'null',
+      trackId: 'controller-track',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Controller',
+      transform: parentBase,
+    }
+    const child: ShapeItem = {
+      id: 'shape-live',
+      type: 'shape',
+      shapeType: 'rectangle',
+      fillColor: '#fff',
+      trackId: 'shape-track',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Shape',
+      transform: childBase,
+      transformParent: createTransformParentBinding({
+        childLocal: childBase,
+        childWorld: childBase,
+        parentItemId: parent.id,
+        parentWorld: parentBase,
+      }),
+    }
+    const items = new Map<string, TimelineItem>([
+      [parent.id, parent],
+      [child.id, child],
+    ])
+
+    const resolved = getAnimatedTransform(child, undefined, 15, {
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      getExpressionItem: (itemId) => items.get(itemId),
+      getPreviewTransform: (itemId) => (itemId === parent.id ? { x: 120 } : undefined),
+    })
+
+    expect(resolved.x).toBeCloseTo(130)
+  })
 })
 
 describe('canvas-keyframes visual fades', () => {
@@ -215,7 +271,7 @@ describe('canvas-keyframes crop animation', () => {
   })
 })
 
-describe('canvas-keyframes linked expressions', () => {
+describe('canvas-keyframes property links and expressions', () => {
   it('matches a source property at shared composition time during export', () => {
     const source: VideoItem = {
       id: 'source',
@@ -279,5 +335,40 @@ describe('canvas-keyframes linked expressions', () => {
     })
 
     expect(transform.x).toBeCloseTo(50, 5)
+  })
+
+  it('evaluates sandboxed expressions during export', () => {
+    const target: VideoItem = {
+      id: 'expression-target',
+      type: 'video',
+      trackId: 'track-1',
+      from: 0,
+      durationInFrames: 90,
+      label: 'Expression target',
+      src: 'blob:target',
+      transform: { x: 20, y: 0, width: 100, height: 100, rotation: 0, opacity: 1 },
+    }
+    const keyframes: ItemKeyframes = {
+      itemId: target.id,
+      properties: [],
+      expressions: [
+        {
+          type: 'expression',
+          targetProperty: 'x',
+          source: 'value * 2 + frame',
+          enabled: true,
+        },
+      ],
+    }
+
+    const transform = getAnimatedTransform(target, keyframes, 10, {
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      getExpressionItem: (itemId) => (itemId === target.id ? target : undefined),
+      getExpressionKeyframes: (itemId) => (itemId === target.id ? keyframes : undefined),
+    })
+
+    expect(transform.x).toBe(50)
   })
 })

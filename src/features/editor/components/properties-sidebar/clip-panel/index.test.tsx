@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { useEditorStore } from '@/shared/state/editor'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useTimelineStore } from '@/features/editor/deps/timeline-store'
-import type { AudioItem, VideoItem } from '@/types/timeline'
+import type { AudioItem, ControllerItem, TimelineItem, VideoItem } from '@/types/timeline'
 import { ClipPanel } from './index'
 
 vi.mock('./layout-section', () => ({
@@ -72,13 +72,26 @@ const AUDIO_ITEM: AudioItem = {
   mediaId: 'media-audio-1',
 }
 
+const NULL_OBJECT: ControllerItem = {
+  id: 'null-1',
+  type: 'controller',
+  controllerKind: 'null',
+  trackId: 'null-track',
+  from: 0,
+  durationInFrames: 90,
+  label: 'Null Object',
+  transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+}
+
+const TRANSFORM_REFERENCE = { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }
+
 function activateTab(name: 'Audio' | 'Effects' | 'Motion' | 'Video') {
   const tab = screen.getByRole('tab', { name })
   fireEvent.mouseDown(tab, { button: 0, ctrlKey: false })
   fireEvent.focus(tab)
 }
 
-function resetStores(items: Array<VideoItem | AudioItem>, selectedItemIds: string[]) {
+function resetStores(items: TimelineItem[], selectedItemIds: string[]) {
   useEditorStore.setState({
     workspace: 'edit',
     clipInspectorTab: 'video',
@@ -160,5 +173,78 @@ describe('ClipPanel inspector tabs', () => {
       'true',
     )
     expect(useEditorStore.getState().clipInspectorTab).toBe('motion')
+    expect(screen.getByText('Parenting')).toBeInTheDocument()
+    expect(
+      screen.getByText('Choose a Null Object or layer to move, scale, and rotate them together.'),
+    ).toBeInTheDocument()
+  })
+
+  it('hides parenting from an ordinary unparented clip in Edit', () => {
+    render(<ClipPanel />)
+
+    expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
+  })
+
+  it('keeps an existing parent relationship reachable in Edit', () => {
+    const parentedVideo: VideoItem = {
+      ...VIDEO_ITEM,
+      transformParent: {
+        parentItemId: NULL_OBJECT.id,
+        parentReference: TRANSFORM_REFERENCE,
+        childLocalReference: TRANSFORM_REFERENCE,
+        childWorldReference: TRANSFORM_REFERENCE,
+      },
+    }
+    resetStores([NULL_OBJECT, parentedVideo], [parentedVideo.id])
+
+    render(<ClipPanel />)
+
+    expect(screen.getByText('Parenting')).toBeInTheDocument()
+    expect(
+      screen.getByText('Follows Null Object for position, scale, and rotation.'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Parent selection to new Null' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('names the invisible rig layer as a Null Object', () => {
+    resetStores([NULL_OBJECT], [NULL_OBJECT.id])
+
+    render(<ClipPanel />)
+
+    expect(screen.getByRole('tab', { name: 'Null Object' })).toBeInTheDocument()
+  })
+
+  it('offers one shared parent control for a multi-layer Motion selection', () => {
+    const secondVideo: VideoItem = {
+      ...VIDEO_ITEM,
+      id: 'clip-video-2',
+      trackId: 'track-2',
+      label: 'second.mp4',
+    }
+    resetStores([VIDEO_ITEM, secondVideo], [VIDEO_ITEM.id, secondVideo.id])
+    useEditorStore.setState({ workspace: 'motion' })
+
+    render(<ClipPanel />)
+    activateTab('Motion')
+
+    expect(screen.getByText('Parenting')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'Choose a Null Object or layer to move, scale, and rotate 2 layers together.',
+      ),
+    ).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Parent selection to new Null' }))
+
+    const state = useTimelineStore.getState()
+    const nullParent = state.items.find((item) => item.type === 'controller')
+    const firstChild = state.items.find((item) => item.id === VIDEO_ITEM.id)
+    const secondChild = state.items.find((item) => item.id === secondVideo.id)
+    expect(nullParent).toMatchObject({ label: 'Null Object', controllerKind: 'null' })
+    expect(firstChild?.transformParent?.parentItemId).toBe(nullParent?.id)
+    expect(secondChild?.transformParent?.parentItemId).toBe(nullParent?.id)
+    expect(useSelectionStore.getState().selectedItemIds).toEqual([nullParent?.id])
   })
 })

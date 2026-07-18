@@ -29,7 +29,7 @@ import {
   openComposition,
 } from '@/features/editor/deps/timeline-motion'
 import { useMediaLibraryStore } from '@/features/editor/deps/media-library-contract'
-import type { ShapeItem, TimelineItem } from '@/types/timeline'
+import type { ControllerItem, ShapeItem, TimelineItem } from '@/types/timeline'
 import { useComposeUiStore } from './compose-ui-store'
 import { CompositingTimeline } from './compositing-timeline'
 
@@ -61,7 +61,8 @@ const shape: ShapeItem = {
   transform: { x: 100, y: 80, width: 400, height: 220, rotation: 0, opacity: 1 },
 }
 
-describe('CompositingTimeline', () => {
+// The full repository run executes this render-heavy suite under substantial worker contention.
+describe('CompositingTimeline', { timeout: 15_000 }, () => {
   beforeEach(() => {
     if (!HTMLElement.prototype.scrollIntoView) {
       HTMLElement.prototype.scrollIntoView = () => {}
@@ -106,14 +107,20 @@ describe('CompositingTimeline', () => {
     render(<CompositingTimeline />)
 
     expect(screen.getByTestId('compositing-timeline')).toBeInTheDocument()
+    expect(screen.getByText('Parent')).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId(`motion-parent-cell-${shape.id}`)).getByRole('combobox', {
+        name: 'Parent for Hero rectangle',
+      }),
+    ).toHaveTextContent('None')
     expect(screen.getAllByText('Hero rectangle')).toHaveLength(2)
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
-    expect(screen.getByText('X Position')).toBeInTheDocument()
+    expect(screen.getByText('Position')).toBeInTheDocument()
     expect(screen.getByText('Opacity')).toBeInTheDocument()
-    expect(
-      screen.getByRole('spinbutton', { name: /x position value at playhead/i }),
-    ).toBeInTheDocument()
+    expect(screen.getByLabelText('Position X')).toHaveValue('100.00')
+    expect(screen.getByLabelText('Position Y')).toHaveValue('80.00')
+    expect(screen.queryByText('X Position')).not.toBeInTheDocument()
   })
 
   it('expands and collapses every layer with Shift-click', () => {
@@ -186,7 +193,7 @@ describe('CompositingTimeline', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
     expect(screen.getByTestId('procedural-band-x')).toHaveAttribute('data-from-frame', '15')
     expect(screen.getByTestId('procedural-band-x')).toHaveAttribute('data-to-frame', '74')
-    expect(screen.getByTestId('procedural-band-y')).toBeInTheDocument()
+    expect(screen.queryByTestId('procedural-band-y')).not.toBeInTheDocument()
     expect(screen.getByTestId('procedural-band-rotation')).toBeInTheDocument()
   })
 
@@ -294,7 +301,7 @@ describe('CompositingTimeline', () => {
     expect(screen.getAllByTestId('motion-playhead')).toHaveLength(1)
     expect(playhead.querySelectorAll('span')).toHaveLength(2)
     expect(playhead.querySelector('[data-playhead-mark="handle"]')).not.toHaveClass('sticky')
-    expect(playhead.parentElement).toHaveStyle({ left: '510px', right: '9px' })
+    expect(playhead.parentElement).toHaveStyle({ left: '630px', right: '9px' })
     expect(playhead.parentElement).toHaveClass('overflow-visible')
     expect(playhead.parentElement).toHaveClass('inset-y-0')
     expect(playhead.parentElement).not.toHaveClass('h-[100vh]')
@@ -435,8 +442,8 @@ describe('CompositingTimeline', () => {
     expect(frameCallbacks).toHaveLength(1)
     act(() => frameCallbacks.shift()?.(performance.now()))
 
-    expect(screen.getByText('0.4s')).toBeInTheDocument()
-    expect(screen.getByText('3.6s')).toBeInTheDocument()
+    expect(screen.getByText('0.3s')).toBeInTheDocument()
+    expect(screen.getByText('3.5s')).toBeInTheDocument()
     expect(screen.queryByText('4.0s')).not.toBeInTheDocument()
 
     const panEvent = createEvent.wheel(scrollArea, {
@@ -447,8 +454,8 @@ describe('CompositingTimeline', () => {
     fireEvent(scrollArea, panEvent)
 
     expect(panEvent.defaultPrevented).toBe(false)
-    expect(screen.getByText('0.4s')).toBeInTheDocument()
-    expect(screen.getByText('3.6s')).toBeInTheDocument()
+    expect(screen.getByText('0.3s')).toBeInTheDocument()
+    expect(screen.getByText('3.5s')).toBeInTheDocument()
     expect(scrollArea).toHaveClass('overflow-y-auto')
     animationFrameSpy.mockRestore()
   })
@@ -478,8 +485,8 @@ describe('CompositingTimeline', () => {
 
     fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
     act(() => frameCallbacks.shift()?.(performance.now()))
-    expect(navigator).toHaveAttribute('data-start-frame', '12')
-    expect(navigator).toHaveAttribute('data-end-frame', '108')
+    expect(navigator).toHaveAttribute('data-start-frame', '8')
+    expect(navigator).toHaveAttribute('data-end-frame', '104')
 
     const wheelEvent = createEvent.wheel(scrollArea, {
       clientX: 750,
@@ -490,8 +497,8 @@ describe('CompositingTimeline', () => {
     fireEvent(scrollArea, wheelEvent)
 
     expect(wheelEvent.defaultPrevented).toBe(false)
-    expect(navigator).toHaveAttribute('data-start-frame', '12')
-    expect(navigator).toHaveAttribute('data-end-frame', '108')
+    expect(navigator).toHaveAttribute('data-start-frame', '8')
+    expect(navigator).toHaveAttribute('data-end-frame', '104')
     animationFrameSpy.mockRestore()
   })
 
@@ -532,13 +539,13 @@ describe('CompositingTimeline', () => {
     expect(firstPan.defaultPrevented).toBe(true)
     expect(frameCallbacks).toHaveLength(1)
     act(() => frameCallbacks.shift()?.(performance.now()))
-    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(12.384)
-    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(108.384)
+    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(8.505)
+    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(104.505)
 
     fireEvent.wheel(scrollArea, { shiftKey: true, clientX: 750, deltaX: -100, deltaY: 10 })
     act(() => frameCallbacks.shift()?.(performance.now()))
-    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(14.304)
-    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(110.304)
+    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(11.032)
+    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(107.032)
     animationFrameSpy.mockRestore()
   })
 
@@ -568,8 +575,8 @@ describe('CompositingTimeline', () => {
     fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
     expect(frameCallbacks).toHaveLength(1)
     act(() => frameCallbacks.shift()?.(performance.now()))
-    expect(navigator).toHaveAttribute('data-start-frame', '12')
-    expect(navigator).toHaveAttribute('data-end-frame', '108')
+    expect(navigator).toHaveAttribute('data-start-frame', '8')
+    expect(navigator).toHaveAttribute('data-end-frame', '104')
 
     const horizontalEvents = Array.from({ length: 4 }, () =>
       createEvent.wheel(scrollArea, {
@@ -583,11 +590,11 @@ describe('CompositingTimeline', () => {
 
     expect(horizontalEvents.every((event) => event.defaultPrevented)).toBe(true)
     expect(frameCallbacks).toHaveLength(1)
-    expect(navigator).toHaveAttribute('data-start-frame', '12')
+    expect(navigator).toHaveAttribute('data-start-frame', '8')
 
     act(() => frameCallbacks.shift()?.(performance.now()))
-    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(19.68)
-    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(115.68)
+    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(18.105)
+    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(114.105)
     animationFrameSpy.mockRestore()
   })
 
@@ -635,8 +642,8 @@ describe('CompositingTimeline', () => {
 
     expect(frameCallbacks).toHaveLength(1)
     act(() => frameCallbacks.shift()?.(performance.now()))
-    expect(navigator).toHaveAttribute('data-start-frame', '22')
-    expect(navigator).toHaveAttribute('data-end-frame', '99')
+    expect(navigator).toHaveAttribute('data-start-frame', '15')
+    expect(navigator).toHaveAttribute('data-end-frame', '92')
 
     const horizontalEvent = createEvent.wheel(scrollArea, {
       ctrlKey: true,
@@ -648,8 +655,8 @@ describe('CompositingTimeline', () => {
     fireEvent(scrollArea, horizontalEvent)
 
     expect(horizontalEvent.defaultPrevented).toBe(true)
-    expect(navigator).toHaveAttribute('data-start-frame', '22')
-    expect(navigator).toHaveAttribute('data-end-frame', '99')
+    expect(navigator).toHaveAttribute('data-start-frame', '15')
+    expect(navigator).toHaveAttribute('data-end-frame', '92')
     animationFrameSpy.mockRestore()
   })
 
@@ -689,8 +696,8 @@ describe('CompositingTimeline', () => {
     act(() => frameCallbacks.shift()?.(performance.now()))
 
     expect(guardedEvent.defaultPrevented).toBe(true)
-    expect(navigator).toHaveAttribute('data-start-frame', '12')
-    expect(navigator).toHaveAttribute('data-end-frame', '108')
+    expect(navigator).toHaveAttribute('data-start-frame', '8')
+    expect(navigator).toHaveAttribute('data-end-frame', '104')
     animationFrameSpy.mockRestore()
   })
 
@@ -728,15 +735,34 @@ describe('CompositingTimeline', () => {
   it('adds an undoable property keyframe at the shared playhead', () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
-    fireEvent.click(screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }))
+    fireEvent.click(screen.getByRole('button', { name: /toggle position keyframe at playhead/i }))
 
     const itemKeyframes = useKeyframesStore.getState().keyframesByItemId[shape.id]
-    expect(itemKeyframes?.properties[0]?.keyframes).toEqual([
-      expect.objectContaining({ frame: 0, value: 100 }),
+    expect(itemKeyframes?.properties).toEqual([])
+    expect(itemKeyframes?.vectorProperties?.[0]?.keyframes).toEqual([
+      expect.objectContaining({ frame: 0, value: { x: 100, y: 80 } }),
     ])
 
     useTimelineCommandStore.getState().undo()
     expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
+  })
+
+  it('authors linked Scale axes together and can explicitly unlink them', () => {
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    const scaleX = screen.getByLabelText('Scale X')
+    fireEvent.change(scaleX, { target: { value: '125' } })
+    fireEvent.keyDown(scaleX, { key: 'Enter' })
+
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.vectorProperties?.find(
+        (lane) => lane.property === 'scale',
+      )?.keyframes[0]?.value,
+    ).toEqual({ x: 125, y: 125 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlink Scale axes' }))
+    expect(useItemsStore.getState().itemById[shape.id]?.transform?.aspectRatioLocked).toBe(false)
   })
 
   it('shows one ruler range and batch-retimes selected keyframes across layers', () => {
@@ -787,8 +813,7 @@ describe('CompositingTimeline', () => {
     fireEvent.pointerUp(startHandle, { pointerId: 9, clientX: 200 })
 
     expect(
-      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]
-        ?.frame,
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]?.frame,
     ).toBe(22)
     expect(
       useKeyframesStore.getState().keyframesByItemId[secondShape.id]?.properties[0]?.keyframes[0]
@@ -797,18 +822,16 @@ describe('CompositingTimeline', () => {
 
     useTimelineCommandStore.getState().undo()
     expect(
-      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]
-        ?.frame,
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]?.frame,
     ).toBe(10)
     expect(
       useKeyframesStore.getState().keyframesByItemId[secondShape.id]?.properties[0]?.keyframes[0]
         ?.frame,
     ).toBe(80)
 
-    fireEvent.keyDown(
-      screen.getByRole('slider', { name: 'Retime selected keyframes end' }),
-      { key: 'ArrowRight' },
-    )
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Retime selected keyframes end' }), {
+      key: 'ArrowRight',
+    })
     expect(
       useKeyframesStore.getState().keyframesByItemId[secondShape.id]?.properties[0]?.keyframes[0]
         ?.frame,
@@ -836,15 +859,17 @@ describe('CompositingTimeline', () => {
     expect(screen.getByRole('button', { name: /collapse shape/i })).toBeInTheDocument()
   })
 
-  it('does not create a keyframe when a property input is only focused and blurred', () => {
+  it('does not create a Vector2 keyframe when a changed axis is blurred', () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
 
-    const input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
+    const input = screen.getByLabelText('Position X')
     fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: '140' } })
     fireEvent.blur(input)
 
     expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
+    expect(input).toHaveValue('100.00')
   })
 
   it('keeps expanded property editors off the playback-frame render path', () => {
@@ -869,51 +894,56 @@ describe('CompositingTimeline', () => {
   it('edits a selected keyframe before creating one at the playhead', () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
-    fireEvent.click(screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }))
+    fireEvent.click(screen.getByRole('button', { name: /toggle position keyframe at playhead/i }))
 
     const firstKeyframe =
-      useKeyframesStore.getState().keyframesByItemId[shape.id]!.properties[0]!.keyframes[0]!
-    useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 60, 300)
+      useKeyframesStore.getState().keyframesByItemId[shape.id]!.vectorProperties![0]!.keyframes[0]!
+    useKeyframesStore.getState()._upsertVectorKeyframe(shape.id, 'position', {
+      frame: 60,
+      value: { x: 300, y: 180 },
+      easing: 'linear',
+    })
     useKeyframeSelectionStore
       .getState()
       .selectKeyframes([{ itemId: shape.id, property: 'x', keyframeId: firstKeyframe.id }])
     act(() => usePlaybackStore.getState().setCurrentFrame(60))
 
-    let input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
-    expect(input).toHaveValue(100)
+    let input = screen.getByLabelText('Position X')
+    expect(input).toHaveValue('100.00')
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: '180' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
     let keyframes =
-      useKeyframesStore.getState().keyframesByItemId[shape.id]!.properties[0]!.keyframes
+      useKeyframesStore.getState().keyframesByItemId[shape.id]!.vectorProperties![0]!.keyframes
     expect(keyframes).toEqual([
-      expect.objectContaining({ frame: 0, value: 180 }),
-      expect.objectContaining({ frame: 60, value: 300 }),
+      expect.objectContaining({ frame: 0, value: { x: 180, y: 80 } }),
+      expect.objectContaining({ frame: 60, value: { x: 300, y: 180 } }),
     ])
 
     useKeyframeSelectionStore.getState().clearSelection()
     act(() => usePlaybackStore.getState().setCurrentFrame(90))
-    input = screen.getByRole('spinbutton', { name: 'X Position value at playhead' })
+    input = screen.getByLabelText('Position X')
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: '220' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    keyframes = useKeyframesStore.getState().keyframesByItemId[shape.id]!.properties[0]!.keyframes
+    keyframes =
+      useKeyframesStore.getState().keyframesByItemId[shape.id]!.vectorProperties![0]!.keyframes
     expect(keyframes).toEqual([
-      expect.objectContaining({ frame: 0, value: 180 }),
-      expect.objectContaining({ frame: 60, value: 300 }),
-      expect.objectContaining({ frame: 90, value: 220 }),
+      expect.objectContaining({ frame: 0, value: { x: 180, y: 80 } }),
+      expect.objectContaining({ frame: 60, value: { x: 300, y: 180 } }),
+      expect.objectContaining({ frame: 90, value: expect.objectContaining({ x: 220 }) }),
     ])
   })
 
   it('deletes selected diamonds without deleting the selected layer', async () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
-    fireEvent.click(screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }))
+    fireEvent.click(screen.getByRole('button', { name: /toggle position keyframe at playhead/i }))
 
     const keyframe =
-      useKeyframesStore.getState().keyframesByItemId[shape.id]!.properties[0]!.keyframes[0]!
+      useKeyframesStore.getState().keyframesByItemId[shape.id]!.vectorProperties![0]!.keyframes[0]!
     useKeyframeSelectionStore
       .getState()
       .selectKeyframes([{ itemId: shape.id, property: 'x', keyframeId: keyframe.id }])
@@ -925,7 +955,8 @@ describe('CompositingTimeline', () => {
 
     await waitFor(() => {
       expect(
-        useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes,
+        useKeyframesStore.getState().keyframesByItemId[shape.id]?.vectorProperties?.[0]?.keyframes ??
+          [],
       ).toHaveLength(0)
     })
     expect(useItemsStore.getState().itemById[shape.id]).toBeDefined()
@@ -936,28 +967,26 @@ describe('CompositingTimeline', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
     expect(screen.getByTestId(`motion-layer-span-${shape.id}`)).toBeInTheDocument()
 
-    const rowBefore = screen.getByText('X Position').closest('.group')
+    const rowBefore = screen.getByText('Position').closest('.group')
     expect(rowBefore).toHaveClass('pl-6')
     expect(screen.getByTestId('motion-layer-scroll-area')).toHaveClass(
       'overflow-x-hidden',
       'overflow-y-auto',
     )
-    expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toHaveClass(
-      'w-[80px]',
-    )
+    expect(screen.getAllByTestId('compound-property-inputs')[0]).toHaveClass('w-[192px]')
 
-    const curveButton = screen.getByRole('button', { name: /show x position curve/i })
+    const curveButton = screen.getByRole('button', { name: /show position curve/i })
     expect(curveButton).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(curveButton)
 
     expect(screen.getByTestId('dopesheet-graph-pane')).toBeInTheDocument()
     expect(screen.getByTestId('motion-graph-pane')).toHaveStyle({
-      left: '501px',
+      left: '621px',
       top: '28px',
     })
     expect(screen.getByTestId('motion-graph-pane')).toHaveClass('bottom-0', 'right-0')
     expect(screen.queryByTestId(`motion-layer-span-${shape.id}`)).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /show x position curve/i })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /show position curve/i })).toHaveAttribute(
       'aria-pressed',
       'true',
     )
@@ -970,7 +999,7 @@ describe('CompositingTimeline', () => {
       }),
     ).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /show x position curve/i }))
+    fireEvent.click(screen.getByRole('button', { name: /show position curve/i }))
     expect(screen.queryByTestId('dopesheet-graph-pane')).not.toBeInTheDocument()
     expect(screen.queryByTestId('motion-graph-pane')).not.toBeInTheDocument()
     expect(screen.getByTestId(`motion-layer-span-${shape.id}`)).toBeInTheDocument()
@@ -979,10 +1008,10 @@ describe('CompositingTimeline', () => {
   it('filters expanded rows to animated properties and exposes classic segment easing', async () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
-    fireEvent.click(screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }))
+    fireEvent.click(screen.getByRole('button', { name: /toggle position keyframe at playhead/i }))
     act(() => usePlaybackStore.getState().setCurrentFrame(60))
     fireEvent.click(
-      await screen.findByRole('button', { name: /toggle x position keyframe at playhead/i }),
+      await screen.findByRole('button', { name: /toggle position keyframe at playhead/i }),
     )
 
     const easingTriggers = await screen.findAllByRole('button', { name: 'Easing' })
@@ -992,19 +1021,19 @@ describe('CompositingTimeline', () => {
 
     fireEvent.click(screen.getByRole('combobox', { name: 'Property filter' }))
     fireEvent.click(await screen.findByRole('option', { name: 'Animated properties' }))
-    expect(screen.getByText('X Position')).toBeInTheDocument()
+    expect(screen.getByText('Position')).toBeInTheDocument()
     expect(screen.queryByText('Y Position')).not.toBeInTheDocument()
   }, 10_000)
 
   it('hides the expanded child area when no properties are animated', async () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
-    expect(screen.getByText('X Position')).toBeInTheDocument()
+    expect(screen.getByText('Position')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('combobox', { name: 'Property filter' }))
     fireEvent.click(await screen.findByRole('option', { name: 'Animated properties' }))
 
-    expect(screen.queryByText('X Position')).not.toBeInTheDocument()
+    expect(screen.queryByText('Position')).not.toBeInTheDocument()
     expect(screen.queryByText('No parameters match the current view')).not.toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: 'Collapse layer properties' }),
@@ -1058,7 +1087,9 @@ describe('CompositingTimeline', () => {
 
   it('creates a dedicated backing track when adding a generated layer', () => {
     render(<CompositingTimeline />)
-    fireEvent.click(screen.getByTitle('Add text layer'))
+    const addItemButton = screen.getByRole('button', { name: 'Add Item' })
+    fireEvent.pointerDown(addItemButton, { button: 0, ctrlKey: false })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Text' }))
 
     const state = useItemsStore.getState()
     const textLayer = state.items.find((item) => item.type === 'text')
@@ -1066,6 +1097,126 @@ describe('CompositingTimeline', () => {
     expect(state.tracks.find((candidate) => candidate.id === textLayer?.trackId)?.name).toBe(
       textLayer?.label,
     )
+  })
+
+  it('adds a non-rendering Null Object layer for transform parenting', () => {
+    render(<CompositingTimeline />)
+    const addItemButton = screen.getByRole('button', { name: 'Add Item' })
+    fireEvent.pointerDown(addItemButton, { button: 0, ctrlKey: false })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Null Object' }))
+
+    const state = useItemsStore.getState()
+    const nullObject = state.items.find((item) => item.type === 'controller')
+    expect(nullObject).toMatchObject({
+      type: 'controller',
+      controllerKind: 'null',
+      label: 'Null Object',
+    })
+    expect(state.tracks.find((candidate) => candidate.id === nullObject?.trackId)?.name).toBe(
+      'Null Object',
+    )
+    expect(screen.getByLabelText('Null Object (does not render)')).toBeInTheDocument()
+  })
+
+  it('labels composition and item creation actions in the Motion header', () => {
+    render(<CompositingTimeline />)
+
+    expect(screen.getByRole('button', { name: 'New composition' })).toHaveTextContent('New Comp')
+    expect(screen.getByRole('button', { name: 'Add Item' })).toBeInTheDocument()
+  })
+
+  it('parents and unparents a layer from the Parent dropdown', async () => {
+    const nullTrack = makeTimelineTrack({
+      id: 'null-track',
+      name: 'Null Object',
+      kind: 'video',
+      order: 1,
+    })
+    const nullObject: ControllerItem = {
+      id: 'null-1',
+      type: 'controller',
+      controllerKind: 'null',
+      trackId: nullTrack.id,
+      from: 0,
+      durationInFrames: 120,
+      label: 'Null Object',
+      transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+    }
+    useItemsStore.getState().setTracks([track, nullTrack])
+    useItemsStore.getState().setItems([shape, nullObject])
+
+    render(<CompositingTimeline />)
+    const parentCell = screen.getByTestId(`motion-parent-cell-${shape.id}`)
+    const parentSelect = within(parentCell).getByRole('combobox', {
+      name: 'Parent for Hero rectangle',
+    })
+
+    fireEvent.click(parentSelect)
+    fireEvent.click(await screen.findByRole('option', { name: /Null: Null Object/ }))
+
+    expect(useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId).toBe(
+      nullObject.id,
+    )
+    expect(parentSelect).toHaveTextContent('Null: Null Object')
+
+    fireEvent.click(parentSelect)
+    fireEvent.click(await screen.findByRole('option', { name: 'None' }))
+
+    expect(useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId).toBeUndefined()
+    expect(parentSelect).toHaveTextContent('None')
+  })
+
+  it('parents by dragging the Parent pick whip and detaches with Ctrl-click', () => {
+    const nullTrack = makeTimelineTrack({
+      id: 'null-track',
+      name: 'Null Object',
+      kind: 'video',
+      order: 1,
+    })
+    const nullObject: ControllerItem = {
+      id: 'null-1',
+      type: 'controller',
+      controllerKind: 'null',
+      trackId: nullTrack.id,
+      from: 0,
+      durationInFrames: 120,
+      label: 'Null Object',
+      transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+    }
+    useItemsStore.getState().setTracks([track, nullTrack])
+    useItemsStore.getState().setItems([shape, nullObject])
+    render(<CompositingTimeline />)
+
+    const parentRow = screen.getByTestId(`motion-layer-row-${nullObject.id}`)
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => parentRow),
+    })
+    const pickWhip = screen.getByRole('button', {
+      name: 'Parent pick whip for Hero rectangle',
+    })
+
+    fireEvent.pointerDown(pickWhip, { button: 0, pointerId: 41, clientX: 0, clientY: 0 })
+    expect(screen.getByTestId('transform-parent-pick-whip')).toBeInTheDocument()
+    fireEvent.pointerMove(window, { pointerId: 41, clientX: 32, clientY: 24 })
+    expect(parentRow).toHaveAttribute('data-transform-parent-link-hover', 'true')
+    fireEvent.pointerUp(window, { pointerId: 41, clientX: 32, clientY: 24 })
+
+    expect(useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId).toBe(
+      nullObject.id,
+    )
+    expect(screen.queryByTestId('transform-parent-pick-whip')).toBeNull()
+    expect(parentRow).not.toHaveAttribute('data-transform-parent-link-hover')
+
+    fireEvent.pointerDown(pickWhip, {
+      button: 0,
+      pointerId: 42,
+      clientX: 0,
+      clientY: 0,
+      ctrlKey: true,
+    })
+    expect(useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId).toBeUndefined()
+    Reflect.deleteProperty(document, 'elementFromPoint')
   })
 
   it('uses Ctrl to toggle layers and Shift to add a visible layer range', () => {
@@ -1220,10 +1371,26 @@ describe('CompositingTimeline', () => {
       })
     })
 
+    let previewFrame: FrameRequestCallback | undefined
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        previewFrame = callback
+        return 1
+      })
     const handle = screen.getByTestId(`motion-reorder-handle-${secondTrack.id}`)
     fireEvent.pointerDown(handle, { pointerId: 2, button: 0, clientY: 51 })
+    fireEvent.pointerMove(handle, { pointerId: 2, clientY: 5 })
     fireEvent.pointerMove(handle, { pointerId: 2, clientY: 0 })
+
+    expect(animationFrameSpy).toHaveBeenCalledTimes(1)
+    act(() => previewFrame?.(16))
+    expect(handle.closest<HTMLElement>('[data-motion-row-track-id]')?.style.transform).toBe(
+      'translate3d(0, -51px, 0)',
+    )
+
     fireEvent.pointerUp(handle, { pointerId: 2, clientY: 0 })
+    animationFrameSpy.mockRestore()
 
     expect(
       [...useItemsStore.getState().tracks]

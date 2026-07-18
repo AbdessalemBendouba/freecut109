@@ -3,6 +3,8 @@
     "compose": {
       "title": "コンポジション",
       "newComposition": "新規コンポジション",
+      "newCompositionShort": "新規コンポ",
+      "addItem": "アイテムを追加",
       "emptyTitle": "コンポジションはまだありません",
       "emptyDescription": "コンポジションを作成してレイヤーシーンを構築します。",
       "chooseTitle": "コンポジションを選択",

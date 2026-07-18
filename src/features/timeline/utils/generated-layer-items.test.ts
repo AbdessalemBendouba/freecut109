@@ -208,7 +208,7 @@ describe('createDefaultControllerItem', () => {
     expect(item).toMatchObject({
       type: 'controller',
       controllerKind: 'null',
-      label: 'Null Controller',
+      label: 'Null Object',
       durationInFrames: 300,
       transform: { x: 0, y: 0, aspectRatioLocked: true },
     })

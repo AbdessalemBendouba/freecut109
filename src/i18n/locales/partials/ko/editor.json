@@ -3,6 +3,8 @@
     "compose": {
       "title": "컴포지션",
       "newComposition": "새 컴포지션",
+      "newCompositionShort": "새 컴포지션",
+      "addItem": "항목 추가",
       "emptyTitle": "컴포지션이 없습니다",
       "emptyDescription": "컴포지션을 만들어 레이어 장면을 구성하세요.",
       "chooseTitle": "컴포지션 선택",

@@ -80,6 +80,12 @@ export interface TransformParentBinding {
   childWorldReference: TransformReference
 }
 
+/** User-facing behavior used when attaching, detaching, or reparenting layers. */
+export type TransformParentingBehavior =
+  | 'preserve-world'
+  | 'snap-to-parent'
+  | 'restore-local'
+
 /**
  * Source dimensions for media items (intrinsic size).
  * Used to compute default transforms.

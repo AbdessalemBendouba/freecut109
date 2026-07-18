@@ -2,8 +2,23 @@
  * Item Actions - Cross-domain operations that affect items, transitions, and keyframes.
  */
 
-import type { TimelineItem, TimelineTrack, VideoItem } from '@/types/timeline'
-import type { CanvasSettings } from '@/types/transform'
+import type { ControllerItem, TimelineItem, TimelineTrack, VideoItem } from '@/types/timeline'
+import type {
+  CanvasSettings,
+  ResolvedTransform,
+  TransformParentBinding,
+  TransformParentingBehavior,
+} from '@/types/transform'
+import type {
+  DirectPropertyLink,
+  EasingConfig,
+  ItemKeyframes,
+  Keyframe,
+  PropertyKeyframes,
+  StoredPropertyExpression,
+  VectorKeyframe,
+  VectorPropertyKeyframes,
+} from '@/types/keyframe'
 import type { Transition } from '@/types/transition'
 import type { ReverseConformResult } from '../../services/reverse-conform-service'
 import { useItemsStore } from '../items-store'
@@ -34,6 +49,7 @@ import {
   createTransformParentBinding,
   wouldCreateTransformParentCycle,
 } from '@/shared/utils/transform-parenting'
+import { createDefaultControllerItem } from '../../utils/generated-layer-items'
 
 function isLinkedSelectionEnabled(): boolean {
   return useEditorStore.getState().linkedSelectionEnabled
@@ -43,27 +59,79 @@ function canParticipateInTransformHierarchy(item: TimelineItem): boolean {
   return item.type !== 'audio' && item.type !== 'adjustment'
 }
 
-/** Attach, detach, or reparent a visual layer while preserving its current world pose. */
-export function setTransformParent(params: {
-  childItemId: string
+type TransformParentUpdateContext = {
   parentItemId?: string
+  parentWorld?: ResolvedTransform
+  behavior: TransformParentingBehavior
   frame: number
   canvas: CanvasSettings
-}): boolean {
-  const { childItemId, parentItemId, frame, canvas } = params
-  const itemsStore = useItemsStore.getState()
-  const child = itemsStore.itemById[childItemId]
-  const parent = parentItemId ? itemsStore.itemById[parentItemId] : undefined
-  if (!child || !canParticipateInTransformHierarchy(child)) return false
-  if (parentItemId && (!parent || !canParticipateInTransformHierarchy(parent))) return false
-  const getItem = (itemId: string) => itemsStore.itemById[itemId]
-  if (parentItemId && wouldCreateTransformParentCycle(childItemId, parentItemId, getItem)) {
-    return false
-  }
-  if (!parentItemId && !child.transformParent) return false
+  getItem: (itemId: string) => TimelineItem | undefined
+  getKeyframes: (itemId: string) => ItemKeyframes | undefined
+}
 
-  const keyframesStore = useKeyframesStore.getState()
-  const getKeyframes = (itemId: string) => keyframesStore.keyframesByItemId[itemId]
+type TransformParentUpdateResult =
+  | { status: 'invalid' | 'unchanged' }
+  | { status: 'update'; binding: TransformParentBinding | undefined }
+
+function getTransformParentEarlyResult(
+  childItemId: string,
+  child: TimelineItem | undefined,
+  context: TransformParentUpdateContext,
+): TransformParentUpdateResult | null {
+  if (isInvalidTransformParentUpdate(childItemId, child, context)) return { status: 'invalid' }
+  if (isUnchangedPreserveWorldParent(child, context)) return { status: 'unchanged' }
+  if (!context.parentItemId && context.behavior === 'restore-local') {
+    return child?.transformParent
+      ? { status: 'update', binding: undefined }
+      : { status: 'unchanged' }
+  }
+  return null
+}
+
+function isInvalidTransformParentUpdate(
+  childItemId: string,
+  child: TimelineItem | undefined,
+  context: TransformParentUpdateContext,
+): boolean {
+  if (!child || !canParticipateInTransformHierarchy(child)) return true
+  return Boolean(
+    context.parentItemId &&
+      wouldCreateTransformParentCycle(childItemId, context.parentItemId, context.getItem),
+  )
+}
+
+function isUnchangedPreserveWorldParent(
+  child: TimelineItem | undefined,
+  context: TransformParentUpdateContext,
+): boolean {
+  return (
+    context.behavior === 'preserve-world' &&
+    child?.transformParent?.parentItemId === context.parentItemId
+  )
+}
+
+function chooseChildWorldReference(
+  behavior: TransformParentingBehavior,
+  childWorld: ResolvedTransform,
+  childLocal: ResolvedTransform,
+  parentWorld: ResolvedTransform | undefined,
+): ResolvedTransform {
+  if (behavior === 'snap-to-parent' && parentWorld) {
+    return { ...childWorld, x: parentWorld.x, y: parentWorld.y }
+  }
+  return behavior === 'restore-local' ? childLocal : childWorld
+}
+
+function buildTransformParentUpdate(
+  childItemId: string,
+  context: TransformParentUpdateContext,
+): TransformParentUpdateResult {
+  const { parentItemId, parentWorld, behavior, frame, canvas, getItem, getKeyframes } = context
+  const child = getItem(childItemId)
+  const earlyResult = getTransformParentEarlyResult(childItemId, child, context)
+  if (earlyResult) return earlyResult
+  if (!child) return { status: 'invalid' }
+
   const childKeyframes = getKeyframes(child.id)
   const childWorld = resolveItemTransformAtFrame(child, {
     canvas,
@@ -78,6 +146,83 @@ export function setTransformParent(params: {
     keyframes: childKeyframes,
     expressionContext: { globalFrame: frame, canvas, getItem, getKeyframes },
   })
+  const childWorldReference = chooseChildWorldReference(
+    behavior,
+    childWorld,
+    childLocal,
+    parentWorld,
+  )
+  return {
+    status: 'update',
+    binding: createTransformParentBinding({
+      childLocal,
+      childWorld: childWorldReference,
+      parentItemId,
+      parentWorld,
+    }),
+  }
+}
+
+function isValidTransformParentRequest(
+  childItemIds: string[],
+  parentItemId: string | undefined,
+  parent: TimelineItem | undefined,
+): boolean {
+  if (childItemIds.length === 0) return false
+  if (parentItemId && childItemIds.includes(parentItemId)) return false
+  if (!parentItemId) return true
+  return Boolean(parent && canParticipateInTransformHierarchy(parent))
+}
+
+function commitTransformParentUpdates(
+  updates: Map<string, TransformParentBinding | undefined>,
+  parentItemId: string | undefined,
+): boolean {
+  if (updates.size === 0) return false
+  return execute(
+    updates.size === 1 ? 'SET_TRANSFORM_PARENT' : 'SET_TRANSFORM_PARENTS',
+    () => {
+      for (const [childItemId, transformParent] of updates) {
+        useItemsStore.getState()._updateItem(childItemId, { transformParent })
+      }
+      useTimelineSettingsStore.getState().markDirty()
+      return true
+    },
+    { childItemIds: [...updates.keys()], parentItemId: parentItemId ?? null },
+  )
+}
+
+function collectTransformParentUpdates(
+  childItemIds: string[],
+  context: TransformParentUpdateContext,
+): Map<string, TransformParentBinding | undefined> | null {
+  const updates = new Map<string, TransformParentBinding | undefined>()
+  for (const childItemId of childItemIds) {
+    const result = buildTransformParentUpdate(childItemId, context)
+    if (result.status === 'invalid') return null
+    if (result.status === 'update') updates.set(childItemId, result.binding)
+  }
+  return updates
+}
+
+function createTransformParentUpdateContext(params: {
+  parentItemId?: string
+  parent?: TimelineItem
+  behavior?: TransformParentingBehavior
+  frame: number
+  canvas: CanvasSettings
+  getItem: (itemId: string) => TimelineItem | undefined
+  getKeyframes: (itemId: string) => ItemKeyframes | undefined
+}): TransformParentUpdateContext {
+  const {
+    parentItemId,
+    parent,
+    behavior = 'preserve-world',
+    frame,
+    canvas,
+    getItem,
+    getKeyframes,
+  } = params
   const parentWorld = parent
     ? resolveItemTransformAtFrame(parent, {
         canvas,
@@ -87,22 +232,197 @@ export function setTransformParent(params: {
         getKeyframes,
       })
     : undefined
-  const transformParent = createTransformParentBinding({
-    childLocal,
-    childWorld,
-    parentItemId,
-    parentWorld,
+  return { parentItemId, parentWorld, behavior, frame, canvas, getItem, getKeyframes }
+}
+
+function getUniqueNullObjectLabel(items: TimelineItem[]): string {
+  const baseLabel = 'Null Object'
+  const labels = new Set(items.map((item) => item.label))
+  if (!labels.has(baseLabel)) return baseLabel
+  let suffix = 2
+  while (labels.has(`${baseLabel} ${suffix}`)) suffix += 1
+  return `${baseLabel} ${suffix}`
+}
+
+function getNullParentTrackPlacement(
+  children: TimelineItem[],
+  tracks: TimelineTrack[],
+): { order: number; parentTrackId?: string } {
+  const trackById = new Map(tracks.map((track) => [track.id, track]))
+  const childTracks = children
+    .map((item) => trackById.get(item.trackId))
+    .filter((track): track is TimelineTrack => Boolean(track))
+  if (childTracks.length === 0) {
+    return { order: tracks.reduce((max, track) => Math.max(max, track.order), -1) + 1 }
+  }
+
+  const parentTrackIds = new Set(childTracks.map((track) => track.parentTrackId ?? null))
+  const parentTrackId =
+    parentTrackIds.size === 1 ? (childTracks[0]?.parentTrackId ?? undefined) : undefined
+  const anchors =
+    parentTrackIds.size === 1
+      ? childTracks
+      : childTracks.map(
+          (track) => (track.parentTrackId && trackById.get(track.parentTrackId)) || track,
+        )
+  const siblingTracks = tracks.filter(
+    (track) => (track.parentTrackId ?? null) === (parentTrackId ?? null),
+  )
+  const anchorOrders = anchors
+    .filter((track) => (track.parentTrackId ?? null) === (parentTrackId ?? null))
+    .map((track) => track.order)
+  const order =
+    anchorOrders.length > 0
+      ? Math.min(...anchorOrders)
+      : siblingTracks.reduce((max, track) => Math.max(max, track.order), -1) + 1
+  return { order, ...(parentTrackId && { parentTrackId }) }
+}
+
+function createNullParentLayer(params: {
+  children: TimelineItem[]
+  items: TimelineItem[]
+  tracks: TimelineTrack[]
+  canvas: CanvasSettings
+}): { parent: ControllerItem; track: TimelineTrack } {
+  const { children, items, tracks, canvas } = params
+  const trackId = crypto.randomUUID()
+  const from = Math.min(...children.map((item) => item.from))
+  const to = Math.max(...children.map((item) => item.from + item.durationInFrames))
+  const label = getUniqueNullObjectLabel(items)
+  const placement = getNullParentTrackPlacement(children, tracks)
+  const parent = createDefaultControllerItem({
+    trackId,
+    from,
+    durationInFrames: Math.max(1, to - from),
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    fps: canvas.fps,
   })
+  parent.label = label
+  const track: TimelineTrack = {
+    id: trackId,
+    name: label,
+    kind: 'video',
+    height: 34,
+    locked: false,
+    syncLock: true,
+    visible: true,
+    muted: false,
+    solo: false,
+    order: placement.order,
+    ...(placement.parentTrackId && { parentTrackId: placement.parentTrackId }),
+    items: [],
+  }
+  return { parent, track }
+}
+
+/** Attach, detach, or reparent visual layers with an explicit pose policy. */
+export function setTransformParents(params: {
+  childItemIds: string[]
+  parentItemId?: string
+  behavior?: TransformParentingBehavior
+  frame: number
+  canvas: CanvasSettings
+}): boolean {
+  const { parentItemId, frame, canvas } = params
+  const childItemIds = [...new Set(params.childItemIds)]
+  const itemsStore = useItemsStore.getState()
+  const parent = parentItemId ? itemsStore.itemById[parentItemId] : undefined
+  if (!isValidTransformParentRequest(childItemIds, parentItemId, parent)) return false
+  const getItem = (itemId: string) => itemsStore.itemById[itemId]
+  const keyframesStore = useKeyframesStore.getState()
+  const getKeyframes = (itemId: string) => keyframesStore.keyframesByItemId[itemId]
+  const context = createTransformParentUpdateContext({
+    parentItemId,
+    parent,
+    behavior: params.behavior,
+    frame,
+    canvas,
+    getItem,
+    getKeyframes,
+  })
+  const updates = collectTransformParentUpdates(childItemIds, context)
+  if (!updates) return false
+
+  return commitTransformParentUpdates(updates, parentItemId)
+}
+
+/** Create one Null Object spanning the selected layers and parent them in one undo step. */
+export function createNullParentForItems(params: {
+  childItemIds: string[]
+  frame: number
+  canvas: CanvasSettings
+}): ControllerItem | null {
+  const childItemIds = [...new Set(params.childItemIds)]
+  const itemsStore = useItemsStore.getState()
+  const children = childItemIds.map((itemId) => itemsStore.itemById[itemId])
+  if (
+    children.length === 0 ||
+    children.some((item) => !item || !canParticipateInTransformHierarchy(item))
+  ) {
+    return null
+  }
+
+  const { parent, track } = createNullParentLayer({
+    children: children as TimelineItem[],
+    items: itemsStore.items,
+    tracks: itemsStore.tracks,
+    canvas: params.canvas,
+  })
+  const getItem = (itemId: string) =>
+    itemId === parent.id ? parent : useItemsStore.getState().itemById[itemId]
+  const keyframesStore = useKeyframesStore.getState()
+  const getKeyframes = (itemId: string) => keyframesStore.keyframesByItemId[itemId]
+  const context = createTransformParentUpdateContext({
+    parentItemId: parent.id,
+    parent,
+    frame: params.frame,
+    canvas: params.canvas,
+    getItem,
+    getKeyframes,
+  })
+  const updates = collectTransformParentUpdates(childItemIds, context)
+  if (!updates || updates.size !== childItemIds.length) return null
 
   return execute(
-    'SET_TRANSFORM_PARENT',
+    'CREATE_NULL_PARENT',
     () => {
-      useItemsStore.getState()._updateItem(childItemId, { transformParent })
+      const store = useItemsStore.getState()
+      store.setTracks([
+        ...store.tracks.map((candidate) =>
+          (candidate.parentTrackId ?? null) === (track.parentTrackId ?? null) &&
+          candidate.order >= track.order
+            ? { ...candidate, order: candidate.order + 1 }
+            : candidate,
+        ),
+        track,
+      ])
+      store._addItem(parent)
+      for (const [childItemId, transformParent] of updates) {
+        store._updateItem(childItemId, { transformParent })
+      }
       useTimelineSettingsStore.getState().markDirty()
-      return true
+      return parent
     },
-    { childItemId, parentItemId: parentItemId ?? null },
+    { parentItemId: parent.id, childItemIds, trackId: track.id },
   )
+}
+
+/** Attach, detach, or reparent one visual layer while preserving its current world pose. */
+export function setTransformParent(params: {
+  childItemId: string
+  parentItemId?: string
+  behavior?: TransformParentingBehavior
+  frame: number
+  canvas: CanvasSettings
+}): boolean {
+  return setTransformParents({
+    childItemIds: [params.childItemId],
+    parentItemId: params.parentItemId,
+    behavior: params.behavior,
+    frame: params.frame,
+    canvas: params.canvas,
+  })
 }
 
 function copyInternalTransitionsForDuplicatedItems(
@@ -143,6 +463,101 @@ function copyInternalTransitionsForDuplicatedItems(
   }
 }
 
+function cloneEasingConfig(config: EasingConfig | undefined): EasingConfig | undefined {
+  if (!config) return undefined
+  return {
+    ...config,
+    ...(config.bezier && { bezier: { ...config.bezier } }),
+    ...(config.spring && { spring: { ...config.spring } }),
+  }
+}
+
+function cloneScalarKeyframe(keyframe: Keyframe): Keyframe {
+  return {
+    ...keyframe,
+    id: crypto.randomUUID(),
+    easingConfig: cloneEasingConfig(keyframe.easingConfig),
+  }
+}
+
+function cloneVectorKeyframeForDuplicate(keyframe: VectorKeyframe): VectorKeyframe {
+  return {
+    ...keyframe,
+    id: crypto.randomUUID(),
+    value: { ...keyframe.value },
+    easingConfig: cloneEasingConfig(keyframe.easingConfig),
+    temporalEase: keyframe.temporalEase
+      ? {
+          ...(keyframe.temporalEase.in && { in: { ...keyframe.temporalEase.in } }),
+          ...(keyframe.temporalEase.out && { out: { ...keyframe.temporalEase.out } }),
+        }
+      : undefined,
+    spatial: keyframe.spatial
+      ? {
+          ...keyframe.spatial,
+          inTangent: { ...keyframe.spatial.inTangent },
+          outTangent: { ...keyframe.spatial.outTangent },
+        }
+      : undefined,
+  }
+}
+
+function clonePropertyKeyframes(property: PropertyKeyframes): PropertyKeyframes {
+  return { property: property.property, keyframes: property.keyframes.map(cloneScalarKeyframe) }
+}
+
+function cloneVectorPropertyKeyframes(property: VectorPropertyKeyframes): VectorPropertyKeyframes {
+  return {
+    property: property.property,
+    keyframes: property.keyframes.map(cloneVectorKeyframeForDuplicate),
+  }
+}
+
+function remapDirectPropertyLink(
+  link: DirectPropertyLink,
+  duplicatedItemIdMap: Map<string, string>,
+): DirectPropertyLink {
+  return {
+    ...link,
+    sourceItemId: duplicatedItemIdMap.get(link.sourceItemId) ?? link.sourceItemId,
+  }
+}
+
+function cloneStoredExpression(
+  expression: StoredPropertyExpression,
+  duplicatedItemIdMap: Map<string, string>,
+): StoredPropertyExpression {
+  return expression.type === 'link'
+    ? remapDirectPropertyLink(expression, duplicatedItemIdMap)
+    : { ...expression }
+}
+
+function cloneItemKeyframes(
+  source: ItemKeyframes,
+  itemId: string,
+  duplicatedItemIdMap: Map<string, string>,
+): ItemKeyframes {
+  const clone: ItemKeyframes = {
+    itemId,
+    properties: source.properties.map(clonePropertyKeyframes),
+  }
+  if (source.animationVersion) clone.animationVersion = source.animationVersion
+  if (source.expressions?.length) {
+    clone.expressions = source.expressions.map((expression) =>
+      cloneStoredExpression(expression, duplicatedItemIdMap),
+    )
+  }
+  if (source.propertyLinks?.length) {
+    clone.propertyLinks = source.propertyLinks.map((link) =>
+      remapDirectPropertyLink(link, duplicatedItemIdMap),
+    )
+  }
+  if (source.vectorProperties?.length) {
+    clone.vectorProperties = source.vectorProperties.map(cloneVectorPropertyKeyframes)
+  }
+  return clone
+}
+
 function copyKeyframesForDuplicatedItems(itemIds: string[], newItems: TimelineItem[]): void {
   if (newItems.length === 0) return
 
@@ -157,72 +572,7 @@ function copyKeyframesForDuplicatedItems(itemIds: string[], newItems: TimelineIt
     const newItem = newItems[index]
     const source = keyframesState.keyframesByItemId[itemId]
     if (!newItem || !source) return []
-
-    return [
-      {
-        itemId: newItem.id,
-        ...(source.animationVersion && { animationVersion: source.animationVersion }),
-        ...(source.expressions?.length && {
-          expressions: source.expressions.map((expression) => ({
-            ...expression,
-            sourceItemId:
-              duplicatedItemIdMap.get(expression.sourceItemId) ?? expression.sourceItemId,
-          })),
-        }),
-        properties: source.properties.map((property) => ({
-          property: property.property,
-          keyframes: property.keyframes.map((keyframe) => ({
-            ...keyframe,
-            id: crypto.randomUUID(),
-            easingConfig: keyframe.easingConfig
-              ? {
-                  ...keyframe.easingConfig,
-                  ...(keyframe.easingConfig.bezier && {
-                    bezier: { ...keyframe.easingConfig.bezier },
-                  }),
-                  ...(keyframe.easingConfig.spring && {
-                    spring: { ...keyframe.easingConfig.spring },
-                  }),
-                }
-              : undefined,
-          })),
-        })),
-        ...(source.vectorProperties?.length && {
-          vectorProperties: source.vectorProperties.map((property) => ({
-            property: property.property,
-            keyframes: property.keyframes.map((keyframe) => ({
-              ...keyframe,
-              id: crypto.randomUUID(),
-              value: { ...keyframe.value },
-              easingConfig: keyframe.easingConfig
-                ? {
-                    ...keyframe.easingConfig,
-                    ...(keyframe.easingConfig.bezier && {
-                      bezier: { ...keyframe.easingConfig.bezier },
-                    }),
-                    ...(keyframe.easingConfig.spring && {
-                      spring: { ...keyframe.easingConfig.spring },
-                    }),
-                  }
-                : undefined,
-              temporalEase: keyframe.temporalEase
-                ? {
-                    ...(keyframe.temporalEase.in && { in: { ...keyframe.temporalEase.in } }),
-                    ...(keyframe.temporalEase.out && { out: { ...keyframe.temporalEase.out } }),
-                  }
-                : undefined,
-              spatial: keyframe.spatial
-                ? {
-                    ...keyframe.spatial,
-                    inTangent: { ...keyframe.spatial.inTangent },
-                    outTangent: { ...keyframe.spatial.outTangent },
-                  }
-                : undefined,
-            })),
-          })),
-        }),
-      },
-    ]
+    return [cloneItemKeyframes(source, newItem.id, duplicatedItemIdMap)]
   })
 
   if (copiedKeyframes.length > 0) {

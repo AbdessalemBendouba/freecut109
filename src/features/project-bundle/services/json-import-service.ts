@@ -219,7 +219,13 @@ async function importProjectFromSnapshot(
         itemId: itemIdMap.get(itemKeyframes.itemId) || itemKeyframes.itemId,
         expressions: itemKeyframes.expressions?.map((expression) => ({
           ...expression,
-          sourceItemId: itemIdMap.get(expression.sourceItemId) || expression.sourceItemId,
+          ...(expression.type === 'link' && {
+            sourceItemId: itemIdMap.get(expression.sourceItemId) || expression.sourceItemId,
+          }),
+        })),
+        propertyLinks: itemKeyframes.propertyLinks?.map((link) => ({
+          ...link,
+          sourceItemId: itemIdMap.get(link.sourceItemId) || link.sourceItemId,
         })),
         properties: itemKeyframes.properties.map((prop) => ({
           ...prop,

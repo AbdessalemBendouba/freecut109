@@ -6,14 +6,20 @@ import type {
   EasingType,
   EasingConfig,
   KeyframeRef,
-  LinkableAnimatableProperty,
-  LinkedPropertyExpression,
+  DirectLinkableProperty,
+  DirectPropertyLink,
+  PropertyExpression,
   Vector2,
   VectorAnimatableProperty,
   VectorKeyframe,
   VectorPropertyKeyframes,
 } from '@/types/keyframe'
-import { ANIMATION_CORE_VERSION } from '@/types/keyframe'
+import {
+  ANIMATION_CORE_VERSION,
+  doDirectLinkTargetsConflict,
+  getDirectPropertyLinks,
+  getPropertyExpressions,
+} from '@/types/keyframe'
 
 /**
  * Keyframes state - animation keyframes for timeline items.
@@ -83,8 +89,10 @@ interface KeyframesActions {
   _removeKeyframesForItem: (itemId: string) => void
   _removeKeyframesForItems: (itemIds: string[]) => void
   _removeKeyframesForProperty: (itemId: string, property: AnimatableProperty) => void
-  _setLinkedPropertyExpression: (itemId: string, expression: LinkedPropertyExpression) => void
-  _removeLinkedPropertyExpression: (itemId: string, property: LinkableAnimatableProperty) => void
+  _setDirectPropertyLink: (itemId: string, link: DirectPropertyLink) => void
+  _removeDirectPropertyLink: (itemId: string, property: DirectLinkableProperty) => void
+  _setPropertyExpression: (itemId: string, expression: PropertyExpression) => void
+  _removePropertyExpression: (itemId: string, property: DirectLinkableProperty) => void
   _upsertVectorKeyframe: (
     itemId: string,
     property: VectorAnimatableProperty,
@@ -169,6 +177,7 @@ function hasStoredAnimation(itemKeyframes: ItemKeyframes): boolean {
   return (
     itemKeyframes.properties.some((property) => property.keyframes.length > 0) ||
     (itemKeyframes.vectorProperties?.some((property) => property.keyframes.length > 0) ?? false) ||
+    (itemKeyframes.propertyLinks?.length ?? 0) > 0 ||
     (itemKeyframes.expressions?.length ?? 0) > 0
   )
 }
@@ -484,8 +493,12 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
           .filter((itemKeyframes) => !idsSet.has(itemKeyframes.itemId))
           .map((itemKeyframes) => ({
             ...itemKeyframes,
+            propertyLinks: itemKeyframes.propertyLinks?.filter(
+              (link) => !idsSet.has(link.sourceItemId),
+            ),
             expressions: itemKeyframes.expressions?.filter(
-              (expression) => !idsSet.has(expression.sourceItemId),
+              (expression) =>
+                expression.type !== 'link' || !idsSet.has(expression.sourceItemId),
             ),
           }))
           .filter(hasStoredAnimation),
@@ -505,7 +518,64 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
       ),
     })),
 
-  _setLinkedPropertyExpression: (itemId, expression) =>
+  _setDirectPropertyLink: (itemId, expression) =>
+    set((state) => {
+      const existing = state.keyframes.find((itemKeyframes) => itemKeyframes.itemId === itemId)
+      if (!existing) {
+        return {
+          keyframes: [
+            ...state.keyframes,
+            {
+              itemId,
+              animationVersion: ANIMATION_CORE_VERSION,
+              properties: [],
+              propertyLinks: [expression],
+            },
+          ],
+        }
+      }
+
+      return {
+        keyframes: state.keyframes.map((itemKeyframes) =>
+          itemKeyframes.itemId === itemId
+            ? {
+                ...itemKeyframes,
+                animationVersion: ANIMATION_CORE_VERSION,
+                propertyLinks: [
+                  ...getDirectPropertyLinks(itemKeyframes).filter(
+                    (candidate) =>
+                      !doDirectLinkTargetsConflict(
+                        candidate.targetProperty,
+                        expression.targetProperty,
+                      ),
+                  ),
+                  expression,
+                ],
+                expressions: [...getPropertyExpressions(itemKeyframes)],
+              }
+            : itemKeyframes,
+        ),
+      }
+    }),
+
+  _removeDirectPropertyLink: (itemId, property) =>
+    set((state) => ({
+      keyframes: state.keyframes
+        .map((itemKeyframes) =>
+          itemKeyframes.itemId === itemId
+            ? {
+                ...itemKeyframes,
+                propertyLinks: getDirectPropertyLinks(itemKeyframes).filter(
+                  (link) => link.targetProperty !== property,
+                ),
+                expressions: [...getPropertyExpressions(itemKeyframes)],
+              }
+            : itemKeyframes,
+        )
+        .filter(hasStoredAnimation),
+    })),
+
+  _setPropertyExpression: (itemId, expression) =>
     set((state) => {
       const existing = state.keyframes.find((itemKeyframes) => itemKeyframes.itemId === itemId)
       if (!existing) {
@@ -521,15 +591,15 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
           ],
         }
       }
-
       return {
         keyframes: state.keyframes.map((itemKeyframes) =>
           itemKeyframes.itemId === itemId
             ? {
                 ...itemKeyframes,
                 animationVersion: ANIMATION_CORE_VERSION,
+                propertyLinks: [...getDirectPropertyLinks(itemKeyframes)],
                 expressions: [
-                  ...(itemKeyframes.expressions ?? []).filter(
+                  ...getPropertyExpressions(itemKeyframes).filter(
                     (candidate) => candidate.targetProperty !== expression.targetProperty,
                   ),
                   expression,
@@ -540,14 +610,15 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
       }
     }),
 
-  _removeLinkedPropertyExpression: (itemId, property) =>
+  _removePropertyExpression: (itemId, property) =>
     set((state) => ({
       keyframes: state.keyframes
         .map((itemKeyframes) =>
           itemKeyframes.itemId === itemId
             ? {
                 ...itemKeyframes,
-                expressions: itemKeyframes.expressions?.filter(
+                propertyLinks: [...getDirectPropertyLinks(itemKeyframes)],
+                expressions: getPropertyExpressions(itemKeyframes).filter(
                   (expression) => expression.targetProperty !== property,
                 ),
               }

@@ -10,7 +10,8 @@ export { sampleVectorSpeedGraph } from '@/features/keyframes/utils/vector-interp
 export { buildVectorPromotionPlan } from '@/features/keyframes/utils/vector-promotion'
 export {
   resolveAnimatedTransform,
-  wouldCreateLinkedPropertyCycle,
+  resolveExpressionReferenceValue,
+  wouldCreateDirectPropertyLinkCycle,
 } from '@/features/keyframes/utils/animated-transform-resolver'
 export {
   getTextAnimatableBaseValue,
@@ -35,6 +36,8 @@ export {
   isFrameInTransitionRegion,
 } from '@/features/keyframes/utils/transition-region'
 export { DopesheetEditor } from '@/features/keyframes/components/dopesheet-editor'
+export { PickWhipIcon } from '@/features/keyframes/components/dopesheet-editor/pick-whip-icon'
+export { PropertyLinkPickWhipOverlay } from '@/features/keyframes/components/property-link-pick-whip-overlay'
 export {
   GROUP_HEADER_HEIGHT,
   ROW_HEIGHT,

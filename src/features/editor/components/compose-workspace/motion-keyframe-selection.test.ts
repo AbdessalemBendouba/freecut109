@@ -111,6 +111,32 @@ describe('motion composition keyframe selection', () => {
     ])
   })
 
+  it('moves coupled Anchor keys through their projected row reference', () => {
+    const keyframesByItemId: Record<string, ItemKeyframes> = {
+      layer: {
+        itemId: 'layer',
+        properties: [],
+        vectorProperties: [
+          {
+            property: 'anchor',
+            keyframes: [
+              { id: 'anchor-1', frame: 8, value: { x: 50, y: 60 }, easing: 'linear' },
+            ],
+          },
+        ],
+      },
+    }
+    const drag = buildMotionSelectionDragState(
+      [{ itemId: 'layer', property: 'anchorX', keyframeId: 'anchor-1' }],
+      keyframesByItemId,
+      { layer: item('layer', 0) },
+    )
+
+    expect(buildMotionSelectionFrameUpdates(drag!, 4).vector).toEqual([
+      { itemId: 'layer', property: 'anchor', keyframeId: 'anchor-1', frame: 12 },
+    ])
+  })
+
   it('scales selected keyframes from either range edge without overwriting unselected keys', () => {
     const keyframesByItemId = {
       'layer-a': scalarKeyframes('layer-a', 'x', [10, 20, 30]),
