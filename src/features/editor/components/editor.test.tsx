@@ -92,10 +92,6 @@ vi.mock('./color-timeline-navigator', () => ({
   ColorTimelineNavigator: () => <div data-testid="color-timeline-navigator" />,
 }))
 
-vi.mock('./animate-workspace/animate-layout', () => ({
-  AnimateLayout: () => <div data-testid="animate-layout" />,
-}))
-
 vi.mock('./compose-workspace/compose-layout', () => ({
   MotionPreviewArea: () => <div data-testid="motion-preview-area" />,
   MotionTimelineDock: () => <div data-testid="motion-timeline-dock" />,
@@ -478,7 +474,6 @@ describe('LoadedEditor migration metadata refresh', () => {
     expect(await screen.findByTestId('motion-timeline-dock')).toBeInTheDocument()
     expect(screen.getByTestId('motion-preview-area')).toBeInTheDocument()
     expect(screen.queryByTestId('timeline')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('animate-layout')).not.toBeInTheDocument()
     expect(screen.getByTestId('media-sidebar')).toBeInTheDocument()
     expect(screen.getByTestId('properties-sidebar')).toBeInTheDocument()
   })

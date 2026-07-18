@@ -67,11 +67,6 @@ import {
 import { IoDragReadout } from '@/shared/timeline/io-range'
 const logger = createLogger('Editor')
 const LazyTimeline = lazy(() => importTimeline().then(({ Timeline }) => ({ default: Timeline })))
-const LazyAnimateLayout = lazy(() =>
-  import('./animate-workspace/animate-layout').then(({ AnimateLayout }) => ({
-    default: AnimateLayout,
-  })),
-)
 const LazyColorGradingDock = lazy(() =>
   import('./color-grading-dock').then(({ ColorGradingDock }) => ({ default: ColorGradingDock })),
 )
@@ -663,11 +658,10 @@ export const LoadedEditor = memo(function LoadedEditor({
 
   const timelineDuration = 30
   const isColorWorkspace = workspace === 'color'
-  const isAnimateWorkspace = workspace === 'animate'
   const isMotionWorkspace = workspace === 'motion'
-  // Color and Animate replace the default editor shell. Motion deliberately
-  // keeps it and swaps only the lower timeline dock.
-  const hidesDefaultSidebars = isColorWorkspace || isAnimateWorkspace
+  // Color replaces the default editor shell. Motion deliberately keeps it and
+  // swaps the preview/timeline surfaces while retaining the shared sidebars.
+  const hidesDefaultSidebars = isColorWorkspace
 
   return (
     <div
@@ -702,11 +696,7 @@ export const LoadedEditor = memo(function LoadedEditor({
         )}
 
         {/* Right side: Preview/Properties + Timeline */}
-        {isAnimateWorkspace ? (
-          <Suspense fallback={null}>
-            <LazyAnimateLayout project={project} />
-          </Suspense>
-        ) : isColorWorkspace ? (
+        {isColorWorkspace ? (
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
               <ErrorBoundary level="feature">

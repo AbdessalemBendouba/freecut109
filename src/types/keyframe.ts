@@ -41,6 +41,17 @@ export type EffectAnimatableProperty = `effect:${string}:${string}:${string}`
 
 export type AnimatableProperty = BuiltInAnimatableProperty | EffectAnimatableProperty
 
+/** Current persisted animation-domain version. Missing means the legacy scalar-only model. */
+export const ANIMATION_CORE_VERSION = 2 as const
+
+/** Coupled transform channels that must share timing and spatial interpolation. */
+export type VectorAnimatableProperty = 'position' | 'scale' | 'anchor'
+
+export interface Vector2 {
+  x: number
+  y: number
+}
+
 /** Transform/visual properties animatable via gizmo (excludes non-spatial props like volume) */
 export type TransformAnimatableProperty =
   | 'x'
@@ -198,6 +209,75 @@ export interface Keyframe {
 }
 
 /**
+ * AE-style temporal handle. Speed uses property units per second; influence is
+ * the percentage of the adjacent segment duration controlled by the handle.
+ */
+export interface TemporalEaseHandle {
+  speed: number
+  influence: number
+}
+
+export interface TemporalEase {
+  /** Incoming velocity handle for the segment ending at this keyframe. */
+  in?: TemporalEaseHandle
+  /** Outgoing velocity handle for the segment starting at this keyframe. */
+  out?: TemporalEaseHandle
+}
+
+/** Spatial tangents are offsets from the keyframe value, in property units. */
+export interface SpatialBezierTangents {
+  inTangent: Vector2
+  outTangent: Vector2
+  /** UI constraint: editing one tangent mirrors the other around the vertex. */
+  continuous?: boolean
+}
+
+/** A coupled two-dimensional keyframe used by Animation Core v2. */
+export interface VectorKeyframe {
+  id: string
+  /** Frame number relative to item start (0 = first frame of item). */
+  frame: number
+  value: Vector2
+  /** Fallback timing curve when explicit temporal velocity handles are absent. */
+  easing: EasingType
+  easingConfig?: EasingConfig
+  /** Incoming/outgoing velocity and influence used by value and speed graphs. */
+  temporalEase?: TemporalEase
+  /** Position-path Bezier handles. Ignored for Scale and Anchor. */
+  spatial?: SpatialBezierTangents
+}
+
+/** Clone a vector keyframe without retaining mutable nested handle references. */
+export function cloneVectorKeyframe(
+  keyframe: VectorKeyframe,
+  updates: Partial<Pick<VectorKeyframe, 'id' | 'frame'>> = {},
+): VectorKeyframe {
+  return {
+    ...keyframe,
+    ...updates,
+    value: { ...keyframe.value },
+    ...(keyframe.temporalEase && {
+      temporalEase: {
+        ...(keyframe.temporalEase.in && { in: { ...keyframe.temporalEase.in } }),
+        ...(keyframe.temporalEase.out && { out: { ...keyframe.temporalEase.out } }),
+      },
+    }),
+    ...(keyframe.spatial && {
+      spatial: {
+        ...keyframe.spatial,
+        inTangent: { ...keyframe.spatial.inTangent },
+        outTangent: { ...keyframe.spatial.outTangent },
+      },
+    }),
+  }
+}
+
+export interface VectorPropertyKeyframes {
+  property: VectorAnimatableProperty
+  keyframes: VectorKeyframe[]
+}
+
+/**
  * Reference to a specific keyframe for selection/operations.
  */
 export interface KeyframeRef {
@@ -252,8 +332,12 @@ export interface PropertyKeyframes {
 export interface ItemKeyframes {
   /** The timeline item ID these keyframes belong to */
   itemId: string
+  /** Animation Core v2 marker. Missing records remain valid legacy animation data. */
+  animationVersion?: typeof ANIMATION_CORE_VERSION
   /** Array of property keyframe groups */
   properties: PropertyKeyframes[]
+  /** Coupled Position, Scale, and Anchor lanes introduced by Animation Core v2. */
+  vectorProperties?: VectorPropertyKeyframes[]
   /** Post-keyframe property expressions, keyed by their target property. */
   expressions?: LinkedPropertyExpression[]
 }

@@ -1,4 +1,4 @@
-import type { CropSettings, TransformProperties } from './transform'
+import type { CropSettings, TransformParentBinding, TransformProperties } from './transform'
 import type { ItemEffect } from './effects'
 import type { MotionModifier } from './motion'
 import type { BlendMode } from './blend-modes'
@@ -6,6 +6,7 @@ import type { AudioEqSettings } from './audio'
 import type { TextStylePresetId } from '@/shared/typography/text-style-preset-ids'
 import type { TextMotionSpec } from './text-motion'
 import type { TextLayoutDrafts, TextSpan, TextStyleFields } from './text'
+import type { CompositionControlOverrides } from './composition-controls'
 
 export interface TimelineItemCornerPin {
   topLeft: [number, number]
@@ -74,6 +75,8 @@ type BaseTimelineItem = {
   reverseConformLocalStart?: number
   // Transform properties (optional - defaults computed at render time)
   transform?: TransformProperties
+  // Optional bind-space parent. Missing on legacy and unparented items.
+  transformParent?: TransformParentBinding
   // Source-relative media crop (normalized edge ratios)
   crop?: CropSettings
   // Audio properties (for video/audio items)
@@ -316,6 +319,7 @@ export type ShapeItem = BaseTimelineItem &
     isMask?: boolean // When true, shape acts as mask for lower tracks
     maskType?: 'clip' | 'alpha' // clip = hard edges, alpha = soft edges
     maskFeather?: number // Feather amount for alpha masks (0-100px, default: 10)
+    maskOpacity?: number // Matte strength (0-100%, default: 100)
     maskInvert?: boolean // Invert mask (show outside, hide inside)
   }
 
@@ -329,10 +333,19 @@ export type AdjustmentItem = BaseTimelineItem & {
   effectOpacity?: number // 0-1, defaults to 1
 }
 
+/** Invisible, animatable transform layer used to drive one or more children. */
+export type ControllerItem = BaseTimelineItem & {
+  type: 'controller'
+  controllerKind: 'null'
+  transform: TransformProperties
+}
+
 // Composition item - references a sub-composition (pre-comp)
 export type CompositionItem = BaseTimelineItem & {
   type: 'composition'
   compositionId: string // References a SubComposition in compositions-store
+  /** Values customized on this instance of the reusable composition. */
+  compositionControlOverrides?: CompositionControlOverrides
   // Dimensions of the sub-composition canvas
   compositionWidth: number
   compositionHeight: number
@@ -407,6 +420,7 @@ export type TimelineItem =
   | LottieItem
   | ShapeItem
   | AdjustmentItem
+  | ControllerItem
   | CompositionItem
   | SubtitleSegmentItem
 

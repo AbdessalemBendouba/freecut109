@@ -25,6 +25,7 @@ import {
 import type { CanvasSettings, ItemRenderContext, ItemTransform, SubCompRenderData } from './types'
 import { log } from './shared'
 import { calculateMediaDrawDimensions } from './media-draw'
+import { resolveSubCompRenderDataForInstance } from './composition-instance'
 
 /**
  * Render a CompositionItem by rendering all its sub-composition items to an
@@ -41,7 +42,7 @@ export async function renderCompositionItem(
   rctx: ItemRenderContext,
   renderSpan?: RenderTimelineSpan,
 ): Promise<void> {
-  const subData = rctx.subCompRenderData.get(item.compositionId)
+  const subData = resolveSubCompRenderDataForInstance(item, rctx)
   if (!subData) {
     if (frame === 0) {
       log.warn('renderCompositionItem: no subCompRenderData found', {
@@ -115,6 +116,7 @@ export async function renderCompositionItem(
       bitmapMask?: OffscreenCanvas
       inverted: boolean
       feather: number
+      opacity: number
       maskType: 'clip' | 'alpha'
       trackOrder: number
     }> = []
@@ -176,7 +178,7 @@ export async function renderCompositionItem(
         }
         // Adjustment layers are applied via getAdjustmentLayerEffects; they
         // are not renderable visible content themselves.
-        if (subItem.type === 'adjustment') {
+        if (subItem.type === 'adjustment' || subItem.type === 'controller') {
           continue
         }
 
@@ -381,6 +383,7 @@ export function getActiveSubCompMasks(
   bitmapMask?: OffscreenCanvas
   inverted: boolean
   feather: number
+  opacity: number
   maskType: 'clip' | 'alpha'
   trackOrder: number
 }> {
@@ -396,6 +399,7 @@ export function getActiveSubCompMasks(
     bitmapMask?: OffscreenCanvas
     inverted: boolean
     feather: number
+    opacity: number
     maskType: 'clip' | 'alpha'
     trackOrder: number
   }> = []

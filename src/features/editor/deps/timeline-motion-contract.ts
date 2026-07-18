@@ -29,6 +29,7 @@ export {
   duplicateItemsWithTrackChanges,
   moveItems,
   removeItems,
+  setTransformParent,
   trimItemEnd,
   trimItemStart,
   updateItem,
@@ -54,6 +55,7 @@ export {
 } from '@/features/timeline/utils/dropped-media'
 export { resolveDroppedMediaEntriesFromPayload } from '@/features/timeline/utils/drop-execution'
 export {
+  createDefaultControllerItem,
   createDefaultShapeItem,
   createTimelineTemplateItem,
   createTextTemplateItem,

@@ -59,11 +59,11 @@ describe('workspace animation presets storage', () => {
     expect(mocks.writeJsonAtomic).toHaveBeenCalledWith(
       mocks.root,
       ['projects', 'proj-A', 'animation-presets.json'],
-      { version: 1, presets: [preset] },
+      { version: 2, presets: [preset] },
     )
 
     // Reading back the same envelope yields identical sanitized data.
-    mocks.readJson.mockResolvedValue({ version: 1, presets: [preset] })
+    mocks.readJson.mockResolvedValue({ version: 2, presets: [preset] })
     await expect(readAnimationPresets('proj-A')).resolves.toEqual([preset])
     expect(mocks.readJson).toHaveBeenCalledWith(mocks.root, [
       'projects',
@@ -167,6 +167,57 @@ describe('workspace animation presets storage', () => {
       type: 'cubic-bezier',
       bezier: { x1: 0.4, y1: 0, x2: 0.6, y2: 1 },
     })
+  })
+
+  it('round-trips v2 vector motion with temporal velocity and spatial handles', () => {
+    const result = sanitizeAnimationPresets({
+      version: 2,
+      presets: [
+        {
+          id: 'vector-only',
+          name: 'Curved move',
+          sourceItemType: 'shape',
+          properties: [],
+          vectorProperties: [
+            {
+              property: 'position',
+              keyframes: [
+                {
+                  id: 'p0',
+                  frame: 0,
+                  value: { x: -120, y: 20 },
+                  easing: 'linear',
+                  temporalEase: { out: { speed: 220, influence: 45 } },
+                  spatial: {
+                    inTangent: { x: 0, y: 0 },
+                    outTangent: { x: 60, y: -40 },
+                    continuous: false,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.properties).toEqual([])
+    expect(result[0]?.vectorProperties?.[0]?.keyframes[0]).toMatchObject({
+      value: { x: -120, y: 20 },
+      temporalEase: { out: { speed: 220, influence: 45 } },
+      spatial: {
+        inTangent: { x: 0, y: 0 },
+        outTangent: { x: 60, y: -40 },
+        continuous: false,
+      },
+    })
+  })
+
+  it('continues loading legacy v1 scalar-only preset files', () => {
+    expect(
+      sanitizeAnimationPresets({ version: 1, presets: [makePreset()] }),
+    ).toEqual([makePreset()])
   })
 
   it('returns an empty set when the file does not exist', async () => {

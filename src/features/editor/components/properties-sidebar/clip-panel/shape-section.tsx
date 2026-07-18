@@ -181,6 +181,9 @@ export function ShapeSection({ items }: ShapeSectionProps) {
       maskFeather: shapeItems.every((i) => (i.maskFeather ?? 10) === (first.maskFeather ?? 10))
         ? (first.maskFeather ?? 10)
         : ('mixed' as const),
+      maskOpacity: shapeItems.every((i) => (i.maskOpacity ?? 100) === (first.maskOpacity ?? 100))
+        ? (first.maskOpacity ?? 100)
+        : ('mixed' as const),
       maskInvert: shapeItems.every((i) => (i.maskInvert ?? false) === (first.maskInvert ?? false))
         ? (first.maskInvert ?? false)
         : ('mixed' as const),
@@ -466,7 +469,8 @@ export function ShapeSection({ items }: ShapeSectionProps) {
         | 'taperEndWidth'
         | 'taperStartLength'
         | 'taperEndLength'
-        | 'maskFeather',
+        | 'maskFeather'
+        | 'maskOpacity',
       value: number,
     ) => {
       updateShapeItems({ [property]: value })
@@ -484,6 +488,7 @@ export function ShapeSection({ items }: ShapeSectionProps) {
         // Set defaults when enabling mask
         maskType: checked ? 'clip' : undefined,
         maskFeather: checked ? 0 : undefined,
+        maskOpacity: checked ? 100 : undefined,
         maskInvert: checked ? false : undefined,
         pathClosed: checked ? true : undefined,
       })
@@ -526,6 +531,25 @@ export function ShapeSection({ items }: ShapeSectionProps) {
       queueMicrotask(() => clearPreview())
     },
     [updateShapeItems, clearPreview],
+  )
+
+  const handleMaskOpacityLiveChange = useCallback(
+    (value: number) => {
+      const previews: Record<string, { maskOpacity: number }> = {}
+      itemIds.forEach((id) => {
+        previews[id] = { maskOpacity: value }
+      })
+      setPropertiesPreviewNew(previews)
+    },
+    [itemIds, setPropertiesPreviewNew],
+  )
+
+  const handleMaskOpacityChange = useCallback(
+    (value: number) => {
+      updateShapeItems({ maskOpacity: value })
+      queueMicrotask(() => clearPreview())
+    },
+    [clearPreview, updateShapeItems],
   )
 
   // Mask invert handler
@@ -1080,6 +1104,20 @@ export function ShapeSection({ items }: ShapeSectionProps) {
               />
             </PropertyRow>
           )}
+
+          <PropertyRow label={t('editor.fillSection.opacity')}>
+            <PropertySliderControl
+              value={sharedValues.maskOpacity}
+              onChange={handleMaskOpacityChange}
+              onLiveChange={handleMaskOpacityLiveChange}
+              min={0}
+              max={100}
+              step={1}
+              unit="%"
+              onReset={() => resetNumericProperty('maskOpacity', 100)}
+              resetLabel={t('editor.shapeSection.resetToDefault')}
+            />
+          </PropertyRow>
 
           {/* Invert Mask */}
           <PropertyRow label={t('editor.shapeSection.invert')}>

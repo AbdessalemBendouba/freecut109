@@ -57,7 +57,7 @@ const page = {
           items: [
             'The **Edit** workspace (`Alt+1`) is the default cutting layout for arranging, trimming, text, shapes, effects, transitions, and preview.',
             'The **Color** workspace (`Alt+2`) focuses on grading, with color wheels, curves, and scopes for the selected clip.',
-            'The **Animate** workspace opens the motion presets and keyframe graph for the selected clip — see [Animate Workspace](animate).',
+            'The **Motion** workspace combines layered compositions, keyframes, graphs, presets, and procedural animation — see [Motion Workspace](motion).',
             'Switch workspaces from the center toolbar tabs; Edit and Color also have keyboard shortcuts.',
           ],
         },

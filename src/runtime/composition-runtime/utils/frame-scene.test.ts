@@ -3,8 +3,10 @@ import {
   createFrameCompositionSceneCache,
   resolveActiveShapeMasksAtFrame,
   resolveFrameCompositionScene,
+  resolveItemTransformAtFrame,
 } from './frame-scene'
 import { resolveCompositionRenderPlan } from './scene-assembly'
+import { createTransformParentBinding } from '@/shared/utils/transform-parenting'
 
 describe('frame scene', () => {
   function createMaskRenderPlan() {
@@ -52,6 +54,68 @@ describe('frame scene', () => {
       transitions: [],
     })
   }
+
+  it('resolves animated parent transforms in the preview runtime', () => {
+    const parentBase = {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      anchorX: 50,
+      anchorY: 50,
+      rotation: 0,
+      opacity: 1,
+      cornerRadius: 0,
+    }
+    const childBase = { ...parentBase, x: 10, width: 20, height: 20, anchorX: 10, anchorY: 10 }
+    const parent = {
+      id: 'controller-1',
+      type: 'controller' as const,
+      controllerKind: 'null' as const,
+      trackId: 'controller-track',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Controller',
+      transform: parentBase,
+    }
+    const child = {
+      id: 'shape-1',
+      type: 'shape' as const,
+      shapeType: 'rectangle' as const,
+      fillColor: '#fff',
+      trackId: 'shape-track',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Shape',
+      transform: childBase,
+      transformParent: createTransformParentBinding({
+        childLocal: childBase,
+        childWorld: childBase,
+        parentItemId: parent.id,
+        parentWorld: parentBase,
+      }),
+    }
+    const parentKeyframes = {
+      itemId: parent.id,
+      properties: [
+        {
+          property: 'x' as const,
+          keyframes: [
+            { id: 'x-1', frame: 0, value: 0, easing: 'linear' as const },
+            { id: 'x-2', frame: 30, value: 100, easing: 'linear' as const },
+          ],
+        },
+      ],
+    }
+    const items = new Map([parent, child].map((item) => [item.id, item]))
+    const resolved = resolveItemTransformAtFrame(child, {
+      canvas: { width: 1920, height: 1080, fps: 30 },
+      frame: 15,
+      getItem: (id) => items.get(id),
+      getKeyframes: (id) => (id === parent.id ? parentKeyframes : undefined),
+    })
+    expect(resolved.x).toBeCloseTo(60)
+  })
 
   it('applies preview path vertices to active path masks', () => {
     const previewVertices = [

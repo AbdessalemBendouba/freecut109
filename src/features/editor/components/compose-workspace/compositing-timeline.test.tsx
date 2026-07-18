@@ -739,6 +739,90 @@ describe('CompositingTimeline', () => {
     expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
   })
 
+  it('shows one ruler range and batch-retimes selected keyframes across layers', () => {
+    const secondTrack = makeTimelineTrack({
+      id: 'layer-track-2',
+      name: 'Circle',
+      kind: 'video',
+      order: 1,
+    })
+    const secondShape: ShapeItem = {
+      ...shape,
+      id: 'shape-2',
+      trackId: secondTrack.id,
+      label: 'Circle',
+    }
+    useItemsStore.getState().setTracks([track, secondTrack])
+    useItemsStore.getState().setItems([shape, secondShape])
+    const firstId = useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 10, 100)
+    const secondId = useKeyframesStore.getState()._addKeyframe(secondShape.id, 'x', 80, 300)
+    useKeyframeSelectionStore.getState().selectKeyframes([
+      { itemId: shape.id, property: 'x', keyframeId: firstId },
+      { itemId: secondShape.id, property: 'x', keyframeId: secondId },
+    ])
+    const animationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1)
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => {})
+
+    render(<CompositingTimeline />)
+
+    const range = screen.getByTestId('motion-selection-retime-range')
+    expect(range).toHaveAttribute('title', expect.stringContaining('across 2 layers'))
+    const startHandle = screen.getByRole('slider', { name: 'Retime selected keyframes start' })
+    vi.spyOn(range.parentElement!, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 28,
+      width: 1000,
+      height: 28,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(startHandle, { pointerId: 9, clientX: 100 })
+    fireEvent.pointerMove(startHandle, { pointerId: 9, clientX: 200 })
+    fireEvent.pointerUp(startHandle, { pointerId: 9, clientX: 200 })
+
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]
+        ?.frame,
+    ).toBe(22)
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[secondShape.id]?.properties[0]?.keyframes[0]
+        ?.frame,
+    ).toBe(80)
+
+    useTimelineCommandStore.getState().undo()
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]
+        ?.frame,
+    ).toBe(10)
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[secondShape.id]?.properties[0]?.keyframes[0]
+        ?.frame,
+    ).toBe(80)
+
+    fireEvent.keyDown(
+      screen.getByRole('slider', { name: 'Retime selected keyframes end' }),
+      { key: 'ArrowRight' },
+    )
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[secondShape.id]?.properties[0]?.keyframes[0]
+        ?.frame,
+    ).toBe(81)
+    useTimelineCommandStore.getState().undo()
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[secondShape.id]?.properties[0]?.keyframes[0]
+        ?.frame,
+    ).toBe(80)
+
+    animationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+  })
+
   it('shows Transform as a collapsible sibling property group', () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))

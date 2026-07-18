@@ -49,6 +49,7 @@ import type {
   ResolvedGpuMediaParticipantSource,
   TransitionParticipantRenderState,
 } from './types'
+import { resolveSubCompRenderDataForInstance } from './composition-instance'
 import {
   GPU_BITMAP_MASK_TEXTURE_CACHE_MAX_BYTES,
   GPU_TEXT_TEXTURE_CACHE_MAX_BYTES,
@@ -850,7 +851,7 @@ async function renderGpuSubCompChildrenToTexture(
 ): Promise<GPUTexture | null> {
   const gpuPipeline = rctx.gpuPipeline
   if (!gpuPipeline) return null
-  const subData = rctx.subCompRenderData.get(participant.item.compositionId)
+  const subData = resolveSubCompRenderDataForInstance(participant.item, rctx)
   const subAdjustmentLayers = subData?.adjustmentLayers ?? []
   if (!subData) return null
   const effectiveRenderSpan = participant.renderSpan ?? getItemRenderTimelineSpan(participant.item)
@@ -889,7 +890,12 @@ async function renderGpuSubCompChildrenToTexture(
     if (occlusionCutoffOrder !== null && track.order > occlusionCutoffOrder) continue
     for (const item of track.items) {
       if (localFrame < item.from || localFrame >= item.from + item.durationInFrames) continue
-      if (item.type === 'adjustment' || (item.type === 'shape' && item.isMask)) continue
+      if (
+        item.type === 'adjustment' ||
+        item.type === 'controller' ||
+        (item.type === 'shape' && item.isMask)
+      )
+        continue
       if (item.blendMode && item.blendMode !== 'normal' && !rctx.gpuMediaBlendPipeline) {
         return null
       }
@@ -1322,7 +1328,7 @@ function renderGpuSubCompMaskToTexture(
     outputHeight: rctx.canvasSettings.height,
     transformRect,
     rotationRad: (mask.transform.rotation * Math.PI) / 180,
-    opacity: 1,
+    opacity: mask.opacity,
     shapeType: mask.shape.shapeType,
     fillColor: [1, 1, 1, 1],
     cornerRadius: mask.shape.cornerRadius,
@@ -1401,6 +1407,7 @@ function getGpuBitmapMaskTextureCacheKey(
     pathVertices: mask.shape.pathVertices,
     maskType: mask.maskType,
     feather: mask.feather,
+    opacity: mask.opacity,
   })
 }
 

@@ -12,9 +12,13 @@
 
 import {
   buildEffectAnimatableProperty,
+  cloneVectorKeyframe,
   parseEffectAnimatableProperty,
   type EasingConfig,
   type EasingType,
+  type VectorAnimatableProperty,
+  type VectorKeyframe,
+  type VectorPropertyKeyframes,
 } from '@/types/keyframe'
 import type { VisualEffect } from '@/types/effects'
 import type { AnimationPreset } from '@/infrastructure/storage'
@@ -36,6 +40,66 @@ export interface ApplyAnimationPresetResult {
   skipped: number
   incompatible: boolean
   reason?: PresetIncompatibilityReason | 'no-item'
+}
+
+const VECTOR_SCALAR_PROPERTIES: Record<
+  VectorAnimatableProperty,
+  ['x', 'y'] | ['width', 'height'] | ['anchorX', 'anchorY']
+> = {
+  position: ['x', 'y'],
+  scale: ['width', 'height'],
+  anchor: ['anchorX', 'anchorY'],
+}
+
+function resolvePresetVectorKeyframes(params: {
+  targetItemId: string
+  keyframes: VectorKeyframe[]
+  anchorFrame: number
+  maxFrame: number
+}): { keyframes: VectorKeyframe[]; applied: number; skipped: number } {
+  const { targetItemId, keyframes, anchorFrame, maxFrame } = params
+  const byFrame = new Map<number, VectorKeyframe>()
+  let applied = 0
+  let skipped = 0
+
+  for (const keyframe of keyframes) {
+    const frame = Math.max(0, Math.min(maxFrame, anchorFrame + keyframe.frame))
+    if (!canAddKeyframeAtFrame(targetItemId, frame)) {
+      skipped += 1
+      continue
+    }
+    byFrame.set(
+      frame,
+      cloneVectorKeyframe(keyframe, { id: crypto.randomUUID(), frame }),
+    )
+    applied += 1
+  }
+
+  return {
+    keyframes: [...byFrame.values()].sort((left, right) => left.frame - right.frame),
+    applied,
+    skipped,
+  }
+}
+
+function mergeVectorPropertyKeyframes(
+  property: VectorAnimatableProperty,
+  existing: VectorKeyframe[],
+  incoming: VectorKeyframe[],
+  replace: boolean,
+): VectorPropertyKeyframes {
+  const byFrame = new Map<number, VectorKeyframe>()
+  if (!replace) {
+    for (const keyframe of existing) byFrame.set(keyframe.frame, keyframe)
+  }
+  for (const keyframe of incoming) {
+    const existingAtFrame = byFrame.get(keyframe.frame)
+    byFrame.set(keyframe.frame, existingAtFrame ? { ...keyframe, id: existingAtFrame.id } : keyframe)
+  }
+  return {
+    property,
+    keyframes: [...byFrame.values()].sort((left, right) => left.frame - right.frame),
+  }
 }
 
 /**
@@ -172,6 +236,35 @@ export function applyAnimationPreset(
       }
     }
     applied = keyframesStore._addKeyframes(payloads).length
+  }
+
+  const keyframesStore = useKeyframesStore.getState()
+  for (const property of preset.vectorProperties ?? []) {
+    const resolved = resolvePresetVectorKeyframes({
+      targetItemId,
+      keyframes: property.keyframes,
+      anchorFrame,
+      maxFrame,
+    })
+    skipped += resolved.skipped
+    if (resolved.keyframes.length === 0) continue
+
+    const existing =
+      keyframesStore
+        .getKeyframesForItem(targetItemId)
+        ?.vectorProperties?.find((candidate) => candidate.property === property.property)
+        ?.keyframes ?? []
+    keyframesStore._replaceScalarPropertiesWithVectorProperty(
+      targetItemId,
+      mergeVectorPropertyKeyframes(
+        property.property,
+        existing,
+        resolved.keyframes,
+        options.replace === true,
+      ),
+      VECTOR_SCALAR_PROPERTIES[property.property],
+    )
+    applied += resolved.applied
   }
 
   if (applied > 0 || addedEffects > 0) {

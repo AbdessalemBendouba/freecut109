@@ -9,14 +9,14 @@ const page = {
   related: ['animate', 'keyframes', 'concepts'],
   sections: [
     {
-      title: 'Motion and Animate solve different jobs',
+      title: 'One workspace for the whole motion job',
       blocks: [
         {
           kind: 'list',
           items: [
-            '**Animate** edits keyframes and motion presets for clips selected on a regular sequence.',
-            '**Motion** keeps the media library, preview, and properties visible while swapping the lower dock to a layer timeline.',
-            'Switching to Motion never converts or replaces the regular sequence timeline.',
+            '**Motion** keeps the media library, composition preview, layer timeline, properties, keyframes, graphs, and motion library together.',
+            'Select a layer and open the inspector’s **Motion** tab for presets, procedural generators, text motion, baking, and saved animations.',
+            'Switching to Motion never converts or replaces the regular sequence timeline; it opens the active reusable composition.',
           ],
         },
       ],
@@ -59,7 +59,7 @@ const page = {
       blocks: [
         {
           kind: 'paragraph',
-          text: 'A 2D composition remains a reusable composition asset. Place it in a regular sequence to trim and arrange it like a clip. Open its internal layers in Motion, or select the composition clip in Animate to animate the whole result as one object.',
+          text: 'A 2D composition remains a reusable composition asset. Place it in a regular sequence to trim and arrange it like a clip. Open its internal layers in Motion, or animate the composition instance as one object through its Motion properties.',
         },
         {
           kind: 'note',

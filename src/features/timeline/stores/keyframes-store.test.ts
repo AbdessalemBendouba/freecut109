@@ -151,6 +151,107 @@ describe('useKeyframesStore', () => {
 
       expect(useKeyframesStore.getState().keyframes).toBe(before)
     })
+
+    it('retimes coupled vector keyframes with the scalar lanes', () => {
+      useKeyframesStore.getState().setKeyframes([
+        {
+          itemId: 'item-1',
+          animationVersion: 2,
+          properties: [],
+          vectorProperties: [
+            {
+              property: 'position',
+              keyframes: [
+                { id: 'p1', frame: 0, value: { x: 0, y: 0 }, easing: 'linear' },
+                { id: 'p2', frame: 50, value: { x: 100, y: 200 }, easing: 'linear' },
+              ],
+            },
+          ],
+        },
+      ])
+
+      useKeyframesStore.getState()._scaleKeyframesForItem('item-1', 100, 200)
+
+      expect(
+        useKeyframesStore
+          .getState()
+          .getVectorKeyframesForProperty('item-1', 'position')
+          .map((keyframe) => keyframe.frame),
+      ).toEqual([0, 100])
+    })
+  })
+
+  describe('Animation Core v2 vector mutations', () => {
+    it('atomically replaces legacy scalar lanes during vector promotion', () => {
+      useKeyframesStore.getState().setKeyframes([
+        {
+          itemId: 'item-1',
+          properties: [
+            { property: 'x', keyframes: [makeKeyframe('x', 0, 10)] },
+            { property: 'y', keyframes: [makeKeyframe('y', 0, 20)] },
+            { property: 'rotation', keyframes: [makeKeyframe('r', 0, 45)] },
+          ],
+        },
+      ])
+
+      useKeyframesStore.getState()._replaceScalarPropertiesWithVectorProperty(
+        'item-1',
+        {
+          property: 'position',
+          keyframes: [{ id: 'position', frame: 0, value: { x: 10, y: 20 }, easing: 'linear' }],
+        },
+        ['x', 'y'],
+      )
+
+      expect(useKeyframesStore.getState().getKeyframesForItem('item-1')).toMatchObject({
+        animationVersion: 2,
+        properties: [{ property: 'rotation' }],
+        vectorProperties: [{ property: 'position' }],
+      })
+    })
+
+    it('creates and upserts a coupled Position keyframe at one frame', () => {
+      const firstId = useKeyframesStore.getState()._upsertVectorKeyframe('item-1', 'position', {
+        frame: 12,
+        value: { x: 10, y: 20 },
+        easing: 'linear',
+      })
+      const secondId = useKeyframesStore.getState()._upsertVectorKeyframe('item-1', 'position', {
+        frame: 12,
+        value: { x: 30, y: 40 },
+        easing: 'ease-out',
+      })
+
+      expect(secondId).toBe(firstId)
+      expect(useKeyframesStore.getState().getKeyframesForItem('item-1')).toMatchObject({
+        animationVersion: 2,
+        properties: [],
+        vectorProperties: [
+          {
+            property: 'position',
+            keyframes: [
+              {
+                id: firstId,
+                frame: 12,
+                value: { x: 30, y: 40 },
+                easing: 'ease-out',
+              },
+            ],
+          },
+        ],
+      })
+    })
+
+    it('removes an empty vector-only animation record', () => {
+      const id = useKeyframesStore.getState()._upsertVectorKeyframe('item-1', 'scale', {
+        frame: 0,
+        value: { x: 100, y: 100 },
+      })
+
+      useKeyframesStore.getState()._removeVectorKeyframe('item-1', 'scale', id)
+
+      expect(useKeyframesStore.getState().getKeyframesForItem('item-1')).toBeUndefined()
+    })
   })
 
   describe('_moveKeyframes', () => {

@@ -347,7 +347,7 @@ export const HOTKEY_DESCRIPTIONS: Record<HotkeyKey, string> = {
   OPEN_SCENE_BROWSER: "Open Scene Browser (search AI captions)",
   WORKSPACE_EDIT: "Switch to Edit workspace",
   WORKSPACE_COLOR: "Switch to Color workspace",
-  WORKSPACE_ANIMATE: "Switch to Animate workspace",
+  WORKSPACE_ANIMATE: "Switch to Motion workspace",
 
   // Markers
   ADD_MARKER: "Add marker at playhead",

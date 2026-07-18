@@ -82,7 +82,7 @@ const page = {
         {
           kind: 'note',
           tone: 'info',
-          text: 'The Animate workspace has no default shortcut — open it from its toolbar tab.',
+          text: 'Use `Alt+1` for Edit, `Alt+2` for Color, and `Alt+3` for Motion.',
         },
       ],
     },

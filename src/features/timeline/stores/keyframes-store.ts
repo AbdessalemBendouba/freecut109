@@ -8,7 +8,12 @@ import type {
   KeyframeRef,
   LinkableAnimatableProperty,
   LinkedPropertyExpression,
+  Vector2,
+  VectorAnimatableProperty,
+  VectorKeyframe,
+  VectorPropertyKeyframes,
 } from '@/types/keyframe'
+import { ANIMATION_CORE_VERSION } from '@/types/keyframe'
 
 /**
  * Keyframes state - animation keyframes for timeline items.
@@ -45,6 +50,15 @@ export interface KeyframeAddPayload {
   easingConfig?: EasingConfig
 }
 
+export interface VectorKeyframeInput {
+  frame: number
+  value: Vector2
+  easing?: EasingType
+  easingConfig?: EasingConfig
+  temporalEase?: VectorKeyframe['temporalEase']
+  spatial?: VectorKeyframe['spatial']
+}
+
 interface KeyframesActions {
   // Bulk setter for snapshot restore
   setKeyframes: (keyframes: ItemKeyframes[]) => void
@@ -71,6 +85,27 @@ interface KeyframesActions {
   _removeKeyframesForProperty: (itemId: string, property: AnimatableProperty) => void
   _setLinkedPropertyExpression: (itemId: string, expression: LinkedPropertyExpression) => void
   _removeLinkedPropertyExpression: (itemId: string, property: LinkableAnimatableProperty) => void
+  _upsertVectorKeyframe: (
+    itemId: string,
+    property: VectorAnimatableProperty,
+    input: VectorKeyframeInput,
+  ) => string
+  _updateVectorKeyframe: (
+    itemId: string,
+    property: VectorAnimatableProperty,
+    keyframeId: string,
+    updates: Partial<Omit<VectorKeyframe, 'id'>>,
+  ) => void
+  _removeVectorKeyframe: (
+    itemId: string,
+    property: VectorAnimatableProperty,
+    keyframeId: string,
+  ) => void
+  _replaceScalarPropertiesWithVectorProperty: (
+    itemId: string,
+    vectorProperty: VectorPropertyKeyframes,
+    removeScalarProperties: readonly AnimatableProperty[],
+  ) => void
   _scaleKeyframesForItem: (itemId: string, oldDuration: number, newDuration: number) => void
 
   // Batch operations for multi-keyframe manipulation
@@ -93,6 +128,10 @@ interface KeyframesActions {
   ) => Keyframe | undefined
   getAllKeyframesForProperty: (itemId: string, property: AnimatableProperty) => Keyframe[]
   hasKeyframesAtFrame: (itemId: string, property: AnimatableProperty, frame: number) => boolean
+  getVectorKeyframesForProperty: (
+    itemId: string,
+    property: VectorAnimatableProperty,
+  ) => VectorKeyframe[]
 }
 
 function buildKeyframesByItemId(keyframes: ItemKeyframes[]): Record<string, ItemKeyframes> {
@@ -103,11 +142,11 @@ function buildKeyframesByItemId(keyframes: ItemKeyframes[]): Record<string, Item
   return map
 }
 
-function dedupeKeyframesByFrame(
-  keyframes: Keyframe[],
+function dedupeKeyframesByFrame<T extends { id: string; frame: number }>(
+  keyframes: T[],
   preferredIds: ReadonlySet<string> = new Set(),
-): Keyframe[] {
-  const frameMap = new Map<number, Keyframe>()
+): T[] {
+  const frameMap = new Map<number, T>()
 
   for (const keyframe of keyframes) {
     const existing = frameMap.get(keyframe.frame)
@@ -129,8 +168,34 @@ function dedupeKeyframesByFrame(
 function hasStoredAnimation(itemKeyframes: ItemKeyframes): boolean {
   return (
     itemKeyframes.properties.some((property) => property.keyframes.length > 0) ||
+    (itemKeyframes.vectorProperties?.some((property) => property.keyframes.length > 0) ?? false) ||
     (itemKeyframes.expressions?.length ?? 0) > 0
   )
+}
+
+function scaleFrameKeyframes<T extends { id: string; frame: number }>(
+  keyframes: T[],
+  scaleFactor: number,
+  maxFrame: number,
+): T[] {
+  const originalFrameById = new Map(keyframes.map((keyframe) => [keyframe.id, keyframe.frame]))
+  const frameMap = new Map<number, T>()
+
+  for (const keyframe of keyframes) {
+    const scaled = {
+      ...keyframe,
+      frame: Math.min(maxFrame, Math.max(0, Math.round(keyframe.frame * scaleFactor))),
+    }
+    const existing = frameMap.get(scaled.frame)
+    if (
+      !existing ||
+      (originalFrameById.get(scaled.id) ?? -1) > (originalFrameById.get(existing.id) ?? -1)
+    ) {
+      frameMap.set(scaled.frame, scaled)
+    }
+  }
+
+  return Array.from(frameMap.values()).sort((left, right) => left.frame - right.frame)
 }
 
 export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((set, get) => ({
@@ -168,6 +233,7 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
                 ik.itemId === itemId
                   ? {
                       ...ik,
+                      animationVersion: ANIMATION_CORE_VERSION,
                       properties: ik.properties.map((pk) =>
                         pk.property === property
                           ? {
@@ -190,6 +256,7 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
               ik.itemId === itemId
                 ? {
                     ...ik,
+                    animationVersion: ANIMATION_CORE_VERSION,
                     properties: ik.properties.map((pk) =>
                       pk.property === property
                         ? {
@@ -212,6 +279,7 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
             ik.itemId === itemId
               ? {
                   ...ik,
+                  animationVersion: ANIMATION_CORE_VERSION,
                   properties: [...ik.properties, { property, keyframes: [newKeyframe] }],
                 }
               : ik,
@@ -225,6 +293,7 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
           ...state.keyframes,
           {
             itemId,
+            animationVersion: ANIMATION_CORE_VERSION,
             properties: [{ property, keyframes: [newKeyframe] }],
           },
         ],
@@ -278,7 +347,13 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
               }
 
               newKeyframes = newKeyframes.map((ik, idx) =>
-                idx === existingItemIndex ? { ...existingItem, properties: updatedProperties } : ik,
+                idx === existingItemIndex
+                  ? {
+                      ...existingItem,
+                      animationVersion: ANIMATION_CORE_VERSION,
+                      properties: updatedProperties,
+                    }
+                  : ik,
               )
             } else {
               // Add new keyframe to existing property
@@ -294,7 +369,13 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
               }
 
               newKeyframes = newKeyframes.map((ik, idx) =>
-                idx === existingItemIndex ? { ...existingItem, properties: updatedProperties } : ik,
+                idx === existingItemIndex
+                  ? {
+                      ...existingItem,
+                      animationVersion: ANIMATION_CORE_VERSION,
+                      properties: updatedProperties,
+                    }
+                  : ik,
               )
             }
           } else {
@@ -306,7 +387,13 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
             newIds.push(keyframeId)
 
             newKeyframes = newKeyframes.map((ik, idx) =>
-              idx === existingItemIndex ? { ...existingItem, properties: updatedProperties } : ik,
+              idx === existingItemIndex
+                ? {
+                    ...existingItem,
+                    animationVersion: ANIMATION_CORE_VERSION,
+                    properties: updatedProperties,
+                  }
+                : ik,
             )
           }
         } else {
@@ -316,6 +403,7 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
             ...newKeyframes,
             {
               itemId,
+              animationVersion: ANIMATION_CORE_VERSION,
               properties: [{ property, keyframes: [newKeyframe] }],
             },
           ]
@@ -376,7 +464,13 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
     set((state) => ({
       keyframes: state.keyframes
         .map((itemKeyframes) =>
-          itemKeyframes.itemId === itemId ? { ...itemKeyframes, properties: [] } : itemKeyframes,
+          itemKeyframes.itemId === itemId
+            ? {
+                ...itemKeyframes,
+                properties: [],
+                ...(itemKeyframes.vectorProperties && { vectorProperties: [] }),
+              }
+            : itemKeyframes,
         )
         .filter(hasStoredAnimation),
     })),
@@ -416,7 +510,15 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
       const existing = state.keyframes.find((itemKeyframes) => itemKeyframes.itemId === itemId)
       if (!existing) {
         return {
-          keyframes: [...state.keyframes, { itemId, properties: [], expressions: [expression] }],
+          keyframes: [
+            ...state.keyframes,
+            {
+              itemId,
+              animationVersion: ANIMATION_CORE_VERSION,
+              properties: [],
+              expressions: [expression],
+            },
+          ],
         }
       }
 
@@ -425,6 +527,7 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
           itemKeyframes.itemId === itemId
             ? {
                 ...itemKeyframes,
+                animationVersion: ANIMATION_CORE_VERSION,
                 expressions: [
                   ...(itemKeyframes.expressions ?? []).filter(
                     (candidate) => candidate.targetProperty !== expression.targetProperty,
@@ -453,6 +556,170 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
         .filter(hasStoredAnimation),
     })),
 
+  _upsertVectorKeyframe: (itemId, property, input) => {
+    const newId = crypto.randomUUID()
+    let resultingId: string = newId
+    const newKeyframe: VectorKeyframe = {
+      id: newId,
+      frame: input.frame,
+      value: input.value,
+      easing: input.easing ?? 'linear',
+      easingConfig: input.easingConfig,
+      temporalEase: input.temporalEase,
+      spatial: input.spatial,
+    }
+
+    set((state) => {
+      const existingItem = state.keyframes.find((candidate) => candidate.itemId === itemId)
+      if (!existingItem) {
+        return {
+          keyframes: [
+            ...state.keyframes,
+            {
+              itemId,
+              animationVersion: ANIMATION_CORE_VERSION,
+              properties: [],
+              vectorProperties: [{ property, keyframes: [newKeyframe] }],
+            },
+          ],
+        }
+      }
+
+      const existingProperty = existingItem.vectorProperties?.find(
+        (candidate) => candidate.property === property,
+      )
+      const existingAtFrame = existingProperty?.keyframes.find(
+        (keyframe) => keyframe.frame === input.frame,
+      )
+      if (existingAtFrame) resultingId = existingAtFrame.id
+
+      return {
+        keyframes: state.keyframes.map((itemKeyframes) => {
+          if (itemKeyframes.itemId !== itemId) return itemKeyframes
+
+          const vectorProperties = itemKeyframes.vectorProperties ?? []
+          if (!existingProperty) {
+            return {
+              ...itemKeyframes,
+              animationVersion: ANIMATION_CORE_VERSION,
+              vectorProperties: [...vectorProperties, { property, keyframes: [newKeyframe] }],
+            }
+          }
+
+          return {
+            ...itemKeyframes,
+            animationVersion: ANIMATION_CORE_VERSION,
+            vectorProperties: vectorProperties.map((candidate) =>
+              candidate.property === property
+                ? {
+                    ...candidate,
+                    keyframes: existingAtFrame
+                      ? candidate.keyframes.map((keyframe) =>
+                          keyframe.frame === input.frame
+                            ? { ...newKeyframe, id: keyframe.id }
+                            : keyframe,
+                        )
+                      : [...candidate.keyframes, newKeyframe].sort(
+                          (left, right) => left.frame - right.frame,
+                        ),
+                  }
+                : candidate,
+            ),
+          }
+        }),
+      }
+    })
+
+    return resultingId
+  },
+
+  _updateVectorKeyframe: (itemId, property, keyframeId, updates) =>
+    set((state) => ({
+      keyframes: state.keyframes.map((itemKeyframes) =>
+        itemKeyframes.itemId === itemId
+          ? {
+              ...itemKeyframes,
+              animationVersion: ANIMATION_CORE_VERSION,
+              vectorProperties: itemKeyframes.vectorProperties?.map((candidate) =>
+                candidate.property === property
+                  ? {
+                      ...candidate,
+                      keyframes: dedupeKeyframesByFrame(
+                        candidate.keyframes.map((keyframe) =>
+                          keyframe.id === keyframeId ? { ...keyframe, ...updates } : keyframe,
+                        ),
+                        new Set([keyframeId]),
+                      ),
+                    }
+                  : candidate,
+              ),
+            }
+          : itemKeyframes,
+      ),
+    })),
+
+  _removeVectorKeyframe: (itemId, property, keyframeId) =>
+    set((state) => ({
+      keyframes: state.keyframes
+        .map((itemKeyframes) =>
+          itemKeyframes.itemId === itemId
+            ? {
+                ...itemKeyframes,
+                vectorProperties: itemKeyframes.vectorProperties?.map((candidate) =>
+                  candidate.property === property
+                    ? {
+                        ...candidate,
+                        keyframes: candidate.keyframes.filter(
+                          (keyframe) => keyframe.id !== keyframeId,
+                        ),
+                      }
+                    : candidate,
+                ),
+              }
+            : itemKeyframes,
+        )
+        .filter(hasStoredAnimation),
+    })),
+
+  _replaceScalarPropertiesWithVectorProperty: (itemId, vectorProperty, removeScalarProperties) =>
+    set((state) => {
+      const removeSet = new Set(removeScalarProperties)
+      const existing = state.keyframes.find((itemKeyframes) => itemKeyframes.itemId === itemId)
+      if (!existing) {
+        return {
+          keyframes: [
+            ...state.keyframes,
+            {
+              itemId,
+              animationVersion: ANIMATION_CORE_VERSION,
+              properties: [],
+              vectorProperties: [vectorProperty],
+            },
+          ],
+        }
+      }
+
+      return {
+        keyframes: state.keyframes.map((itemKeyframes) =>
+          itemKeyframes.itemId === itemId
+            ? {
+                ...itemKeyframes,
+                animationVersion: ANIMATION_CORE_VERSION,
+                properties: itemKeyframes.properties.filter(
+                  (property) => !removeSet.has(property.property),
+                ),
+                vectorProperties: [
+                  ...(itemKeyframes.vectorProperties ?? []).filter(
+                    (property) => property.property !== vectorProperty.property,
+                  ),
+                  vectorProperty,
+                ],
+              }
+            : itemKeyframes,
+        ),
+      }
+    }),
+
   // Scale keyframes when item duration changes (rate stretch)
   // Scales frame positions proportionally: newFrame = oldFrame * (newDuration / oldDuration)
   // Handles edge cases:
@@ -478,44 +745,15 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
             ...ik,
             properties: ik.properties.map((pk) => {
               if (pk.keyframes.length === 0) return pk
-
-              // Scale each keyframe's frame position
-              const scaledKeyframes = pk.keyframes.map((kf) => ({
-                ...kf,
-                // Scale and round, but clamp to valid range
-                frame: Math.min(maxFrame, Math.max(0, Math.round(kf.frame * scaleFactor))),
-              }))
-
-              // Handle collisions: when multiple keyframes land on the same frame,
-              // keep the one that was originally later (higher original frame)
-              // This preserves the "destination" value of an animation
-              const frameMap = new Map<number, Keyframe>()
-              for (const kf of scaledKeyframes) {
-                const existing = frameMap.get(kf.frame)
-                if (!existing) {
-                  frameMap.set(kf.frame, kf)
-                } else {
-                  // Find original frames to determine which was later
-                  const existingOriginal = pk.keyframes.find((k) => k.id === existing.id)
-                  const currentOriginal = pk.keyframes.find((k) => k.id === kf.id)
-                  if (
-                    existingOriginal &&
-                    currentOriginal &&
-                    currentOriginal.frame > existingOriginal.frame
-                  ) {
-                    frameMap.set(kf.frame, kf)
-                  }
-                }
-              }
-
-              // Convert back to sorted array
-              const deduped = Array.from(frameMap.values()).sort((a, b) => a.frame - b.frame)
-
               return {
                 ...pk,
-                keyframes: deduped,
+                keyframes: scaleFrameKeyframes(pk.keyframes, scaleFactor, maxFrame),
               }
             }),
+            vectorProperties: ik.vectorProperties?.map((property) => ({
+              ...property,
+              keyframes: scaleFrameKeyframes(property.keyframes, scaleFactor, maxFrame),
+            })),
           }
         }),
       }
@@ -694,6 +932,14 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
     if (!propKeyframes) return false
 
     return propKeyframes.keyframes.some((k) => k.frame === frame)
+  },
+
+  getVectorKeyframesForProperty: (itemId, property) => {
+    return (
+      get().keyframesByItemId[itemId]?.vectorProperties?.find(
+        (candidate) => candidate.property === property,
+      )?.keyframes ?? []
+    )
   },
 }))
 

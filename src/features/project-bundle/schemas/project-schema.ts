@@ -20,6 +20,7 @@ const easingTypeSchema = z.enum([
   'ease-in',
   'ease-out',
   'ease-in-out',
+  'hold',
   'cubic-bezier',
   'spring',
 ])
@@ -58,9 +59,57 @@ const propertyKeyframesSchema = z.object({
   keyframes: z.array(keyframeSchema),
 })
 
+const vector2Schema = z.object({
+  x: z.number(),
+  y: z.number(),
+})
+
+const temporalEaseHandleSchema = z.object({
+  speed: z.number().min(0),
+  influence: z.number().min(0).max(100),
+})
+
+const temporalEaseSchema = z.object({
+  in: temporalEaseHandleSchema.optional(),
+  out: temporalEaseHandleSchema.optional(),
+})
+
+const spatialBezierTangentsSchema = z.object({
+  inTangent: vector2Schema,
+  outTangent: vector2Schema,
+  continuous: z.boolean().optional(),
+})
+
+const vectorKeyframeSchema = z.object({
+  id: z.string().min(1),
+  frame: z.number().int().min(0),
+  value: vector2Schema,
+  easing: easingTypeSchema,
+  easingConfig: easingConfigSchema.optional(),
+  temporalEase: temporalEaseSchema.optional(),
+  spatial: spatialBezierTangentsSchema.optional(),
+})
+
+const vectorPropertyKeyframesSchema = z.object({
+  property: z.enum(['position', 'scale', 'anchor']),
+  keyframes: z.array(vectorKeyframeSchema),
+})
+
+const linkedPropertyExpressionSchema = z.object({
+  type: z.literal('link'),
+  targetProperty: animatablePropertySchema,
+  sourceItemId: z.string().min(1),
+  sourceProperty: animatablePropertySchema,
+  enabled: z.boolean(),
+  timeOffsetFrames: z.number(),
+})
+
 const itemKeyframesSchema = z.object({
   itemId: z.string().min(1),
+  animationVersion: z.literal(2).optional(),
   properties: z.array(propertyKeyframesSchema),
+  vectorProperties: z.array(vectorPropertyKeyframesSchema).optional(),
+  expressions: z.array(linkedPropertyExpressionSchema).optional(),
 })
 
 // ============================================================================
@@ -75,6 +124,7 @@ const itemTypeSchema = z.enum([
   'shape',
   'composition',
   'adjustment',
+  'controller',
   'subtitle',
 ])
 
@@ -320,6 +370,21 @@ const transformSchema = z.object({
   aspectRatioLocked: z.boolean().optional(),
 })
 
+const transformReferenceSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number().positive(),
+  height: z.number().positive(),
+  rotation: z.number(),
+})
+
+const transformParentSchema = z.object({
+  parentItemId: z.string().min(1).optional(),
+  parentReference: transformReferenceSchema.optional(),
+  childLocalReference: transformReferenceSchema,
+  childWorldReference: transformReferenceSchema,
+})
+
 const cropSchema = z.object({
   left: z.number().min(0).max(1).optional(),
   right: z.number().min(0).max(1).optional(),
@@ -335,6 +400,25 @@ const cornerPinSchema = z.object({
   bottomLeft: z.tuple([z.number(), z.number()]),
   referenceWidth: z.number().positive().optional(),
   referenceHeight: z.number().positive().optional(),
+})
+
+const compositionControlSchema = z.object({
+  version: z.literal(1),
+  controls: z.array(
+    z.object({
+      id: z.string().min(1),
+      name: z.string().min(1),
+      targetItemId: z.string().min(1),
+      property: z.enum([
+        'text.text',
+        'text.color',
+        'shape.fillColor',
+        'shape.strokeColor',
+      ]),
+      kind: z.enum(['text', 'color']),
+      defaultValue: z.string(),
+    }),
+  ),
 })
 
 const timelineItemSchema = z
@@ -409,6 +493,7 @@ const timelineItemSchema = z
     isMask: z.boolean().optional(),
     maskType: maskTypeSchema.optional(),
     maskFeather: z.number().min(0).max(100).optional(),
+    maskOpacity: z.number().min(0).max(100).optional(),
     maskInvert: z.boolean().optional(),
     // Speed
     speed: z.number().min(0.1).max(10).optional(),
@@ -417,6 +502,8 @@ const timelineItemSchema = z
     sourceHeight: z.number().optional(),
     // Transform
     transform: transformSchema.optional(),
+    transformParent: transformParentSchema.optional(),
+    controllerKind: z.literal('null').optional(),
     crop: cropSchema.optional(),
     // Audio properties
     volume: z.number().min(-60).max(12).optional(),
@@ -478,6 +565,7 @@ const timelineItemSchema = z
     // Composition item fields
     compositionWidth: z.number().optional(),
     compositionHeight: z.number().optional(),
+    compositionControlOverrides: z.record(z.string(), z.string()).optional(),
     // Layer compositing
     blendMode: z.string().optional(),
     cornerPin: cornerPinSchema.optional(),
@@ -559,6 +647,7 @@ const compositionSchema = z
     height: z.number().int().min(1).max(4320),
     durationInFrames: z.number().int().min(1),
     backgroundColor: z.string().optional(),
+    compositionControls: compositionControlSchema.optional(),
     markers: z.array(markerSchema).optional(),
     inPoint: z.number().int().min(0).optional(),
     outPoint: z.number().int().min(0).optional(),
@@ -659,6 +748,7 @@ const animationPresetSchema = z
     name: z.string(),
     sourceItemType: itemTypeSchema,
     properties: z.array(animationPresetPropertySchema),
+    vectorProperties: z.array(vectorPropertyKeyframesSchema).optional(),
     effects: z.array(gpuEffectSchema).optional(),
     sourceDurationInFrames: z.number().optional(),
     createdAt: z.number().optional(),
@@ -668,7 +758,7 @@ const animationPresetSchema = z
 /** The animation presets sidecar file (`animation-presets.json`). */
 const animationPresetsFileSchema = z
   .object({
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     presets: z.array(animationPresetSchema),
   })
   .passthrough()

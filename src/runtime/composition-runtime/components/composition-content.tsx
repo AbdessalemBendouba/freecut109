@@ -11,7 +11,6 @@ import type {
   ShapeItem,
 } from '@/types/timeline'
 import type { ResolvedAudioEqSettings } from '@/types/audio'
-import type { ResolvedTransform } from '@/types/transform'
 import { useCompositionsStore } from '@/runtime/composition-runtime/deps/stores'
 import { blobUrlManager, useBlobUrlVersion } from '@/infrastructure/browser/blob-url-manager'
 import { VideoConfigProvider } from '@/runtime/composition-runtime/deps/player'
@@ -21,11 +20,7 @@ import {
   mapSourceWindowOverlap,
   timelineToSourceFrames,
 } from '@/runtime/composition-runtime/deps/timeline'
-import { resolveTransform, getSourceDimensions } from '../utils/transform-resolver'
-import {
-  resolveAnimatedTransform,
-  hasKeyframeAnimation,
-} from '@/runtime/composition-runtime/deps/keyframes'
+import { hasKeyframeAnimation } from '@/runtime/composition-runtime/deps/keyframes'
 import { KeyframesProvider } from '../contexts/keyframes-context'
 import { KeyframesContext } from '../contexts/keyframes-context-core'
 import { useRuntimeItemKeyframes } from './hooks/use-runtime-item-keyframes'
@@ -40,7 +35,7 @@ import { appendResolvedAudioEqSources } from '@/shared/utils/audio-eq'
 import { ItemContent } from './item-content'
 import type { MaskInfo, RenderCompositionContentProps } from './item-content'
 import { StableVideoSequence, type StableVideoSequenceItem } from './stable-video-sequence'
-import { resolveActiveShapeMasksAtFrame } from '../utils/frame-scene'
+import { resolveActiveShapeMasksAtFrame, resolveItemTransformAtFrame } from '../utils/frame-scene'
 import {
   EMPTY_MASK_INFOS,
   getMasksForTrackOrder,
@@ -51,6 +46,7 @@ import { collectVisibleTextFontFamilies, resolveTrackRenderState } from '../util
 import { getLinkedVideoIdsWithAudio, hasLinkedAudioCompanion } from '@/shared/utils/linked-media'
 import { resolveProxyUrl } from '@/runtime/composition-runtime/deps/media-library'
 import { loadFonts } from '../utils/fonts'
+import { applyCompositionControlOverrides } from '@/shared/utils/composition-controls'
 
 const EMPTY_AUDIO_EQ_STAGES: ResolvedAudioEqSettings[] = []
 type TrackRenderState = ReturnType<typeof resolveTrackRenderState>
@@ -229,12 +225,18 @@ export const CompositionContent = React.memo<CompositionContentProps>(
 
     // Re-render when blob URLs are acquired (fixes media not loading on project load)
     const blobUrlVersion = useBlobUrlVersion()
+    const compositionControlOverrides =
+      item.type === 'composition' ? item.compositionControlOverrides : undefined
 
     // Resolve media URLs for sub-comp items so they can render in preview
     const resolvedItems = useMemo(() => {
       void blobUrlVersion
       if (!subComp) return []
-      return subComp.items
+      return applyCompositionControlOverrides(
+        subComp.items,
+        subComp.compositionControls,
+        compositionControlOverrides,
+      )
         .map((subItem) => resolveSubCompItem(subItem, nestedMediaResolutionMode))
         .flatMap((subItem) => {
           const mapped = mapSubCompItemToWrapperWindow({
@@ -245,7 +247,14 @@ export const CompositionContent = React.memo<CompositionContentProps>(
           })
           return mapped ? [mapped] : []
         })
-    }, [blobUrlVersion, mainFps, nestedMediaResolutionMode, subComp, wrapperWindow])
+    }, [
+      blobUrlVersion,
+      compositionControlOverrides,
+      mainFps,
+      nestedMediaResolutionMode,
+      subComp,
+      wrapperWindow,
+    ])
 
     // === Compute parent container dimensions ===
     // Replicates the same priority chain as useItemVisualState:
@@ -253,20 +262,18 @@ export const CompositionContent = React.memo<CompositionContentProps>(
     //
     // Granular selectors: extract only the values we need to avoid
     // re-renders when unrelated gizmo store fields change reference.
-    const isGizmoTarget = useGizmoStore(
-      useCallback((s) => s.activeGizmo?.itemId === item.id, [item.id]),
-    )
-    const previewTransform = useGizmoStore(
-      useCallback(
-        (s) => (s.activeGizmo?.itemId === item.id ? s.previewTransform : null),
-        [item.id],
-      ),
-    )
+    const activeGizmoItemId = useGizmoStore((state) => state.activeGizmo?.itemId)
+    const liveGizmoPreview = useGizmoStore((state) => state.previewTransform)
     const itemPreview = useGizmoStore(useCallback((s) => s.preview?.[item.id], [item.id]))
+    const allItemPreviews = useGizmoStore((state) => state.preview)
 
     const itemKeyframes = useRuntimeItemKeyframes(item.id)
     const keyframesContext = React.useContext(KeyframesContext)
     const hasAnimatedKeyframes = !!(itemKeyframes && hasKeyframeAnimation(itemKeyframes))
+    const hasAnimatedTransform =
+      hasAnimatedKeyframes ||
+      !!item.transformParent?.parentItemId ||
+      !!item.motionModifiers?.some((modifier) => modifier.enabled)
 
     const sequenceContext = useSequenceContext()
     const frame = sequenceContext?.localFrame ?? 0
@@ -288,50 +295,26 @@ export const CompositionContent = React.memo<CompositionContentProps>(
     // During overlay playback the container transform is occluded by the GPU overlay,
     // so freeze it at the pre-playback frame (subCompFrame above stays live so the
     // nested tree keeps mounting/playing the right items for the overlay to sample).
-    const keyframeFrame = hasAnimatedKeyframes ? visualFrame : 0
+    const keyframeFrame = hasAnimatedTransform ? visualFrame : 0
 
     const containerDims = useMemo(() => {
       const canvas = { width: projectWidth, height: projectHeight, fps: mainFps }
-      const sourceDims = getSourceDimensions(item)
-      const baseResolved = resolveTransform(item, canvas, sourceDims)
-
-      // Apply keyframe animation if present
-      let animatedResolved = baseResolved
-      if (hasAnimatedKeyframes) {
-        animatedResolved = resolveAnimatedTransform(
-          baseResolved,
-          itemKeyframes!,
-          keyframeFrame,
-          keyframesContext
-            ? {
-                globalFrame: item.from + keyframeFrame,
-                canvas,
-                getItem: keyframesContext.getItem,
-                getKeyframes: keyframesContext.getItemKeyframes,
-              }
-            : undefined,
-        )
-      }
-
-      // Priority: unified preview > gizmo preview > keyframes > base
-      let resolved = animatedResolved
       const unifiedPreviewTransform = itemPreview?.transform
-      if (unifiedPreviewTransform !== undefined) {
-        resolved = {
-          ...animatedResolved,
-          ...unifiedPreviewTransform,
-          anchorX: unifiedPreviewTransform.anchorX ?? animatedResolved.anchorX,
-          anchorY: unifiedPreviewTransform.anchorY ?? animatedResolved.anchorY,
-          cornerRadius: unifiedPreviewTransform.cornerRadius ?? animatedResolved.cornerRadius,
-        } as ResolvedTransform
-      } else if (isGizmoTarget && previewTransform !== null) {
-        resolved = {
-          ...previewTransform,
-          anchorX: previewTransform.anchorX ?? previewTransform.width / 2,
-          anchorY: previewTransform.anchorY ?? previewTransform.height / 2,
-          cornerRadius: previewTransform.cornerRadius ?? animatedResolved.cornerRadius,
-        }
-      }
+      const rootPreview =
+        unifiedPreviewTransform ??
+        (activeGizmoItemId === item.id ? (liveGizmoPreview ?? undefined) : undefined)
+      const resolved = resolveItemTransformAtFrame(item, {
+        canvas,
+        frame: item.from + keyframeFrame,
+        keyframes: itemKeyframes ?? undefined,
+        previewTransform: rootPreview,
+        getItem: keyframesContext?.getItem,
+        getKeyframes: keyframesContext?.getItemKeyframes,
+        getPreviewTransform: (itemId) =>
+          activeGizmoItemId === itemId && liveGizmoPreview
+            ? liveGizmoPreview
+            : allItemPreviews?.[itemId]?.transform,
+      })
 
       return {
         width: resolved.width * renderScaleX,
@@ -343,12 +326,12 @@ export const CompositionContent = React.memo<CompositionContentProps>(
       mainFps,
       item,
       itemKeyframes,
-      hasAnimatedKeyframes,
       keyframeFrame,
       keyframesContext,
       itemPreview,
-      isGizmoTarget,
-      previewTransform,
+      activeGizmoItemId,
+      liveGizmoPreview,
+      allItemPreviews,
       renderScaleX,
       renderScaleY,
     ])

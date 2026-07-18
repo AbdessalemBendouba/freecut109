@@ -9,7 +9,6 @@ export {
   getSourceDimensions,
 } from '@/runtime/composition-runtime/utils/transform-resolver'
 export {
-  applyTransformOverride,
   resolveItemTransformAtFrame,
 } from '@/runtime/composition-runtime/utils/frame-scene'
 export type { PreviewPathVerticesOverride } from '@/runtime/composition-runtime/utils/preview-path-override'

@@ -11,7 +11,7 @@
 import type { ResolvedTransform } from '@/types/transform'
 import type { AudioPulseModulation } from '@/types/effects'
 import type { TimelineItem } from '@/types/timeline'
-import type { MotionModifier, MotionModifierType } from '@/types/motion'
+import type { MotionModifier } from '@/types/motion'
 import {
   buildEffectAnimatableProperty,
   type AnimatableProperty,
@@ -20,7 +20,7 @@ import {
   type TransformAnimatableProperty,
 } from '@/types/keyframe'
 import { resolveAnimatedTransform } from './animated-transform-resolver'
-import { applyMotionModifiers } from './motion-modifier-eval'
+import { applyMotionModifiers, getActiveMotionModifierChannels } from './motion-modifier-eval'
 import { evaluateAudioPulseParams } from './trigger-wave-motion-layer'
 import { clamp } from '@/shared/utils/math'
 
@@ -29,14 +29,6 @@ export interface BakedKeyframe {
   frame: number
   value: number
   easing: EasingType
-}
-
-const MODIFIER_PROPERTIES: Record<MotionModifierType, TransformAnimatableProperty[]> = {
-  'float-drift': ['x', 'y', 'rotation'],
-  'breath-pulse': ['width', 'height', 'opacity'],
-  'micro-shake': ['x', 'y', 'rotation'],
-  sway: ['rotation'],
-  spin: ['rotation'],
 }
 
 /**
@@ -62,7 +54,7 @@ function activeProperties(modifiers: readonly MotionModifier[]): TransformAnimat
   const set = new Set<TransformAnimatableProperty>()
   for (const modifier of modifiers) {
     if (!modifier.enabled || modifier.amplitude <= 0) continue
-    for (const property of MODIFIER_PROPERTIES[modifier.type]) set.add(property)
+    for (const property of getActiveMotionModifierChannels(modifier)) set.add(property)
   }
   return [...set]
 }

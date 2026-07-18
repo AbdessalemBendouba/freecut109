@@ -23,6 +23,7 @@ import {
   type FrameInvalidationRequest,
 } from '@/shared/utils/frame-invalidation'
 import { hasCornerPin } from './corner-pin'
+import { resolveTransformHierarchy } from '@/shared/utils/transform-parenting'
 
 export type TransformOverride = Partial<ResolvedTransform> | undefined
 
@@ -112,6 +113,7 @@ export function resolveItemTransformAtFrame(
     previewTransform,
     getItem,
     getKeyframes,
+    getPreviewTransform,
   }: {
     canvas: CanvasSettings
     frame: number
@@ -119,16 +121,26 @@ export function resolveItemTransformAtFrame(
     previewTransform?: TransformOverride
     getItem?: (itemId: string) => TimelineItem | undefined
     getKeyframes?: (itemId: string) => ItemKeyframes | undefined
+    getPreviewTransform?: (itemId: string) => TransformOverride
   },
 ): ResolvedTransform {
-  return resolveItemTransformAtRelativeFrame(item, {
-    canvas,
-    relativeFrame: frame - item.from,
-    keyframes,
-    previewTransform,
-    expressionContext:
-      getItem && getKeyframes ? { globalFrame: frame, canvas, getItem, getKeyframes } : undefined,
-  })
+  const resolveLocal = (candidate: TimelineItem) =>
+    resolveItemTransformAtRelativeFrame(candidate, {
+      canvas,
+      relativeFrame: frame - candidate.from,
+      keyframes: candidate.id === item.id ? keyframes : getKeyframes?.(candidate.id),
+      previewTransform:
+        candidate.id === item.id
+          ? (previewTransform ?? getPreviewTransform?.(candidate.id))
+          : getPreviewTransform?.(candidate.id),
+      expressionContext:
+        getItem && getKeyframes
+          ? { globalFrame: frame, canvas, getItem, getKeyframes }
+          : undefined,
+    })
+
+  if (!getItem) return resolveLocal(item)
+  return resolveTransformHierarchy(item, { getItem, resolveLocal })
 }
 
 export function resolveActiveShapeMasksAtFrame(
@@ -171,6 +183,7 @@ export function resolveActiveShapeMasksAtFrame(
           previewTransform: getPreviewTransform?.(mask.id),
           getItem,
           getKeyframes,
+          getPreviewTransform,
         }),
       }
     })

@@ -226,6 +226,26 @@ describe('canvas mask animation', () => {
     expect((activeMasks[0]!.path as { value?: string }).value).toContain('77')
   })
 
+  it('carries mask and animated layer opacity into the prepared matte strength', () => {
+    const preparedMask = buildPreparedMask(
+      { ...baseMask, maskOpacity: 50 },
+      {
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        anchorX: 50,
+        anchorY: 50,
+        rotation: 0,
+        opacity: 0.8,
+        cornerRadius: 0,
+      },
+      canvas,
+    )
+
+    expect(preparedMask.opacity).toBeCloseTo(0.4)
+  })
+
   it('rasterizes corner-pinned shape masks into bitmap masks', () => {
     const preparedMask = buildPreparedMask(
       {

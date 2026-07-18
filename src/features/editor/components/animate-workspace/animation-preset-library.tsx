@@ -15,7 +15,11 @@ import { useShallow } from 'zustand/react/shallow'
 import type { CanvasSettings } from '@/types/transform'
 import type { AnimatableProperty } from '@/types/keyframe'
 import type { TextItem, TimelineItem } from '@/types/timeline'
-import type { MotionModifierType } from '@/types/motion'
+import type {
+  MotionModifierChannel,
+  MotionModifierChannelGains,
+  MotionModifierType,
+} from '@/types/motion'
 import { cn } from '@/shared/ui/cn'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -95,6 +99,7 @@ function isTimelineItem(item: TimelineItem | undefined): item is TimelineItem {
 interface ModifierEditSettings {
   intensityScale?: number
   durationScale?: number
+  channelGains?: MotionModifierChannelGains
 }
 
 interface ContinuousMotionRowProps {
@@ -103,7 +108,11 @@ interface ContinuousMotionRowProps {
   /** Disabled reason (incompatible selection) or null. */
   reason: string | null
   /** Live settings of the applied modifier (seeds the flyout sliders). */
-  settings: { intensityScale: number; durationScale: number } | null
+  settings: {
+    intensityScale: number
+    durationScale: number
+    channelGains: MotionModifierChannelGains
+  } | null
   onApply: () => void
   onRemove: () => void
   onLiveEdit: (settings: ModifierEditSettings) => void
@@ -167,6 +176,7 @@ const ContinuousMotionRow = memo(function ContinuousMotionRow({
 
   const intensity = settings?.intensityScale ?? 1
   const duration = settings?.durationScale ?? 1
+  const channelGain = (channel: MotionModifierChannel) => settings?.channelGains[channel] ?? 1
 
   return (
     <Popover>
@@ -204,6 +214,29 @@ const ContinuousMotionRow = memo(function ContinuousMotionRow({
             onChange={(v) => onCommitEdit({ durationScale: v })}
             onLiveChange={(v) => onLiveEdit({ durationScale: v })}
           />
+        </div>
+        <Separator />
+        <div className="space-y-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+            {t('timeline.keyframeEditor.parameters')}
+          </div>
+          {modulator.properties.map((property) => (
+            <SliderInput
+              key={property}
+              label={t(`keyframes.properties.${property}`)}
+              value={channelGain(property)}
+              min={0}
+              max={2}
+              step={0.05}
+              formatValue={(value) => `${Math.round(value * 100)}%`}
+              onChange={(value) =>
+                onCommitEdit({ channelGains: { [property]: value } })
+              }
+              onLiveChange={(value) =>
+                onLiveEdit({ channelGains: { [property]: value } })
+              }
+            />
+          ))}
         </div>
         <Button
           type="button"
@@ -320,15 +353,18 @@ const MotionPresetSection = memo(function MotionPresetSection({
 
 /**
  * Animation preset library (U7, R16): browse and save/apply the project's saved
- * animation presets from the Animate workspace. Presentational shell over the
+ * animation presets from the unified Motion workspace. Presentational shell over the
  * storage layer (U5) and apply path (U6); presets incompatible with the current
  * selection render disabled with a reason tooltip. (Per-keyframe easing curves
  * live in the dopesheet's interpolation icon row, not here.)
  */
 export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
   canvas,
+  embedded = false,
 }: {
   canvas: CanvasSettings
+  /** Fill the shared Motion inspector rather than rendering a standalone sidebar. */
+  embedded?: boolean
 }) {
   const { t } = useTranslation()
   const projectId = useProjectStore((s) => s.currentProject?.id ?? null)
@@ -679,7 +715,7 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
   // Live settings of each applied modulator on the first selected clip — seeds
   // the flyout sliders so they open showing the modifier's current values.
   const modulatorSettingsByType = useMemo(() => {
-    const map = new Map<MotionModifierType, { intensityScale: number; durationScale: number }>()
+    const map = new Map<MotionModifierType, ReturnType<typeof getMotionModifierSettings>>()
     for (const modifier of selectedItem?.motionModifiers ?? []) {
       if (modifier.enabled) map.set(modifier.type, getMotionModifierSettings(modifier))
     }
@@ -847,7 +883,13 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="flex h-full w-72 min-w-0 flex-col border-l border-border bg-background">
+      <div
+        className={cn(
+          'flex h-full min-w-0 flex-col bg-background',
+          embedded ? 'w-full' : 'w-72 border-l border-border',
+        )}
+        data-testid="motion-library"
+      >
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <span className="text-xs font-medium text-muted-foreground">
             {t('editor.animatePresets.title')}

@@ -40,6 +40,12 @@ vi.mock('./shape-section', () => ({
   ShapeSection: () => <div>Shape Body</div>,
 }))
 
+vi.mock('../../animate-workspace/animation-preset-library', () => ({
+  AnimationPresetLibrary: ({ embedded }: { embedded?: boolean }) => (
+    <div data-testid="motion-library-mock" data-embedded={String(embedded)} />
+  ),
+}))
+
 vi.mock('@/features/editor/deps/effects-contract', () => ({
   EffectsSection: () => <div>Effects Body</div>,
 }))
@@ -66,7 +72,7 @@ const AUDIO_ITEM: AudioItem = {
   mediaId: 'media-audio-1',
 }
 
-function activateTab(name: 'Audio' | 'Effects' | 'Video') {
+function activateTab(name: 'Audio' | 'Effects' | 'Motion' | 'Video') {
   const tab = screen.getByRole('tab', { name })
   fireEvent.mouseDown(tab, { button: 0, ctrlKey: false })
   fireEvent.focus(tab)
@@ -74,6 +80,7 @@ function activateTab(name: 'Audio' | 'Effects' | 'Video') {
 
 function resetStores(items: Array<VideoItem | AudioItem>, selectedItemIds: string[]) {
   useEditorStore.setState({
+    workspace: 'edit',
     clipInspectorTab: 'video',
     linkedSelectionEnabled: true,
   })
@@ -139,5 +146,19 @@ describe('ClipPanel inspector tabs', () => {
     })
     expect(screen.getByRole('tab', { name: 'Audio' })).toHaveAttribute('data-state', 'active')
     expect(useEditorStore.getState().clipInspectorTab).toBe('audio')
+  })
+
+  it('embeds the complete motion library as a selected-layer tab in Motion', async () => {
+    useEditorStore.setState({ workspace: 'motion' })
+
+    render(<ClipPanel />)
+
+    activateTab('Motion')
+
+    expect(await screen.findByTestId('motion-library-mock')).toHaveAttribute(
+      'data-embedded',
+      'true',
+    )
+    expect(useEditorStore.getState().clipInspectorTab).toBe('motion')
   })
 })

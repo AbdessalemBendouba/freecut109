@@ -271,4 +271,34 @@ describe('timeline duplicate item actions', () => {
       sourceProperty: 'x',
     })
   })
+
+  it('remaps a duplicated child to its duplicated transform parent', () => {
+    useItemsStore.getState().setItems([
+      makeVideoItem({ id: 'parent' }),
+      makeVideoItem({
+        id: 'child',
+        from: 40,
+        transformParent: {
+          parentItemId: 'parent',
+          parentReference: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+          childLocalReference: { x: 20, y: 0, width: 50, height: 50, rotation: 0 },
+          childWorldReference: { x: 20, y: 0, width: 50, height: 50, rotation: 0 },
+        },
+      }),
+    ])
+
+    const copies = duplicateItems(
+      ['parent', 'child'],
+      [
+        { from: 100, trackId: 'track-1' },
+        { from: 140, trackId: 'track-1' },
+      ],
+    )
+
+    expect(copies[1]?.transformParent?.parentItemId).toBe(copies[0]?.id)
+    expect(useItemsStore.getState().itemById[copies[1]!.id]?.transformParent?.parentItemId).toBe(
+      copies[0]?.id,
+    )
+    expect(useItemsStore.getState().itemById.child?.transformParent?.parentItemId).toBe('parent')
+  })
 })

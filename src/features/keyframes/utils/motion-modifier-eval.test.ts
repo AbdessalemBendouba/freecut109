@@ -130,6 +130,35 @@ describe('motion modifier evaluation', () => {
     expect(second.phaseFrames).toBe(8)
     expect(second.seed).not.toBe(first.seed)
     expect(first.amplitude).toBe(settings.intensityScale)
+    expect(first.version).toBe(2)
+    expect(first.channelGains).toEqual({ x: 1, y: 1, rotation: 1 })
+  })
+
+  it('independently tunes or mutes typed transform channels', () => {
+    const xOnly = modifier({ channelGains: { x: 1, y: 0, rotation: 0 } })
+    const result = evaluateMotionModifiers([xOnly], ctx())
+
+    expect(result.dx).not.toBe(0)
+    expect(result.dy).toBe(0)
+    expect(result.dRotation).toBe(0)
+
+    const doubledX = evaluateMotionModifiers(
+      [modifier({ channelGains: { x: 2, y: 0, rotation: 0 } })],
+      ctx(),
+    )
+    expect(doubledX.dx).toBeCloseTo(result.dx * 2, 6)
+  })
+
+  it('keeps legacy v1 modifiers at full gain when channel controls are absent', () => {
+    const legacy = modifier()
+    const explicitV2 = modifier({
+      version: 2,
+      channelGains: { x: 1, y: 1, rotation: 1 },
+    })
+
+    expect(evaluateMotionModifiers([legacy], ctx())).toEqual(
+      evaluateMotionModifiers([explicitV2], ctx()),
+    )
   })
 
   it('round-trips generator settings through create/get (frequency is duration inverse)', () => {
@@ -153,6 +182,12 @@ describe('motion modifier evaluation', () => {
     // A partial edit leaves the untouched field alone.
     const intensityOnly = updateMotionModifierSettings(mod, { intensityScale: 1 })
     expect(intensityOnly.frequency).toBe(mod.frequency)
+
+    const channelOnly = updateMotionModifierSettings(mod, {
+      channelGains: { opacity: 0 },
+    })
+    expect(channelOnly.version).toBe(2)
+    expect(channelOnly.channelGains).toMatchObject({ width: 1, height: 1, opacity: 0 })
   })
 
   it('sway oscillates rotation only, peaking near a quarter period', () => {

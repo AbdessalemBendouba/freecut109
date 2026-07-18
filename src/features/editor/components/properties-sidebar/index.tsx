@@ -132,6 +132,8 @@ export const PropertiesSidebar = memo(function PropertiesSidebar() {
   const setRightSidebarWidth = useEditorStore((s) => s.setRightSidebarWidth)
   const propertiesFullColumn = useEditorStore((s) => s.propertiesFullColumn)
   const togglePropertiesFullColumn = useEditorStore((s) => s.togglePropertiesFullColumn)
+  const workspace = useEditorStore((s) => s.workspace)
+  const clipInspectorTab = useEditorStore((s) => s.clipInspectorTab)
   const selectedItemIds = useSelectionStore((s) => s.selectedItemIds)
   const selectedMarkerId = useSelectionStore((s) => s.selectedMarkerId)
   const selectedTransitionId = useSelectionStore((s) => s.selectedTransitionId)
@@ -303,7 +305,13 @@ export const PropertiesSidebar = memo(function PropertiesSidebar() {
             </div>
 
             {/* Properties Panel */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 [scrollbar-gutter:stable]">
+            <div
+              className={
+                workspace === 'motion' && clipInspectorTab === 'motion' && hasClipSelection
+                  ? 'min-h-0 flex-1 overflow-hidden p-3'
+                  : 'flex-1 overflow-y-auto overflow-x-hidden p-3 [scrollbar-gutter:stable]'
+              }
+            >
               {selectedTransitionId ? (
                 <Suspense fallback={null}>
                   <LazyTransitionPanel />

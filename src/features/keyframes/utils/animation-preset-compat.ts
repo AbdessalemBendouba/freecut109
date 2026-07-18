@@ -9,19 +9,25 @@
  */
 
 import {
+  cloneVectorKeyframe,
   parseEffectAnimatableProperty,
   type AnimatableProperty,
   type ItemKeyframes,
 } from '@/types/keyframe'
 import type { VisualEffect } from '@/types/effects'
 import type { TimelineItem } from '@/types/timeline'
-import type { AnimationPreset, AnimationPresetProperty } from '@/infrastructure/storage'
+import type {
+  AnimationPreset,
+  AnimationPresetProperty,
+  AnimationPresetVectorProperty,
+} from '@/infrastructure/storage'
 import { getAnimatablePropertiesForItem } from './animatable-properties'
 
 /** The portion of an {@link AnimationPreset} derived purely from a source clip. */
 export interface CapturedAnimation {
   sourceItemType: TimelineItem['type']
   properties: AnimationPresetProperty[]
+  vectorProperties?: AnimationPresetVectorProperty[]
   effects: VisualEffect[]
   sourceDurationInFrames: number
 }
@@ -46,12 +52,18 @@ export function captureAnimationFromItem(
   const animated = (itemKeyframes?.properties ?? []).filter(
     (property) => property.keyframes.length > 0,
   )
-  if (animated.length === 0) {
+  const animatedVectors = (itemKeyframes?.vectorProperties ?? []).filter(
+    (property) => property.keyframes.length > 0,
+  )
+  if (animated.length === 0 && animatedVectors.length === 0) {
     return null
   }
 
   const minFrame = Math.min(
     ...animated.flatMap((property) => property.keyframes.map((keyframe) => keyframe.frame)),
+    ...animatedVectors.flatMap((property) =>
+      property.keyframes.map((keyframe) => keyframe.frame),
+    ),
   )
 
   const properties: AnimationPresetProperty[] = animated.map((property) => ({
@@ -59,6 +71,12 @@ export function captureAnimationFromItem(
     keyframes: property.keyframes
       .toSorted((a, b) => a.frame - b.frame)
       .map((keyframe) => ({ ...keyframe, frame: keyframe.frame - minFrame })),
+  }))
+  const vectorProperties: AnimationPresetVectorProperty[] = animatedVectors.map((property) => ({
+    property: property.property,
+    keyframes: property.keyframes
+      .toSorted((left, right) => left.frame - right.frame)
+      .map((keyframe) => cloneVectorKeyframe(keyframe, { frame: keyframe.frame - minFrame })),
   }))
 
   // Carry the effect definitions the effect-param keyframes animate so a target
@@ -86,6 +104,7 @@ export function captureAnimationFromItem(
   return {
     sourceItemType: item.type,
     properties,
+    ...(vectorProperties.length > 0 && { vectorProperties }),
     effects,
     sourceDurationInFrames: item.durationInFrames,
   }
@@ -98,7 +117,7 @@ export function captureAnimationFromItem(
  * the effect gets it added from the preset's carried definitions on apply.
  */
 export function getPresetCompatibility(
-  preset: Pick<AnimationPreset, 'sourceItemType' | 'properties'>,
+  preset: Pick<AnimationPreset, 'sourceItemType' | 'properties' | 'vectorProperties'>,
   targetItem: TimelineItem,
 ): PresetCompatibility {
   if (preset.sourceItemType !== targetItem.type) {
@@ -111,6 +130,18 @@ export function getPresetCompatibility(
       continue
     }
     if (!available.has(property.property)) {
+      return { compatible: false, reason: 'missing-property' }
+    }
+  }
+
+  for (const property of preset.vectorProperties ?? []) {
+    const requiredProperties =
+      property.property === 'position'
+        ? (['x', 'y'] as const)
+        : property.property === 'scale'
+          ? (['width', 'height'] as const)
+          : (['anchorX', 'anchorY'] as const)
+    if (!requiredProperties.every((required) => available.has(required))) {
       return { compatible: false, reason: 'missing-property' }
     }
   }

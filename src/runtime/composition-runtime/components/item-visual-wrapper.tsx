@@ -85,6 +85,7 @@ function renderRasterizedMaskLayer(
 
   ctx.clearRect(0, 0, canvasWidth, canvasHeight)
   ctx.save()
+  ctx.globalAlpha = Math.max(0, Math.min(1, resolvedTransform.opacity))
 
   if (resolvedTransform.rotation !== 0) {
     ctx.translate(centerX, centerY)
@@ -163,6 +164,34 @@ function renderRasterizedMaskLayer(
   return canvas
 }
 
+function featherRasterMask(
+  maskCanvas: HTMLCanvasElement,
+  canvasWidth: number,
+  canvasHeight: number,
+  feather: number,
+): HTMLCanvasElement {
+  if (feather <= 0) return maskCanvas
+  const blurredMask = createRasterMaskCanvas(canvasWidth, canvasHeight)
+  if (!blurredMask) return maskCanvas
+  blurredMask.ctx.filter = `blur(${feather}px)`
+  blurredMask.ctx.drawImage(maskCanvas, 0, 0)
+  return blurredMask.canvas
+}
+
+function applyRasterMaskOpacity(
+  maskCanvas: HTMLCanvasElement,
+  canvasWidth: number,
+  canvasHeight: number,
+  opacity: number,
+): HTMLCanvasElement {
+  if (opacity >= 1) return maskCanvas
+  const opacityMask = createRasterMaskCanvas(canvasWidth, canvasHeight)
+  if (!opacityMask) return maskCanvas
+  opacityMask.ctx.globalAlpha = Math.max(0, opacity)
+  opacityMask.ctx.drawImage(maskCanvas, 0, 0)
+  return opacityMask.canvas
+}
+
 function applyRasterizedMaskLayerSettings(
   maskCanvas: HTMLCanvasElement,
   canvasWidth: number,
@@ -170,9 +199,10 @@ function applyRasterizedMaskLayerSettings(
   settings: {
     invert: boolean
     feather: number
+    opacity: number
   },
 ): HTMLCanvasElement {
-  if (!settings.invert && settings.feather <= 0) {
+  if (!settings.invert && settings.feather <= 0 && settings.opacity >= 1) {
     return maskCanvas
   }
 
@@ -191,18 +221,12 @@ function applyRasterizedMaskLayerSettings(
     processedMask.ctx.drawImage(maskCanvas, 0, 0)
   }
 
-  if (settings.feather <= 0) {
-    return processedMask.canvas
-  }
-
-  const blurredMask = createRasterMaskCanvas(canvasWidth, canvasHeight)
-  if (!blurredMask) {
-    return processedMask.canvas
-  }
-
-  blurredMask.ctx.filter = `blur(${settings.feather}px)`
-  blurredMask.ctx.drawImage(processedMask.canvas, 0, 0)
-  return blurredMask.canvas
+  return applyRasterMaskOpacity(
+    featherRasterMask(processedMask.canvas, canvasWidth, canvasHeight, settings.feather),
+    canvasWidth,
+    canvasHeight,
+    settings.opacity,
+  )
 }
 
 /**
@@ -244,12 +268,14 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
       canvasHeight,
       state.maskFeather,
       state.maskInvert,
+      state.maskOpacity,
     )
   }, [
     shouldRasterizeSvgMask,
     state.svgMaskPaths,
     state.maskFeather,
     state.maskInvert,
+    state.maskOpacity,
     canvasWidth,
     canvasHeight,
   ])
@@ -281,7 +307,7 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
         maskLayer,
         width,
         height,
-        maskLayerSettings[index] ?? { invert: false, feather: 0 },
+        maskLayerSettings[index] ?? { invert: false, feather: 0, opacity: 1 },
       )
 
       combinedMask.ctx.globalCompositeOperation = 'destination-in'
@@ -454,6 +480,7 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
               width={canvasWidth}
               height={canvasHeight}
               fill={state.maskInvert ? 'white' : 'black'}
+              fillOpacity={state.maskInvert ? state.maskOpacity : 1}
             />
             {/* Mask shapes with optional stroke */}
             {state.svgMaskPaths.map(({ path: pathD, strokeWidth }, i) => (
@@ -461,6 +488,7 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
                 key={i}
                 d={pathD}
                 fill={state.maskInvert ? 'black' : 'white'}
+                fillOpacity={state.maskInvert ? 1 : state.maskOpacity}
                 stroke={strokeWidth > 0 ? (state.maskInvert ? 'black' : 'white') : undefined}
                 strokeWidth={strokeWidth > 0 ? strokeWidth : undefined}
                 filter={state.maskFeather > 0 ? `url(#${filterId})` : undefined}
@@ -476,6 +504,7 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
     state.svgMaskId,
     state.svgMaskPaths,
     state.maskFeather,
+    state.maskOpacity,
     state.maskInvert,
     canvasWidth,
     canvasHeight,

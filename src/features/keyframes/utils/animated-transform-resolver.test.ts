@@ -9,6 +9,62 @@ import {
 } from './animated-transform-resolver'
 
 describe('resolveAnimatedTransform', () => {
+  it('resolves vector Position, percentage Scale, and Anchor before scalar expressions', () => {
+    const baseTransform = {
+      x: 0,
+      y: 0,
+      width: 320,
+      height: 180,
+      anchorX: 160,
+      anchorY: 90,
+      rotation: 0,
+      opacity: 1,
+      cornerRadius: 0,
+    }
+    const itemKeyframes: ItemKeyframes = {
+      itemId: 'video-1',
+      animationVersion: 2,
+      properties: [
+        {
+          property: 'x',
+          keyframes: [{ id: 'legacy-x', frame: 5, value: 999, easing: 'linear' }],
+        },
+      ],
+      vectorProperties: [
+        {
+          property: 'position',
+          keyframes: [
+            { id: 'p1', frame: 0, value: { x: 0, y: 20 }, easing: 'linear' },
+            { id: 'p2', frame: 10, value: { x: 100, y: 220 }, easing: 'linear' },
+          ],
+        },
+        {
+          property: 'scale',
+          keyframes: [
+            { id: 's1', frame: 0, value: { x: 100, y: 100 }, easing: 'linear' },
+            { id: 's2', frame: 10, value: { x: 200, y: 50 }, easing: 'linear' },
+          ],
+        },
+        {
+          property: 'anchor',
+          keyframes: [
+            { id: 'a1', frame: 0, value: { x: 80, y: 40 }, easing: 'linear' },
+            { id: 'a2', frame: 10, value: { x: 180, y: 140 }, easing: 'linear' },
+          ],
+        },
+      ],
+    }
+
+    const resolved = resolveAnimatedTransform(baseTransform, itemKeyframes, 5)
+
+    expect(resolved.x).toBe(50)
+    expect(resolved.y).toBe(120)
+    expect(resolved.width).toBe(480)
+    expect(resolved.height).toBe(135)
+    expect(resolved.anchorX).toBe(130)
+    expect(resolved.anchorY).toBe(90)
+  })
+
   it('interpolates anchor keyframes alongside the base transform', () => {
     const baseTransform = {
       x: 0,

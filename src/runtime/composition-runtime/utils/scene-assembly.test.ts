@@ -415,6 +415,16 @@ describe('scene assembly', () => {
             label: 'Adjustment',
             effects: [],
           },
+          {
+            id: 'controller-1',
+            type: 'controller',
+            controllerKind: 'null',
+            trackId: 'track-1',
+            from: 0,
+            durationInFrames: 30,
+            label: 'Controller',
+            transform: { x: 0, y: 0, width: 100, height: 100 },
+          },
         ],
       } as TimelineTrack,
       {

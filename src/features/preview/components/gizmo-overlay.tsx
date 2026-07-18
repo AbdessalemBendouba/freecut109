@@ -1,4 +1,5 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { useSelectionStore } from '@/shared/state/selection'
@@ -11,7 +12,7 @@ import {
 import { usePlaybackStore } from '@/shared/state/playback'
 import { usePreviewBridgeStore } from '@/shared/state/preview-bridge'
 import { getResolvedPlaybackFrame } from '@/shared/state/playback/frame-resolution'
-import { useGizmoStore } from '../stores/gizmo-store'
+import { useGizmoStore, type ItemPreview } from '../stores/gizmo-store'
 import { useExclusiveCanvasEditor } from '../hooks/use-exclusive-canvas-editor'
 import { TransformGizmo } from './transform-gizmo'
 import { GroupGizmo } from './group-gizmo'
@@ -33,16 +34,31 @@ import {
 import { MarqueeOverlay } from '@/shared/marquee/marquee-overlay'
 import { useVisualTransforms } from '../hooks/use-visual-transform'
 import { useCanvasMediaDrop } from '../hooks/use-canvas-media-drop'
-import { buildMotionPathPoints, canvasPointToMotionPathScreenPoint } from '../utils/motion-path'
+import {
+  buildMotionPathPoints,
+  canvasPointToMotionPathScreenPoint,
+  type MotionPathScreenPoint,
+} from '../utils/motion-path'
+import {
+  buildDefaultSpatialTangents,
+  updateSpatialTangent,
+  worldPointToPositionKeyframeValue,
+} from '../utils/motion-path-edit'
+import { attachWindowMotionPathPointerInteraction } from '../utils/motion-path-pointer-interaction'
 import {
   getAutoKeyframeOperation,
   GIZMO_ANIMATABLE_PROPS,
   type AutoKeyframeOperation,
 } from '@/features/preview/deps/keyframes'
-import type { ItemKeyframes, TransformAnimatableProperty } from '@/types/keyframe'
+import type {
+  ItemKeyframes,
+  SpatialBezierTangents,
+  TransformAnimatableProperty,
+} from '@/types/keyframe'
 import type { TimelineItem } from '@/types/timeline'
 import type { BoundingBox, CoordinateParams, Transform, Point } from '../types/gizmo'
-import type { TransformProperties } from '@/types/transform'
+import type { ResolvedTransform, TransformProperties } from '@/types/transform'
+import { worldToLocalTransform } from '@/shared/utils/transform-parenting'
 
 interface GizmoOverlayProps {
   containerRect: DOMRect | null
@@ -53,6 +69,102 @@ interface GizmoOverlayProps {
   hitAreaRef?: React.RefObject<HTMLDivElement>
   /** Padding around player for marquee display when starting from outside */
   overlayPadding?: number
+}
+
+interface MotionPathEditPreview {
+  itemId: string
+  keyframeId: string
+  frame: number
+  x: number
+  y: number
+  spatial?: SpatialBezierTangents
+}
+
+function getEditablePositionKeyframe(itemId: string, keyframeId: string) {
+  const position = useKeyframesStore
+    .getState()
+    .keyframesByItemId[itemId]?.vectorProperties?.find(
+      (property) => property.property === 'position',
+    )
+  const keyframe = position?.keyframes.find((candidate) => candidate.id === keyframeId)
+  return position && keyframe ? { position, keyframe } : null
+}
+
+function toResolvedTransform(transform: Transform): ResolvedTransform {
+  return {
+    x: transform.x,
+    y: transform.y,
+    width: transform.width,
+    height: transform.height,
+    anchorX: transform.anchorX ?? transform.width / 2,
+    anchorY: transform.anchorY ?? transform.height / 2,
+    rotation: transform.rotation,
+    opacity: transform.opacity,
+    cornerRadius: transform.cornerRadius ?? 0,
+  }
+}
+
+const GIZMO_BASE_TRANSFORM_PROPERTIES = ['x', 'y', 'width', 'height', 'rotation'] as const
+
+function resolveEditableGizmoTransform(
+  item: TimelineItem,
+  transform: Transform,
+  visualTransforms: ReadonlyMap<string, ResolvedTransform>,
+): ResolvedTransform {
+  const parentId = item.transformParent?.parentItemId
+  return worldToLocalTransform(
+    toResolvedTransform(transform),
+    item.transformParent,
+    parentId ? visualTransforms.get(parentId) : undefined,
+  )
+}
+
+function buildGizmoTransformCommit(params: {
+  item: TimelineItem
+  itemKeyframes: ItemKeyframes | undefined
+  transform: ResolvedTransform
+  currentFrame: number
+}): {
+  autoOps: AutoKeyframeOperation[]
+  transformProps: Partial<TransformProperties>
+  shouldUpdateBase: boolean
+} {
+  const propertyValues: Record<TransformAnimatableProperty, number> = {
+    x: params.transform.x,
+    y: params.transform.y,
+    width: params.transform.width,
+    height: params.transform.height,
+    anchorX: params.transform.anchorX,
+    anchorY: params.transform.anchorY,
+    rotation: params.transform.rotation,
+    opacity: params.transform.opacity,
+    cornerRadius: params.transform.cornerRadius,
+  }
+  const autoKeyframedProps = new Set<TransformAnimatableProperty>()
+  const autoOps = GIZMO_ANIMATABLE_PROPS.flatMap((property) => {
+    const operation = getAutoKeyframeOperation(
+      params.item,
+      params.itemKeyframes,
+      property,
+      propertyValues[property],
+      params.currentFrame,
+    )
+    if (!operation) return []
+    autoKeyframedProps.add(property)
+    return [operation]
+  })
+  const transformProps: Partial<TransformProperties> = {
+    cornerRadius: params.transform.cornerRadius,
+  }
+  for (const property of GIZMO_BASE_TRANSFORM_PROPERTIES) {
+    if (!autoKeyframedProps.has(property)) transformProps[property] = params.transform[property]
+  }
+
+  return {
+    autoOps,
+    transformProps,
+    shouldUpdateBase: Object.keys(transformProps).length > 1 || autoKeyframedProps.size === 0,
+  }
 }
 
 /**
@@ -117,6 +229,7 @@ export function GizmoOverlay({
   const updateItemTransform = useTimelineStore((s) => s.updateItemTransform)
   const updateItemsTransformMap = useTimelineStore((s) => s.updateItemsTransformMap)
   const applyAutoKeyframeOperations = useTimelineStore((s) => s.applyAutoKeyframeOperations)
+  const updateVectorKeyframe = useTimelineStore((s) => s.updateVectorKeyframe)
 
   // Ref to track if we just finished a drag (to prevent background click from deselecting)
   const justFinishedDragRef = useRef(false)
@@ -228,6 +341,12 @@ export function GizmoOverlay({
   const endInteraction = useGizmoStore((s) => s.endInteraction)
   const clearInteraction = useGizmoStore((s) => s.clearInteraction)
   const cancelInteraction = useGizmoStore((s) => s.cancelInteraction)
+  const setTransformPreview = useGizmoStore((s) => s.setTransformPreview)
+  const replaceItemPreview = useGizmoStore((s) => s.replaceItemPreview)
+  const [motionPathEditPreview, setMotionPathEditPreview] = useState<MotionPathEditPreview | null>(
+    null,
+  )
+  const cancelMotionPathInteractionRef = useRef<(() => void) | null>(null)
   // Live drag position so the motion path previews the pending edit in real time
   // (only a translate moves position keyframes).
   const gizmoDragItemId = useGizmoStore((s) =>
@@ -237,6 +356,13 @@ export function GizmoOverlay({
   // keeps the motion-path memo stable instead of recomputing on every drag frame.
   const gizmoPreviewTransform = useGizmoStore((s) =>
     s.activeGizmo?.mode === 'translate' ? s.previewTransform : null,
+  )
+
+  useEffect(
+    () => () => {
+      cancelMotionPathInteractionRef.current?.()
+    },
+    [],
   )
 
   // Update canvas size in gizmo store when project size changes
@@ -343,6 +469,221 @@ export function GizmoOverlay({
       projectSize,
     })
 
+  const focusMotionPathFrame = useCallback((frame: number) => {
+    const playback = usePlaybackStore.getState()
+    if (playback.previewFrame !== null) playback.setPreviewFrame(null)
+    if (playback.currentFrame !== frame) playback.setCurrentFrame(frame)
+    usePreviewBridgeStore.getState().setDisplayedFrame(frame)
+    frozenFrameRef.current = frame
+    setForceUpdate((value) => value + 1)
+  }, [])
+
+  const markMotionPathInteractionFinished = useCallback(() => {
+    justFinishedDragRef.current = true
+    setTimeout(() => {
+      justFinishedDragRef.current = false
+    }, 100)
+  }, [])
+
+  const handleMotionPathKeyframePointerDown = useCallback(
+    (itemId: string, point: MotionPathScreenPoint, event: ReactPointerEvent<SVGCircleElement>) => {
+      if (event.button !== 0 || !coordParams || !point.keyframeId) return
+      const editable = getEditablePositionKeyframe(itemId, point.keyframeId)
+      if (!editable) return
+
+      event.preventDefault()
+      focusMotionPathFrame(point.frame)
+      cancelMotionPathInteractionRef.current?.()
+
+      const { keyframe } = editable
+      const item = visualItems.find((candidate) => candidate.id === itemId)
+      const itemKeyframes = keyframesByItemId[itemId]
+      if (!item || !itemKeyframes) return
+      const canvas = { width: projectSize.width, height: projectSize.height, fps }
+      const itemsById = new Map(visualItems.map((candidate) => [candidate.id, candidate]))
+      const previousPreview: ItemPreview | undefined = useGizmoStore.getState().preview?.[itemId]
+      let latestValue = keyframe.value
+      let cleanup = () => {}
+      let finished = false
+
+      const previewAtPointer = (pointerEvent: PointerEvent) => {
+        const canvasPoint = screenToCanvas(pointerEvent.clientX, pointerEvent.clientY, coordParams)
+        latestValue = worldPointToPositionKeyframeValue({
+          item,
+          itemKeyframes,
+          frame: point.frame,
+          worldPoint: {
+            x: canvasPoint.x - projectSize.width / 2,
+            y: canvasPoint.y - projectSize.height / 2,
+          },
+          currentValue: keyframe.value,
+          canvas,
+          getItem: (candidateId) => itemsById.get(candidateId),
+          getKeyframes: (candidateId) => keyframesByItemId[candidateId],
+        })
+        setMotionPathEditPreview({
+          itemId,
+          keyframeId: keyframe.id,
+          frame: keyframe.frame,
+          x: latestValue.x,
+          y: latestValue.y,
+          spatial: keyframe.spatial,
+        })
+        // The timeline stays untouched during the gesture, while the preview
+        // renderer and transform gizmo still show the pending position.
+        setTransformPreview({ [itemId]: latestValue })
+      }
+
+      const restoreLivePreview = () => {
+        replaceItemPreview(itemId, previousPreview ?? null)
+        setMotionPathEditPreview(null)
+      }
+
+      const cancel = () => {
+        if (finished) return
+        finished = true
+        cleanup()
+        cancelMotionPathInteractionRef.current = null
+        restoreLivePreview()
+      }
+
+      cleanup = attachWindowMotionPathPointerInteraction({
+        pointerId: event.pointerId,
+        onMove: previewAtPointer,
+        onCommit: (pointerEvent) => {
+          if (finished) return
+          finished = true
+          previewAtPointer(pointerEvent)
+          cancelMotionPathInteractionRef.current = null
+          if (latestValue.x !== keyframe.value.x || latestValue.y !== keyframe.value.y) {
+            updateVectorKeyframe(itemId, 'position', keyframe.id, { value: latestValue })
+          }
+          restoreLivePreview()
+          markMotionPathInteractionFinished()
+        },
+        onCancel: cancel,
+      })
+      cancelMotionPathInteractionRef.current = cancel
+    },
+    [
+      coordParams,
+      focusMotionPathFrame,
+      fps,
+      keyframesByItemId,
+      markMotionPathInteractionFinished,
+      projectSize.height,
+      projectSize.width,
+      replaceItemPreview,
+      setTransformPreview,
+      updateVectorKeyframe,
+      visualItems,
+    ],
+  )
+
+  const handleMotionPathTangentPointerDown = useCallback(
+    (
+      itemId: string,
+      point: MotionPathScreenPoint,
+      handle: 'in' | 'out',
+      event: ReactPointerEvent<SVGCircleElement>,
+    ) => {
+      if (event.button !== 0 || !coordParams || !point.keyframeId) return
+      const editable = getEditablePositionKeyframe(itemId, point.keyframeId)
+      if (!editable?.keyframe.spatial) return
+
+      event.preventDefault()
+      focusMotionPathFrame(point.frame)
+      cancelMotionPathInteractionRef.current?.()
+
+      const { keyframe } = editable
+      const item = visualItems.find((candidate) => candidate.id === itemId)
+      const itemKeyframes = keyframesByItemId[itemId]
+      if (!item || !itemKeyframes) return
+      const canvas = { width: projectSize.width, height: projectSize.height, fps }
+      const itemsById = new Map(visualItems.map((candidate) => [candidate.id, candidate]))
+      let latestSpatial = keyframe.spatial
+      let cleanup = () => {}
+      let finished = false
+
+      const previewAtPointer = (pointerEvent: PointerEvent) => {
+        const canvasPoint = screenToCanvas(pointerEvent.clientX, pointerEvent.clientY, coordParams)
+        const endpoint = worldPointToPositionKeyframeValue({
+          item,
+          itemKeyframes,
+          frame: point.frame,
+          worldPoint: {
+            x: canvasPoint.x - projectSize.width / 2,
+            y: canvasPoint.y - projectSize.height / 2,
+          },
+          currentValue: keyframe.value,
+          canvas,
+          getItem: (candidateId) => itemsById.get(candidateId),
+          getKeyframes: (candidateId) => keyframesByItemId[candidateId],
+        })
+        latestSpatial = updateSpatialTangent(keyframe.spatial!, handle, {
+          x: endpoint.x - keyframe.value.x,
+          y: endpoint.y - keyframe.value.y,
+        })
+        setMotionPathEditPreview({
+          itemId,
+          keyframeId: keyframe.id,
+          frame: keyframe.frame,
+          x: keyframe.value.x,
+          y: keyframe.value.y,
+          spatial: latestSpatial,
+        })
+      }
+
+      const cancel = () => {
+        if (finished) return
+        finished = true
+        cleanup()
+        cancelMotionPathInteractionRef.current = null
+        setMotionPathEditPreview(null)
+      }
+
+      cleanup = attachWindowMotionPathPointerInteraction({
+        pointerId: event.pointerId,
+        onMove: previewAtPointer,
+        onCommit: (pointerEvent) => {
+          if (finished) return
+          finished = true
+          previewAtPointer(pointerEvent)
+          cancelMotionPathInteractionRef.current = null
+          updateVectorKeyframe(itemId, 'position', keyframe.id, { spatial: latestSpatial })
+          setMotionPathEditPreview(null)
+          markMotionPathInteractionFinished()
+        },
+        onCancel: cancel,
+      })
+      cancelMotionPathInteractionRef.current = cancel
+    },
+    [
+      coordParams,
+      focusMotionPathFrame,
+      fps,
+      keyframesByItemId,
+      markMotionPathInteractionFinished,
+      projectSize.height,
+      projectSize.width,
+      updateVectorKeyframe,
+      visualItems,
+    ],
+  )
+
+  const handleCreateSpatialTangents = useCallback(
+    (itemId: string, point: MotionPathScreenPoint) => {
+      if (!point.keyframeId) return
+      const editable = getEditablePositionKeyframe(itemId, point.keyframeId)
+      if (!editable || editable.keyframe.spatial) return
+      const spatial = buildDefaultSpatialTangents(editable.position.keyframes, point.keyframeId)
+      if (!spatial) return
+      focusMotionPathFrame(point.frame)
+      updateVectorKeyframe(itemId, 'position', point.keyframeId, { spatial })
+    },
+    [focusMotionPathFrame, updateVectorKeyframe],
+  )
+
   // Motion paths describe the whole clip and are independent of the current
   // preview frame, but `selectedItems` gets a fresh array identity on every
   // paused/skimming frame. Derive a stable signature from only the fields
@@ -356,7 +697,9 @@ export function GizmoOverlay({
           (item) =>
             `${item.id}:${item.from}:${item.durationInFrames}:${JSON.stringify(
               item.transform ?? null,
-            )}:${JSON.stringify(item.motionModifiers ?? null)}`,
+            )}:${JSON.stringify(item.transformParent ?? null)}:${JSON.stringify(
+              item.motionModifiers ?? null,
+            )}`,
         )
         .join('|'),
     [selectedItems],
@@ -377,19 +720,28 @@ export function GizmoOverlay({
     const itemsById = new Map(visualItems.map((item) => [item.id, item]))
     return selectedItemsRef.current.flatMap((item) => {
       const dragging = item.id === gizmoDragItemId && gizmoPreviewTransform
+      const directEdit = motionPathEditPreview?.itemId === item.id ? motionPathEditPreview : null
       const points = buildMotionPathPoints({
         item,
         itemKeyframes: selectedItemKeyframesById.get(item.id) ?? undefined,
         canvas,
         getItem: (itemId) => itemsById.get(itemId),
         getKeyframes: (itemId) => keyframesByItemId[itemId],
-        preview: dragging
+        preview: directEdit
           ? {
-              frame: frozenFrameRef.current - item.from,
-              x: gizmoPreviewTransform.x,
-              y: gizmoPreviewTransform.y,
+              frame: directEdit.frame,
+              x: directEdit.x,
+              y: directEdit.y,
+              keyframeId: directEdit.keyframeId,
+              spatial: directEdit.spatial,
             }
-          : undefined,
+          : dragging
+            ? {
+                frame: frozenFrameRef.current - item.from,
+                x: gizmoPreviewTransform.x,
+                y: gizmoPreviewTransform.y,
+              }
+            : undefined,
       })
       if (points.length === 0) return []
       return [
@@ -418,6 +770,7 @@ export function GizmoOverlay({
     selectedItemKeyframesById,
     gizmoDragItemId,
     gizmoPreviewTransform,
+    motionPathEditPreview,
   ])
 
   // Get visual transforms for all visible items (base + keyframes + preview).
@@ -538,57 +891,18 @@ export function GizmoOverlay({
       const currentFrame = usePlaybackStore.getState().currentFrame
       const item = visualItems.find((i) => i.id === itemId)
       if (!item) return
-
+      const editableTransform = resolveEditableGizmoTransform(item, transform, visualTransformsMap)
       const itemKeyframes = useKeyframesStore.getState().keyframesByItemId[itemId]
-
-      // Map of property to value for gizmo-animatable properties
-      const propValues: Record<TransformAnimatableProperty, number> = {
-        x: transform.x,
-        y: transform.y,
-        width: transform.width,
-        height: transform.height,
-        anchorX: transform.anchorX ?? transform.width / 2,
-        anchorY: transform.anchorY ?? transform.height / 2,
-        rotation: transform.rotation,
-        opacity: transform.opacity,
-        cornerRadius: transform.cornerRadius ?? 0,
-      }
-
-      // Track which properties were auto-keyframed
-      const autoKeyframedProps = new Set<TransformAnimatableProperty>()
-      const autoOps: AutoKeyframeOperation[] = []
-
-      // Auto-keyframe properties that already have a key at this frame
-      // or have been explicitly armed from the dopesheet.
-      for (const prop of GIZMO_ANIMATABLE_PROPS) {
-        const operation = getAutoKeyframeOperation(
-          item,
-          itemKeyframes,
-          prop,
-          propValues[prop],
-          currentFrame,
-        )
-        if (operation) {
-          autoOps.push(operation)
-          autoKeyframedProps.add(prop)
-        }
-      }
+      const { autoOps, transformProps, shouldUpdateBase } = buildGizmoTransformCommit({
+        item,
+        itemKeyframes,
+        transform: editableTransform,
+        currentFrame,
+      })
       if (autoOps.length > 0) {
         applyAutoKeyframeOperations(autoOps)
       }
-
-      // Update base transform only for non-keyframed properties
-      const transformProps: Partial<TransformProperties> = {}
-      if (!autoKeyframedProps.has('x')) transformProps.x = transform.x
-      if (!autoKeyframedProps.has('y')) transformProps.y = transform.y
-      if (!autoKeyframedProps.has('width')) transformProps.width = transform.width
-      if (!autoKeyframedProps.has('height')) transformProps.height = transform.height
-      if (!autoKeyframedProps.has('rotation')) transformProps.rotation = transform.rotation
-      // Always update cornerRadius (not keyframeable via gizmo)
-      transformProps.cornerRadius = transform.cornerRadius
-
-      // Only call updateItemTransform if there are non-keyframed properties to update
-      if (Object.keys(transformProps).length > 1 || !autoKeyframedProps.size) {
+      if (shouldUpdateBase) {
         updateItemTransform(itemId, transformProps, { operation })
       }
 
@@ -608,7 +922,13 @@ export function GizmoOverlay({
       }
       setForceUpdate((n) => n + 1)
     },
-    [visualItems, updateItemTransform, applyAutoKeyframeOperations, setOtherItemBounds],
+    [
+      visualItems,
+      visualTransformsMap,
+      updateItemTransform,
+      applyAutoKeyframeOperations,
+      setOtherItemBounds,
+    ],
   )
 
   // Handle group transform end - commit transforms for all items as a single undo operation
@@ -617,14 +937,28 @@ export function GizmoOverlay({
       // Convert Transform to TransformProperties for the batch update
       const transformsMap = new Map<string, Partial<TransformProperties>>()
       for (const [itemId, transform] of transforms) {
+        const item = visualItems.find((candidate) => candidate.id === itemId)
+        if (!item) continue
+        const parentId = item.transformParent?.parentItemId
+        const parentTransform = parentId ? transforms.get(parentId) : undefined
+        const parentWorld = parentTransform
+          ? toResolvedTransform(parentTransform)
+          : parentId
+            ? visualTransformsMap.get(parentId)
+            : undefined
+        const editableTransform = worldToLocalTransform(
+          toResolvedTransform(transform),
+          item.transformParent,
+          parentWorld,
+        )
         transformsMap.set(itemId, {
-          x: transform.x,
-          y: transform.y,
-          width: transform.width,
-          height: transform.height,
-          rotation: transform.rotation,
-          opacity: transform.opacity,
-          cornerRadius: transform.cornerRadius,
+          x: editableTransform.x,
+          y: editableTransform.y,
+          width: editableTransform.width,
+          height: editableTransform.height,
+          rotation: editableTransform.rotation,
+          opacity: editableTransform.opacity,
+          cornerRadius: editableTransform.cornerRadius,
         })
       }
       // Use batch update for single undo operation
@@ -639,7 +973,7 @@ export function GizmoOverlay({
       }, 100)
       setOtherItemBounds([])
     },
-    [updateItemsTransformMap, setOtherItemBounds],
+    [visualItems, visualTransformsMap, updateItemsTransformMap, setOtherItemBounds],
   )
 
   // Handle click on overlay background to deselect
@@ -887,6 +1221,10 @@ export function GizmoOverlay({
             paths={motionPaths}
             width={playerSize.width}
             height={playerSize.height}
+            activeFrame={frozenFrameRef.current}
+            onKeyframePointerDown={handleMotionPathKeyframePointerDown}
+            onTangentPointerDown={handleMotionPathTangentPointerDown}
+            onCreateSpatialTangents={handleCreateSpatialTangents}
           />
         )}
 

@@ -60,6 +60,26 @@ export interface ResolvedTransform {
   cornerRadius: number
 }
 
+/** Persisted transform snapshot used to keep parenting changes visually stable. */
+export type TransformReference = Pick<
+  ResolvedTransform,
+  'x' | 'y' | 'width' | 'height' | 'rotation'
+>
+
+/**
+ * Bind-space relationship for transform parenting.
+ *
+ * The child references let attach, detach, and reparent operations preserve the
+ * current world pose without rewriting its animation curves. A missing
+ * `parentItemId` is an intentional detached basis, not a broken relationship.
+ */
+export interface TransformParentBinding {
+  parentItemId?: string
+  parentReference?: TransformReference
+  childLocalReference: TransformReference
+  childWorldReference: TransformReference
+}
+
 /**
  * Source dimensions for media items (intrinsic size).
  * Used to compute default transforms.

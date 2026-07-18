@@ -256,6 +256,141 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.getByRole('button', { name: /collapse audio/i })).toBeTruthy()
   })
 
+  it('consolidates vector axes into purposeful Position, Scale, and Anchor rows', () => {
+    const onPositionCommit = vi.fn()
+    const onScaleCommit = vi.fn()
+    const onAnchorCommit = vi.fn()
+    renderEditor({
+      keyframesByProperty: {
+        x: [],
+        y: [],
+        width: [],
+        height: [],
+        anchorX: [],
+        anchorY: [],
+        rotation: [],
+      },
+      propertyValues: {
+        x: 10,
+        y: 20,
+        width: 100,
+        height: 100,
+        anchorX: 50,
+        anchorY: 60,
+        rotation: 0,
+      },
+      hiddenPropertyRows: ['y', 'height', 'anchorY'],
+      compoundPropertyRows: {
+        x: {
+          label: 'Position',
+          value: { x: 10, y: 20 },
+          unit: 'px',
+          onCommit: onPositionCommit,
+        },
+        width: {
+          label: 'Scale',
+          value: { x: 100, y: 100 },
+          unit: '%',
+          onCommit: onScaleCommit,
+        },
+        anchorX: {
+          label: 'Anchor',
+          value: { x: 50, y: 60 },
+          unit: 'px',
+          onCommit: onAnchorCommit,
+        },
+      },
+    })
+
+    expect(screen.getByLabelText('Position X')).toBeInTheDocument()
+    expect(screen.getByLabelText('Position Y')).toBeInTheDocument()
+    expect(screen.getByLabelText('Scale X')).toBeInTheDocument()
+    expect(screen.getByLabelText('Scale Y')).toBeInTheDocument()
+    expect(screen.getByLabelText('Anchor X')).toBeInTheDocument()
+    expect(screen.getByLabelText('Anchor Y')).toBeInTheDocument()
+    expect(screen.queryByLabelText(/y position value at playhead/i)).toBeNull()
+    expect(screen.queryByLabelText(/height value at playhead/i)).toBeNull()
+    expect(screen.queryByLabelText(/anchor y value at playhead/i)).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('Position Y'), { target: { value: '48' } })
+    fireEvent.blur(screen.getByLabelText('Position Y'))
+    expect(onPositionCommit).toHaveBeenCalledWith('y', 48, { allowCreate: false })
+  })
+
+  it('switches the existing main graph between value and speed semantics', () => {
+    const onGraphModeChange = vi.fn()
+    const { rerender } = render(
+      <DopesheetEditor
+        itemId="item-vector-graph"
+        keyframesByProperty={{
+          x: [
+            { id: 'position-0', frame: 0, value: 0, easing: 'linear' },
+            { id: 'position-1', frame: 30, value: 100, easing: 'linear' },
+          ],
+          y: [
+            { id: 'position-0:y', frame: 0, value: 0, easing: 'linear' },
+            { id: 'position-1:y', frame: 30, value: 50, easing: 'linear' },
+          ],
+        }}
+        hiddenPropertyRows={['y']}
+        compoundPropertyRows={{
+          x: {
+            label: 'Position',
+            value: { x: 0, y: 0 },
+            unit: 'px',
+            onCommit: vi.fn(),
+          },
+        }}
+        compoundSecondaryProperties={{ x: 'y' }}
+        selectedProperty="x"
+        visualizationMode="graph"
+        graphMode="value"
+        onGraphModeChange={onGraphModeChange}
+        speedGraphContent={<div data-testid="main-speed-graph">Velocity editor</div>}
+        width={640}
+        height={240}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Speed' }))
+    expect(onGraphModeChange).toHaveBeenCalledWith('speed')
+
+    rerender(
+      <DopesheetEditor
+        itemId="item-vector-graph"
+        keyframesByProperty={{
+          x: [
+            { id: 'position-0', frame: 0, value: 0, easing: 'linear' },
+            { id: 'position-1', frame: 30, value: 100, easing: 'linear' },
+          ],
+          y: [
+            { id: 'position-0:y', frame: 0, value: 0, easing: 'linear' },
+            { id: 'position-1:y', frame: 30, value: 50, easing: 'linear' },
+          ],
+        }}
+        hiddenPropertyRows={['y']}
+        compoundPropertyRows={{
+          x: {
+            label: 'Position',
+            value: { x: 0, y: 0 },
+            unit: 'px',
+            onCommit: vi.fn(),
+          },
+        }}
+        compoundSecondaryProperties={{ x: 'y' }}
+        selectedProperty="x"
+        visualizationMode="graph"
+        graphMode="speed"
+        onGraphModeChange={onGraphModeChange}
+        speedGraphContent={<div data-testid="main-speed-graph">Velocity editor</div>}
+        width={640}
+        height={240}
+      />,
+    )
+
+    expect(screen.getByTestId('main-speed-graph')).toBeInTheDocument()
+  })
+
   it('renders lane-only presentation without duplicating editor chrome', () => {
     renderEditor({
       presentation: 'lanes',
@@ -534,7 +669,7 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.getByRole('spinbutton', { name: /y position value at playhead/i })).toBeDisabled()
   })
 
-  it('keeps every group header action visible without hover', () => {
+  it('keeps keyframe controls visible while tucking reset into the overflow menu', () => {
     renderEditor({
       keyframesByProperty: {
         x: [{ id: 'kx-1', frame: 8, value: 100, easing: 'linear' }],
@@ -542,6 +677,7 @@ describe('DopesheetEditor property groups', () => {
       },
       propertyValues: { x: 100, y: 200 },
       onNavigateToKeyframe: vi.fn(),
+      onRemoveKeyframes: vi.fn(),
       onPropertyValueCommit: vi.fn(),
     })
 
@@ -555,14 +691,17 @@ describe('DopesheetEditor property groups', () => {
       screen.getByRole('button', { name: /previous transform keyframe/i }),
       screen.getByRole('button', { name: /toggle transform keyframes at playhead/i }),
       screen.getByRole('button', { name: /next transform keyframe/i }),
-      screen.getByRole('button', {
-        name: /reset all transform animations to their base values/i,
-      }),
     ]
 
     for (const button of headerButtons) {
       expect(button).not.toHaveClass('opacity-0', 'pointer-events-none')
     }
+
+    expect(
+      screen.getByRole('button', {
+        name: /reset all transform animations to their base values/i,
+      }),
+    ).toHaveClass('opacity-0')
   })
 
   it('clears row and group keyframes', () => {
@@ -576,11 +715,21 @@ describe('DopesheetEditor property groups', () => {
       onRemoveKeyframes,
     })
 
-    fireEvent.click(
+    fireEvent.pointerDown(
       screen.getByRole('button', { name: /reset x position animation to its base value/i }),
+      { button: 0, ctrlKey: false },
     )
     fireEvent.click(
+      screen.getByRole('menuitem', { name: /reset x position animation to its base value/i }),
+    )
+    fireEvent.pointerDown(
       screen.getByRole('button', { name: /reset all transform animations to their base values/i }),
+      { button: 0, ctrlKey: false },
+    )
+    fireEvent.click(
+      screen.getByRole('menuitem', {
+        name: /reset all transform animations to their base values/i,
+      }),
     )
 
     expect(onRemoveKeyframes).toHaveBeenNthCalledWith(1, [
@@ -603,8 +752,14 @@ describe('DopesheetEditor property groups', () => {
       onResetPropertiesToDefault,
     })
 
-    fireEvent.click(
+    fireEvent.pointerDown(
       screen.getByRole('button', {
+        name: /reset color wheels: exposure \(ev\) to its default value/i,
+      }),
+      { button: 0, ctrlKey: false },
+    )
+    fireEvent.click(
+      screen.getByRole('menuitem', {
         name: /reset color wheels: exposure \(ev\) to its default value/i,
       }),
     )
@@ -613,8 +768,13 @@ describe('DopesheetEditor property groups', () => {
     const groupReset = screen.getByRole('button', {
       name: /reset all color wheels properties to their default values/i,
     })
-    expect(groupReset).not.toHaveClass('opacity-0')
-    fireEvent.click(groupReset)
+    expect(groupReset).toHaveClass('opacity-0')
+    fireEvent.pointerDown(groupReset, { button: 0, ctrlKey: false })
+    fireEvent.click(
+      screen.getByRole('menuitem', {
+        name: /reset all color wheels properties to their default values/i,
+      }),
+    )
     expect(onResetPropertiesToDefault).toHaveBeenLastCalledWith([property])
   })
 

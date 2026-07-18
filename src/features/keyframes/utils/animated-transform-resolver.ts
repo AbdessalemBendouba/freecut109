@@ -15,6 +15,7 @@ import { isShapeAnimatableProperty, isTransformAnimatableProperty } from '@/type
 import { getSourceDimensions, resolveTransform } from '../deps/composition-runtime-contract'
 import { getPropertyKeyframes, interpolatePropertyValue } from './interpolation'
 import { getShapeAnimatableBaseValue } from './shape-animatable-properties'
+import { getVectorPropertyKeyframes, interpolateVectorPropertyValue } from './vector-interpolation'
 
 /**
  * All animatable transform properties (excludes non-spatial props like volume).
@@ -51,7 +52,12 @@ function getPreExpressionValue(
 ): number | null {
   let base: number
   if (isTransformAnimatableProperty(property)) {
-    base = resolveTransform(item, context.canvas, getSourceDimensions(item))[property]
+    const resolved = resolveAnimatedTransform(
+      resolveTransform(item, context.canvas, getSourceDimensions(item)),
+      context.getKeyframes(item.id),
+      context.globalFrame - item.from,
+    )
+    return resolved[property]
   } else if (isShapeAnimatableProperty(property) && item.type === 'shape') {
     base = getShapeAnimatableBaseValue(item, property)
   } else {
@@ -122,6 +128,114 @@ export function resolveLinkedPropertyValue(
   return value
 }
 
+interface VectorTransformAnimation {
+  result: ResolvedTransform
+  hasPosition: boolean
+  hasScale: boolean
+  hasAnchor: boolean
+}
+
+function resolveVectorTransformAnimation(
+  baseResolved: ResolvedTransform,
+  itemKeyframes: ItemKeyframes,
+  frame: number,
+  fps: number | undefined,
+): VectorTransformAnimation {
+  const result = { ...baseResolved }
+  const positionKeyframes = getVectorPropertyKeyframes(itemKeyframes, 'position')
+  const scaleKeyframes = getVectorPropertyKeyframes(itemKeyframes, 'scale')
+  const anchorKeyframes = getVectorPropertyKeyframes(itemKeyframes, 'anchor')
+
+  if (positionKeyframes.length > 0) {
+    const position = interpolateVectorPropertyValue(
+      'position',
+      positionKeyframes,
+      frame,
+      { x: baseResolved.x, y: baseResolved.y },
+      fps,
+    )
+    result.x = position.x
+    result.y = position.y
+  }
+
+  if (scaleKeyframes.length > 0) {
+    const scale = interpolateVectorPropertyValue(
+      'scale',
+      scaleKeyframes,
+      frame,
+      { x: 100, y: 100 },
+      fps,
+    )
+    result.width = baseResolved.width * (scale.x / 100)
+    result.height = baseResolved.height * (scale.y / 100)
+  }
+
+  if (anchorKeyframes.length > 0) {
+    const anchor = interpolateVectorPropertyValue(
+      'anchor',
+      anchorKeyframes,
+      frame,
+      { x: baseResolved.anchorX, y: baseResolved.anchorY },
+      fps,
+    )
+    result.anchorX = anchor.x
+    result.anchorY = anchor.y
+  }
+
+  return {
+    result,
+    hasPosition: positionKeyframes.length > 0,
+    hasScale: scaleKeyframes.length > 0,
+    hasAnchor: anchorKeyframes.length > 0,
+  }
+}
+
+function isControlledByVectorAnimation(
+  property: TransformAnimatableProperty,
+  vectorAnimation: Pick<VectorTransformAnimation, 'hasPosition' | 'hasScale' | 'hasAnchor'>,
+): boolean {
+  if (vectorAnimation.hasPosition && (property === 'x' || property === 'y')) return true
+  if (vectorAnimation.hasScale && (property === 'width' || property === 'height')) return true
+  return vectorAnimation.hasAnchor && (property === 'anchorX' || property === 'anchorY')
+}
+
+function resolveScalarTransformProperty(params: {
+  property: TransformAnimatableProperty
+  baseResolved: ResolvedTransform
+  vectorAnimation: VectorTransformAnimation
+  itemKeyframes: ItemKeyframes
+  frame: number
+  expressionContext: LinkedPropertyEvaluationContext | undefined
+  expressionState: LinkedTransformEvaluationState
+}): number {
+  const {
+    property,
+    baseResolved,
+    vectorAnimation,
+    itemKeyframes,
+    frame,
+    expressionContext,
+    expressionState,
+  } = params
+  const keyframes = getPropertyKeyframes(itemKeyframes, property)
+  const controlledByVector = isControlledByVectorAnimation(property, vectorAnimation)
+  const baseValue = controlledByVector ? vectorAnimation.result[property] : baseResolved[property]
+  const preExpressionValue = controlledByVector
+    ? baseValue
+    : interpolatePropertyValue(keyframes, frame, baseValue)
+
+  if (expressionContext) {
+    return resolveLinkedPropertyValue(
+      itemKeyframes.itemId,
+      property,
+      preExpressionValue,
+      expressionContext,
+      expressionState,
+    )
+  }
+  return keyframes.length > 0 ? preExpressionValue : vectorAnimation.result[property]
+}
+
 /**
  * Resolve an animated transform at a specific frame.
  * Merges keyframe-animated values with the base resolved transform.
@@ -142,8 +256,12 @@ export function resolveAnimatedTransform(
     return baseResolved
   }
 
-  // Start with base transform
-  const result = { ...baseResolved }
+  const vectorAnimation = resolveVectorTransformAnimation(
+    baseResolved,
+    itemKeyframes,
+    frame,
+    expressionContext?.canvas.fps,
+  )
 
   const expressionState: LinkedTransformEvaluationState = {
     cache: new Map(),
@@ -153,23 +271,18 @@ export function resolveAnimatedTransform(
   // Keyframes produce the pre-expression value. A valid link then replaces it
   // with the source property's post-expression value at composition time.
   for (const property of ANIMATABLE_TRANSFORM_PROPERTIES) {
-    const keyframes = getPropertyKeyframes(itemKeyframes, property)
-    const baseValue = baseResolved[property]
-    const preExpressionValue = interpolatePropertyValue(keyframes, frame, baseValue)
-    if (expressionContext) {
-      result[property] = resolveLinkedPropertyValue(
-        itemKeyframes.itemId,
-        property,
-        preExpressionValue,
-        expressionContext,
-        expressionState,
-      )
-    } else if (keyframes.length > 0) {
-      result[property] = preExpressionValue
-    }
+    vectorAnimation.result[property] = resolveScalarTransformProperty({
+      property,
+      baseResolved,
+      vectorAnimation,
+      itemKeyframes,
+      frame,
+      expressionContext,
+      expressionState,
+    })
   }
 
-  return result
+  return vectorAnimation.result
 }
 
 /**
@@ -182,6 +295,7 @@ export function hasKeyframeAnimation(itemKeyframes: ItemKeyframes | undefined): 
   if (!itemKeyframes) return false
   return (
     itemKeyframes.properties.some((p) => p.keyframes.length > 0) ||
+    (itemKeyframes.vectorProperties?.some((property) => property.keyframes.length > 0) ?? false) ||
     (itemKeyframes.expressions?.some((expression) => expression.enabled) ?? false)
   )
 }

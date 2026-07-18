@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
@@ -18,6 +19,7 @@ import {
   ClipboardPaste,
   Copy,
   CopyPlus,
+  Crosshair,
   EllipsisVertical,
   Eye,
   EyeOff,
@@ -75,6 +77,7 @@ import {
   captureSnapshot,
   CompactNavigator,
   createTimelineTemplateItem,
+  createDefaultControllerItem,
   createDefaultShapeItem,
   createTextTemplateItem,
   DopesheetEditor,
@@ -127,6 +130,16 @@ import { useComposeUiStore } from './compose-ui-store'
 import { NewCompositionDialog } from './new-composition-dialog'
 import { LinkedTransformPickWhipOverlay } from './linked-transform-pick-whip-overlay'
 import { useLinkedTransformPickWhip } from './use-linked-transform-pick-whip'
+import {
+  buildMotionSelectionDragState,
+  buildMotionSelectionFrameUpdates,
+  buildMotionSelectionRetimeUpdates,
+  getMotionCompositionSnapFrames,
+  getMotionSelectionTimeRange,
+  mergeMotionKeyframeSelection,
+  type MotionSelectionDragState,
+  type MotionSelectionFrameUpdates,
+} from './motion-keyframe-selection'
 
 const LAYER_COLUMN_WIDTH = 500
 const TIMELINE_CONTENT_LEFT = LAYER_COLUMN_WIDTH + 1
@@ -435,6 +448,19 @@ interface RowReorderDragState {
   siblingCenters: Array<{ trackId: string; centerY: number }>
 }
 
+interface MotionSelectionRetimeDragState {
+  pointerId: number
+  edge: 'start' | 'end'
+  startClientX: number
+  rulerWidth: number
+  initialEdgeFrame: number
+  selection: MotionSelectionDragState
+  itemById: Record<string, TimelineItem>
+  snapshot: ReturnType<typeof captureSnapshot>
+  hasMoved: boolean
+  lastTargetFrame: number
+}
+
 interface InlineCurveState {
   compositionId: string
   itemId: string
@@ -493,6 +519,140 @@ const MotionPlayheadOverlay = memo(function MotionPlayheadOverlay({
       className="pointer-events-none absolute inset-y-0 left-0 z-20 will-change-transform"
     >
       <PlayheadMarks handle="flag" bleedBottom />
+    </div>
+  )
+})
+
+interface VisibleMotionRetimeRange {
+  startFrame: number
+  endFrame: number
+  widthPercent: number
+}
+
+function getVisibleMotionRetimeRange(
+  range: ReturnType<typeof getMotionSelectionTimeRange>,
+  viewport: MotionTimeViewport,
+): VisibleMotionRetimeRange | null {
+  if (!range || range.keyframeCount < 2 || range.startFrame >= range.endFrame) return null
+  if (range.endFrame < viewport.startFrame || range.startFrame > viewport.endFrame) return null
+  const startFrame = Math.max(viewport.startFrame, range.startFrame)
+  const endFrame = Math.min(viewport.endFrame, range.endFrame)
+  return {
+    startFrame,
+    endFrame,
+    widthPercent: ((endFrame - startFrame) / Math.max(1, viewport.endFrame - viewport.startFrame)) * 100,
+  }
+}
+
+function getRetimeKeyboardDelta(event: ReactKeyboardEvent<HTMLButtonElement>): number | null {
+  const direction = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
+  return direction === 0 ? null : direction * (event.shiftKey ? 10 : 1)
+}
+
+function applyMotionSelectionFrameUpdates(updates: MotionSelectionFrameUpdates): void {
+  const keyframesStore = useKeyframesStore.getState()
+  if (updates.scalar.length > 0) {
+    keyframesStore._updateKeyframes(
+      updates.scalar.map((update) => ({
+        itemId: update.itemId,
+        property: update.property,
+        keyframeId: update.keyframeId,
+        updates: { frame: update.frame },
+      })),
+    )
+  }
+  for (const update of updates.vector) {
+    keyframesStore._updateVectorKeyframe(
+      update.itemId,
+      update.property,
+      update.keyframeId,
+      { frame: update.frame },
+    )
+  }
+}
+
+interface MotionSelectionRetimeRangeProps {
+  range: ReturnType<typeof getMotionSelectionTimeRange>
+  viewport: MotionTimeViewport
+  durationInFrames: number
+  frameToPercent: (frame: number) => number
+  onBegin: (event: ReactPointerEvent<HTMLButtonElement>, edge: 'start' | 'end') => void
+  onMove: (event: ReactPointerEvent<HTMLButtonElement>) => void
+  onEnd: (event: ReactPointerEvent<HTMLButtonElement>) => void
+  onCancel: (event: ReactPointerEvent<HTMLButtonElement>) => void
+  onNudge: (edge: 'start' | 'end', deltaFrames: number) => void
+}
+
+const MotionSelectionRetimeRange = memo(function MotionSelectionRetimeRange({
+  range,
+  viewport,
+  durationInFrames,
+  frameToPercent,
+  onBegin,
+  onMove,
+  onEnd,
+  onCancel,
+  onNudge,
+}: MotionSelectionRetimeRangeProps) {
+  const visibleRange = getVisibleMotionRetimeRange(range, viewport)
+  if (!range || !visibleRange) return null
+  const selectionDuration = range.endFrame - range.startFrame
+  const layerSuffix = range.itemCount === 1 ? '' : 's'
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, edge: 'start' | 'end') => {
+    const deltaFrames = getRetimeKeyboardDelta(event)
+    if (deltaFrames === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    onNudge(edge, deltaFrames)
+  }
+
+  return (
+    <div
+      data-testid="motion-selection-retime-range"
+      className="pointer-events-none absolute bottom-0 z-10 h-1 rounded-full bg-primary/70 shadow-[0_0_0_1px_hsl(var(--background)),0_0_6px_hsl(var(--primary)/0.45)]"
+      style={{
+        left: `${frameToPercent(visibleRange.startFrame)}%`,
+        width: `${Math.max(0.4, visibleRange.widthPercent)}%`,
+      }}
+      title={`${range.keyframeCount} selected keyframes across ${range.itemCount} layer${layerSuffix} · ${selectionDuration}f`}
+    >
+      {visibleRange.widthPercent >= 8 ? (
+        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm border border-primary/30 bg-background/95 px-1 py-0.5 text-[8px] font-medium normal-case tracking-normal text-primary shadow-sm">
+          {range.keyframeCount} keys · {selectionDuration}f
+        </span>
+      ) : null}
+      {range.startFrame >= viewport.startFrame ? (
+        <button
+          type="button"
+          role="slider"
+          aria-label="Retime selected keyframes start"
+          aria-valuemin={0}
+          aria-valuemax={range.endFrame - 1}
+          aria-valuenow={range.startFrame}
+          onPointerDown={(event) => onBegin(event, 'start')}
+          onPointerMove={onMove}
+          onPointerUp={onEnd}
+          onPointerCancel={onCancel}
+          onKeyDown={(event) => handleKeyDown(event, 'start')}
+          className="pointer-events-auto absolute -bottom-1.5 -left-1.5 h-4 w-3 cursor-ew-resize touch-none rounded-sm border border-primary bg-background shadow-sm outline-none hover:bg-primary/15 focus-visible:ring-1 focus-visible:ring-primary"
+        />
+      ) : null}
+      {range.endFrame <= viewport.endFrame ? (
+        <button
+          type="button"
+          role="slider"
+          aria-label="Retime selected keyframes end"
+          aria-valuemin={range.startFrame + 1}
+          aria-valuemax={Math.max(1, durationInFrames - 1)}
+          aria-valuenow={range.endFrame}
+          onPointerDown={(event) => onBegin(event, 'end')}
+          onPointerMove={onMove}
+          onPointerUp={onEnd}
+          onPointerCancel={onCancel}
+          onKeyDown={(event) => handleKeyDown(event, 'end')}
+          className="pointer-events-auto absolute -bottom-1.5 -right-1.5 h-4 w-3 cursor-ew-resize touch-none rounded-sm border border-primary bg-background shadow-sm outline-none hover:bg-primary/15 focus-visible:ring-1 focus-visible:ring-primary"
+        />
+      ) : null}
     </div>
   )
 })
@@ -743,6 +903,9 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   const currentFrame = useSettledMotionFrame()
   const rootRef = useRef<HTMLDivElement>(null)
   const dragSnapshotRef = useRef<ReturnType<typeof captureSnapshot> | null>(null)
+  const crossLayerDragRef = useRef<MotionSelectionDragState | null>(null)
+  const pendingCrossLayerDeltaRef = useRef<number | null>(null)
+  const crossLayerPreviewFrameRef = useRef<number | null>(null)
   const [paneSize, setPaneSize] = useState({ width: 0, height: 0 })
   const isNearScrollViewport = useNearMotionScrollViewport(rootRef, paneMode === 'lanes')
   const itemKeyframes = useKeyframesStore(
@@ -751,6 +914,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   const allKeyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
   const itemById = useItemsStore((state) => state.itemById)
   const _updateKeyframe = useKeyframesStore((state) => state._updateKeyframe)
+  const _updateKeyframes = useKeyframesStore((state) => state._updateKeyframes)
+  const _updateVectorKeyframe = useKeyframesStore((state) => state._updateVectorKeyframe)
   const selectedKeyframes = useKeyframeSelectionStore((state) => state.selectedKeyframes)
   const selectKeyframes = useKeyframeSelectionStore((state) => state.selectKeyframes)
   const clearKeyframeSelection = useKeyframeSelectionStore((state) => state.clearSelection)
@@ -864,6 +1029,10 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       ),
     [item.id, selectedKeyframes],
   )
+  const compositionSnapFrames = useMemo(
+    () => getMotionCompositionSnapFrames(allKeyframesByItemId, itemById, selectedKeyframes),
+    [allKeyframesByItemId, itemById, selectedKeyframes],
+  )
   const proceduralPropertyIds = useMemo(
     () =>
       new Set(getProceduralBands(item.motionModifiers, item.durationInFrames, item.from).keys()),
@@ -888,7 +1057,10 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     visiblePropertyCount * ROW_HEIGHT + visiblePropertyGroupHeaderCount * GROUP_HEADER_HEIGHT
 
   const handleSelectionChange = useCallback(
-    (keyframeIds: Set<string>) => {
+    (
+      keyframeIds: Set<string>,
+      options?: { preserveExternalSelection?: boolean },
+    ) => {
       const references: KeyframeRef[] = []
       for (const property of properties) {
         for (const keyframe of originalKeyframesByProperty[property] ?? []) {
@@ -897,14 +1069,74 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           }
         }
       }
-      if (references.length === 0) clearKeyframeSelection()
-      else selectKeyframes(references)
+      const nextSelection = mergeMotionKeyframeSelection(
+        useKeyframeSelectionStore.getState().selectedKeyframes,
+        item.id,
+        references,
+        options?.preserveExternalSelection === true,
+      )
+      if (nextSelection.length === 0) clearKeyframeSelection()
+      else selectKeyframes(nextSelection)
     },
     [clearKeyframeSelection, item.id, originalKeyframesByProperty, properties, selectKeyframes],
   )
 
+  const applyCrossLayerPreview = useCallback(() => {
+    crossLayerPreviewFrameRef.current = null
+    const dragState = crossLayerDragRef.current
+    const requestedDeltaFrames = pendingCrossLayerDeltaRef.current
+    pendingCrossLayerDeltaRef.current = null
+    if (!dragState || requestedDeltaFrames === null) return
+
+    const updates = buildMotionSelectionFrameUpdates(dragState, requestedDeltaFrames)
+    if (updates.scalar.length > 0) {
+      _updateKeyframes(
+        updates.scalar.map((update) => ({
+          itemId: update.itemId,
+          property: update.property,
+          keyframeId: update.keyframeId,
+          updates: { frame: update.frame },
+        })),
+      )
+    }
+    for (const update of updates.vector) {
+      _updateVectorKeyframe(update.itemId, update.property, update.keyframeId, {
+        frame: update.frame,
+      })
+    }
+  }, [_updateKeyframes, _updateVectorKeyframe])
+
+  const handleSelectionFrameDelta = useCallback(
+    (deltaFrames: number, phase: 'preview' | 'commit' | 'cancel') => {
+      if (!crossLayerDragRef.current?.spansMultipleItems) return false
+      pendingCrossLayerDeltaRef.current = phase === 'cancel' ? 0 : deltaFrames
+      if (phase !== 'preview') {
+        if (crossLayerPreviewFrameRef.current !== null) {
+          cancelAnimationFrame(crossLayerPreviewFrameRef.current)
+        }
+        applyCrossLayerPreview()
+        if (phase === 'cancel') {
+          dragSnapshotRef.current = null
+          crossLayerDragRef.current = null
+        }
+        return true
+      }
+      if (crossLayerPreviewFrameRef.current === null) {
+        crossLayerPreviewFrameRef.current = requestAnimationFrame(applyCrossLayerPreview)
+      }
+      return true
+    },
+    [applyCrossLayerPreview],
+  )
+
   const handleDragStart = useCallback(() => {
     dragSnapshotRef.current = captureSnapshot()
+    const keyframesState = useKeyframesStore.getState()
+    crossLayerDragRef.current = buildMotionSelectionDragState(
+      useKeyframeSelectionStore.getState().selectedKeyframes,
+      keyframesState.keyframesByItemId,
+      useItemsStore.getState().itemById,
+    )
   }, [])
   const handleDragEnd = useCallback(() => {
     const snapshot = dragSnapshotRef.current
@@ -914,7 +1146,27 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       .addUndoEntry({ type: 'MOVE_KEYFRAME_GRAPH', payload: {} }, snapshot)
     useTimelineSettingsStore.getState().markDirty()
     dragSnapshotRef.current = null
+    crossLayerDragRef.current = null
+    pendingCrossLayerDeltaRef.current = null
   }, [])
+  const handleDragCancel = useCallback(() => {
+    if (crossLayerPreviewFrameRef.current !== null) {
+      cancelAnimationFrame(crossLayerPreviewFrameRef.current)
+      crossLayerPreviewFrameRef.current = null
+    }
+    dragSnapshotRef.current = null
+    crossLayerDragRef.current = null
+    pendingCrossLayerDeltaRef.current = null
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (crossLayerPreviewFrameRef.current !== null) {
+        cancelAnimationFrame(crossLayerPreviewFrameRef.current)
+      }
+    },
+    [],
+  )
 
   const clampAbsoluteFrame = useCallback(
     (frame: number) =>
@@ -971,6 +1223,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           frameViewport={timeViewport}
           onFrameViewportChange={onTimeViewportChange}
           onSelectionChange={handleSelectionChange}
+          additionalSnapFrames={compositionSnapFrames}
+          onSelectionFrameDelta={handleSelectionFrameDelta}
           onKeyframeMove={(reference, nextFrame, nextValue) => {
             _updateKeyframe(reference.itemId, reference.property, reference.keyframeId, {
               frame: clampAbsoluteFrame(nextFrame) - item.from,
@@ -979,6 +1233,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           }}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
+          onDragCancel={handleDragCancel}
           onSegmentEasingChange={(references, updates, options) => {
             if (options?.commit === false) {
               for (const reference of references) {
@@ -1365,6 +1620,10 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const spanTrimRef = useRef<SpanTrimState | null>(null)
   const selectionAnchorIdRef = useRef<string | null>(null)
   const motionScrollAreaRef = useRef<HTMLDivElement>(null)
+  const motionRulerRef = useRef<HTMLDivElement>(null)
+  const selectionRetimeDragRef = useRef<MotionSelectionRetimeDragState | null>(null)
+  const pendingSelectionRetimeFrameRef = useRef<number | null>(null)
+  const selectionRetimeAnimationFrameRef = useRef<number | null>(null)
   const [rowReorderDrag, setRowReorderDrag] = useState<RowReorderDragState | null>(null)
   const rowReorderDragRef = useRef<RowReorderDragState | null>(null)
   const {
@@ -1394,8 +1653,12 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       [activeCompositionId],
     ),
   )
-  const { items, tracks } = useItemsStore(
-    useShallow((state) => ({ items: state.items, tracks: state.tracks })),
+  const { items, tracks, itemById } = useItemsStore(
+    useShallow((state) => ({
+      items: state.items,
+      tracks: state.tracks,
+      itemById: state.itemById,
+    })),
   )
   const keyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
   const setScrubFrame = usePlaybackStore((state) => state.setScrubFrame)
@@ -1403,6 +1666,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const pause = usePlaybackStore((state) => state.pause)
   const selectedItemIds = useSelectionStore((state) => state.selectedItemIds)
   const selectItems = useSelectionStore((state) => state.selectItems)
+  const selectedMotionKeyframes = useKeyframeSelectionStore((state) => state.selectedKeyframes)
   const expandedLayerIds = useComposeUiStore(
     useCallback(
       (state) =>
@@ -1484,6 +1748,18 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const selectedItemIdSet = useMemo(() => new Set(selectedItemIds), [selectedItemIds])
   const expandedLayerIdSet = useMemo(() => new Set(expandedLayerIds), [expandedLayerIds])
   const activeInlineCurve = inlineCurve?.compositionId === activeCompositionId ? inlineCurve : null
+  const motionSelectionDragState = useMemo(
+    () =>
+      buildMotionSelectionDragState(selectedMotionKeyframes, keyframesByItemId, itemById),
+    [itemById, keyframesByItemId, selectedMotionKeyframes],
+  )
+  const motionSelectionTimeRange = useMemo(
+    () =>
+      motionSelectionDragState
+        ? getMotionSelectionTimeRange(motionSelectionDragState, itemById)
+        : null,
+    [itemById, motionSelectionDragState],
+  )
   const trackById = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks])
   const layerEntries = useMemo<LayerEntry[]>(
     () =>
@@ -1515,6 +1791,152 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           .filter((trackId): trackId is string => Boolean(trackId)),
       ).size >= 2,
     [layerEntries, selectedItemIdSet],
+  )
+
+  const applySelectionRetimePreview = useCallback(() => {
+    selectionRetimeAnimationFrameRef.current = null
+    const drag = selectionRetimeDragRef.current
+    const targetFrame = pendingSelectionRetimeFrameRef.current
+    pendingSelectionRetimeFrameRef.current = null
+    if (!drag || targetFrame === null) return
+
+    const updates = buildMotionSelectionRetimeUpdates(
+      drag.selection,
+      drag.itemById,
+      drag.edge,
+      targetFrame,
+      durationInFrames,
+    )
+    applyMotionSelectionFrameUpdates(updates)
+  }, [durationInFrames])
+
+  const flushSelectionRetimePreview = useCallback(() => {
+    if (selectionRetimeAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(selectionRetimeAnimationFrameRef.current)
+    }
+    applySelectionRetimePreview()
+  }, [applySelectionRetimePreview])
+
+  const beginSelectionRetime = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>, edge: 'start' | 'end') => {
+      if (!motionSelectionDragState || !motionSelectionTimeRange) return
+      const ruler = motionRulerRef.current
+      if (!ruler) return
+      event.preventDefault()
+      event.stopPropagation()
+      const rect = ruler.getBoundingClientRect()
+      selectionRetimeDragRef.current = {
+        pointerId: event.pointerId,
+        edge,
+        startClientX: event.clientX,
+        rulerWidth: Math.max(1, rect.width),
+        initialEdgeFrame:
+          edge === 'start'
+            ? motionSelectionTimeRange.startFrame
+            : motionSelectionTimeRange.endFrame,
+        selection: motionSelectionDragState,
+        itemById,
+        snapshot: captureSnapshot(),
+        hasMoved: false,
+        lastTargetFrame:
+          edge === 'start'
+            ? motionSelectionTimeRange.startFrame
+            : motionSelectionTimeRange.endFrame,
+      }
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+    },
+    [itemById, motionSelectionDragState, motionSelectionTimeRange],
+  )
+
+  const moveSelectionRetime = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const drag = selectionRetimeDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      const deltaFrames = Math.round(
+        ((event.clientX - drag.startClientX) / drag.rulerWidth) * visibleFrameRange,
+      )
+      if (deltaFrames === 0 && !drag.hasMoved) return
+      drag.hasMoved = true
+      drag.lastTargetFrame = drag.initialEdgeFrame + deltaFrames
+      pendingSelectionRetimeFrameRef.current = drag.lastTargetFrame
+      if (selectionRetimeAnimationFrameRef.current === null) {
+        selectionRetimeAnimationFrameRef.current = requestAnimationFrame(
+          applySelectionRetimePreview,
+        )
+      }
+    },
+    [applySelectionRetimePreview, visibleFrameRange],
+  )
+
+  const endSelectionRetime = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const drag = selectionRetimeDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (drag.hasMoved) {
+        flushSelectionRetimePreview()
+        if (drag.lastTargetFrame !== drag.initialEdgeFrame) {
+          useTimelineCommandStore
+            .getState()
+            .addUndoEntry({ type: 'MOVE_KEYFRAME_GRAPH', payload: {} }, drag.snapshot)
+          useTimelineSettingsStore.getState().markDirty()
+        }
+      }
+      selectionRetimeDragRef.current = null
+    },
+    [flushSelectionRetimePreview],
+  )
+
+  const cancelSelectionRetime = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const drag = selectionRetimeDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (drag.hasMoved) {
+        pendingSelectionRetimeFrameRef.current = drag.initialEdgeFrame
+        flushSelectionRetimePreview()
+      }
+      selectionRetimeDragRef.current = null
+    },
+    [flushSelectionRetimePreview],
+  )
+
+  const nudgeSelectionRetime = useCallback(
+    (edge: 'start' | 'end', deltaFrames: number) => {
+      if (!motionSelectionDragState || !motionSelectionTimeRange || deltaFrames === 0) return
+      const snapshot = captureSnapshot()
+      const currentEdgeFrame =
+        edge === 'start'
+          ? motionSelectionTimeRange.startFrame
+          : motionSelectionTimeRange.endFrame
+      applyMotionSelectionFrameUpdates(
+        buildMotionSelectionRetimeUpdates(
+          motionSelectionDragState,
+          itemById,
+          edge,
+          currentEdgeFrame + deltaFrames,
+          durationInFrames,
+        ),
+      )
+      useTimelineCommandStore
+        .getState()
+        .addUndoEntry({ type: 'MOVE_KEYFRAME_GRAPH', payload: {} }, snapshot)
+      useTimelineSettingsStore.getState().markDirty()
+    },
+    [durationInFrames, itemById, motionSelectionDragState, motionSelectionTimeRange],
+  )
+
+  useEffect(
+    () => () => {
+      if (selectionRetimeAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(selectionRetimeAnimationFrameRef.current)
+      }
+    },
+    [],
   )
   const motionRows = useMemo<MotionRow[]>(() => {
     const rows: MotionRow[] = []
@@ -2128,7 +2550,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   }, [isRowReordering])
 
   const addGeneratedLayer = useCallback(
-    (kind: 'text' | 'shape') => {
+    (kind: 'text' | 'shape' | 'controller') => {
       if (!composition || composition.editorKind !== 'composite-2d') return
       const trackId = crypto.randomUUID()
       const order = tracks.reduce((max, track) => Math.max(max, track.order), -1) + 1
@@ -2143,10 +2565,14 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       const item =
         kind === 'text'
           ? createTextTemplateItem({ placement, text: 'Text layer', label: 'Text layer' })
-          : createDefaultShapeItem({ ...placement, shapeType: 'rectangle' })
+          : kind === 'shape'
+            ? createDefaultShapeItem({ ...placement, shapeType: 'rectangle' })
+            : createDefaultControllerItem(placement)
       const track: TimelineTrack = {
         id: trackId,
-        name: item.label || (kind === 'text' ? 'Text layer' : 'Rectangle'),
+        name:
+          item.label ||
+          (kind === 'text' ? 'Text layer' : kind === 'shape' ? 'Rectangle' : 'Null Controller'),
         kind: 'video',
         height: LAYER_ROW_HEIGHT,
         locked: false,
@@ -2863,6 +3289,15 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           <Square className="h-3 w-3" />
           {t('editor.compose.shapeLayer')}
         </button>
+        <button
+          type="button"
+          onClick={() => addGeneratedLayer('controller')}
+          className="flex h-6 items-center gap-1 rounded px-1.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          title={t('editor.compose.addControllerLayer', { defaultValue: 'Add null controller' })}
+        >
+          <Crosshair className="h-3 w-3" />
+          {t('editor.compose.controllerLayer', { defaultValue: 'Controller' })}
+        </button>
       </div>
 
       <div className="relative min-h-0 flex-1">
@@ -2916,6 +3351,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                 </Select>
               </div>
               <div
+                ref={motionRulerRef}
                 className="relative min-w-0 flex-1 touch-none cursor-ew-resize"
                 style={{ height: RULER_HEIGHT }}
                 onPointerDown={beginPlayheadScrub}
@@ -2939,6 +3375,17 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                     </div>
                   )
                 })}
+                <MotionSelectionRetimeRange
+                  range={motionSelectionTimeRange}
+                  viewport={timeViewport}
+                  durationInFrames={durationInFrames}
+                  frameToPercent={frameToMotionPercent}
+                  onBegin={beginSelectionRetime}
+                  onMove={moveSelectionRetime}
+                  onEnd={endSelectionRetime}
+                  onCancel={cancelSelectionRetime}
+                  onNudge={nudgeSelectionRetime}
+                />
               </div>
             </div>
 

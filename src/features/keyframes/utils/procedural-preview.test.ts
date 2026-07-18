@@ -56,6 +56,14 @@ describe('getProceduralBands', () => {
     expect(getProceduralBands([drift({ enabled: false })], 90).size).toBe(0)
     expect(getProceduralBands([drift({ amplitude: 0 })], 90).size).toBe(0)
   })
+
+  it('shows bands only for channels that are actually enabled', () => {
+    const bands = getProceduralBands(
+      [drift({ version: 2, channelGains: { x: 0, y: 1, rotation: 0 } })],
+      90,
+    )
+    expect([...bands.keys()]).toEqual(['y'])
+  })
 })
 
 describe('sampleProceduralCurve', () => {

@@ -46,7 +46,7 @@ const page = {
       blocks: [
         {
           kind: 'paragraph',
-          text: 'In the **Text Animation** section (in the text clip properties, or the Text stage of the **Animate** workspace) each character, word, or line can animate independently. Motion is evaluated at render time, so there are no keyframes to manage.',
+          text: 'In the **Text Animation** section (in text properties or the selected layer’s **Motion** library) each character, word, or line can animate independently. Motion is evaluated at render time, so there are no keyframes to manage.',
         },
         {
           kind: 'steps',

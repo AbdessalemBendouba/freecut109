@@ -9,8 +9,16 @@ import type {
   KeyframeRef,
   LinkableAnimatableProperty,
   LinkedPropertyExpression,
+  VectorAnimatableProperty,
+  VectorKeyframe,
+  VectorPropertyKeyframes,
+  TransformAnimatableProperty,
 } from '@/types/keyframe'
-import type { KeyframeAddPayload, KeyframeUpdatePayload } from '../keyframes-store'
+import type {
+  KeyframeAddPayload,
+  KeyframeUpdatePayload,
+  VectorKeyframeInput,
+} from '../keyframes-store'
 import type { AutoKeyframeOperation } from '@/features/timeline/deps/keyframes'
 import { useKeyframesStore } from '../keyframes-store'
 import { useTimelineSettingsStore } from '../timeline-settings-store'
@@ -70,6 +78,91 @@ export function removeLinkedPropertyExpression(
       useTimelineSettingsStore.getState().markDirty()
     },
     { itemId, property },
+  )
+}
+
+/** Add or replace a coupled Position/Scale keyframe in Animation Core v2. */
+export function upsertVectorKeyframe(
+  itemId: string,
+  property: VectorAnimatableProperty,
+  input: VectorKeyframeInput,
+): string {
+  if (!canAddKeyframeAtFrame(itemId, input.frame)) {
+    getLogger().warn('Cannot add vector keyframe in transition region', {
+      itemId,
+      property,
+      frame: input.frame,
+    })
+    return ''
+  }
+
+  return execute(
+    'UPSERT_VECTOR_KEYFRAME',
+    () => {
+      const id = useKeyframesStore.getState()._upsertVectorKeyframe(itemId, property, input)
+      useTimelineSettingsStore.getState().markDirty()
+      return id
+    },
+    { itemId, property, frame: input.frame },
+  )
+}
+
+export function updateVectorKeyframe(
+  itemId: string,
+  property: VectorAnimatableProperty,
+  keyframeId: string,
+  updates: Partial<Omit<VectorKeyframe, 'id'>>,
+): void {
+  if (typeof updates.frame === 'number' && !canAddKeyframeAtFrame(itemId, updates.frame)) {
+    getLogger().warn('Cannot move vector keyframe into transition region', {
+      itemId,
+      property,
+      keyframeId,
+      frame: updates.frame,
+    })
+    return
+  }
+
+  execute(
+    'UPDATE_VECTOR_KEYFRAME',
+    () => {
+      useKeyframesStore.getState()._updateVectorKeyframe(itemId, property, keyframeId, updates)
+      useTimelineSettingsStore.getState().markDirty()
+    },
+    { itemId, property, keyframeId },
+  )
+}
+
+export function removeVectorKeyframe(
+  itemId: string,
+  property: VectorAnimatableProperty,
+  keyframeId: string,
+): void {
+  execute(
+    'REMOVE_VECTOR_KEYFRAME',
+    () => {
+      useKeyframesStore.getState()._removeVectorKeyframe(itemId, property, keyframeId)
+      useTimelineSettingsStore.getState().markDirty()
+    },
+    { itemId, property, keyframeId },
+  )
+}
+
+/** Replace legacy scalar transform lanes with one coupled v2 vector lane. */
+export function promoteTransformToVector(
+  itemId: string,
+  vectorProperty: VectorPropertyKeyframes,
+  removeScalarProperties: readonly TransformAnimatableProperty[],
+): void {
+  execute(
+    'PROMOTE_TRANSFORM_TO_VECTOR',
+    () => {
+      useKeyframesStore
+        .getState()
+        ._replaceScalarPropertiesWithVectorProperty(itemId, vectorProperty, removeScalarProperties)
+      useTimelineSettingsStore.getState().markDirty()
+    },
+    { itemId, property: vectorProperty.property },
   )
 }
 

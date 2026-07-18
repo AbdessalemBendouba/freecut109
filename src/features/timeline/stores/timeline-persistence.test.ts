@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
 import type { Project } from '@/types/project'
+import type { CompositionItem, TextItem } from '@/types/timeline'
 import {
   makeTimelineTrack,
   makeTimelineVideoItem,
@@ -166,5 +167,83 @@ describe('timeline project hydration', () => {
     expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual(
       timeline.keyframes?.[0]?.expressions,
     )
+  })
+
+  it('round-trips composition control definitions and per-instance values', async () => {
+    const title: TextItem = {
+      id: 'title',
+      trackId: motionTrack.id,
+      type: 'text',
+      label: 'Headline',
+      text: 'Original',
+      color: '#ffffff',
+      from: 0,
+      durationInFrames: 30,
+    }
+    const instance: CompositionItem = {
+      id: 'card-instance',
+      trackId: rootTrack.id,
+      type: 'composition',
+      label: 'Card',
+      compositionId: 'card',
+      compositionWidth: 1920,
+      compositionHeight: 1080,
+      compositionControlOverrides: { headline: 'Launch day' },
+      from: 0,
+      durationInFrames: 30,
+    }
+    useItemsStore.getState().setTracks([rootTrack])
+    useItemsStore.getState().setItems([instance])
+    useCompositionsStore.getState().setCompositions([
+      {
+        id: 'card',
+        name: 'Card',
+        editorKind: 'composite-2d',
+        tracks: [motionTrack],
+        items: [title],
+        transitions: [],
+        keyframes: [],
+        fps: 30,
+        width: 1920,
+        height: 1080,
+        durationInFrames: 30,
+        compositionControls: {
+          version: 1,
+          controls: [
+            {
+              id: 'headline',
+              name: 'Headline',
+              targetItemId: title.id,
+              property: 'text.text',
+              kind: 'text',
+              defaultValue: title.text,
+            },
+          ],
+        },
+      },
+    ])
+
+    const timeline = buildTimelineFromStores()
+    expect(timeline.compositions?.[0]?.compositionControls?.version).toBe(1)
+    expect(timeline.items[0]?.compositionControlOverrides).toEqual({ headline: 'Launch day' })
+
+    await hydrateTimelineStoresFromProject({
+      id: 'template-project',
+      name: 'Template project',
+      description: '',
+      createdAt: 1,
+      updatedAt: 1,
+      duration: 1,
+      metadata: { width: 1920, height: 1080, fps: 30 },
+      timeline,
+    })
+
+    expect(
+      useCompositionsStore.getState().compositionById.card?.compositionControls?.controls[0],
+    ).toMatchObject({ id: 'headline', targetItemId: 'title' })
+    expect(
+      (useItemsStore.getState().itemById['card-instance'] as CompositionItem)
+        .compositionControlOverrides,
+    ).toEqual({ headline: 'Launch day' })
   })
 })

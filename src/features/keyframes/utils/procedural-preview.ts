@@ -13,7 +13,7 @@ import type { ResolvedTransform } from '@/types/transform'
 import type { AnimatableProperty, TransformAnimatableProperty } from '@/types/keyframe'
 import type { ItemKeyframes } from '@/types/keyframe'
 import type { MotionModifier } from '@/types/motion'
-import { applyMotionModifiers } from './motion-modifier-eval'
+import { applyMotionModifiers, getActiveMotionModifierChannels } from './motion-modifier-eval'
 import { resolveAnimatedTransform } from './animated-transform-resolver'
 
 /**
@@ -35,20 +35,6 @@ export interface ProceduralBand {
   /** Inclusive clip-relative frame range the band spans. */
   fromFrame: number
   toFrame: number
-}
-
-/** Transform properties a modifier drives, mirrored from the evaluators. */
-function modifierProperties(modifier: MotionModifier): TransformAnimatableProperty[] {
-  switch (modifier.type) {
-    case 'float-drift':
-    case 'micro-shake':
-      return ['x', 'y', 'rotation']
-    case 'breath-pulse':
-      return ['width', 'height', 'opacity']
-    case 'sway':
-    case 'spin':
-      return ['rotation']
-  }
 }
 
 function modifierKind(modifier: MotionModifier): ProceduralBandKind {
@@ -74,7 +60,7 @@ export function getProceduralBands(
     if (!modifier.enabled || modifier.amplitude <= 0) continue
     const kind = modifierKind(modifier)
 
-    for (const property of modifierProperties(modifier)) {
+    for (const property of getActiveMotionModifierChannels(modifier)) {
       const existing = bands.get(property)
       if (!existing) {
         bands.set(property, { property, kind, fromFrame: first, toFrame: last })
@@ -114,7 +100,9 @@ export function sampleProceduralCurve(params: {
   if (!modifiers || modifiers.length === 0 || toFrame <= fromFrame) return []
   const drivesProperty = modifiers.some(
     (modifier) =>
-      modifier.enabled && modifier.amplitude > 0 && modifierProperties(modifier).includes(property),
+      modifier.enabled &&
+      modifier.amplitude > 0 &&
+      getActiveMotionModifierChannels(modifier).some((channel) => channel === property),
   )
   if (!drivesProperty) return []
 

@@ -755,6 +755,7 @@ export async function createCompositionRenderer(
     return {
       fps: subComp.fps,
       durationInFrames: subComp.durationInFrames,
+      compositionControls: subComp.compositionControls,
       sortedTracks: sortedWithItems,
       keyframesMap: subKfMap,
       itemsById: new Map(subComp.items.map((item) => [item.id, item])),
@@ -816,6 +817,7 @@ export async function createCompositionRenderer(
     getPreviewEffectsOverride,
     getPreviewPathVerticesOverride,
     subCompRenderData,
+    instanceSubCompRenderDataCache: new Map(),
     gpuPipeline: null,
     gpuTransitionPipeline: null,
     gpuMediaPipeline: null,
@@ -1883,6 +1885,8 @@ export async function createCompositionRenderer(
         if (item.type === 'audio') return false
         // Skip adjustment items (they apply effects, not render content)
         if (item.type === 'adjustment') return false
+        // Null/controller layers drive transforms but never render pixels.
+        if (item.type === 'controller') return false
         // Skip mask shapes (handled by mask system)
         if (item.type === 'shape' && (item as ShapeItem).isMask) return false
         return true
@@ -2514,6 +2518,7 @@ export async function createCompositionRenderer(
       gifFramesMap.clear() // Clear GIF frame references (actual frames are managed by gifFrameCache)
       lottieProvider.destroy() // Tear down dotlottie WASM instances
       subCompRenderData.clear() // Release sub-composition render data references
+      itemRenderContext.instanceSubCompRenderDataCache?.clear()
       subCompRenderDataSource.clear()
       prewarmCtx = null
       prewarmCanvas = null

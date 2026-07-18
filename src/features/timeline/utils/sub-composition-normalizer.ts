@@ -1,10 +1,13 @@
 import type { TimelineItem, TimelineTrack } from '@/types/timeline'
 import { DEFAULT_TRACK_HEIGHT } from '../constants'
+import type { CompositionControlSchema } from '@/types/composition-controls'
+import { sanitizeCompositionControlSchema } from '@/shared/utils/composition-controls'
 
 type CompositionLike = {
   editorKind?: 'sequence' | 'composite-2d'
   items: TimelineItem[]
   tracks: TimelineTrack[]
+  compositionControls?: CompositionControlSchema
 }
 
 function compareTracksByOrder(a: TimelineTrack, b: TimelineTrack): number {
@@ -64,9 +67,16 @@ export function hydrateTracksFromItems(
 export function normalizeSubComposition<TComposition extends CompositionLike>(
   composition: TComposition,
 ): TComposition & { editorKind: 'sequence' | 'composite-2d' } {
+  const compositionControls = sanitizeCompositionControlSchema(
+    composition.compositionControls,
+    composition.items,
+  )
   return {
     ...composition,
     editorKind: composition.editorKind === 'composite-2d' ? 'composite-2d' : 'sequence',
     tracks: hydrateTracksFromItems(composition.items, composition.tracks),
+    ...(compositionControls
+      ? { compositionControls }
+      : { compositionControls: undefined }),
   }
 }

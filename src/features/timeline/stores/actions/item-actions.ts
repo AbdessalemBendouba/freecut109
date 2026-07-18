@@ -3,6 +3,7 @@
  */
 
 import type { TimelineItem, TimelineTrack, VideoItem } from '@/types/timeline'
+import type { CanvasSettings } from '@/types/transform'
 import type { Transition } from '@/types/transition'
 import type { ReverseConformResult } from '../../services/reverse-conform-service'
 import { useItemsStore } from '../items-store'
@@ -25,9 +26,83 @@ import { isTrackSyncLockEnabled } from '../../utils/track-sync-lock'
 import { placeItemsWithoutTimelineOverlap } from './item-placement'
 import { useReverseConformDialogStore } from '../reverse-conform-dialog-store'
 import { buildLinkedAudioForVideo } from '../../utils/embedded-audio-split'
+import {
+  resolveItemTransformAtFrame,
+  resolveItemTransformAtRelativeFrame,
+} from '@/features/timeline/deps/composition-runtime'
+import {
+  createTransformParentBinding,
+  wouldCreateTransformParentCycle,
+} from '@/shared/utils/transform-parenting'
 
 function isLinkedSelectionEnabled(): boolean {
   return useEditorStore.getState().linkedSelectionEnabled
+}
+
+function canParticipateInTransformHierarchy(item: TimelineItem): boolean {
+  return item.type !== 'audio' && item.type !== 'adjustment'
+}
+
+/** Attach, detach, or reparent a visual layer while preserving its current world pose. */
+export function setTransformParent(params: {
+  childItemId: string
+  parentItemId?: string
+  frame: number
+  canvas: CanvasSettings
+}): boolean {
+  const { childItemId, parentItemId, frame, canvas } = params
+  const itemsStore = useItemsStore.getState()
+  const child = itemsStore.itemById[childItemId]
+  const parent = parentItemId ? itemsStore.itemById[parentItemId] : undefined
+  if (!child || !canParticipateInTransformHierarchy(child)) return false
+  if (parentItemId && (!parent || !canParticipateInTransformHierarchy(parent))) return false
+  const getItem = (itemId: string) => itemsStore.itemById[itemId]
+  if (parentItemId && wouldCreateTransformParentCycle(childItemId, parentItemId, getItem)) {
+    return false
+  }
+  if (!parentItemId && !child.transformParent) return false
+
+  const keyframesStore = useKeyframesStore.getState()
+  const getKeyframes = (itemId: string) => keyframesStore.keyframesByItemId[itemId]
+  const childKeyframes = getKeyframes(child.id)
+  const childWorld = resolveItemTransformAtFrame(child, {
+    canvas,
+    frame,
+    keyframes: childKeyframes,
+    getItem,
+    getKeyframes,
+  })
+  const childLocal = resolveItemTransformAtRelativeFrame(child, {
+    canvas,
+    relativeFrame: frame - child.from,
+    keyframes: childKeyframes,
+    expressionContext: { globalFrame: frame, canvas, getItem, getKeyframes },
+  })
+  const parentWorld = parent
+    ? resolveItemTransformAtFrame(parent, {
+        canvas,
+        frame,
+        keyframes: getKeyframes(parent.id),
+        getItem,
+        getKeyframes,
+      })
+    : undefined
+  const transformParent = createTransformParentBinding({
+    childLocal,
+    childWorld,
+    parentItemId,
+    parentWorld,
+  })
+
+  return execute(
+    'SET_TRANSFORM_PARENT',
+    () => {
+      useItemsStore.getState()._updateItem(childItemId, { transformParent })
+      useTimelineSettingsStore.getState().markDirty()
+      return true
+    },
+    { childItemId, parentItemId: parentItemId ?? null },
+  )
 }
 
 function copyInternalTransitionsForDuplicatedItems(
@@ -86,6 +161,7 @@ function copyKeyframesForDuplicatedItems(itemIds: string[], newItems: TimelineIt
     return [
       {
         itemId: newItem.id,
+        ...(source.animationVersion && { animationVersion: source.animationVersion }),
         ...(source.expressions?.length && {
           expressions: source.expressions.map((expression) => ({
             ...expression,
@@ -111,6 +187,40 @@ function copyKeyframesForDuplicatedItems(itemIds: string[], newItems: TimelineIt
               : undefined,
           })),
         })),
+        ...(source.vectorProperties?.length && {
+          vectorProperties: source.vectorProperties.map((property) => ({
+            property: property.property,
+            keyframes: property.keyframes.map((keyframe) => ({
+              ...keyframe,
+              id: crypto.randomUUID(),
+              value: { ...keyframe.value },
+              easingConfig: keyframe.easingConfig
+                ? {
+                    ...keyframe.easingConfig,
+                    ...(keyframe.easingConfig.bezier && {
+                      bezier: { ...keyframe.easingConfig.bezier },
+                    }),
+                    ...(keyframe.easingConfig.spring && {
+                      spring: { ...keyframe.easingConfig.spring },
+                    }),
+                  }
+                : undefined,
+              temporalEase: keyframe.temporalEase
+                ? {
+                    ...(keyframe.temporalEase.in && { in: { ...keyframe.temporalEase.in } }),
+                    ...(keyframe.temporalEase.out && { out: { ...keyframe.temporalEase.out } }),
+                  }
+                : undefined,
+              spatial: keyframe.spatial
+                ? {
+                    ...keyframe.spatial,
+                    inTangent: { ...keyframe.spatial.inTangent },
+                    outTangent: { ...keyframe.spatial.outTangent },
+                  }
+                : undefined,
+            })),
+          })),
+        }),
       },
     ]
   })

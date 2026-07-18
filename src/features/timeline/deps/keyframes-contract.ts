@@ -6,7 +6,12 @@
 export type { AutoKeyframeOperation } from '@/features/keyframes/utils/auto-keyframe'
 export { getCropPropertyValue } from '@/features/keyframes/utils/animated-crop-resolver'
 export { interpolatePropertyValue } from '@/features/keyframes/utils/interpolation'
-export { wouldCreateLinkedPropertyCycle } from '@/features/keyframes/utils/animated-transform-resolver'
+export { sampleVectorSpeedGraph } from '@/features/keyframes/utils/vector-interpolation'
+export { buildVectorPromotionPlan } from '@/features/keyframes/utils/vector-promotion'
+export {
+  resolveAnimatedTransform,
+  wouldCreateLinkedPropertyCycle,
+} from '@/features/keyframes/utils/animated-transform-resolver'
 export {
   getTextAnimatableBaseValue,
   isTextAnimatableProperty,

@@ -959,6 +959,37 @@ const migrations: Record<number, Migration> = {
       }
     },
   },
+  /**
+   * Version 15: Mark animation records as Animation Core v2.
+   *
+   * Legacy scalar lanes remain intact and continue to evaluate exactly as
+   * authored. The marker makes the additive vector lanes unambiguous while
+   * allowing projects to transition property-by-property.
+   */
+  15: {
+    version: 15,
+    description: 'Version animation records for vector Position and Scale lanes',
+    migrate: (project: Project): Project => {
+      if (!project.timeline) return project
+
+      const markKeyframes = (
+        keyframes: ProjectTimeline['keyframes'],
+      ): ProjectTimeline['keyframes'] =>
+        keyframes?.map((itemKeyframes) => ({ ...itemKeyframes, animationVersion: 2 }))
+
+      return {
+        ...project,
+        timeline: {
+          ...project.timeline,
+          keyframes: markKeyframes(project.timeline.keyframes),
+          compositions: project.timeline.compositions?.map((composition) => ({
+            ...composition,
+            keyframes: markKeyframes(composition.keyframes),
+          })),
+        },
+      }
+    },
+  },
 }
 
 /**

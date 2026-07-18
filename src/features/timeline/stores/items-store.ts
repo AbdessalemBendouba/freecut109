@@ -318,6 +318,7 @@ export const useItemsStore = create<ItemsState & ItemsActions>()((set, get) => (
     const activeCompositionId = getActiveCompositionId()
     const compositionById = useCompositionsStore.getState().compositionById
     const linkedGroupMap = new Map<string, string>()
+    const duplicatedItemIdByOriginalId = new Map<string, string>()
 
     for (let i = 0; i < itemIds.length; i++) {
       const original = itemsMap.get(itemIds[i]!)
@@ -353,13 +354,27 @@ export const useItemsStore = create<ItemsState & ItemsActions>()((set, get) => (
       } as TimelineItem
 
       newItems.push(normalizeFrameFields(duplicate))
+      duplicatedItemIdByOriginalId.set(original.id, duplicate.id)
     }
 
+    const remappedItems = newItems.map((item) => {
+      const originalParentId = item.transformParent?.parentItemId
+      const duplicatedParentId = originalParentId
+        ? duplicatedItemIdByOriginalId.get(originalParentId)
+        : undefined
+      return duplicatedParentId
+        ? ({
+            ...item,
+            transformParent: { ...item.transformParent, parentItemId: duplicatedParentId },
+          } as TimelineItem)
+        : item
+    })
+
     set((state) => {
-      const nextItems = [...state.items, ...newItems]
+      const nextItems = [...state.items, ...remappedItems]
       return withItemIndexes(nextItems, state)
     })
-    return newItems
+    return remappedItems
   },
 
   // Trim item start

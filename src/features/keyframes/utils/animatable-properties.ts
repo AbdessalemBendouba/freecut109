@@ -24,6 +24,13 @@ const VIDEO_ANIMATABLE_PROPERTIES: AnimatableProperty[] = [
 ]
 
 const AUDIO_ANIMATABLE_PROPERTIES: AnimatableProperty[] = ['volume']
+const CONTROLLER_ANIMATABLE_PROPERTIES: AnimatableProperty[] = [
+  'x',
+  'y',
+  'width',
+  'height',
+  'rotation',
+]
 
 export function getAnimatablePropertiesForItem(item: TimelineItem): AnimatableProperty[] {
   const effectProperties = getAnimatableEffectPropertiesForItem(item)
@@ -60,6 +67,8 @@ export function getAnimatablePropertiesForItem(item: TimelineItem): AnimatablePr
         'taperEndLength',
         ...effectProperties,
       ]
+    case 'controller':
+      return CONTROLLER_ANIMATABLE_PROPERTIES
     default:
       return [...VISUAL_ANIMATABLE_PROPERTIES, ...effectProperties]
   }

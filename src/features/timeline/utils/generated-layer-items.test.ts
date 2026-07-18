@@ -2,6 +2,7 @@
 
 import { describe, expect, it } from 'vite-plus/test'
 import {
+  createDefaultControllerItem,
   createTimelineTemplateItem,
   getTemplateEffectsForDirectApplication,
 } from './generated-layer-items'
@@ -192,5 +193,25 @@ describe('createTimelineTemplateItem', () => {
         gpuEffectType: 'gpu-glow',
       },
     })
+  })
+})
+
+describe('createDefaultControllerItem', () => {
+  it('creates a full-duration invisible null with an editable transform', () => {
+    const item = createDefaultControllerItem({
+      trackId: 'controller-track',
+      from: 0,
+      durationInFrames: 300,
+      canvasWidth: 1920,
+      canvasHeight: 1080,
+    })
+    expect(item).toMatchObject({
+      type: 'controller',
+      controllerKind: 'null',
+      label: 'Null Controller',
+      durationInFrames: 300,
+      transform: { x: 0, y: 0, aspectRatioLocked: true },
+    })
+    expect(item.transform.width).toBeGreaterThan(0)
   })
 })

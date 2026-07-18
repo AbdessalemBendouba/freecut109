@@ -52,6 +52,25 @@ describe('bake motion modifiers to keyframes', () => {
     expect(new Set(properties)).toEqual(new Set(['x', 'y', 'rotation']))
   })
 
+  it('does not bake muted procedural channels into redundant keyframes', () => {
+    const { properties } = bakeMotionModifiersToKeyframes({
+      baseTransform,
+      keyframes: undefined,
+      modifiers: [
+        modifier({
+          version: 2,
+          channelGains: { x: 1, y: 0, rotation: 0 },
+        }),
+      ],
+      durationInFrames: 120,
+      fps: 30,
+      frameWidth: 1920,
+      frameHeight: 1080,
+    })
+
+    expect(properties).toEqual(['x'])
+  })
+
   it('baked keyframe values match the evaluated modifier at the sampled frame', () => {
     const modifiers = [modifier({ type: 'float-drift' })]
     const { keyframes } = bakeMotionModifiersToKeyframes({

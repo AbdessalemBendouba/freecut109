@@ -15,6 +15,7 @@ import {
   updateItemsTransform,
   updateItemsTransformMap,
 } from './transform-actions'
+import { setTransformParent } from './item-actions'
 
 function makeClip(id: string, overrides: Record<string, unknown> = {}) {
   return makeTimelineVideoItem({ id, transform: {}, ...overrides })
@@ -90,6 +91,47 @@ describe('transform actions', () => {
       expect(transform.x).toBe(0)
       expect(transform.y).toBe(0)
       expect(transform.rotation).toBe(0)
+    })
+  })
+
+  describe('setTransformParent', () => {
+    const canvas = { width: 1920, height: 1080, fps: 30 }
+
+    beforeEach(() => {
+      useItemsStore.getState().setItems([
+        makeClip('a', { transform: { x: 10, y: 0, width: 20, height: 20 } }),
+        makeClip('b', { transform: { x: 0, y: 0, width: 100, height: 100 } }),
+      ])
+    })
+
+    it('attaches in one undo step and preserves the current pose', () => {
+      const undoDepth = useTimelineCommandStore.getState().undoStack.length
+      expect(
+        setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas }),
+      ).toBe(true)
+
+      const child = useItemsStore.getState().itemById['a']!
+      expect(child.transformParent?.parentItemId).toBe('b')
+      expect(child.transformParent?.childWorldReference.x).toBe(10)
+      expect(useTimelineCommandStore.getState().undoStack.length).toBe(undoDepth + 1)
+
+      useTimelineCommandStore.getState().undo()
+      expect(useItemsStore.getState().itemById['a']?.transformParent).toBeUndefined()
+    })
+
+    it('detaches into a stable basis and blocks hierarchy cycles', () => {
+      setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })
+      updateItemTransform('b', { x: 50 })
+      expect(setTransformParent({ childItemId: 'a', frame: 0, canvas })).toBe(true)
+      const detached = useItemsStore.getState().itemById['a']!
+      expect(detached.transformParent?.parentItemId).toBeUndefined()
+      expect(detached.transformParent?.childWorldReference.x).toBeCloseTo(60)
+
+      setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })
+      expect(
+        setTransformParent({ childItemId: 'b', parentItemId: 'a', frame: 0, canvas }),
+      ).toBe(false)
+      expect(useItemsStore.getState().itemById['b']?.transformParent).toBeUndefined()
     })
   })
 

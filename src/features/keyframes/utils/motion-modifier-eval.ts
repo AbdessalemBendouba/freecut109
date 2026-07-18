@@ -8,7 +8,12 @@
  */
 
 import type { ResolvedTransform } from '@/types/transform'
-import type { MotionModifier, MotionModifierType } from '@/types/motion'
+import type {
+  MotionModifier,
+  MotionModifierChannel,
+  MotionModifierChannelGains,
+  MotionModifierType,
+} from '@/types/motion'
 import type { MotionGeneratorSettings } from './motion-generator'
 
 const TWO_PI = Math.PI * 2
@@ -22,8 +27,42 @@ const BASE_FREQUENCY_HZ: Record<MotionModifierType, number> = {
   spin: 0.3, // revolutions per second (~3.3s per turn)
 }
 
+const MODIFIER_CHANNELS: Record<MotionModifierType, readonly MotionModifierChannel[]> = {
+  'float-drift': ['x', 'y', 'rotation'],
+  'breath-pulse': ['width', 'height', 'opacity'],
+  'micro-shake': ['x', 'y', 'rotation'],
+  sway: ['rotation'],
+  spin: ['rotation'],
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
+}
+
+/**
+ * Resolve a persisted channel gain safely. Legacy v1 modifiers have no map and
+ * therefore retain their original 100% contribution on every supported channel.
+ */
+function getMotionModifierChannelGain(
+  modifier: MotionModifier,
+  channel: MotionModifierChannel,
+): number {
+  if (!MODIFIER_CHANNELS[modifier.type].includes(channel)) return 0
+  const value = modifier.channelGains?.[channel]
+  return typeof value === 'number' && Number.isFinite(value) ? clamp(value, 0, 2) : 1
+}
+
+/** Enabled transform channels, shared by UI previews, baking, and evaluation. */
+export function getActiveMotionModifierChannels(
+  modifier: MotionModifier,
+): MotionModifierChannel[] {
+  return MODIFIER_CHANNELS[modifier.type].filter(
+    (channel) => getMotionModifierChannelGain(modifier, channel) > 0,
+  )
+}
+
+function defaultChannelGains(type: MotionModifierType): MotionModifierChannelGains {
+  return Object.fromEntries(MODIFIER_CHANNELS[type].map((channel) => [channel, 1]))
 }
 
 /** Signed value noise in [-1, 1] from an integer-ish seed. */
@@ -86,10 +125,19 @@ function evaluateFloatDrift(
   const yAmp = clamp(ctx.frameHeight * 0.014, 6, 28) * modifier.amplitude
   const rotAmp = 1.2 * modifier.amplitude
 
-  out.dx += xAmp * Math.sin(TWO_PI * modifier.frequency * t + phase + Math.PI / 2)
-  out.dy += yAmp * Math.sin(TWO_PI * modifier.frequency * t + phase)
+  out.dx +=
+    getMotionModifierChannelGain(modifier, 'x') *
+    xAmp *
+    Math.sin(TWO_PI * modifier.frequency * t + phase + Math.PI / 2)
+  out.dy +=
+    getMotionModifierChannelGain(modifier, 'y') *
+    yAmp *
+    Math.sin(TWO_PI * modifier.frequency * t + phase)
   // Rotation drifts at half speed for a looser feel.
-  out.dRotation += rotAmp * Math.sin(Math.PI * modifier.frequency * t + phase + Math.PI)
+  out.dRotation +=
+    getMotionModifierChannelGain(modifier, 'rotation') *
+    rotAmp *
+    Math.sin(Math.PI * modifier.frequency * t + phase + Math.PI)
 }
 
 function evaluateBreathPulse(
@@ -103,9 +151,9 @@ function evaluateBreathPulse(
   const opacityAmount = Math.min(0.08, 0.04 * modifier.amplitude)
   const wave = Math.sin(TWO_PI * modifier.frequency * t + phase)
 
-  out.scaleWidth *= 1 + scaleAmount * wave
-  out.scaleHeight *= 1 + scaleAmount * wave
-  out.dOpacity += opacityAmount * wave
+  out.scaleWidth *= 1 + getMotionModifierChannelGain(modifier, 'width') * scaleAmount * wave
+  out.scaleHeight *= 1 + getMotionModifierChannelGain(modifier, 'height') * scaleAmount * wave
+  out.dOpacity += getMotionModifierChannelGain(modifier, 'opacity') * opacityAmount * wave
 }
 
 function evaluateMicroShake(
@@ -120,9 +168,10 @@ function evaluateMicroShake(
   const rotAmp = 0.55 * modifier.amplitude
   const seed = modifier.seed * 97
 
-  out.dx += valueNoise(seed + 11, s) * xAmp
-  out.dy += valueNoise(seed + 23, s) * yAmp
-  out.dRotation += valueNoise(seed + 37, s) * rotAmp
+  out.dx += getMotionModifierChannelGain(modifier, 'x') * valueNoise(seed + 11, s) * xAmp
+  out.dy += getMotionModifierChannelGain(modifier, 'y') * valueNoise(seed + 23, s) * yAmp
+  out.dRotation +=
+    getMotionModifierChannelGain(modifier, 'rotation') * valueNoise(seed + 37, s) * rotAmp
 }
 
 /** Gentle rotation oscillation around the anchor (±4° at full intensity). */
@@ -133,7 +182,11 @@ function evaluateSway(
 ): void {
   const t = ctx.frame / Math.max(1, ctx.fps)
   const phase = (modifier.phaseFrames / Math.max(1, ctx.fps)) * modifier.frequency * TWO_PI
-  out.dRotation += 4 * modifier.amplitude * Math.sin(TWO_PI * modifier.frequency * t + phase)
+  out.dRotation +=
+    getMotionModifierChannelGain(modifier, 'rotation') *
+    4 *
+    modifier.amplitude *
+    Math.sin(TWO_PI * modifier.frequency * t + phase)
 }
 
 /**
@@ -147,7 +200,12 @@ function evaluateSpin(
   out: MotionContribution,
 ): void {
   const t = ctx.frame / Math.max(1, ctx.fps)
-  out.dRotation += 360 * modifier.frequency * modifier.amplitude * t
+  out.dRotation +=
+    getMotionModifierChannelGain(modifier, 'rotation') *
+    360 *
+    modifier.frequency *
+    modifier.amplitude *
+    t
 }
 
 function evaluateOne(
@@ -233,6 +291,7 @@ export function createMotionModifier(
 ): MotionModifier {
   const durationScale = clamp(settings.durationScale, 0.25, 3)
   return {
+    version: 2,
     id: crypto.randomUUID(),
     type,
     enabled: true,
@@ -241,6 +300,7 @@ export function createMotionModifier(
     frequency: BASE_FREQUENCY_HZ[type] / durationScale,
     phaseFrames: Math.max(0, settings.staggerFrames) * Math.max(0, itemIndex),
     seed: itemIndex + 1,
+    channelGains: defaultChannelGains(type),
   }
 }
 
@@ -252,11 +312,21 @@ export function createMotionModifier(
 export function getMotionModifierSettings(modifier: MotionModifier): {
   intensityScale: number
   durationScale: number
+  channelGains: MotionModifierChannelGains
 } {
   const base = BASE_FREQUENCY_HZ[modifier.type]
   const durationScale =
     base > 0 && modifier.frequency > 0 ? clamp(base / modifier.frequency, 0.25, 3) : 1
-  return { intensityScale: clamp(modifier.amplitude, 0, 2), durationScale }
+  return {
+    intensityScale: clamp(modifier.amplitude, 0, 2),
+    durationScale,
+    channelGains: Object.fromEntries(
+      MODIFIER_CHANNELS[modifier.type].map((channel) => [
+        channel,
+        getMotionModifierChannelGain(modifier, channel),
+      ]),
+    ),
+  }
 }
 
 /**
@@ -267,14 +337,25 @@ export function getMotionModifierSettings(modifier: MotionModifier): {
  */
 export function updateMotionModifierSettings(
   modifier: MotionModifier,
-  settings: { intensityScale?: number; durationScale?: number },
+  settings: {
+    intensityScale?: number
+    durationScale?: number
+    channelGains?: MotionModifierChannelGains
+  },
 ): MotionModifier {
-  const next: MotionModifier = { ...modifier }
+  const next: MotionModifier = { ...modifier, version: 2 }
   if (settings.intensityScale !== undefined) {
     next.amplitude = clamp(settings.intensityScale, 0, 2)
   }
   if (settings.durationScale !== undefined) {
     next.frequency = BASE_FREQUENCY_HZ[modifier.type] / clamp(settings.durationScale, 0.25, 3)
+  }
+  if (settings.channelGains) {
+    next.channelGains = {
+      ...defaultChannelGains(modifier.type),
+      ...modifier.channelGains,
+      ...settings.channelGains,
+    }
   }
   return next
 }

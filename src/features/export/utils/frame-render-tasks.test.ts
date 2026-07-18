@@ -14,7 +14,7 @@ function fakeCanvas(tag: string): OffscreenCanvas {
 }
 
 function fakeMask(trackOrder: number): PreparedMask {
-  return { inverted: false, feather: 0, maskType: 'clip', trackOrder }
+  return { inverted: false, feather: 0, opacity: 1, maskType: 'clip', trackOrder }
 }
 
 function fakePool(canvas: OffscreenCanvas): CanvasPool {

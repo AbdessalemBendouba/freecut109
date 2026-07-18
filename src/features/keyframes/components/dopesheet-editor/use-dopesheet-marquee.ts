@@ -26,7 +26,10 @@ interface UseDopesheetMarqueeOptions {
   scrollAreaRef: React.RefObject<HTMLDivElement | null>
   getTimelineXFromClientX: (clientX: number) => number
   getContentYFromClientY: (clientY: number) => number
-  onSelectionChange?: (keyframeIds: Set<string>) => void
+  onSelectionChange?: (
+    keyframeIds: Set<string>,
+    options?: { preserveExternalSelection?: boolean },
+  ) => void
 }
 
 export interface UseDopesheetMarqueeReturn {
@@ -115,7 +118,9 @@ export function useDopesheetMarquee({
 
       const nextSelection = resolveMarqueeSelection(state.mode, state.baseSelection, hitIds)
 
-      onSelectionChangeRef.current?.(nextSelection)
+      onSelectionChangeRef.current?.(nextSelection, {
+        preserveExternalSelection: state.mode !== 'replace',
+      })
       setMarqueeRect({
         x: minX,
         y: minY,
@@ -179,7 +184,7 @@ export function useDopesheetMarquee({
           marqueeJustEndedRef.current = false
         }, 100)
       } else if (marqueeState.mode === 'replace') {
-        onSelectionChangeRef.current?.(new Set())
+        onSelectionChangeRef.current?.(new Set(), { preserveExternalSelection: false })
       }
       marqueeStateRef.current = null
       setMarqueeRect(null)

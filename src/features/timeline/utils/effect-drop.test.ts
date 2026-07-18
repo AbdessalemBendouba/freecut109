@@ -98,6 +98,17 @@ function makeItem(id: string, type: TimelineItem['type']): TimelineItem {
         cues: [],
         color: '#fff',
       }
+    case 'controller':
+      return {
+        id,
+        type,
+        controllerKind: 'null',
+        trackId: 'track-1',
+        from: 0,
+        durationInFrames: 30,
+        label: id,
+        transform: { x: 0, y: 0, width: 100, height: 100 },
+      }
   }
 }
 
@@ -106,6 +117,7 @@ describe('canApplyDroppedEffectsToItem', () => {
     expect(canApplyDroppedEffectsToItem(makeItem('audio-1', 'audio'))).toBe(false)
     expect(canApplyDroppedEffectsToItem(makeItem('video-1', 'video'))).toBe(true)
     expect(canApplyDroppedEffectsToItem(makeItem('adj-1', 'adjustment'))).toBe(true)
+    expect(canApplyDroppedEffectsToItem(makeItem('controller-1', 'controller'))).toBe(false)
   })
 })
 

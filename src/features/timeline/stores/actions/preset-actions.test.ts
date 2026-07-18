@@ -2,7 +2,7 @@
 
 import { beforeEach, describe, expect, it } from 'vite-plus/test'
 import { buildEffectAnimatableProperty } from '@/types/keyframe'
-import type { Keyframe } from '@/types/keyframe'
+import type { Keyframe, VectorKeyframe } from '@/types/keyframe'
 import type { AnimationPreset } from '@/infrastructure/storage'
 import { makeTimelineTrack, makeTimelineVideoItem } from '../../test-helpers'
 import { useItemsStore } from '../items-store'
@@ -18,6 +18,15 @@ function getKeyframes(itemId: string, property: string): Keyframe[] {
       .getState()
       .getKeyframesForItem(itemId)
       ?.properties.find((group) => group.property === property)?.keyframes ?? []
+  )
+}
+
+function getVectorKeyframes(itemId: string, property: 'position' | 'scale'): VectorKeyframe[] {
+  return (
+    useKeyframesStore
+      .getState()
+      .getKeyframesForItem(itemId)
+      ?.vectorProperties?.find((group) => group.property === property)?.keyframes ?? []
   )
 }
 
@@ -133,5 +142,80 @@ describe('applyAnimationPreset', () => {
     // Keyframes bound to the target's (newly created) effect id, not the source's.
     const remapped = buildEffectAnimatableProperty('gpu-gaussian-blur', newEffect!.id, 'radius')
     expect(getKeyframes('a', remapped)).toHaveLength(2)
+  })
+
+  it('applies v2 Position motion with velocity and spatial data as one undo step', () => {
+    const preset = makePreset({
+      properties: [],
+      vectorProperties: [
+        {
+          property: 'position',
+          keyframes: [
+            {
+              id: 'p1',
+              frame: 0,
+              value: { x: -100, y: 20 },
+              easing: 'linear',
+              temporalEase: { out: { speed: 240, influence: 60 } },
+              spatial: {
+                inTangent: { x: 0, y: 0 },
+                outTangent: { x: 80, y: -50 },
+                continuous: false,
+              },
+            },
+            {
+              id: 'p2',
+              frame: 30,
+              value: { x: 100, y: 20 },
+              easing: 'ease-out',
+            },
+          ],
+        },
+      ],
+    })
+
+    const result = applyAnimationPreset('a', preset, 10)
+
+    expect(result.applied).toBe(2)
+    expect(getVectorKeyframes('a', 'position').map((keyframe) => keyframe.frame)).toEqual([10, 40])
+    expect(getVectorKeyframes('a', 'position')[0]).toMatchObject({
+      value: { x: -100, y: 20 },
+      temporalEase: { out: { speed: 240, influence: 60 } },
+      spatial: {
+        inTangent: { x: 0, y: 0 },
+        outTangent: { x: 80, y: -50 },
+      },
+    })
+
+    useTimelineCommandStore.getState().undo()
+    expect(getVectorKeyframes('a', 'position')).toEqual([])
+  })
+
+  it('replaces or merges v2 vector lanes without leaving legacy scalar channels behind', () => {
+    useKeyframesStore.getState()._addKeyframes([
+      { itemId: 'a', property: 'x', frame: 5, value: 1 },
+      { itemId: 'a', property: 'y', frame: 5, value: 2 },
+    ])
+    useKeyframesStore.getState()._upsertVectorKeyframe('a', 'position', {
+      frame: 70,
+      value: { x: 7, y: 8 },
+    })
+    const preset = makePreset({
+      properties: [],
+      vectorProperties: [
+        {
+          property: 'position',
+          keyframes: [{ id: 'p', frame: 10, value: { x: 10, y: 20 }, easing: 'linear' }],
+        },
+      ],
+    })
+
+    applyAnimationPreset('a', preset, 0, { replace: false })
+    expect(getVectorKeyframes('a', 'position').map((keyframe) => keyframe.frame)).toEqual([10, 70])
+    expect(getKeyframes('a', 'x')).toEqual([])
+    expect(getKeyframes('a', 'y')).toEqual([])
+
+    applyAnimationPreset('a', preset, 20, { replace: true })
+    expect(getVectorKeyframes('a', 'position').map((keyframe) => keyframe.frame)).toEqual([30])
   })
 })

@@ -1,5 +1,5 @@
 import type { LoadTimelineOptions } from '../types'
-import type { ItemKeyframes } from '@/types/keyframe'
+import { cloneVectorKeyframe, type ItemKeyframes } from '@/types/keyframe'
 import type { AudioItem, CompositionItem, TimelineItem, TimelineTrack } from '@/types/timeline'
 import type { Transition } from '@/types/transition'
 import type { CompositionEditorKind, ProjectTimeline, Project } from '@/types/project'
@@ -739,6 +739,7 @@ export function buildTimelineFromStores(): ProjectTimeline {
     ...(keyframesState.keyframes.length > 0 && {
       keyframes: keyframesState.keyframes.map((ik) => ({
         itemId: ik.itemId,
+        ...(ik.animationVersion && { animationVersion: ik.animationVersion }),
         ...(ik.expressions?.length && {
           expressions: ik.expressions.map((expression) => ({ ...expression })),
         }),
@@ -752,6 +753,12 @@ export function buildTimelineFromStores(): ProjectTimeline {
             ...(k.easingConfig && { easingConfig: k.easingConfig }),
           })),
         })),
+        ...(ik.vectorProperties?.length && {
+          vectorProperties: ik.vectorProperties.map((property) => ({
+            property: property.property,
+            keyframes: property.keyframes.map((keyframe) => cloneVectorKeyframe(keyframe)),
+          })),
+        }),
       })),
     }),
     // Sub-compositions (pre-comps)
@@ -776,6 +783,7 @@ export function buildTimelineFromStores(): ProjectTimeline {
           height: c.height,
           durationInFrames: c.durationInFrames,
           ...(c.backgroundColor && { backgroundColor: c.backgroundColor }),
+          compositionControls: c.compositionControls,
           ...(c.busAudioEq && { busAudioEq: c.busAudioEq }),
           ...(c.markers?.length && { markers: c.markers as ProjectTimeline['markers'] }),
           ...(c.inPoint != null && { inPoint: c.inPoint }),
@@ -1072,6 +1080,7 @@ export async function hydrateTimelineStoresFromProject(project: Project): Promis
           height: c.height,
           durationInFrames: c.durationInFrames,
           ...(c.backgroundColor && { backgroundColor: c.backgroundColor }),
+          compositionControls: c.compositionControls,
           ...(c.busAudioEq && { busAudioEq: c.busAudioEq }),
           markers: c.markers ?? [],
           inPoint: c.inPoint ?? null,

@@ -10,7 +10,6 @@ import { resolveAnimatedTextItem } from '@/features/preview/deps/keyframes'
 import { useResolvedPlaybackFrame } from '@/shared/state/playback/use-resolved-playback-frame'
 import { useGizmoStore } from '@/features/preview/stores/gizmo-store'
 import {
-  applyTransformOverride,
   hasCornerPin,
   resolveItemTransformAtFrame,
 } from '@/features/preview/deps/composition-runtime'
@@ -51,6 +50,10 @@ export function useVisualTransforms(
     const transforms = new Map<string, ResolvedTransform>()
     const canvas = { width: projectSize.width, height: projectSize.height, fps }
     const itemsById = new Map(allItems.map((item) => [item.id, item]))
+    const getPreviewTransform = (itemId: string) =>
+      activeGizmo?.itemId === itemId && gizmoPreviewTransform
+        ? gizmoPreviewTransform
+        : preview?.[itemId]?.transform
 
     for (const item of items) {
       const itemKeyframe = keyframesByItemId[item.id]
@@ -70,32 +73,8 @@ export function useVisualTransforms(
         keyframes: itemKeyframe,
         getItem: (itemId) => itemsById.get(itemId),
         getKeyframes: (itemId) => keyframesByItemId[itemId],
+        getPreviewTransform,
       })
-
-      if (activeGizmo?.itemId === item.id && gizmoPreviewTransform) {
-        let gizmoTransform = applyTransformOverride(animatedTransform, gizmoPreviewTransform)
-        gizmoTransform = applyTextExpansion(
-          animatedTextItem,
-          gizmoTransform,
-          previewProperties,
-          hasCornerPin(item.cornerPin),
-        )
-        transforms.set(item.id, gizmoTransform)
-        continue
-      }
-
-      const previewTransform = preview?.[item.id]?.transform
-      if (previewTransform) {
-        let resolvedPreview = applyTransformOverride(animatedTransform, previewTransform)
-        resolvedPreview = applyTextExpansion(
-          animatedTextItem,
-          resolvedPreview,
-          previewProperties,
-          hasCornerPin(item.cornerPin),
-        )
-        transforms.set(item.id, resolvedPreview)
-        continue
-      }
 
       transforms.set(
         item.id,
