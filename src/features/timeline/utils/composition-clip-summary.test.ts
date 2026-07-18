@@ -79,6 +79,106 @@ function makeCompositionItem(overrides: Partial<CompositionItem> = {}): Composit
 }
 
 describe('composition-clip-summary', () => {
+  it('applies hidden and muted layer-group state to compound summaries', () => {
+    const layerGroup = makeTrack({
+      id: 'layer-group',
+      name: 'Layer Group',
+      order: 0,
+      isGroup: true,
+      visible: false,
+      muted: true,
+    })
+    const childTrack = makeTrack({
+      id: 'child-track',
+      name: 'Child',
+      order: 1,
+      parentTrackId: layerGroup.id,
+    })
+
+    const hiddenSummary = summarizeCompositionClipContent({
+      items: [makeVideoItem({ trackId: childTrack.id })],
+      tracks: [layerGroup, childTrack],
+    })
+    expect(hiddenSummary).toMatchObject({
+      visualMediaId: null,
+      audioMediaId: null,
+      hasOwnedAudio: false,
+    })
+
+    const mutedSummary = summarizeCompositionClipContent({
+      items: [makeVideoItem({ trackId: childTrack.id })],
+      tracks: [{ ...layerGroup, visible: true }, childTrack],
+    })
+    expect(mutedSummary.visualMediaId).toBe('media-video')
+    expect(mutedSummary.hasOwnedAudio).toBe(false)
+  })
+
+  it('uses inherited layer-group solo state when choosing compound summary media', () => {
+    const layerGroup = makeTrack({
+      id: 'layer-group',
+      name: 'Layer Group',
+      order: 1,
+      isGroup: true,
+      solo: true,
+    })
+    const childTrack = makeTrack({
+      id: 'child-track',
+      name: 'Grouped child',
+      order: 1,
+      parentTrackId: layerGroup.id,
+    })
+    const ungroupedTrack = makeTrack({ id: 'top-track', name: 'Top', order: 0 })
+
+    const summary = summarizeCompositionClipContent({
+      items: [
+        makeVideoItem({ id: 'top-video', trackId: ungroupedTrack.id, mediaId: 'top-media' }),
+        makeVideoItem({ id: 'group-video', trackId: childTrack.id, mediaId: 'group-media' }),
+      ],
+      tracks: [ungroupedTrack, layerGroup, childTrack],
+    })
+
+    expect(summary.visualMediaId).toBe('group-media')
+    expect(summary.audioMediaId).toBe('group-media')
+  })
+
+  it('excludes children of a hidden layer group from compound filmstrip segments', () => {
+    const layerGroup = makeTrack({
+      id: 'layer-group',
+      name: 'Layer Group',
+      order: 0,
+      isGroup: true,
+      visible: false,
+    })
+    const childTrack = makeTrack({
+      id: 'child-track',
+      name: 'Child',
+      order: 1,
+      parentTrackId: layerGroup.id,
+    })
+    const wrapper = makeCompositionItem({ compositionId: 'child-comp' })
+
+    const segments = getCompositionVisualSegments({
+      wrapper,
+      parentFps: 30,
+      compositionById: {
+        'child-comp': {
+          id: 'child-comp',
+          name: 'Child',
+          items: [makeVideoItem({ trackId: childTrack.id })],
+          tracks: [layerGroup, childTrack],
+          transitions: [],
+          keyframes: [],
+          fps: 30,
+          width: 1920,
+          height: 1080,
+          durationInFrames: 30,
+        },
+      },
+    })
+
+    expect(segments).toEqual([])
+  })
+
   it('finds nested visual media and maps its effective source window', () => {
     const compositionById = {
       'child-comp': {

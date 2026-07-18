@@ -141,10 +141,8 @@ import {
   duplicateSelectionFramePreview as duplicateSelectionFramePreviewState,
 } from './selection-frame-actions'
 import {
-  buildGroupAddEntries,
   buildPropertyKeyframeRefs,
   buildRowKeyframeRefs,
-  getRemovableGroupCurrentKeyframes,
   removeSelectionIds,
 } from './row-action-helpers'
 import {
@@ -204,10 +202,7 @@ interface DopesheetEditorProps {
    * items as one transaction. Return true when the embedding surface handled
    * the preview or commit.
    */
-  onSelectionFrameDelta?: (
-    deltaFrames: number,
-    phase: 'preview' | 'commit' | 'cancel',
-  ) => boolean
+  onSelectionFrameDelta?: (deltaFrames: number, phase: 'preview' | 'commit' | 'cancel') => boolean
   /** Callback when property selection changes */
   onPropertyChange?: (property: AnimatableProperty | null) => void
   /** Notify an embedding surface when a property's inline curve is shown or hidden. */
@@ -228,8 +223,6 @@ interface DopesheetEditorProps {
   onDragCancel?: () => void
   /** Callback to add a keyframe at the current frame */
   onAddKeyframe?: (property: AnimatableProperty, frame: number) => void
-  /** Callback to add multiple keyframes in a single batch */
-  onAddKeyframes?: (entries: Array<{ property: AnimatableProperty; frame: number }>) => void
   /** Callback to duplicate keyframes to explicit target frames */
   onDuplicateKeyframes?: (
     entries: Array<{ ref: KeyframeRef; frame: number; value: number }>,
@@ -413,13 +406,7 @@ function formatExpressionValue(value: ExpressionValue | undefined): string {
   return `[${value.x.toFixed(2)}, ${value.y.toFixed(2)}]`
 }
 
-function DopesheetResetButton({
-  label,
-  onReset,
-}: {
-  label: string
-  onReset: () => void
-}) {
+function DopesheetResetButton({ label, onReset }: { label: string; onReset: () => void }) {
   return (
     <Button
       type="button"
@@ -543,7 +530,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   onDragEnd,
   onDragCancel,
   onAddKeyframe,
-  onAddKeyframes,
   onDuplicateKeyframes,
   propertyValues = {},
   hiddenPropertyRows = EMPTY_HIDDEN_PROPERTIES,
@@ -602,8 +588,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
 }: DopesheetEditorProps) {
   const { t } = useTranslation()
   const resolvedPropertyLinks = propertyLinks ?? linkedTransformExpressions
-  const resolvedPropertyLinkSourceLabels =
-    propertyLinkSourceLabels ?? linkedTransformSourceLabels
+  const resolvedPropertyLinkSourceLabels = propertyLinkSourceLabels ?? linkedTransformSourceLabels
   const beginPropertyLink = onPropertyLinkPointerDown ?? onLinkedTransformPointerDown
   const removePropertyLink = onRemovePropertyLink ?? onRemoveLinkedTransform
   // `split` shows both panes at once. Derive per-pane visibility so the many
@@ -668,7 +653,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       [itemId],
     ),
   )
-  const setAutoKeyframeEnabled = useAutoKeyframeStore((state) => state.setAutoKeyframeEnabled)
   const toggleAutoKeyframeEnabled = useAutoKeyframeStore((state) => state.toggleAutoKeyframeEnabled)
   const skipNextBlurCommitPropertyRef = useRef<AnimatableProperty | null>(null)
   const valueDraftAtFocusRef = useRef<Partial<Record<AnimatableProperty, string>>>({})
@@ -1534,17 +1518,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     [isPropertyLocked, itemId, onDuplicateKeyframes],
   )
 
-  const canAddKeyframeForRow = useCallback(
-    (row: DopesheetPropertyRow) => {
-      if (disabled || !onAddKeyframe) return false
-      if (isPropertyLocked(row.property)) return false
-      if (row.controls.hasKeyframeAtCurrentFrame) return false
-      if (isCurrentFrameBlocked) return false
-      return true
-    },
-    [disabled, isCurrentFrameBlocked, isPropertyLocked, onAddKeyframe],
-  )
-
   const canClearRow = useCallback(
     (row: DopesheetPropertyRow) => {
       if (disabled || !onRemoveKeyframes) return false
@@ -1673,85 +1646,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     [activateProperty, canClearRow, propertyRowByProperty, removeKeyframesForRows],
   )
 
-  const handleAddGroupKeyframes = useCallback(
-    (group: DopesheetPropertyGroup) => {
-      if (disabled || (!onAddKeyframe && !onAddKeyframes)) return
-
-      const entries = buildGroupAddEntries(group.rows, currentFrame, canAddKeyframeForRow)
-
-      if (entries.length === 0) {
-        // Nothing added: explain when the cause is the playhead being in a
-        // transition (vs. every row already keyed at this frame).
-        if (isCurrentFrameBlocked) notifyKeyframeBlocked()
-        return
-      }
-
-      if (onAddKeyframes) {
-        onAddKeyframes(entries)
-        return
-      }
-
-      for (const entry of entries) {
-        onAddKeyframe?.(entry.property, entry.frame)
-      }
-    },
-    [
-      canAddKeyframeForRow,
-      currentFrame,
-      disabled,
-      isCurrentFrameBlocked,
-      notifyKeyframeBlocked,
-      onAddKeyframe,
-      onAddKeyframes,
-    ],
-  )
-
   const handleClearGroup = useCallback(
     (group: DopesheetPropertyGroup) => {
       removeKeyframesForRows(group.rows.filter((row) => canClearRow(row)))
     },
     [canClearRow, removeKeyframesForRows],
-  )
-
-  const handleGroupToggleKeyframes = useCallback(
-    (group: DopesheetPropertyGroup) => {
-      const removableCurrentKeyframes = getRemovableGroupCurrentKeyframes(
-        group.currentKeyframes,
-        isPropertyLocked,
-      )
-
-      if (removableCurrentKeyframes.length > 0) {
-        if (!onRemoveKeyframes) return
-
-        const refs = removableCurrentKeyframes.map(({ property, keyframe }) => ({
-          itemId,
-          property,
-          keyframeId: keyframe.id,
-        }))
-        onRemoveKeyframes(refs)
-
-        if (onSelectionChange) {
-          onSelectionChange(
-            removeSelectionIds(
-              selectedKeyframeIds,
-              removableCurrentKeyframes.map(({ keyframe }) => keyframe.id),
-            ),
-            { preserveExternalSelection: true },
-          )
-        }
-        return
-      }
-
-      handleAddGroupKeyframes(group)
-    },
-    [
-      handleAddGroupKeyframes,
-      isPropertyLocked,
-      itemId,
-      onRemoveKeyframes,
-      onSelectionChange,
-      selectedKeyframeIds,
-    ],
   )
 
   const handleRowNavigate = useCallback(
@@ -1817,21 +1716,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       toggleAutoKeyframeEnabled(itemId, property)
     },
     [activateProperty, isPropertyLocked, itemId, toggleAutoKeyframeEnabled],
-  )
-
-  const handleGroupAutoKeyToggle = useCallback(
-    (group: DopesheetPropertyGroup) => {
-      const eligibleRows = group.rows.filter((row) => !isPropertyLocked(row.property))
-      if (eligibleRows.length === 0) return
-
-      const enableAll = !eligibleRows.every(
-        (row) => autoKeyEnabledByProperty[row.property] ?? false,
-      )
-      for (const row of eligibleRows) {
-        setAutoKeyframeEnabled(itemId, row.property, enableAll)
-      }
-    },
-    [autoKeyEnabledByProperty, isPropertyLocked, itemId, setAutoKeyframeEnabled],
   )
 
   const handleRowValueCommit = useCallback(
@@ -2340,8 +2224,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
 
       const preview = buildSelectionFramePreview(dragState.selectedKeyframeIds, deltaFrames)
       const externallyHandled =
-        !dragState.duplicateOnCommit &&
-        (onSelectionFrameDelta?.(deltaFrames, 'preview') ?? false)
+        !dragState.duplicateOnCommit && (onSelectionFrameDelta?.(deltaFrames, 'preview') ?? false)
       dragState.appliedDeltaFrames = externallyHandled ? deltaFrames : preview.appliedDeltaFrames
       if (!externallyHandled) scheduleDragPreviewFrames(preview.previewFrames)
     }
@@ -2671,18 +2554,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         compoundRow?.linkProperty ??
         (isLinkableAnimatableProperty(row.property) ? row.property : null)
       const propertyLink = linkableProperty
-        ? resolvedPropertyLinks.find(
-            (link) => link.targetProperty === linkableProperty,
-          )
+        ? resolvedPropertyLinks.find((link) => link.targetProperty === linkableProperty)
         : undefined
       const propertyExpression = linkableProperty
-        ? propertyExpressions.find(
-            (expression) => expression.targetProperty === linkableProperty,
-          )
+        ? propertyExpressions.find((expression) => expression.targetProperty === linkableProperty)
         : undefined
       const preExpressionValue: ExpressionValue | undefined = compoundRow
         ? (compoundRow.preExpressionValue ?? compoundRow.value)
-        : preExpressionPropertyValues[row.property] ?? propertyValues[row.property]
+        : (preExpressionPropertyValues[row.property] ?? propertyValues[row.property])
       const postExpressionValue: ExpressionValue | undefined = compoundRow
         ? compoundRow.value
         : propertyValues[row.property]
@@ -2691,7 +2570,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           ? expressionEditor
           : null
       const expressionPreview =
-        linkableProperty && preExpressionValue !== undefined && (editedExpression || propertyExpression)
+        linkableProperty &&
+        preExpressionValue !== undefined &&
+        (editedExpression || propertyExpression)
           ? evaluatePropertyExpression(
               editedExpression?.source ?? propertyExpression?.source ?? 'value',
               {
@@ -3466,11 +3347,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       const curveVisible = groupProperties.some((p) => graphVisibleProperties.has(p))
       const allRowsLocked =
         group.rows.length > 0 && group.rows.every((row) => isPropertyLocked(row.property))
-      const unlockedRows = group.rows.filter((row) => !isPropertyLocked(row.property))
-      const groupAutoKeyEnabled =
-        unlockedRows.length > 0 &&
-        unlockedRows.every((row) => autoKeyEnabledByProperty[row.property] ?? false)
-      const canAddAny = group.rows.some((row) => canAddKeyframeForRow(row))
       const canClearAny = group.rows.some((row) => canClearRow(row))
       const isEffectGroup = group.rows.every((row) => isEffectAnimatableProperty(row.property))
       const canResetEffectGroup =
@@ -3491,11 +3367,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         },
       )
       const isOpen = expandedGroups[group.id] ?? true
-      const unlockedCurrentKeyframes = group.currentKeyframes.filter(
-        ({ property }) => !isPropertyLocked(property),
-      )
-      const hasUnlockedCurrentKeyframes = unlockedCurrentKeyframes.length > 0
-      const canToggleCurrentFrame = hasUnlockedCurrentKeyframes ? !!onRemoveKeyframes : canAddAny
 
       return (
         <div className="group flex h-full items-center gap-px border-y border-border/60 bg-muted/70 pl-3 pr-0.5">
@@ -3567,47 +3438,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               aria-pressed={allRowsLocked}
             >
               <Lock className={MINI_ICON_CLASS} />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className={cn(
-                MINI_ICON_BUTTON_CLASS,
-                'self-center text-muted-foreground hover:text-foreground',
-                groupAutoKeyEnabled &&
-                  'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground',
-              )}
-              onClick={(event) => {
-                event.stopPropagation()
-                handleGroupAutoKeyToggle(group)
-              }}
-              disabled={disabled || unlockedRows.length === 0 || !onPropertyValueCommit}
-              title={
-                groupAutoKeyEnabled
-                  ? t('timeline.keyframeEditor.autoKeyEnabledFor', {
-                      target: groupLabel,
-                      defaultValue: `Auto-key enabled for ${groupLabel}`,
-                    })
-                  : t('timeline.keyframeEditor.enableAutoKeyFor', {
-                      target: groupLabel,
-                      defaultValue: `Enable auto-key for ${groupLabel}`,
-                    })
-              }
-              aria-label={
-                groupAutoKeyEnabled
-                  ? t('timeline.keyframeEditor.autoKeyEnabledFor', {
-                      target: groupLabel,
-                      defaultValue: `Auto-key enabled for ${groupLabel}`,
-                    })
-                  : t('timeline.keyframeEditor.enableAutoKeyFor', {
-                      target: groupLabel,
-                      defaultValue: `Enable auto-key for ${groupLabel}`,
-                    })
-              }
-              aria-pressed={groupAutoKeyEnabled}
-            >
-              <Timer className={MINI_ICON_CLASS} />
             </Button>
           </div>
           <button
@@ -3684,57 +3514,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               type="button"
               variant="ghost"
               size="sm"
-              className={cn(
-                MINI_ICON_BUTTON_CLASS,
-                'hover:bg-transparent',
-                group.hasKeyframeAtCurrentFrame
-                  ? 'text-neutral-200 hover:text-neutral-200'
-                  : 'text-muted-foreground hover:text-foreground',
-                isCurrentFrameBlocked &&
-                  !group.hasKeyframeAtCurrentFrame &&
-                  'opacity-40 cursor-not-allowed',
-              )}
-              onClick={(event) => {
-                event.stopPropagation()
-                handleGroupToggleKeyframes(group)
-              }}
-              disabled={!canToggleCurrentFrame}
-              title={
-                hasUnlockedCurrentKeyframes
-                  ? t('timeline.keyframeEditor.removeGroupKeyframesAtPlayhead', {
-                      group: groupLabel,
-                      defaultValue: `Remove ${groupLabel} keyframes at playhead`,
-                    })
-                  : t('timeline.keyframeEditor.toggleGroupKeyframesAtPlayhead', {
-                      group: groupLabel,
-                      defaultValue: `Toggle ${groupLabel} keyframes at playhead`,
-                    })
-              }
-              aria-label={
-                hasUnlockedCurrentKeyframes
-                  ? t('timeline.keyframeEditor.removeGroupKeyframesAtPlayhead', {
-                      group: groupLabel,
-                      defaultValue: `Remove ${groupLabel} keyframes at playhead`,
-                    })
-                  : t('timeline.keyframeEditor.toggleGroupKeyframesAtPlayhead', {
-                      group: groupLabel,
-                      defaultValue: `Toggle ${groupLabel} keyframes at playhead`,
-                    })
-              }
-            >
-              <span
-                className={cn(
-                  'block h-[7px] w-[7px] rotate-45 border transition-colors',
-                  hasUnlockedCurrentKeyframes
-                    ? 'border-neutral-200 bg-neutral-200'
-                    : 'border-current bg-transparent',
-                )}
-              />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
               className={cn(MINI_ICON_BUTTON_CLASS, 'text-muted-foreground hover:text-foreground')}
               onClick={(event) => {
                 event.stopPropagation()
@@ -3778,21 +3557,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       )
     },
     [
-      autoKeyEnabledByProperty,
-      canAddKeyframeForRow,
       canClearRow,
       disabled,
       expandedGroups,
       handleClearGroup,
-      handleGroupAutoKeyToggle,
-      handleGroupToggleKeyframes,
       handleRowNavigate,
       graphVisibleProperties,
       isPropertyLocked,
-      isCurrentFrameBlocked,
-      onRemoveKeyframes,
       onNavigateToKeyframe,
-      onPropertyValueCommit,
       onResetPropertiesToDefault,
       setAllGroupsExpanded,
       setGroupLocked,
@@ -3854,9 +3626,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               {sheetGroupContentById.get(entry.group.id)}
               <TimelineViewportCuller>
                 <GroupTimelineCell
-                  itemId={itemId}
                   groupId={entry.group.id}
                   groupLabel={entry.group.label}
+                  expanded={expandedGroups[entry.group.id] ?? true}
                   frameGroups={
                     groupTimelineById.get(entry.group.id)?.frameGroups ?? EMPTY_FRAME_GROUPS
                   }
@@ -3869,9 +3641,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                   isPropertyLocked={isPropertyLocked}
                   onGroupKeyframePointerDown={handleGroupKeyframePointerDown}
                   onBackgroundPointerDown={handleTimelineBackgroundPointerDown}
-                  onSegmentEasingChange={onSegmentEasingChange}
-                  onSegmentDragStart={onDragStart}
-                  onSegmentDragEnd={onDragEnd}
                   sheetPreviewFrames={sheetPreviewFrames}
                   sheetPreviewDuplicateKeyframeIds={sheetPreviewDuplicateKeyframeIds}
                 />
@@ -3919,6 +3688,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       }),
     [
       renderedSheetEntries.entries,
+      expandedGroups,
       groupTimelineRowStyle,
       propertyTimelineRowStyle,
       groupTimelineById,

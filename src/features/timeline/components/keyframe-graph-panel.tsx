@@ -395,10 +395,7 @@ interface VectorPastePayload {
   easingConfig?: EasingConfig
 }
 
-const VECTOR_COMPOUND_PRIMARY: Record<
-  VectorAnimatableProperty,
-  'x' | 'width' | 'anchorX'
-> = {
+const VECTOR_COMPOUND_PRIMARY: Record<VectorAnimatableProperty, 'x' | 'width' | 'anchorX'> = {
   position: 'x',
   scale: 'width',
   anchor: 'anchorX',
@@ -1380,9 +1377,8 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
         },
         unit: 'px',
         keyframes: anchorLane.keyframes,
-        currentKeyframeId: anchorLane.keyframes.find(
-          (keyframe) => keyframe.frame === relativeFrame,
-        )?.id,
+        currentKeyframeId: anchorLane.keyframes.find((keyframe) => keyframe.frame === relativeFrame)
+          ?.id,
         persisted: Boolean(getPersistedLane('anchor')),
       },
     ]
@@ -1639,11 +1635,8 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
             preExpressionValue: row.preExpressionValue,
             unit: row.unit,
             linkProperty: row.property,
-            onCommit: (
-              axis: 'x' | 'y',
-              value: number,
-              options: { allowCreate: boolean },
-            ) => handleVectorValueCommit(row.property, axis, value, options),
+            onCommit: (axis: 'x' | 'y', value: number, options: { allowCreate: boolean }) =>
+              handleVectorValueCommit(row.property, axis, value, options),
           },
         ]),
       ),
@@ -2173,38 +2166,6 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       const value = interpolatePropertyValue(propKeyframes, frame, baseValue)
 
       timelineActions.addKeyframe(selectedItemForEditor.id, property, frame, value)
-    },
-    [addVectorKeyframe, canvas, keyframesByProperty, selectedItemForEditor],
-  )
-  const handleAddKeyframes = useCallback(
-    (entries: Array<{ property: AnimatableProperty; frame: number }>) => {
-      if (!selectedItemForEditor || entries.length === 0) return
-
-      const vectorProperties = new Set<VectorAnimatableProperty>()
-      const scalarEntries = entries.filter(({ property, frame }) => {
-        const proxy = getVectorProxy(property)
-        if (!proxy) return true
-        if (!vectorProperties.has(proxy.property)) {
-          vectorProperties.add(proxy.property)
-          addVectorKeyframe(property, frame)
-        }
-        return false
-      })
-
-      const payloads = scalarEntries.map(({ property, frame }) => {
-        const propKeyframes = keyframesByProperty[property] ?? []
-        const baseValue = getBaseKeyframeValue(selectedItemForEditor, property, canvas)
-        const value = interpolatePropertyValue(propKeyframes, frame, baseValue)
-
-        return {
-          itemId: selectedItemForEditor.id,
-          property,
-          frame,
-          value,
-        }
-      })
-
-      if (payloads.length > 0) timelineActions.addKeyframes(payloads)
     },
     [addVectorKeyframe, canvas, keyframesByProperty, selectedItemForEditor],
   )
@@ -2781,7 +2742,6 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   onDragStart={handleDragStart}
                   onDragEnd={handleDragEnd}
                   onAddKeyframe={handleAddKeyframe}
-                  onAddKeyframes={handleAddKeyframes}
                   onDuplicateKeyframes={handleDuplicateKeyframes}
                   onPropertyValueCommit={handlePropertyValueCommit}
                   onPropertyValuePreview={handlePropertyValuePreview}

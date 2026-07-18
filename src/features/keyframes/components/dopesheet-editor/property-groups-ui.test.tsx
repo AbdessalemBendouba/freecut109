@@ -222,7 +222,9 @@ describe('DopesheetEditor property groups', () => {
       frameViewport: { startFrame: 50, endFrame: 100 },
     })
 
-    expect(screen.getAllByTestId('keyframe-connector')).toHaveLength(2)
+    // Category rows summarize child keyframes with diamonds only; the actual
+    // property row remains the sole owner of the easing connector.
+    expect(screen.getAllByTestId('keyframe-connector')).toHaveLength(1)
     expect(screen.queryByTestId('row-keyframe-x-kx-offscreen')).toBeNull()
     expect(screen.getByTestId('row-keyframe-x-kx-visible')).toBeTruthy()
   })
@@ -244,7 +246,7 @@ describe('DopesheetEditor property groups', () => {
     ).toBeNull()
   })
 
-  it('adds keyframes for every property in a group', () => {
+  it('keeps category rows as summaries instead of keyframe owners', () => {
     const onAddKeyframe = vi.fn()
     renderEditor({
       keyframesByProperty: { x: [], y: [] },
@@ -252,31 +254,16 @@ describe('DopesheetEditor property groups', () => {
       onAddKeyframe,
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /toggle transform keyframes at playhead/i }))
-
-    expect(onAddKeyframe).toHaveBeenCalledTimes(2)
-    expect(onAddKeyframe).toHaveBeenNthCalledWith(1, 'x', 12)
-    expect(onAddKeyframe).toHaveBeenNthCalledWith(2, 'y', 12)
-  })
-
-  it('batches group keyframe creation when a multi-add handler is provided', () => {
-    const onAddKeyframes = vi.fn()
-    const onAddKeyframe = vi.fn()
-
-    renderEditor({
-      keyframesByProperty: { x: [], y: [] },
-      propertyValues: { x: 100, y: 200 },
-      onAddKeyframe,
-      onAddKeyframes,
-    })
-
-    fireEvent.click(screen.getByRole('button', { name: /toggle transform keyframes at playhead/i }))
-
+    expect(
+      screen.queryByRole('button', { name: /toggle transform keyframes at playhead/i }),
+    ).toBeNull()
+    expect(
+      screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }),
+    ).toBeEnabled()
+    expect(
+      screen.getByRole('button', { name: /toggle y position keyframe at playhead/i }),
+    ).toBeEnabled()
     expect(onAddKeyframe).not.toHaveBeenCalled()
-    expect(onAddKeyframes).toHaveBeenCalledWith([
-      { property: 'x', frame: 12 },
-      { property: 'y', frame: 12 },
-    ])
   })
 
   it('locks a row and disables its edit controls', () => {
@@ -772,7 +759,7 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.getByText('Cut')).toBeTruthy()
   })
 
-  it('shows matching header icons and supports bulk group controls', () => {
+  it('keeps only non-keyframing bulk controls on category headers', () => {
     renderEditor({
       keyframesByProperty: { x: [], y: [] },
       propertyValues: { x: 100, y: 200 },
@@ -781,7 +768,10 @@ describe('DopesheetEditor property groups', () => {
 
     expect(screen.getByRole('button', { name: /show all transform curves/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /lock transform rows/i })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /enable auto-key for transform/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /enable auto-key for transform/i })).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: /toggle transform keyframes at playhead/i }),
+    ).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /lock transform rows/i }))
 
@@ -811,9 +801,7 @@ describe('DopesheetEditor property groups', () => {
     const headerButtons = [
       curveButton,
       screen.getByRole('button', { name: /lock transform rows/i }),
-      screen.getByRole('button', { name: /enable auto-key for transform/i }),
       screen.getByRole('button', { name: /previous transform keyframe/i }),
-      screen.getByRole('button', { name: /toggle transform keyframes at playhead/i }),
       screen.getByRole('button', { name: /next transform keyframe/i }),
     ]
 
@@ -908,6 +896,20 @@ describe('DopesheetEditor property groups', () => {
     expect(onNavigateToKeyframe).toHaveBeenNthCalledWith(2, 16)
   })
 
+  it('shows aggregate category diamonds only when child rows are collapsed', () => {
+    renderEditor({
+      keyframesByProperty: {
+        x: [{ id: 'kx-1', frame: 8, value: 100, easing: 'linear' }],
+        y: [{ id: 'ky-1', frame: 8, value: 200, easing: 'linear' }],
+      },
+      propertyValues: { x: 100, y: 200 },
+    })
+
+    expect(screen.queryByTestId('group-keyframe-transform-8')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /collapse transform/i }))
+    expect(screen.getByTestId('group-keyframe-transform-8')).toBeTruthy()
+  })
+
   it('selects and drags group header keyframes together in the sheet timeline', async () => {
     const onSelectionChange = vi.fn()
     const onKeyframeMove = vi.fn()
@@ -923,6 +925,7 @@ describe('DopesheetEditor property groups', () => {
       onKeyframeMove,
     })
 
+    fireEvent.click(screen.getByRole('button', { name: /collapse transform/i }))
     const groupKeyframe = screen.getByTestId('group-keyframe-transform-8')
 
     fireEvent.pointerDown(groupKeyframe, { button: 0, pointerId: 1, clientX: 100 })
@@ -945,28 +948,6 @@ describe('DopesheetEditor property groups', () => {
       18,
       200,
     )
-  })
-
-  it('keeps the original header marker visible when dragging a child row keyframe away', async () => {
-    renderEditor({
-      keyframesByProperty: {
-        x: [{ id: 'kx-1', frame: 8, value: 100, easing: 'linear' }],
-        y: [{ id: 'ky-1', frame: 8, value: 200, easing: 'linear' }],
-      },
-      propertyValues: { x: 100, y: 200 },
-      totalFrames: 100,
-      onKeyframeMove: vi.fn(),
-    })
-
-    const rowKeyframe = screen.getByTestId('row-keyframe-x-kx-1')
-
-    fireEvent.pointerDown(rowKeyframe, { button: 0, pointerId: 1, clientX: 100 })
-    fireEvent.pointerMove(window, { pointerId: 1, clientX: 140 })
-
-    await waitFor(() => {
-      expect(screen.getByTestId('group-keyframe-transform-8')).toBeTruthy()
-      expect(screen.getAllByTestId(/group-keyframe-transform-/)).toHaveLength(2)
-    })
   })
 
   it('allows multiple master diamonds to move as one selection', () => {
@@ -1004,6 +985,7 @@ describe('DopesheetEditor property groups', () => {
     }
 
     render(<ControlledSelectionEditor />)
+    fireEvent.click(screen.getByRole('button', { name: /collapse transform/i }))
 
     fireEvent.pointerDown(screen.getByTestId('group-keyframe-transform-8'), {
       button: 0,

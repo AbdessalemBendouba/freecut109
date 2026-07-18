@@ -5,6 +5,60 @@ import type { SubtitleSegmentItem, TimelineTrack, VideoItem } from '@/types/time
 import { convertTimelineToComposition } from './timeline-to-composition'
 
 describe('convertTimelineToComposition IO marker conversion', () => {
+  it('propagates Layer Group state to child tracks and omits the container from export', () => {
+    const layerGroup: TimelineTrack = {
+      id: 'layer-group',
+      name: 'Layer Group',
+      height: 72,
+      locked: true,
+      visible: false,
+      muted: true,
+      solo: true,
+      order: 0,
+      items: [],
+      isGroup: true,
+    }
+    const childTrack: TimelineTrack = {
+      id: 'child-track',
+      name: 'Child',
+      height: 72,
+      locked: false,
+      visible: true,
+      muted: false,
+      solo: false,
+      order: 1,
+      items: [],
+      parentTrackId: layerGroup.id,
+    }
+    const childItem: VideoItem = {
+      id: 'child-item',
+      type: 'video',
+      trackId: childTrack.id,
+      from: 0,
+      durationInFrames: 30,
+      label: 'Child',
+      src: 'blob:child',
+    }
+
+    const composition = convertTimelineToComposition(
+      [layerGroup, childTrack],
+      [childItem],
+      [],
+      30,
+      1920,
+      1080,
+    )
+
+    expect(composition.tracks).toHaveLength(1)
+    expect(composition.tracks[0]).toMatchObject({
+      id: childTrack.id,
+      locked: true,
+      visible: false,
+      muted: true,
+      solo: true,
+    })
+  })
+
   it('converts IO trims from timeline frames to source frames using source FPS', () => {
     const fps = 30
     const sourceFps = 24

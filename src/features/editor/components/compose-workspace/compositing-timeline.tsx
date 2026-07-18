@@ -411,6 +411,7 @@ const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
             <div className="relative min-w-0 flex-1 overflow-hidden">
               <div
                 data-testid={`motion-text-procedural-band-${band.slot}`}
+                data-motion-span-drag-visual
                 data-from-frame={previewFromFrame}
                 data-to-frame={previewToFrame}
                 className="absolute top-1/2 h-4 -translate-y-1/2 touch-none cursor-ew-resize rounded-sm border border-sky-300/45 bg-sky-400/10 transition-[border-color,background-color] hover:border-sky-200/80 hover:bg-sky-400/20 active:border-sky-100"
@@ -467,6 +468,18 @@ interface SpanDragState {
   items: Array<{ id: string; from: number; durationInFrames: number }>
 }
 
+function setSpanDragVisualOffset(elements: readonly HTMLElement[], offsetPx: number) {
+  const transform = `translateX(${offsetPx}px)`
+  for (const element of elements) element.style.transform = transform
+}
+
+function clearSpanDragVisuals(elements: readonly HTMLElement[]) {
+  for (const element of elements) {
+    element.style.removeProperty('transform')
+    element.style.removeProperty('will-change')
+  }
+}
+
 interface SpanTrimState {
   pointerId: number
   itemId: string
@@ -476,6 +489,30 @@ interface SpanTrimState {
   deltaFrames: number
   from: number
   durationInFrames: number
+  segment: HTMLButtonElement
+  segmentWidthPx: number
+  segmentInlineWidth: string
+  segmentInlineTransform: string
+  segmentInlineWillChange: string
+  timelineVisuals: HTMLElement[]
+}
+
+function applySpanTrimVisuals(trim: SpanTrimState, visibleFrameRange: number) {
+  const offsetPx = (trim.deltaFrames / visibleFrameRange) * trim.laneWidth
+  trim.segment.style.transform =
+    trim.handle === 'start' ? `translateX(${offsetPx}px)` : trim.segmentInlineTransform
+  trim.segment.style.width = `${Math.max(
+    1,
+    trim.segmentWidthPx + (trim.handle === 'start' ? -offsetPx : offsetPx),
+  )}px`
+  if (trim.handle === 'start') setSpanDragVisualOffset(trim.timelineVisuals, offsetPx)
+}
+
+function clearSpanTrimVisuals(trim: SpanTrimState) {
+  trim.segment.style.width = trim.segmentInlineWidth
+  trim.segment.style.transform = trim.segmentInlineTransform
+  trim.segment.style.willChange = trim.segmentInlineWillChange
+  clearSpanDragVisuals(trim.timelineVisuals)
 }
 
 interface RowReorderDragState {
@@ -760,6 +797,7 @@ interface MotionRowContextMenuProps {
   onCopy: () => void
   onPaste: () => void
   onDelete: () => void
+  deleteLabel?: string
 }
 
 const MotionRowContextMenu = memo(function MotionRowContextMenu({
@@ -774,7 +812,9 @@ const MotionRowContextMenu = memo(function MotionRowContextMenu({
   onCopy,
   onPaste,
   onDelete,
+  deleteLabel = 'Delete',
 }: MotionRowContextMenuProps) {
+  const { t } = useTranslation()
   return (
     <ContextMenu onOpenChange={(open) => open && onOpen()}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
@@ -786,13 +826,13 @@ const MotionRowContextMenu = memo(function MotionRowContextMenu({
         {onGroup && (
           <ContextMenuItem onClick={onGroup} disabled={!canGroup}>
             <Group className="mr-2 h-3.5 w-3.5" />
-            Group selected layers
+            {t('editor.compose.groupSelected')}
           </ContextMenuItem>
         )}
         {onUngroup && (
           <ContextMenuItem onClick={onUngroup}>
             <Ungroup className="mr-2 h-3.5 w-3.5" />
-            Ungroup
+            {t('editor.compose.ungroup')}
           </ContextMenuItem>
         )}
         <ContextMenuSeparator />
@@ -811,7 +851,7 @@ const MotionRowContextMenu = memo(function MotionRowContextMenu({
         <ContextMenuSeparator />
         <ContextMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
           <Trash2 className="mr-2 h-3.5 w-3.5" />
-          Delete
+          {deleteLabel}
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -828,6 +868,7 @@ interface MotionDopesheetLanesProps {
   timeViewport: MotionTimeViewport
   inlineCurveProperty: AnimatableProperty | null
   paneMode?: 'lanes' | 'graph'
+  disabled?: boolean
   onSelectItem: (itemId: string) => void
   onInlineCurveChange: (property: AnimatableProperty | null) => void
   onScrub: (frame: number) => void
@@ -879,6 +920,7 @@ function areMotionDopesheetLanesPropsEqual(
     previous.timeViewport.endFrame === next.timeViewport.endFrame &&
     previous.inlineCurveProperty === next.inlineCurveProperty &&
     previous.paneMode === next.paneMode &&
+    previous.disabled === next.disabled &&
     previous.onPropertyLinkPointerDown === next.onPropertyLinkPointerDown &&
     previous.onRemovePropertyLink === next.onRemovePropertyLink &&
     previous.onSetPropertyExpression === next.onSetPropertyExpression &&
@@ -1134,6 +1176,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   timeViewport,
   inlineCurveProperty,
   paneMode = 'lanes',
+  disabled = false,
   onSelectItem,
   onInlineCurveChange,
   onScrub,
@@ -1222,9 +1265,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     if (!vectorBaseTransform) return result
     for (const row of motionVectorRows) {
       const lane =
-        itemKeyframes?.vectorProperties?.find(
-          (candidate) => candidate.property === row.property,
-        ) ??
+        itemKeyframes?.vectorProperties?.find((candidate) => candidate.property === row.property) ??
         buildVectorPromotionPlan({
           property: row.property,
           itemKeyframes,
@@ -1502,11 +1543,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
                       }),
                   }
                 : undefined,
-            onCommit: (
-              axis: 'x' | 'y',
-              nextValue: number,
-              options: { allowCreate: boolean },
-            ) => handleMotionVectorValueCommit(row.property, axis, nextValue, options),
+            onCommit: (axis: 'x' | 'y', nextValue: number, options: { allowCreate: boolean }) =>
+              handleMotionVectorValueCommit(row.property, axis, nextValue, options),
           },
         ]
       }),
@@ -1559,9 +1597,9 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     (property) => !hiddenPropertyRows.includes(property),
   )
   const visiblePropertyCount = renderedVisibleProperties.length
-  const visiblePropertyGroupHeaderCount = getPropertyAccordionGroups(renderedVisibleProperties).filter(
-    (group) => !MOTION_INLINE_PROPERTY_GROUP_ID_SET.has(group.id),
-  ).length
+  const visiblePropertyGroupHeaderCount = getPropertyAccordionGroups(
+    renderedVisibleProperties,
+  ).filter((group) => !MOTION_INLINE_PROPERTY_GROUP_ID_SET.has(group.id)).length
   const laneContentHeight =
     visiblePropertyCount * ROW_HEIGHT + visiblePropertyGroupHeaderCount * GROUP_HEADER_HEIGHT
 
@@ -1768,7 +1806,13 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   return (
     <div
       ref={rootRef}
-      className={cn('w-full bg-background/35', paneMode === 'graph' && 'h-full')}
+      inert={disabled ? true : undefined}
+      aria-disabled={disabled}
+      className={cn(
+        'w-full bg-background/35',
+        paneMode === 'graph' && 'h-full',
+        disabled && 'opacity-60',
+      )}
       style={{
         height: getMotionDopesheetLaneHeight(paneMode, laneContentHeight),
       }}
@@ -2169,6 +2213,7 @@ interface LayerFrameInputProps {
   min: number
   max: number
   onCommit: (value: number) => void
+  disabled?: boolean
 }
 
 const LayerFrameInput = memo(function LayerFrameInput({
@@ -2178,6 +2223,7 @@ const LayerFrameInput = memo(function LayerFrameInput({
   min,
   max,
   onCommit,
+  disabled = false,
 }: LayerFrameInputProps) {
   return (
     <label className="flex items-center gap-0.5 text-[8px] text-muted-foreground" title={ariaLabel}>
@@ -2188,6 +2234,7 @@ const LayerFrameInput = memo(function LayerFrameInput({
         defaultValue={value}
         min={min}
         max={max}
+        disabled={disabled}
         onBlur={(event) => {
           const parsed = Number(event.currentTarget.value)
           if (!Number.isFinite(parsed)) return
@@ -2225,10 +2272,11 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const [inlineCurve, setInlineCurve] = useState<InlineCurveState | null>(null)
   const [renameTarget, setRenameTarget] = useState<RenameTarget | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
-  const [spanDrag, setSpanDrag] = useState<SpanDragState | null>(null)
   const spanDragRef = useRef<SpanDragState | null>(null)
-  const [spanTrim, setSpanTrim] = useState<SpanTrimState | null>(null)
+  const spanDragAnimationFrameRef = useRef<number | null>(null)
+  const spanDragVisualsRef = useRef<HTMLElement[]>([])
   const spanTrimRef = useRef<SpanTrimState | null>(null)
+  const spanTrimAnimationFrameRef = useRef<number | null>(null)
   const selectionAnchorIdRef = useRef<string | null>(null)
   const motionScrollAreaRef = useRef<HTMLDivElement>(null)
   const motionRulerRef = useRef<HTMLDivElement>(null)
@@ -2245,12 +2293,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     remove: handleRemovePropertyLink,
   } = usePropertyLinkPickWhip()
   const handleSetPropertyExpression = useCallback(
-    (
-      itemId: string,
-      property: DirectLinkableProperty,
-      source: string,
-      enabled: boolean,
-    ) => {
+    (itemId: string, property: DirectLinkableProperty, source: string, enabled: boolean) => {
       setPropertyExpression(itemId, {
         type: 'expression',
         targetProperty: property,
@@ -2270,6 +2313,20 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     startFrame: 0,
     endFrame: 1,
   })
+
+  useEffect(
+    () => () => {
+      if (spanDragAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(spanDragAnimationFrameRef.current)
+      }
+      if (spanTrimAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(spanTrimAnimationFrameRef.current)
+      }
+      clearSpanDragVisuals(spanDragVisualsRef.current)
+      if (spanTrimRef.current) clearSpanTrimVisuals(spanTrimRef.current)
+    },
+    [],
+  )
   const pendingMotionViewportUpdatesRef = useRef<MotionViewportUpdate[]>([])
   const motionViewportAnimationFrameRef = useRef<number | null>(null)
   const middlePanRef = useRef<MotionMiddlePanState | null>(null)
@@ -2332,10 +2389,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     }),
     [composition?.height, composition?.width, fps],
   )
-  const {
-    drag: transformParentDrag,
-    begin: beginTransformParentDrag,
-  } = useTransformParentPickWhip(transformParentCanvas)
+  const { drag: transformParentDrag, begin: beginTransformParentDrag } =
+    useTransformParentPickWhip(transformParentCanvas)
   // Fit the entire composition before paint whenever Motion opens or switches
   // compositions. Subsequent duration changes only clamp the user's viewport,
   // so manual zoom/pan remains stable while editing.
@@ -2424,6 +2479,12 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const activeCurveItem = activeInlineCurve
     ? (items.find((item) => item.id === activeInlineCurve.itemId) ?? null)
     : null
+  const activeCurveTrack = activeCurveItem ? trackById.get(activeCurveItem.trackId) : undefined
+  const activeCurveParentGroup = activeCurveTrack?.parentTrackId
+    ? trackById.get(activeCurveTrack.parentTrackId)
+    : undefined
+  const isActiveCurveLocked =
+    activeCurveTrack?.locked === true || activeCurveParentGroup?.locked === true
   const activeCurveProperties = useMemo(
     () => (activeCurveItem ? getItemProperties(activeCurveItem) : []),
     [activeCurveItem],
@@ -2948,8 +3009,19 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         deltaFrames: 0,
         items: dragItems,
       }
+      const itemIdSetForVisuals = new Set(itemIds)
+      const visuals = new Set<HTMLElement>([event.currentTarget])
+      for (const row of motionScrollAreaRef.current?.querySelectorAll<HTMLElement>(
+        '[data-motion-layer-item-id]',
+      ) ?? []) {
+        if (!itemIdSetForVisuals.has(row.dataset.motionLayerItemId ?? '')) continue
+        for (const visual of row.querySelectorAll<HTMLElement>('[data-motion-span-drag-visual]')) {
+          visuals.add(visual)
+        }
+      }
+      spanDragVisualsRef.current = [...visuals]
+      for (const visual of spanDragVisualsRef.current) visual.style.willChange = 'transform'
       spanDragRef.current = next
-      setSpanDrag(next)
       event.currentTarget.setPointerCapture?.(event.pointerId)
     },
     [items, pause, selectItems, selectLayer],
@@ -2968,7 +3040,16 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       if (deltaFrames === drag.deltaFrames) return
       const next = { ...drag, deltaFrames }
       spanDragRef.current = next
-      setSpanDrag(next)
+      if (spanDragAnimationFrameRef.current !== null) return
+      spanDragAnimationFrameRef.current = requestAnimationFrame(() => {
+        spanDragAnimationFrameRef.current = null
+        const latestDrag = spanDragRef.current
+        if (!latestDrag) return
+        setSpanDragVisualOffset(
+          spanDragVisualsRef.current,
+          (latestDrag.deltaFrames / visibleFrameRange) * latestDrag.laneWidth,
+        )
+      })
     },
     [durationInFrames, visibleFrameRange],
   )
@@ -2978,35 +3059,31 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     if (!drag || drag.pointerId !== event.pointerId) return
     event.preventDefault()
     event.stopPropagation()
+    if (spanDragAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(spanDragAnimationFrameRef.current)
+      spanDragAnimationFrameRef.current = null
+    }
+    clearSpanDragVisuals(spanDragVisualsRef.current)
+    spanDragVisualsRef.current = []
     spanDragRef.current = null
-    setSpanDrag(null)
     if (drag.deltaFrames !== 0) {
       moveItems(drag.items.map((item) => ({ id: item.id, from: item.from + drag.deltaFrames })))
     }
   }, [])
 
-  const getPreviewFrom = useCallback(
-    (item: TimelineItem) => {
-      if (spanTrim?.itemId === item.id && spanTrim.handle === 'start') {
-        return spanTrim.from + spanTrim.deltaFrames
-      }
-      if (!spanDrag) return item.from
-      return spanDrag.items.some((candidate) => candidate.id === item.id)
-        ? item.from + spanDrag.deltaFrames
-        : item.from
-    },
-    [spanDrag, spanTrim],
-  )
-
-  const getPreviewDuration = useCallback(
-    (item: TimelineItem) => {
-      if (spanTrim?.itemId !== item.id) return item.durationInFrames
-      return spanTrim.handle === 'start'
-        ? spanTrim.durationInFrames - spanTrim.deltaFrames
-        : spanTrim.durationInFrames + spanTrim.deltaFrames
-    },
-    [spanTrim],
-  )
+  const cancelSpanDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = spanDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (spanDragAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(spanDragAnimationFrameRef.current)
+      spanDragAnimationFrameRef.current = null
+    }
+    clearSpanDragVisuals(spanDragVisualsRef.current)
+    spanDragVisualsRef.current = []
+    spanDragRef.current = null
+  }, [])
 
   const beginSpanTrim = useCallback(
     (event: React.PointerEvent<HTMLSpanElement>, item: TimelineItem, handle: 'start' | 'end') => {
@@ -3015,7 +3092,15 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       event.stopPropagation()
       const lane = event.currentTarget.closest<HTMLElement>('[data-motion-timeline-lane]')
       const laneWidth = lane?.getBoundingClientRect().width ?? 0
-      if (laneWidth <= 0) return
+      const segment = event.currentTarget.closest<HTMLButtonElement>(
+        '[data-testid^="motion-layer-span-"]',
+      )
+      if (laneWidth <= 0 || !segment) return
+      const row = segment.closest<HTMLElement>('[data-motion-layer-item-id]')
+      const timelineVisuals = Array.from(
+        row?.querySelectorAll<HTMLElement>('[data-motion-span-drag-visual]') ?? [],
+      ).filter((visual) => visual !== segment)
+      const segmentRect = segment.getBoundingClientRect()
       pause()
       selectItems([item.id])
       const next: SpanTrimState = {
@@ -3027,9 +3112,18 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         deltaFrames: 0,
         from: item.from,
         durationInFrames: item.durationInFrames,
+        segment,
+        segmentWidthPx: segmentRect.width,
+        segmentInlineWidth: segment.style.width,
+        segmentInlineTransform: segment.style.transform,
+        segmentInlineWillChange: segment.style.willChange,
+        timelineVisuals,
+      }
+      segment.style.willChange = 'transform, width'
+      if (handle === 'start') {
+        for (const visual of timelineVisuals) visual.style.willChange = 'transform'
       }
       spanTrimRef.current = next
-      setSpanTrim(next)
       event.currentTarget.setPointerCapture?.(event.pointerId)
     },
     [pause, selectItems],
@@ -3053,25 +3147,46 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       if (deltaFrames === trim.deltaFrames) return
       const next = { ...trim, deltaFrames }
       spanTrimRef.current = next
-      setSpanTrim(next)
+      if (spanTrimAnimationFrameRef.current !== null) return
+      spanTrimAnimationFrameRef.current = requestAnimationFrame(() => {
+        spanTrimAnimationFrameRef.current = null
+        const latestTrim = spanTrimRef.current
+        if (latestTrim) applySpanTrimVisuals(latestTrim, visibleFrameRange)
+      })
     },
     [durationInFrames, visibleFrameRange],
   )
 
-  const endSpanTrim = useCallback((event: React.PointerEvent<HTMLSpanElement>) => {
-    const trim = spanTrimRef.current
-    if (!trim || trim.pointerId !== event.pointerId) return
-    event.preventDefault()
-    event.stopPropagation()
-    spanTrimRef.current = null
-    setSpanTrim(null)
-    if (trim.deltaFrames === 0) return
-    if (trim.handle === 'start') {
-      trimItemStart(trim.itemId, trim.deltaFrames)
-    } else {
-      trimItemEnd(trim.itemId, trim.deltaFrames)
-    }
-  }, [])
+  const finishSpanTrim = useCallback(
+    (event: React.PointerEvent<HTMLSpanElement>, commit: boolean) => {
+      const trim = spanTrimRef.current
+      if (!trim || trim.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (spanTrimAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(spanTrimAnimationFrameRef.current)
+        spanTrimAnimationFrameRef.current = null
+      }
+      clearSpanTrimVisuals(trim)
+      spanTrimRef.current = null
+      if (!commit || trim.deltaFrames === 0) return
+      if (trim.handle === 'start') {
+        trimItemStart(trim.itemId, trim.deltaFrames)
+      } else {
+        trimItemEnd(trim.itemId, trim.deltaFrames)
+      }
+    },
+    [],
+  )
+
+  const endSpanTrim = useCallback(
+    (event: React.PointerEvent<HTMLSpanElement>) => finishSpanTrim(event, true),
+    [finishSpanTrim],
+  )
+  const cancelSpanTrim = useCallback(
+    (event: React.PointerEvent<HTMLSpanElement>) => finishSpanTrim(event, false),
+    [finishSpanTrim],
+  )
 
   const beginRowReorder = useCallback(
     (event: React.PointerEvent<HTMLButtonElement>, track: TimelineTrack) => {
@@ -3096,8 +3211,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       const sourceRow = siblingCenters[originIndex]?.row
       if (!sourceRow) return
       const dropIndicator = document.createElement('div')
-      dropIndicator.className =
-        'pointer-events-none absolute inset-x-0 z-40 h-0.5 bg-primary'
+      dropIndicator.className = 'pointer-events-none absolute inset-x-0 z-40 h-0.5 bg-primary'
       sourceRow.style.willChange = 'transform'
       const next: RowReorderDragState = {
         pointerId: event.pointerId,
@@ -3126,8 +3240,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       0,
     )
     const dropAfterTarget = targetIndex >= drag.dropCandidates.length
-    const dropTarget =
-      drag.dropCandidates[targetIndex] ?? drag.dropCandidates.at(-1) ?? null
+    const dropTarget = drag.dropCandidates[targetIndex] ?? drag.dropCandidates.at(-1) ?? null
     const next = {
       ...drag,
       deltaY: clientY - drag.startY,
@@ -3144,20 +3257,23 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     }
   }, [])
 
-  const moveRowReorder = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const drag = rowReorderDragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    event.preventDefault()
-    event.stopPropagation()
-    pendingRowReorderClientYRef.current = event.clientY
-    if (rowReorderAnimationFrameRef.current !== null) return
-    rowReorderAnimationFrameRef.current = window.requestAnimationFrame(() => {
-      rowReorderAnimationFrameRef.current = null
-      const clientY = pendingRowReorderClientYRef.current
-      pendingRowReorderClientYRef.current = null
-      if (clientY !== null) applyRowReorderPreview(clientY)
-    })
-  }, [applyRowReorderPreview])
+  const moveRowReorder = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const drag = rowReorderDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      pendingRowReorderClientYRef.current = event.clientY
+      if (rowReorderAnimationFrameRef.current !== null) return
+      rowReorderAnimationFrameRef.current = window.requestAnimationFrame(() => {
+        rowReorderAnimationFrameRef.current = null
+        const clientY = pendingRowReorderClientYRef.current
+        pendingRowReorderClientYRef.current = null
+        if (clientY !== null) applyRowReorderPreview(clientY)
+      })
+    },
+    [applyRowReorderPreview],
+  )
 
   const clearRowReorderPreview = useCallback((drag: RowReorderDragState) => {
     if (rowReorderAnimationFrameRef.current !== null) {
@@ -3170,44 +3286,50 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     drag.dropIndicator.remove()
   }, [])
 
-  const finishRowReorder = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const activeDrag = rowReorderDragRef.current
-    if (!activeDrag || activeDrag.pointerId !== event.pointerId) return
-    event.preventDefault()
-    event.stopPropagation()
-    applyRowReorderPreview(event.clientY)
-    const drag = rowReorderDragRef.current
-    if (!drag) return
-    clearRowReorderPreview(drag)
-    rowReorderDragRef.current = null
-    setRowReorderDrag(null)
-    if (drag.targetIndex === drag.originIndex) return
+  const finishRowReorder = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const activeDrag = rowReorderDragRef.current
+      if (!activeDrag || activeDrag.pointerId !== event.pointerId) return
+      event.preventDefault()
+      event.stopPropagation()
+      applyRowReorderPreview(event.clientY)
+      const drag = rowReorderDragRef.current
+      if (!drag) return
+      clearRowReorderPreview(drag)
+      rowReorderDragRef.current = null
+      setRowReorderDrag(null)
+      if (drag.targetIndex === drag.originIndex) return
 
-    const latestTracks = useItemsStore.getState().tracks
-    const siblings = latestTracks
-      .filter((track) => (track.parentTrackId ?? null) === drag.parentTrackId)
-      .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
-    const sourceIndex = siblings.findIndex((track) => track.id === drag.sourceTrackId)
-    if (sourceIndex < 0) return
-    const [source] = siblings.splice(sourceIndex, 1)
-    if (!source) return
-    siblings.splice(Math.max(0, Math.min(drag.targetIndex, siblings.length)), 0, source)
-    const orderByTrackId = new Map(siblings.map((track, index) => [track.id, index]))
-    setTracks(
-      latestTracks.map((track) => {
-        const order = orderByTrackId.get(track.id)
-        return order === undefined ? track : { ...track, order }
-      }),
-    )
-  }, [applyRowReorderPreview, clearRowReorderPreview])
+      const latestTracks = useItemsStore.getState().tracks
+      const siblings = latestTracks
+        .filter((track) => (track.parentTrackId ?? null) === drag.parentTrackId)
+        .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id))
+      const sourceIndex = siblings.findIndex((track) => track.id === drag.sourceTrackId)
+      if (sourceIndex < 0) return
+      const [source] = siblings.splice(sourceIndex, 1)
+      if (!source) return
+      siblings.splice(Math.max(0, Math.min(drag.targetIndex, siblings.length)), 0, source)
+      const orderByTrackId = new Map(siblings.map((track, index) => [track.id, index]))
+      setTracks(
+        latestTracks.map((track) => {
+          const order = orderByTrackId.get(track.id)
+          return order === undefined ? track : { ...track, order }
+        }),
+      )
+    },
+    [applyRowReorderPreview, clearRowReorderPreview],
+  )
 
-  const cancelRowReorder = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
-    const drag = rowReorderDragRef.current
-    if (!drag || drag.pointerId !== event.pointerId) return
-    clearRowReorderPreview(drag)
-    rowReorderDragRef.current = null
-    setRowReorderDrag(null)
-  }, [clearRowReorderPreview])
+  const cancelRowReorder = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      const drag = rowReorderDragRef.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      clearRowReorderPreview(drag)
+      rowReorderDragRef.current = null
+      setRowReorderDrag(null)
+    },
+    [clearRowReorderPreview],
+  )
 
   const isRowReordering = rowReorderDrag !== null
   useEffect(() => {
@@ -3689,13 +3811,14 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const renderGroupRow = (row: Extract<MotionRow, { kind: 'group' }>) => {
     const groupSelected =
       row.items.length > 0 && row.items.every((item) => selectedItemIdSet.has(item.id))
-    const groupFrom = row.items.length
-      ? Math.min(...row.items.map((item) => getPreviewFrom(item)))
-      : 0
+    const groupFrom = row.items.length ? Math.min(...row.items.map((item) => item.from)) : 0
     const groupEnd = row.items.length
-      ? Math.max(...row.items.map((item) => getPreviewFrom(item) + item.durationInFrames))
+      ? Math.max(...row.items.map((item) => item.from + item.durationInFrames))
       : 0
     const groupItemIds = row.items.map((item) => item.id)
+    const groupTrackIds = tracks
+      .filter((track) => track.parentTrackId === row.track.id)
+      .map((track) => track.id)
     const isDragging = rowReorderDrag?.sourceTrackId === row.track.id
 
     return (
@@ -3716,9 +3839,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           onDuplicate={() => duplicateLayers(groupItemIds, row.track)}
           onCopy={() => copyLayers(groupItemIds)}
           onPaste={() => pasteLayers(row.track.id)}
-          onDelete={() =>
-            deleteLayers(groupItemIds, [row.track.id, ...row.items.map((item) => item.trackId)])
-          }
+          onDelete={() => deleteLayers(groupItemIds, [row.track.id, ...groupTrackIds])}
+          deleteLabel={t('editor.compose.deleteLayerGroupAndContents')}
         >
           <div
             className={cn(
@@ -3819,7 +3941,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                     if (event.key === 'Enter') event.currentTarget.blur()
                     if (event.key === 'Escape') setRenameTarget(null)
                   }}
-                  aria-label="Group name"
+                  aria-label={t('editor.compose.layerGroupName')}
                   className="h-5 min-w-24 flex-1 rounded border border-primary/50 bg-background px-1.5 text-[11px] font-semibold outline-none"
                 />
               ) : (
@@ -3866,12 +3988,13 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                 <button
                   type="button"
                   data-testid={`motion-group-span-${row.track.id}`}
+                  disabled={row.track.locked}
                   onPointerDown={(event) => !row.track.locked && beginSpanDrag(event, groupItemIds)}
                   onPointerMove={moveSpanDrag}
                   onPointerUp={endSpanDrag}
-                  onPointerCancel={endSpanDrag}
+                  onPointerCancel={cancelSpanDrag}
                   className={cn(
-                    'absolute top-1/2 h-4 -translate-y-1/2 touch-none rounded-sm border border-timeline-motion-segment/80 bg-timeline-motion-segment/70 px-1 text-left text-[9px] text-foreground',
+                    'absolute top-1/2 h-6 -translate-y-1/2 touch-none rounded-sm border border-timeline-motion-segment/80 bg-timeline-motion-segment/70 px-1 text-left text-[9px] text-foreground',
                     row.track.locked
                       ? 'cursor-not-allowed opacity-55'
                       : 'cursor-grab active:cursor-grabbing',
@@ -3963,7 +4086,9 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           onClick={createGroupFromSelection}
           disabled={!canGroupSelectedLayers}
           className="flex h-6 items-center gap-1 rounded px-1.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
-          title={t('editor.compose.groupSelected')}
+          aria-label={t('editor.compose.groupSelected')}
+          aria-description={t('editor.compose.layerGroupDescription')}
+          title={t('editor.compose.layerGroupDescription')}
         >
           <Group className="h-3 w-3" />
           {t('editor.compose.group')}
@@ -4105,6 +4230,11 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                 })
                 const expanded = expandedLayerIdSet.has(item.id)
                 const selected = selectedItemIdSet.has(item.id)
+                const parentLayerGroup = track?.parentTrackId
+                  ? trackById.get(track.parentTrackId)
+                  : undefined
+                const isParentLayerGroupLocked = parentLayerGroup?.locked === true
+                const isLayerLocked = track?.locked === true || isParentLayerGroupLocked
                 const properties = getItemProperties(item)
                 const proceduralBands = getProceduralBands(
                   item.motionModifiers,
@@ -4168,7 +4298,10 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                               <button
                                 type="button"
                                 data-testid={`motion-reorder-handle-${track.id}`}
-                                onPointerDown={(event) => beginRowReorder(event, track)}
+                                disabled={isLayerLocked}
+                                onPointerDown={(event) =>
+                                  !isLayerLocked && beginRowReorder(event, track)
+                                }
                                 onPointerMove={moveRowReorder}
                                 onPointerUp={finishRowReorder}
                                 onPointerCancel={cancelRowReorder}
@@ -4247,16 +4380,26 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                             <button
                               type="button"
                               onClick={() =>
-                                track && updateLayerTrack(track.id, { locked: !track.locked })
+                                track &&
+                                !isParentLayerGroupLocked &&
+                                updateLayerTrack(track.id, { locked: !track.locked })
                               }
-                              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              disabled={isParentLayerGroupLocked}
+                              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-55"
                               aria-label={
-                                track?.locked
-                                  ? t('editor.compose.unlockLayer')
-                                  : t('editor.compose.lockLayer')
+                                isParentLayerGroupLocked
+                                  ? t('editor.compose.lockedByLayerGroup')
+                                  : isLayerLocked
+                                    ? t('editor.compose.unlockLayer')
+                                    : t('editor.compose.lockLayer')
+                              }
+                              title={
+                                isParentLayerGroupLocked
+                                  ? t('editor.compose.lockedByLayerGroup')
+                                  : undefined
                               }
                             >
-                              {track?.locked ? (
+                              {isLayerLocked ? (
                                 <Lock className="h-3.5 w-3.5" />
                               ) : (
                                 <Unlock className="h-3.5 w-3.5" />
@@ -4332,7 +4475,9 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                             <button
                               type="button"
                               data-testid={`motion-parent-pick-whip-${item.id}`}
+                              disabled={isLayerLocked}
                               onPointerDown={(event) =>
+                                !isLayerLocked &&
                                 beginTransformParentDrag(event, item.id, parentItemId)
                               }
                               aria-label={t('editor.compose.parentPickWhipForLayer', {
@@ -4353,6 +4498,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                               <PickWhipIcon className="h-3.5 w-3.5" />
                             </button>
                             <Select
+                              disabled={isLayerLocked}
                               value={parentItemId ?? NO_TRANSFORM_PARENT}
                               onValueChange={(value) => {
                                 const nextParentItemId =
@@ -4414,6 +4560,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                               value={item.from}
                               min={0}
                               max={Math.max(0, item.from + item.durationInFrames - 1)}
+                              disabled={isLayerLocked}
                               onCommit={(nextFrom) =>
                                 updateItem(item.id, {
                                   from: nextFrom,
@@ -4430,6 +4577,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                               value={item.from + item.durationInFrames}
                               min={item.from + 1}
                               max={durationInFrames}
+                              disabled={isLayerLocked}
                               onCommit={(nextOut) =>
                                 updateItem(item.id, {
                                   durationInFrames: Math.max(1, nextOut - item.from),
@@ -4442,6 +4590,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                             style={{ width: LAYER_MODE_COLUMN_WIDTH }}
                           >
                             <Select
+                              disabled={isLayerLocked}
                               value={item.blendMode ?? 'normal'}
                               onValueChange={(value) =>
                                 updateItem(item.id, { blendMode: value as BlendMode })
@@ -4482,8 +4631,10 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                             <button
                               type="button"
                               data-testid={`motion-layer-span-${item.id}`}
+                              data-motion-span-drag-visual
+                              disabled={isLayerLocked}
                               onPointerDown={(event) =>
-                                !track?.locked &&
+                                !isLayerLocked &&
                                 beginSpanDrag(
                                   event,
                                   selected && !(event.metaKey || event.ctrlKey || event.shiftKey)
@@ -4493,13 +4644,13 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                               }
                               onPointerMove={moveSpanDrag}
                               onPointerUp={endSpanDrag}
-                              onPointerCancel={endSpanDrag}
+                              onPointerCancel={cancelSpanDrag}
                               onClick={(event) => {
                                 event.stopPropagation()
                               }}
                               className={cn(
                                 'absolute top-1/2 h-5 -translate-y-1/2 touch-none rounded-sm border px-1 text-left text-[9px] shadow-sm transition-colors',
-                                track?.locked
+                                isLayerLocked
                                   ? 'cursor-not-allowed opacity-55'
                                   : 'cursor-grab active:cursor-grabbing',
                                 selected
@@ -4507,25 +4658,25 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                                   : 'border-timeline-motion-segment/80 bg-timeline-motion-segment/70 text-foreground hover:bg-timeline-motion-segment/85',
                               )}
                               style={{
-                                left: `${frameToMotionPercent(getPreviewFrom(item))}%`,
-                                width: `${Math.max(0.6, (getPreviewDuration(item) / visibleFrameRange) * 100)}%`,
+                                left: `${frameToMotionPercent(item.from)}%`,
+                                width: `${Math.max(0.6, (item.durationInFrames / visibleFrameRange) * 100)}%`,
                               }}
                               title={`${item.from}–${item.from + item.durationInFrames - 1}`}
                             >
-                              {!track?.locked ? (
+                              {!isLayerLocked ? (
                                 <>
                                   <span
                                     role="slider"
                                     aria-label={`Trim ${item.label || item.type} start`}
                                     aria-valuemin={0}
                                     aria-valuemax={item.from + item.durationInFrames - 1}
-                                    aria-valuenow={getPreviewFrom(item)}
+                                    aria-valuenow={item.from}
                                     tabIndex={-1}
                                     data-testid={`motion-trim-start-${item.id}`}
                                     onPointerDown={(event) => beginSpanTrim(event, item, 'start')}
                                     onPointerMove={moveSpanTrim}
                                     onPointerUp={endSpanTrim}
-                                    onPointerCancel={endSpanTrim}
+                                    onPointerCancel={cancelSpanTrim}
                                     className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
                                   />
                                   <span
@@ -4533,13 +4684,13 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                                     aria-label={`Trim ${item.label || item.type} end`}
                                     aria-valuemin={item.from + 1}
                                     aria-valuemax={durationInFrames}
-                                    aria-valuenow={getPreviewFrom(item) + getPreviewDuration(item)}
+                                    aria-valuenow={item.from + item.durationInFrames}
                                     tabIndex={-1}
                                     data-testid={`motion-trim-end-${item.id}`}
                                     onPointerDown={(event) => beginSpanTrim(event, item, 'end')}
                                     onPointerMove={moveSpanTrim}
                                     onPointerUp={endSpanTrim}
-                                    onPointerCancel={endSpanTrim}
+                                    onPointerCancel={cancelSpanTrim}
                                     className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
                                   />
                                 </>
@@ -4563,7 +4714,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                     </MotionRowContextMenu>
 
                     {expanded ? (
-                      <>
+                      <div inert={isLayerLocked ? true : undefined} aria-disabled={isLayerLocked}>
                         {textMotionBands.length > 0 ? (
                           <TextMotionTimelineLanes
                             itemId={item.id}
@@ -4584,6 +4735,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                               ? activeInlineCurve.property
                               : null
                           }
+                          disabled={isLayerLocked}
                           onSelectItem={(itemId) => selectItems([itemId])}
                           onInlineCurveChange={(property) => {
                             setInlineCurve(
@@ -4606,7 +4758,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                           onSetPropertyExpression={handleSetPropertyExpression}
                           onRemovePropertyExpression={handleRemovePropertyExpression}
                         />
-                      </>
+                      </div>
                     ) : null}
                   </div>
                 )
@@ -4622,6 +4774,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           >
             <MotionDopesheetLanes
               item={activeCurveItem}
+              disabled={isActiveCurveLocked}
               properties={activeCurveProperties}
               compositionDurationInFrames={durationInFrames}
               fps={fps}
@@ -4693,9 +4846,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         {layerSheet}
       </section>
       {propertyLinkDrag ? <PropertyLinkPickWhipOverlay drag={propertyLinkDrag} /> : null}
-      {transformParentDrag ? (
-        <TransformParentPickWhipOverlay drag={transformParentDrag} />
-      ) : null}
+      {transformParentDrag ? <TransformParentPickWhipOverlay drag={transformParentDrag} /> : null}
       <NewCompositionDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}

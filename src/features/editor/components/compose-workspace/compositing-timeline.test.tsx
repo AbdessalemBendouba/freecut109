@@ -756,9 +756,10 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     fireEvent.keyDown(scaleX, { key: 'Enter' })
 
     expect(
-      useKeyframesStore.getState().keyframesByItemId[shape.id]?.vectorProperties?.find(
-        (lane) => lane.property === 'scale',
-      )?.keyframes[0]?.value,
+      useKeyframesStore
+        .getState()
+        .keyframesByItemId[shape.id]?.vectorProperties?.find((lane) => lane.property === 'scale')
+        ?.keyframes[0]?.value,
     ).toEqual({ x: 125, y: 125 })
 
     fireEvent.click(screen.getByRole('button', { name: 'Unlink Scale axes' }))
@@ -955,8 +956,8 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
 
     await waitFor(() => {
       expect(
-        useKeyframesStore.getState().keyframesByItemId[shape.id]?.vectorProperties?.[0]?.keyframes ??
-          [],
+        useKeyframesStore.getState().keyframesByItemId[shape.id]?.vectorProperties?.[0]
+          ?.keyframes ?? [],
       ).toHaveLength(0)
     })
     expect(useItemsStore.getState().itemById[shape.id]).toBeDefined()
@@ -1080,7 +1081,11 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     fireEvent.contextMenu(screen.getByRole('button', { name: /2circle/i }))
 
     expect(useSelectionStore.getState().selectedItemIds).toEqual([shape.id, secondShape.id])
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Group selected layers' }))
+    fireEvent.click(
+      await screen.findByRole('menuitem', {
+        name: 'Create Layer Group from selected layers',
+      }),
+    )
 
     expect(useItemsStore.getState().tracks.filter((candidate) => candidate.isGroup)).toHaveLength(1)
   })
@@ -1123,6 +1128,12 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
 
     expect(screen.getByRole('button', { name: 'New composition' })).toHaveTextContent('New Comp')
     expect(screen.getByRole('button', { name: 'Add Item' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Create Layer Group from selected layers' }),
+    ).toHaveAttribute(
+      'title',
+      'Organize layers and move them together. Use Parent for transform inheritance.',
+    )
   })
 
   it('parents and unparents a layer from the Parent dropdown', async () => {
@@ -1162,7 +1173,9 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     fireEvent.click(parentSelect)
     fireEvent.click(await screen.findByRole('option', { name: 'None' }))
 
-    expect(useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId).toBeUndefined()
+    expect(
+      useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId,
+    ).toBeUndefined()
     expect(parentSelect).toHaveTextContent('None')
   })
 
@@ -1215,7 +1228,9 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
       clientY: 0,
       ctrlKey: true,
     })
-    expect(useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId).toBeUndefined()
+    expect(
+      useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId,
+    ).toBeUndefined()
     Reflect.deleteProperty(document, 'elementFromPoint')
   })
 
@@ -1294,6 +1309,114 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(usePlaybackStore.getState().previewFrame).toBeNull()
     useTimelineCommandStore.getState().undo()
     expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(0)
+  })
+
+  it('discards a span move when the pointer interaction is cancelled', () => {
+    render(<CompositingTimeline />)
+    const span = screen.getByTestId(`motion-layer-span-${shape.id}`)
+    vi.spyOn(span.parentElement!, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 34,
+      width: 300,
+      height: 34,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(span, { pointerId: 2, button: 0, clientX: 0 })
+    fireEvent.pointerMove(span, { pointerId: 2, buttons: 1, clientX: 30 })
+    fireEvent.pointerCancel(span, { pointerId: 2, clientX: 30 })
+
+    expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(0)
+  })
+
+  it('previews start and end trims on compositor visuals and cancels without committing', () => {
+    const opacityKeyframeId = useKeyframesStore.getState()._addKeyframe(shape.id, 'opacity', 10, 1)
+    useComposeUiStore.setState({
+      expandedLayerIdsByComposition: { 'comp-1': [shape.id] },
+    })
+    const trimFrameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        trimFrameCallbacks.push(callback)
+        return trimFrameCallbacks.length
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => {})
+
+    render(<CompositingTimeline />)
+    const span = screen.getByTestId(`motion-layer-span-${shape.id}`)
+    const lane = span.parentElement!
+    const startHandle = screen.getByTestId(`motion-trim-start-${shape.id}`)
+    const endHandle = screen.getByTestId(`motion-trim-end-${shape.id}`)
+    const keyframeVisual = screen
+      .getByTestId(`row-keyframe-opacity-${opacityKeyframeId}`)
+      .closest<HTMLElement>('[data-motion-span-drag-visual]')!
+    const initialWidth = span.style.width
+    vi.spyOn(lane, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 34,
+      width: 300,
+      height: 34,
+      toJSON: () => ({}),
+    })
+    vi.spyOn(span, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 120,
+      bottom: 20,
+      width: 120,
+      height: 20,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(startHandle, { pointerId: 11, button: 0, clientX: 25 })
+    fireEvent.pointerMove(startHandle, { pointerId: 11, buttons: 1, clientX: 40 })
+    act(() => trimFrameCallbacks.shift()?.(performance.now()))
+    expect(span.style.translate).toBe('')
+    expect(span.style.transform).not.toBe('')
+    expect(span.style.width).not.toBe(initialWidth)
+    expect(keyframeVisual.style.translate).toBe('')
+    expect(keyframeVisual.style.transform).not.toBe('')
+    fireEvent.pointerCancel(startHandle, { pointerId: 11, clientX: 40 })
+    expect(span.style.translate).toBe('')
+    expect(span.style.transform).toBe('')
+    expect(span.style.width).toBe(initialWidth)
+    expect(keyframeVisual.style.translate).toBe('')
+    expect(keyframeVisual.style.transform).toBe('')
+    expect(useItemsStore.getState().itemById[shape.id]).toMatchObject({
+      from: 0,
+      durationInFrames: 120,
+    })
+
+    fireEvent.pointerDown(endHandle, { pointerId: 12, button: 0, clientX: 200 })
+    fireEvent.pointerMove(endHandle, { pointerId: 12, buttons: 1, clientX: 170 })
+    act(() => trimFrameCallbacks.shift()?.(performance.now()))
+    expect(span.style.translate).toBe('')
+    expect(span.style.transform).toBe('')
+    expect(span.style.width).not.toBe(initialWidth)
+    expect(keyframeVisual.style.translate).toBe('')
+    expect(keyframeVisual.style.transform).toBe('')
+    fireEvent.pointerCancel(endHandle, { pointerId: 12, clientX: 170 })
+    expect(span.style.width).toBe(initialWidth)
+    expect(useItemsStore.getState().itemById[shape.id]).toMatchObject({
+      from: 0,
+      durationInFrames: 120,
+    })
+
+    animationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
   })
 
   it('trims a layer span from either edge and keeps each drag undoable', () => {
@@ -1479,7 +1602,7 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     useSelectionStore.getState().selectItems([shape.id, secondShape.id])
 
     render(<CompositingTimeline />)
-    fireEvent.click(screen.getByTitle('Group selected layers'))
+    fireEvent.click(screen.getByRole('button', { name: 'Create Layer Group from selected layers' }))
 
     const groupedState = useItemsStore.getState()
     const groupTrack = groupedState.tracks.find((candidate) => candidate.isGroup)
@@ -1491,8 +1614,176 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     ).toBe(true)
     expect(screen.getByTestId(`motion-group-${groupTrack!.id}`)).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Ungroup' }))
+    fireEvent.contextMenu(screen.getByTestId(`motion-group-${groupTrack!.id}`))
+    expect(screen.getByRole('menuitem', { name: 'Ungroup Layers' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('menuitem', { name: 'Delete Layer Group and Contents' }),
+    ).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ungroup Layers' }))
     expect(useItemsStore.getState().tracks.some((candidate) => candidate.isGroup)).toBe(false)
+  })
+
+  it('moves all Layer Group contents together but discards a cancelled group move', () => {
+    const layerGroup = makeTimelineTrack({
+      id: 'layer-group',
+      name: 'Layer Group 1',
+      kind: 'video',
+      order: 0,
+      isGroup: true,
+    })
+    const secondTrack = makeTimelineTrack({
+      id: 'layer-track-2',
+      name: 'Circle',
+      kind: 'video',
+      order: 2,
+      parentTrackId: layerGroup.id,
+    })
+    const firstChildTrack = { ...track, order: 1, parentTrackId: layerGroup.id }
+    const secondShape: ShapeItem = {
+      ...shape,
+      id: 'shape-2',
+      trackId: secondTrack.id,
+      label: 'Circle',
+      from: 20,
+    }
+    useItemsStore.getState().setTracks([layerGroup, firstChildTrack, secondTrack])
+    useItemsStore.getState().setItems([shape, secondShape])
+    const opacityKeyframeId = useKeyframesStore.getState()._addKeyframe(shape.id, 'opacity', 10, 1)
+    useComposeUiStore.setState({
+      expandedLayerIdsByComposition: { 'comp-1': [shape.id] },
+    })
+    const spanFrameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        spanFrameCallbacks.push(callback)
+        return spanFrameCallbacks.length
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => {})
+
+    render(<CompositingTimeline />)
+    const span = screen.getByTestId(`motion-group-span-${layerGroup.id}`)
+    expect(span).toHaveClass('h-6')
+    const keyframeTestId = `row-keyframe-opacity-${opacityKeyframeId}`
+    const keyframeMarker = screen.getByTestId(keyframeTestId)
+    const initialKeyframeLeft = keyframeMarker.style.left
+    const keyframeVisual = keyframeMarker.closest<HTMLElement>('[data-motion-span-drag-visual]')!
+    vi.spyOn(span.parentElement!, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 34,
+      width: 300,
+      height: 34,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(span, { pointerId: 4, button: 0, clientX: 0 })
+    fireEvent.pointerMove(span, { pointerId: 4, buttons: 1, clientX: 10 })
+    fireEvent.pointerMove(span, { pointerId: 4, buttons: 1, clientX: 30 })
+    expect(spanFrameCallbacks).toHaveLength(1)
+    act(() => spanFrameCallbacks.shift()?.(performance.now()))
+    expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(shape.from)
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]?.frame,
+    ).toBe(10)
+    expect(screen.getByTestId(keyframeTestId).style.left).toBe(initialKeyframeLeft)
+    expect(span.style.translate).toBe('')
+    expect(span.style.transform).not.toBe('')
+    expect(keyframeVisual.style.translate).toBe('')
+    expect(keyframeVisual.style.transform).not.toBe('')
+    fireEvent.pointerUp(span, { pointerId: 4, clientX: 30 })
+    expect(keyframeVisual.style.translate).toBe('')
+    expect(keyframeVisual.style.transform).toBe('')
+    const groupMoveDelta = useItemsStore.getState().itemById[shape.id]?.from ?? 0
+    expect(groupMoveDelta).toBeGreaterThan(0)
+    expect(useItemsStore.getState().itemById[secondShape.id]?.from).toBe(20 + groupMoveDelta)
+
+    useTimelineCommandStore.getState().undo()
+    expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(0)
+    expect(useItemsStore.getState().itemById[secondShape.id]?.from).toBe(20)
+
+    fireEvent.pointerDown(span, { pointerId: 5, button: 0, clientX: 0 })
+    fireEvent.pointerMove(span, { pointerId: 5, buttons: 1, clientX: 30 })
+    fireEvent.pointerCancel(span, { pointerId: 5, clientX: 30 })
+    expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(0)
+    expect(useItemsStore.getState().itemById[secondShape.id]?.from).toBe(20)
+    animationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+  })
+
+  it('prevents child timeline and transform edits inherited from a locked Layer Group', () => {
+    const layerGroup = makeTimelineTrack({
+      id: 'locked-layer-group',
+      name: 'Layer Group 1',
+      kind: 'video',
+      order: 0,
+      isGroup: true,
+      locked: true,
+    })
+    const childTrack = makeTimelineTrack({
+      ...track,
+      id: 'locked-child-track',
+      order: 1,
+      parentTrackId: layerGroup.id,
+    })
+    useItemsStore.getState().setTracks([layerGroup, childTrack])
+    useItemsStore.getState().setItems([{ ...shape, trackId: childTrack.id }])
+
+    render(<CompositingTimeline />)
+
+    const childSpan = screen.getByTestId(`motion-layer-span-${shape.id}`)
+    expect(childSpan).toBeDisabled()
+    expect(screen.getByTestId(`motion-reorder-handle-${childTrack.id}`)).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Locked by Layer Group' })).toBeDisabled()
+    expect(screen.getByTestId(`motion-parent-pick-whip-${shape.id}`)).toBeDisabled()
+    expect(screen.getByLabelText('In frame')).toBeDisabled()
+    expect(screen.getByLabelText('Out frame')).toBeDisabled()
+
+    fireEvent.pointerDown(childSpan, { pointerId: 7, button: 0, clientX: 0 })
+    fireEvent.pointerMove(childSpan, { pointerId: 7, buttons: 1, clientX: 40 })
+    fireEvent.pointerUp(childSpan, { pointerId: 7, clientX: 40 })
+    expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(0)
+  })
+
+  it('removes the empty former layer group when all of its children are regrouped', () => {
+    const oldGroup = makeTimelineTrack({
+      id: 'old-layer-group',
+      name: 'Layer Group 1',
+      kind: 'video',
+      order: 0,
+      isGroup: true,
+    })
+    const secondTrack = makeTimelineTrack({
+      id: 'layer-track-2',
+      name: 'Circle',
+      kind: 'video',
+      order: 2,
+      parentTrackId: oldGroup.id,
+    })
+    const firstChildTrack = { ...track, order: 1, parentTrackId: oldGroup.id }
+    const secondShape: ShapeItem = {
+      ...shape,
+      id: 'shape-2',
+      trackId: secondTrack.id,
+      label: 'Circle',
+    }
+    useItemsStore.getState().setTracks([oldGroup, firstChildTrack, secondTrack])
+    useItemsStore.getState().setItems([shape, secondShape])
+    useSelectionStore.getState().selectItems([shape.id, secondShape.id])
+
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Create Layer Group from selected layers' }))
+
+    const layerGroups = useItemsStore.getState().tracks.filter((candidate) => candidate.isGroup)
+    expect(layerGroups).toHaveLength(1)
+    expect(layerGroups[0]?.id).not.toBe(oldGroup.id)
   })
 
   it('accepts text and shape templates dragged from the shared media sidebar', () => {

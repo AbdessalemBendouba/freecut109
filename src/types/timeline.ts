@@ -440,8 +440,8 @@ export interface TimelineTrack {
   order: number
   items: TimelineItem[]
   // Track grouping (subsequences)
-  parentTrackId?: string // ID of the group track this track belongs to
-  isGroup?: boolean // true = container track (no items, only children)
+  parentTrackId?: string // ID of the Layer Group track this track belongs to
+  isGroup?: boolean // true = organizational Layer Group (no items, only children)
   isCollapsed?: boolean // Whether the group's children are collapsed
 }
 

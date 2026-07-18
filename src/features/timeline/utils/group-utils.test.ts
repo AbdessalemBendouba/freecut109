@@ -2,7 +2,12 @@
 
 import { describe, expect, it } from 'vite-plus/test'
 import type { TimelineTrack } from '@/types/timeline'
-import { getVisibleTrackIds, resolveEffectiveTrackStates } from './group-utils'
+import {
+  getVisibleTrackIds,
+  pruneEmptyLayerGroupHierarchy,
+  pruneEmptyLayerGroups,
+  resolveEffectiveTrackStates,
+} from './group-utils'
 
 function makeTrack(overrides: Partial<TimelineTrack> = {}): TimelineTrack {
   return {
@@ -31,7 +36,7 @@ describe('group-utils', () => {
     expect(tracks.map((track) => track.id)).toEqual(['child-1', 'child-2'])
   })
 
-  it('propagates parent group mute, visibility, and lock state to children', () => {
+  it('propagates parent layer-group mute, visibility, lock, and solo state to children', () => {
     const [effectiveChild] = resolveEffectiveTrackStates([
       makeTrack({
         id: 'group-1',
@@ -39,6 +44,7 @@ describe('group-utils', () => {
         locked: true,
         muted: true,
         visible: false,
+        solo: true,
       }),
       makeTrack({
         id: 'child-1',
@@ -51,6 +57,7 @@ describe('group-utils', () => {
       locked: true,
       muted: true,
       visible: false,
+      solo: true,
     })
   })
 
@@ -62,5 +69,30 @@ describe('group-utils', () => {
     ])
 
     expect(visibleTrackIds).toEqual(new Set(['child-visible']))
+  })
+
+  it('prunes empty layer groups while retaining populated groups and their children', () => {
+    const populatedGroup = makeTrack({ id: 'group-populated', isGroup: true })
+    const emptyGroup = makeTrack({ id: 'group-empty', isGroup: true })
+    const child = makeTrack({ id: 'child', parentTrackId: populatedGroup.id })
+
+    expect(pruneEmptyLayerGroups([populatedGroup, emptyGroup, child])).toEqual([
+      populatedGroup,
+      child,
+    ])
+  })
+
+  it('prunes empty child lanes without removing empty top-level classic tracks', () => {
+    const group = makeTrack({ id: 'group', isGroup: true })
+    const populatedChild = makeTrack({ id: 'child-populated', parentTrackId: group.id })
+    const emptyChild = makeTrack({ id: 'child-empty', parentTrackId: group.id })
+    const emptyClassicTrack = makeTrack({ id: 'classic-empty' })
+
+    expect(
+      pruneEmptyLayerGroupHierarchy(
+        [group, populatedChild, emptyChild, emptyClassicTrack],
+        [{ trackId: populatedChild.id }],
+      ),
+    ).toEqual([group, populatedChild, emptyClassicTrack])
   })
 })

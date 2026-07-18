@@ -18,6 +18,7 @@ import {
 } from '../utils/source-calculations'
 import { isCompositionWrapperItem, wouldCreateCompositionCycle } from '../utils/composition-graph'
 import { normalizeClassicTrackNames } from '../utils/classic-tracks'
+import { pruneEmptyLayerGroups } from '../utils/group-utils'
 import { resolveTrackHeight } from '../utils/track-heights'
 import { getActiveCompositionId } from './composition-navigation-active'
 import { useCompositionsStore } from './compositions-store'
@@ -162,7 +163,7 @@ export const useItemsStore = create<ItemsState & ItemsActions>()((set, get) => (
       // passes the existing stored object, normalization is a no-op re-clone, so
       // reuse the previous reference.
       const previousById = new Map(state.tracks.map((track) => [track.id, track]))
-      const sortedTracks = tracks
+      const sortedTracks = pruneEmptyLayerGroups(tracks)
         .map((track) => {
           const previous = previousById.get(track.id)
           const normalized = previous === track ? previous : normalizeTrack(track)

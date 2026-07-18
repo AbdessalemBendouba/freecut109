@@ -115,8 +115,8 @@ export function usePreviewCompositionBaseModel({
   itemsByTrackId,
   mediaById,
 }: UsePreviewCompositionBaseModelParams) {
-  // resolveEffectiveTrackStates applies parent group gate behavior (mute/hide/lock)
-  // and filters out group container tracks (which hold no items)
+  // resolveEffectiveTrackStates applies parent layer-group state (mute/hide/lock/solo)
+  // and filters out Layer Group containers (which hold no items)
   const combinedTracks = useMemo(() => {
     const effectiveTracks = resolveEffectiveTrackStates(tracks).toSorted(
       (a, b) => b.order - a.order,

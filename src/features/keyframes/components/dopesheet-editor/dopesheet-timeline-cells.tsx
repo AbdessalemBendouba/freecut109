@@ -12,7 +12,7 @@ import { memo } from 'react'
 import type { MutableRefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/shared/ui/cn'
-import type { AnimatableProperty, Keyframe, KeyframeRef } from '@/types/keyframe'
+import type { AnimatableProperty, Keyframe } from '@/types/keyframe'
 import type { BlockedFrameRange } from '../../utils/transition-region'
 import type { ProceduralBand } from '@/features/keyframes/utils/procedural-preview'
 import { getKeyframeGroupLabel } from '@/features/keyframes/utils/property-i18n'
@@ -127,9 +127,9 @@ function ProceduralBandView({
 }
 
 interface GroupTimelineCellProps {
-  itemId: string
   groupId: string
   groupLabel: string
+  expanded: boolean
   /** Stable, frame-independent grouped keyframes. */
   frameGroups: FrameGroup[]
   /** Stable structural rows (used for drag-preview frame remapping). */
@@ -145,17 +145,14 @@ interface GroupTimelineCellProps {
     event: React.PointerEvent<HTMLButtonElement>,
   ) => void
   onBackgroundPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void
-  onSegmentEasingChange?: SegmentEasingChange
-  onSegmentDragStart?: () => void
-  onSegmentDragEnd?: () => void
   sheetPreviewFrames: Record<string, number> | null
   sheetPreviewDuplicateKeyframeIds: string[] | null
 }
 
 export const GroupTimelineCell = memo(function GroupTimelineCell({
-  itemId,
   groupId,
   groupLabel,
+  expanded,
   frameGroups,
   rows,
   ticks,
@@ -166,9 +163,6 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
   isPropertyLocked,
   onGroupKeyframePointerDown,
   onBackgroundPointerDown,
-  onSegmentEasingChange,
-  onSegmentDragStart,
-  onSegmentDragEnd,
   sheetPreviewFrames,
   sheetPreviewDuplicateKeyframeIds,
 }: GroupTimelineCellProps) {
@@ -179,32 +173,6 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
     sheetPreviewDuplicateKeyframeIds,
   })
   const renderedFrameGroups = sheetPreviewDuplicateKeyframeIds ? frameGroups : displayedFrameGroups
-  const connectorSegments = buildConnectorSegments(
-    renderedFrameGroups.flatMap((frameGroup) => {
-      return [
-        {
-          id: `${groupId}-${frameGroup.frame}`,
-          frame: frameGroup.frame,
-          x: frameToX(frameGroup.frame),
-          // A group span only "holds" if every property parks across it.
-          held: frameGroup.keyframes.every(({ keyframe }) => keyframe.easing === 'hold'),
-        },
-      ]
-    }),
-  )
-
-  // Clickable easing spans between consecutive group keyframes. Suppressed while
-  // a drag preview is active so it doesn't fight the ghost markers.
-  const segmentSpans =
-    onSegmentEasingChange && !disabled && !sheetPreviewDuplicateKeyframeIds
-      ? buildSegmentSpans(
-          renderedFrameGroups.map((frameGroup) => ({
-            from: frameGroup,
-            frame: frameGroup.frame,
-            x: frameToX(frameGroup.frame),
-          })),
-        )
-      : []
 
   return (
     <div
@@ -219,103 +187,77 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
         />
       ))}
 
-      <KeyframeConnectors segments={connectorSegments} />
+      <div data-motion-span-drag-visual className="absolute inset-0">
+        {!expanded &&
+          renderedFrameGroups.map((frameGroup) => {
+            const renderedX = getRenderedKeyframeX(frameGroup.frame)
+            if (renderedX === null) {
+              return null
+            }
 
-      {onSegmentEasingChange &&
-        segmentSpans.map((span) => {
-          const editable = span.from.keyframes.filter(({ property }) => !isPropertyLocked(property))
-          if (editable.length === 0) return null
-          const first = editable[0]!
-          const mixed = editable.some(({ keyframe }) => keyframe.easing !== first.keyframe.easing)
-          const refs: KeyframeRef[] = editable.map(({ property, keyframe }) => ({
-            itemId,
-            property,
-            keyframeId: keyframe.id,
-          }))
-          return (
-            <SegmentEasingPopover
-              key={`group-seg-${groupId}-${first.keyframe.id}`}
-              left={span.left}
-              width={span.width}
-              refs={refs}
-              easing={first.keyframe.easing}
-              easingConfig={first.keyframe.easingConfig}
-              mixed={mixed}
-              held={editable.every(({ keyframe }) => keyframe.easing === 'hold')}
-              onChange={onSegmentEasingChange}
-              onDragStart={onSegmentDragStart}
-              onDragEnd={onSegmentDragEnd}
-            />
-          )
-        })}
+            const movableEntries = frameGroup.keyframes.filter(
+              ({ property }) => !isPropertyLocked(property),
+            )
+            const isSelected = movableEntries.some(({ keyframe }) =>
+              selectedKeyframeIds.has(keyframe.id),
+            )
 
-      {renderedFrameGroups.map((frameGroup) => {
-        const renderedX = getRenderedKeyframeX(frameGroup.frame)
-        if (renderedX === null) {
-          return null
-        }
+            return (
+              <button
+                key={`${groupId}-${frameGroup.frame}`}
+                type="button"
+                data-testid={`group-keyframe-${groupId}-${frameGroup.frame}`}
+                className={cn(
+                  'group absolute z-10 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center',
+                  movableEntries.length > 0 && 'cursor-grab active:cursor-grabbing',
+                  movableEntries.length === 0 && 'cursor-not-allowed opacity-50',
+                )}
+                style={{
+                  left: renderedX,
+                  top: '50%',
+                }}
+                disabled={movableEntries.length === 0 || disabled}
+                onPointerDown={(event) => onGroupKeyframePointerDown(frameGroup, event)}
+                onClick={(event) => event.stopPropagation()}
+                title={t('timeline.keyframeEditor.keyframeMarker.groupLabel', {
+                  group: getKeyframeGroupLabel(t, groupId, groupLabel),
+                  frame: frameGroup.frame,
+                })}
+                aria-label={t('timeline.keyframeEditor.keyframeMarker.groupLabel', {
+                  group: getKeyframeGroupLabel(t, groupId, groupLabel),
+                  frame: frameGroup.frame,
+                })}
+              >
+                <span
+                  className={cn(
+                    'pointer-events-none block h-2 w-2 rotate-45 border transition-colors',
+                    isSelected
+                      ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
+                      : 'border-transparent bg-neutral-200 group-hover:bg-white',
+                  )}
+                />
+              </button>
+            )
+          })}
+        {!expanded &&
+          sheetPreviewDuplicateKeyframeIds &&
+          displayedFrameGroups.map((frameGroup) => {
+            const renderedX = getRenderedKeyframeX(frameGroup.frame)
+            if (renderedX === null) {
+              return null
+            }
 
-        const movableEntries = frameGroup.keyframes.filter(
-          ({ property }) => !isPropertyLocked(property),
-        )
-        const isSelected = movableEntries.some(({ keyframe }) =>
-          selectedKeyframeIds.has(keyframe.id),
-        )
-
-        return (
-          <button
-            key={`${groupId}-${frameGroup.frame}`}
-            type="button"
-            data-testid={`group-keyframe-${groupId}-${frameGroup.frame}`}
-            className={cn(
-              'group absolute z-10 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center',
-              movableEntries.length > 0 && 'cursor-grab active:cursor-grabbing',
-              movableEntries.length === 0 && 'cursor-not-allowed opacity-50',
-            )}
-            style={{
-              left: renderedX,
-              top: '50%',
-            }}
-            disabled={movableEntries.length === 0 || disabled}
-            onPointerDown={(event) => onGroupKeyframePointerDown(frameGroup, event)}
-            onClick={(event) => event.stopPropagation()}
-            title={t('timeline.keyframeEditor.keyframeMarker.groupLabel', {
-              group: getKeyframeGroupLabel(t, groupId, groupLabel),
-              frame: frameGroup.frame,
-            })}
-            aria-label={t('timeline.keyframeEditor.keyframeMarker.groupLabel', {
-              group: getKeyframeGroupLabel(t, groupId, groupLabel),
-              frame: frameGroup.frame,
-            })}
-          >
-            <span
-              className={cn(
-                'pointer-events-none block h-2 w-2 rotate-45 border transition-colors',
-                isSelected
-                  ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
-                  : 'border-transparent bg-neutral-200 group-hover:bg-white',
-              )}
-            />
-          </button>
-        )
-      })}
-      {sheetPreviewDuplicateKeyframeIds &&
-        displayedFrameGroups.map((frameGroup) => {
-          const renderedX = getRenderedKeyframeX(frameGroup.frame)
-          if (renderedX === null) {
-            return null
-          }
-
-          return (
-            <div
-              key={`preview-${groupId}-${frameGroup.frame}`}
-              className="absolute z-20 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center pointer-events-none"
-              style={{ left: renderedX, top: '50%' }}
-            >
-              <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
-            </div>
-          )
-        })}
+            return (
+              <div
+                key={`preview-${groupId}-${frameGroup.frame}`}
+                className="absolute z-20 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center pointer-events-none"
+                style={{ left: renderedX, top: '50%' }}
+              >
+                <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
+              </div>
+            )
+          })}
+      </div>
     </div>
   )
 })
@@ -438,110 +380,112 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
         />
       ))}
 
-      {proceduralBand && (
-        <ProceduralBandView
-          band={proceduralBand}
-          frameToX={frameToX}
-          title={t('timeline.keyframeEditor.proceduralBand')}
-        />
-      )}
-
-      <KeyframeConnectors segments={connectorSegments} />
-
-      {onSegmentEasingChange &&
-        segmentSpans.map((span) => (
-          <SegmentEasingPopover
-            key={`seg-${span.from.id}`}
-            left={span.left}
-            width={span.width}
-            refs={[{ itemId, property, keyframeId: span.from.id }]}
-            easing={span.from.easing}
-            easingConfig={span.from.easingConfig}
-            held={span.from.easing === 'hold'}
-            onChange={onSegmentEasingChange}
-            onDragStart={onSegmentDragStart}
-            onDragEnd={onSegmentDragEnd}
+      <div data-motion-span-drag-visual className="absolute inset-0">
+        {proceduralBand && (
+          <ProceduralBandView
+            band={proceduralBand}
+            frameToX={frameToX}
+            title={t('timeline.keyframeEditor.proceduralBand')}
           />
-        ))}
+        )}
 
-      {keyframes.map((keyframe) => {
-        const renderedX = xForKeyframe(keyframe)
-        if (renderedX === null) return null
-        const selected = selectedKeyframeIds.has(keyframe.id)
-        return (
-          <button
-            key={keyframe.id}
-            ref={(node) => setKeyframeButtonRef(keyframe.id, node)}
-            type="button"
-            data-testid={`row-keyframe-${property}-${keyframe.id}`}
-            className={cn(
-              'group absolute z-10 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center',
-              !locked && 'cursor-grab active:cursor-grabbing',
-              locked && 'cursor-not-allowed opacity-50',
-            )}
-            style={{
-              left: renderedX,
-              top: '50%',
-            }}
-            disabled={locked || disabled}
-            onPointerDown={(event) => onKeyframePointerDown(property, keyframe.id, event)}
-            onClick={(event) => event.stopPropagation()}
-            title={
-              locked
-                ? t('timeline.keyframeEditor.keyframeMarker.locked', {
-                    frame: keyframe.frame,
-                  })
-                : t('timeline.keyframeEditor.keyframeMarker.rowLabel', {
-                    frame: keyframe.frame,
-                  })
-            }
-            aria-label={
-              locked
-                ? t('timeline.keyframeEditor.keyframeMarker.locked', {
-                    frame: keyframe.frame,
-                  })
-                : t('timeline.keyframeEditor.keyframeMarker.rowLabel', {
-                    frame: keyframe.frame,
-                  })
-            }
-          >
-            <span
-              className={cn(
-                'pointer-events-none block h-2 w-2 rotate-45 border transition-colors',
-                selected
-                  ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
-                  : 'border-transparent bg-neutral-200 group-hover:bg-white',
-              )}
+        <KeyframeConnectors segments={connectorSegments} />
+
+        {onSegmentEasingChange &&
+          segmentSpans.map((span) => (
+            <SegmentEasingPopover
+              key={`seg-${span.from.id}`}
+              left={span.left}
+              width={span.width}
+              refs={[{ itemId, property, keyframeId: span.from.id }]}
+              easing={span.from.easing}
+              easingConfig={span.from.easingConfig}
+              held={span.from.easing === 'hold'}
+              onChange={onSegmentEasingChange}
+              onDragStart={onSegmentDragStart}
+              onDragEnd={onSegmentDragEnd}
             />
-          </button>
-        )
-      })}
-      {sheetPreviewDuplicateKeyframeIds?.flatMap((keyframeId) => {
-        const meta = keyframeMetaByIdRef.current.get(keyframeId)
-        if (!meta || meta.property !== property) {
-          return []
-        }
+          ))}
 
-        const previewFrame = sheetPreviewFrames?.[keyframeId]
-        if (previewFrame === undefined) {
-          return []
-        }
+        {keyframes.map((keyframe) => {
+          const renderedX = xForKeyframe(keyframe)
+          if (renderedX === null) return null
+          const selected = selectedKeyframeIds.has(keyframe.id)
+          return (
+            <button
+              key={keyframe.id}
+              ref={(node) => setKeyframeButtonRef(keyframe.id, node)}
+              type="button"
+              data-testid={`row-keyframe-${property}-${keyframe.id}`}
+              className={cn(
+                'group absolute z-10 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center',
+                !locked && 'cursor-grab active:cursor-grabbing',
+                locked && 'cursor-not-allowed opacity-50',
+              )}
+              style={{
+                left: renderedX,
+                top: '50%',
+              }}
+              disabled={locked || disabled}
+              onPointerDown={(event) => onKeyframePointerDown(property, keyframe.id, event)}
+              onClick={(event) => event.stopPropagation()}
+              title={
+                locked
+                  ? t('timeline.keyframeEditor.keyframeMarker.locked', {
+                      frame: keyframe.frame,
+                    })
+                  : t('timeline.keyframeEditor.keyframeMarker.rowLabel', {
+                      frame: keyframe.frame,
+                    })
+              }
+              aria-label={
+                locked
+                  ? t('timeline.keyframeEditor.keyframeMarker.locked', {
+                      frame: keyframe.frame,
+                    })
+                  : t('timeline.keyframeEditor.keyframeMarker.rowLabel', {
+                      frame: keyframe.frame,
+                    })
+              }
+            >
+              <span
+                className={cn(
+                  'pointer-events-none block h-2 w-2 rotate-45 border transition-colors',
+                  selected
+                    ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
+                    : 'border-transparent bg-neutral-200 group-hover:bg-white',
+                )}
+              />
+            </button>
+          )
+        })}
+        {sheetPreviewDuplicateKeyframeIds?.flatMap((keyframeId) => {
+          const meta = keyframeMetaByIdRef.current.get(keyframeId)
+          if (!meta || meta.property !== property) {
+            return []
+          }
 
-        const renderedX = getRenderedKeyframeX(previewFrame)
-        if (renderedX === null) {
-          return []
-        }
+          const previewFrame = sheetPreviewFrames?.[keyframeId]
+          if (previewFrame === undefined) {
+            return []
+          }
 
-        return [
-          <div
-            key={`preview-${property}-${keyframeId}`}
-            className="absolute z-20 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center pointer-events-none"
-            style={{ left: renderedX, top: '50%' }}
-          >
-            <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
-          </div>,
-        ]
-      })}
+          const renderedX = getRenderedKeyframeX(previewFrame)
+          if (renderedX === null) {
+            return []
+          }
+
+          return [
+            <div
+              key={`preview-${property}-${keyframeId}`}
+              className="absolute z-20 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center pointer-events-none"
+              style={{ left: renderedX, top: '50%' }}
+            >
+              <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
+            </div>,
+          ]
+        })}
+      </div>
     </div>
   )
 })

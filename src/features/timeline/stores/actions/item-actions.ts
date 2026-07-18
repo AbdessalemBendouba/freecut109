@@ -38,6 +38,7 @@ import {
   getSynchronizedLinkedItems,
 } from '../../utils/linked-items'
 import { isTrackSyncLockEnabled } from '../../utils/track-sync-lock'
+import { pruneEmptyLayerGroupHierarchy } from '../../utils/group-utils'
 import { placeItemsWithoutTimelineOverlap } from './item-placement'
 import { useReverseConformDialogStore } from '../reverse-conform-dialog-store'
 import { buildLinkedAudioForVideo } from '../../utils/embedded-audio-split'
@@ -53,6 +54,14 @@ import { createDefaultControllerItem } from '../../utils/generated-layer-items'
 
 function isLinkedSelectionEnabled(): boolean {
   return useEditorStore.getState().linkedSelectionEnabled
+}
+
+function pruneLayerGroupsAfterItemRemoval(): void {
+  const store = useItemsStore.getState()
+  const nextTracks = pruneEmptyLayerGroupHierarchy(store.tracks, store.items)
+  if (nextTracks !== store.tracks) {
+    store.setTracks(nextTracks)
+  }
 }
 
 function canParticipateInTransformHierarchy(item: TimelineItem): boolean {
@@ -905,6 +914,8 @@ export function removeItems(ids: string[]): void {
       // Cascade: Remove keyframes for deleted items
       useKeyframesStore.getState()._removeKeyframesForItems(expandedIds)
 
+      pruneLayerGroupsAfterItemRemoval()
+
       useTimelineSettingsStore.getState().markDirty()
     },
     { ids: expandedIds },
@@ -1041,6 +1052,8 @@ export function rippleDeleteItems(ids: string[]): void {
       if (repairedClipIds.length > 0) {
         applyTransitionRepairs(repairedClipIds, new Set(cascadedRemoveIds))
       }
+
+      pruneLayerGroupsAfterItemRemoval()
 
       useTimelineSettingsStore.getState().markDirty()
     },

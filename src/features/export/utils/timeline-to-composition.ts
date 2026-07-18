@@ -55,8 +55,8 @@ export function convertTimelineToComposition(
     item.type === 'video' ? resolveReverseConformedVideoItem(item, fps, { mode: 'export' }) : item,
   )
 
-  // Resolve group gate behavior: parent group mute/hide propagates to children.
-  // Also filters out group container tracks (which hold no items).
+  // Resolve layer-group state: parent mute/hide/lock/solo propagates to children.
+  // Also filters out Layer Group containers (which hold no items).
   tracks = resolveEffectiveTrackStates(tracks)
 
   // Determine if we're exporting a specific in/out range
