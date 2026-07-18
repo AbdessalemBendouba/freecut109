@@ -1,5 +1,6 @@
 import {
   memo,
+  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -11,7 +12,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { flushSync } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { toast } from 'sonner'
 import {
@@ -220,6 +220,14 @@ interface MotionViewportPreviewRulerLabel {
   text: string
 }
 
+interface MotionViewportPreviewGrid {
+  element: HTMLElement
+  surfaceWidth: number
+  frames: number[]
+  cssText: string
+  willChange: string
+}
+
 interface MotionViewportPreviewNavigator {
   element: HTMLElement
   startFrame: string
@@ -233,6 +241,7 @@ interface MotionViewportPreviewNavigator {
 interface MotionViewportPreviewState {
   baseViewport: MotionTimeViewport
   elements: MotionViewportPreviewElement[]
+  grids: MotionViewportPreviewGrid[]
   playhead: MotionViewportPreviewPlayhead | null
   rulerLabels: MotionViewportPreviewRulerLabel[]
   navigator: MotionViewportPreviewNavigator | null
@@ -2460,13 +2469,21 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     setTimeViewport((current) => normalizeMotionTimeViewport(current, durationInFrames))
   }, [activeCompositionId, durationInFrames])
   const updateTimeViewport = useCallback(
-    (viewport: MotionTimeViewport) =>
-      setTimeViewport(normalizeMotionTimeViewport(viewport, durationInFrames)),
+    (viewport: MotionTimeViewport) => {
+      const normalized = normalizeMotionTimeViewport(viewport, durationInFrames)
+      timeViewportRef.current = normalized
+      setTimeViewport((current) =>
+        current.startFrame === normalized.startFrame && current.endFrame === normalized.endFrame
+          ? current
+          : normalized,
+      )
+    },
     [durationInFrames],
   )
   const clearMotionTimeViewportPreview = useCallback(() => {
     const preview = motionViewportPreviewRef.current
     if (!preview) return
+    for (const grid of preview.grids) grid.element.style.cssText = grid.cssText
     for (const target of preview.elements) {
       target.element.style.left = target.left
       target.element.style.width = target.width
@@ -2488,6 +2505,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const discardMotionTimeViewportPreview = useCallback(() => {
     const preview = motionViewportPreviewRef.current
     if (!preview) return
+    for (const grid of preview.grids) grid.element.style.willChange = grid.willChange
     for (const target of preview.elements) {
       target.element.style.willChange = target.willChange
     }
@@ -2500,6 +2518,24 @@ export const CompositingTimeline = memo(function CompositingTimeline({
 
     const baseViewport = timeViewportRef.current
     const baseRange = Math.max(1, baseViewport.endFrame - baseViewport.startFrame)
+    const grids: MotionViewportPreviewGrid[] = []
+    for (const element of root.querySelectorAll<HTMLElement>('[data-motion-grid-frames]')) {
+      const surface = element.closest<HTMLElement>('[data-motion-viewport-surface]')
+      const surfaceWidth = surface?.clientWidth ?? 0
+      if (surfaceWidth <= 0) continue
+      const frames = (element.dataset.motionGridFrames ?? '')
+        .split(',')
+        .map(Number)
+        .filter(Number.isFinite)
+      if (frames.length === 0) continue
+      grids.push({
+        element,
+        surfaceWidth,
+        frames,
+        cssText: element.style.cssText,
+        willChange: element.style.willChange,
+      })
+    }
     const elements: MotionViewportPreviewElement[] = []
     for (const surface of root.querySelectorAll<HTMLElement>('[data-motion-viewport-surface]')) {
       const surfaceWidth = surface.clientWidth
@@ -2507,6 +2543,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       for (const element of surface.querySelectorAll<HTMLElement>('*')) {
         if (
           element.closest<HTMLElement>('[data-motion-viewport-surface]') !== surface ||
+          element.hasAttribute('data-motion-static-x') ||
+          element.hasAttribute('data-motion-grid-frames') ||
           element.style.left === ''
         ) {
           continue
@@ -2542,6 +2580,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     motionViewportPreviewRef.current = {
       baseViewport,
       elements,
+      grids,
       playhead:
         playheadElement && playheadWidth > 0
           ? {
@@ -2578,6 +2617,19 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       if (!preview) return
       const nextRange = Math.max(1, viewport.endFrame - viewport.startFrame)
 
+      for (const grid of preview.grids) {
+        const firstX = Math.round(
+          ((grid.frames[0]! - viewport.startFrame) / nextRange) * grid.surfaceWidth,
+        )
+        const shadows: string[] = []
+        for (let index = 1; index < grid.frames.length; index += 1) {
+          const x = Math.round(
+            ((grid.frames[index]! - viewport.startFrame) / nextRange) * grid.surfaceWidth,
+          )
+          shadows.push(`${x - firstX}px 0 currentColor`)
+        }
+        grid.element.style.cssText = `left: ${firstX}px; box-shadow: ${shadows.join(', ')}; will-change: left, box-shadow;`
+      }
       for (const target of preview.elements) {
         target.element.style.left = `${((target.frame - viewport.startFrame) / nextRange) * target.surfaceWidth}px`
         if (target.frameSpan !== null) {
@@ -2614,7 +2666,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   )
   const commitMotionTimeViewport = useCallback(
     (viewport: MotionTimeViewport) => {
-      flushSync(() => updateTimeViewport(viewport))
+      startTransition(() => updateTimeViewport(viewport))
       discardMotionTimeViewportPreview()
     },
     [discardMotionTimeViewportPreview, updateTimeViewport],
@@ -2623,7 +2675,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const queueMotionViewportUpdate = useCallback(
     (update: MotionViewportUpdate) => {
       if (!wheelMotionViewportRef.current) prepareMotionTimeViewportPreview()
-      const nextViewport = update(wheelMotionViewportRef.current ?? timeViewport)
+      const nextViewport = update(wheelMotionViewportRef.current ?? timeViewportRef.current)
       wheelMotionViewportRef.current = nextViewport
 
       if (wheelMotionViewportAnimationFrameRef.current === null) {
@@ -2647,12 +2699,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         if (finalViewport) commitMotionTimeViewport(finalViewport)
       }, 100)
     },
-    [
-      prepareMotionTimeViewportPreview,
-      previewMotionTimeViewport,
-      timeViewport,
-      commitMotionTimeViewport,
-    ],
+    [prepareMotionTimeViewportPreview, previewMotionTimeViewport, commitMotionTimeViewport],
   )
   const prepareNavigatorMotionTimeViewportPreview = useCallback(() => {
     if (wheelMotionViewportCommitTimerRef.current !== null) {
@@ -4226,6 +4273,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
               {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
                 <div
                   key={tick}
+                  data-motion-static-x
                   className="pointer-events-none absolute inset-y-0 border-l border-border/45"
                   style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
                 />
@@ -4884,6 +4932,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                           {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
                             <div
                               key={tick}
+                              data-motion-static-x
                               className="pointer-events-none absolute inset-y-0 border-l border-border/45"
                               style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
                             />

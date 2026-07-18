@@ -9,7 +9,7 @@
  * across scrubs, so `React.memo` skips these subtrees entirely while scrubbing.
  */
 import { memo } from 'react'
-import type { MutableRefObject } from 'react'
+import type { CSSProperties, MutableRefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/shared/ui/cn'
 import type { AnimatableProperty, Keyframe } from '@/types/keyframe'
@@ -51,6 +51,21 @@ export function buildSegmentSpans<T>(
 
 type FrameGroup = DopesheetPropertyGroupStructure['frameGroups'][number]
 type StructureRow = { property: AnimatableProperty; keyframes: Keyframe[] }
+
+function getTimelineGridLineStyle(
+  ticks: number[],
+  frameToX: (frame: number) => number,
+): CSSProperties {
+  const positions = ticks.map((frame) => Math.round(frameToX(frame)))
+  const left = positions[0] ?? 0
+  return {
+    left,
+    boxShadow: positions
+      .slice(1)
+      .map((position) => `${position - left}px 0 currentColor`)
+      .join(', '),
+  }
+}
 
 interface ConnectorSegment {
   key: string
@@ -180,13 +195,12 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
       onPointerDown={onBackgroundPointerDown}
     >
       <div data-motion-viewport-surface className="absolute inset-0">
-      {ticks.map((frame) => (
         <div
-          key={`${groupId}-tick-${frame}`}
-          className="absolute inset-y-0 border-l border-border/30 pointer-events-none"
-          style={{ left: Math.round(frameToX(frame)) }}
+          aria-hidden
+          data-motion-grid-frames={ticks.join(',')}
+          className="pointer-events-none absolute inset-y-0 w-px bg-current text-border/30"
+          style={getTimelineGridLineStyle(ticks, frameToX)}
         />
-      ))}
 
       <div data-motion-span-drag-visual className="absolute inset-0">
         {!expanded &&
@@ -364,13 +378,12 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
       onPointerDown={(event) => onRowPointerDown(property, event)}
     >
       <div data-motion-viewport-surface className="absolute inset-0">
-      {ticks.map((frame) => (
         <div
-          key={frame}
-          className="absolute inset-y-0 border-l border-border/30 pointer-events-none"
-          style={{ left: Math.round(frameToX(frame)) }}
+          aria-hidden
+          data-motion-grid-frames={ticks.join(',')}
+          className="pointer-events-none absolute inset-y-0 w-px bg-current text-border/30"
+          style={getTimelineGridLineStyle(ticks, frameToX)}
         />
-      ))}
 
       {transitionBlockedRanges.map((range, index) => (
         <div

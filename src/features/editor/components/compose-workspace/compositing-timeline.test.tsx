@@ -420,6 +420,7 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
         return frameCallbacks.length
       })
     render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
     const scrollArea = screen.getByTestId('motion-layer-scroll-area')
     vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
       x: 0,
@@ -437,6 +438,15 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByTestId('motion-time-navigator')).toHaveAttribute('data-end-frame', '120')
     const firstRulerTick = screen.getByText('0.0s').parentElement!
     const firstRulerTickLeft = firstRulerTick.style.left
+    const staticGridTicks = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-motion-static-x]'),
+    )
+    const staticGridTickPositions = staticGridTicks.map((tick) => tick.style.left)
+    const dynamicGrids = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-motion-grid-frames]'),
+    )
+    expect(staticGridTicks.length).toBeGreaterThan(0)
+    expect(dynamicGrids.length).toBeGreaterThan(0)
     expect(screen.getByText('4.0s')).toBeInTheDocument()
 
     fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
@@ -448,6 +458,7 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.queryByText('4.0s')).not.toBeInTheDocument()
     expect(screen.getByText('0.3s').parentElement).toBe(firstRulerTick)
     expect(firstRulerTick.style.left).toBe(firstRulerTickLeft)
+    expect(staticGridTicks.map((tick) => tick.style.left)).toEqual(staticGridTickPositions)
 
     const panEvent = createEvent.wheel(scrollArea, {
       clientX: 750,
