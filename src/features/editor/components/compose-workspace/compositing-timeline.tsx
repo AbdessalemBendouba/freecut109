@@ -11,6 +11,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
 import { useTranslation } from 'react-i18next'
+import { flushSync } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { toast } from 'sonner'
 import {
@@ -89,6 +90,7 @@ import {
   buildDroppedMediaTimelineItems,
   captureSnapshot,
   CompactNavigator,
+  getKeyframeNavigatorThumbMetrics,
   createTimelineTemplateItem,
   createDefaultControllerItem,
   createDefaultShapeItem,
@@ -193,6 +195,47 @@ const PROCEDURAL_HATCH =
 interface MotionTimeViewport {
   startFrame: number
   endFrame: number
+}
+
+interface MotionViewportPreviewElement {
+  element: HTMLElement
+  surfaceWidth: number
+  frame: number
+  frameSpan: number | null
+  left: string
+  width: string
+  willChange: string
+}
+
+interface MotionViewportPreviewPlayhead {
+  element: HTMLElement
+  width: number
+  transform: string
+  hidden: boolean | 'until-found'
+}
+
+interface MotionViewportPreviewRulerLabel {
+  element: HTMLElement
+  index: number
+  text: string
+}
+
+interface MotionViewportPreviewNavigator {
+  element: HTMLElement
+  startFrame: string
+  endFrame: string
+  thumb: HTMLElement
+  thumbLeft: string
+  thumbWidth: string
+  trackWidth: number
+}
+
+interface MotionViewportPreviewState {
+  baseViewport: MotionTimeViewport
+  elements: MotionViewportPreviewElement[]
+  playhead: MotionViewportPreviewPlayhead | null
+  rulerLabels: MotionViewportPreviewRulerLabel[]
+  navigator: MotionViewportPreviewNavigator | null
 }
 
 type MotionViewportUpdate = (viewport: MotionTimeViewport) => MotionTimeViewport
@@ -408,7 +451,8 @@ const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
                 {previewDuration}f · {band.unitCount}u
               </span>
             </div>
-            <div className="relative min-w-0 flex-1 overflow-hidden">
+            <div className="relative h-7 min-w-0 flex-1 overflow-hidden">
+              <div data-motion-viewport-surface className="absolute inset-0 overflow-hidden">
               <div
                 data-testid={`motion-text-procedural-band-${band.slot}`}
                 data-motion-span-drag-visual
@@ -427,6 +471,7 @@ const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
                 onPointerCancel={cancelDurationDrag}
                 onClick={openAnimationInspector}
               />
+              </div>
             </div>
           </div>
         )
@@ -767,11 +812,15 @@ const MotionCompactNavigator = memo(function MotionCompactNavigator({
   contentFrameMax,
   minVisibleFrames,
   onViewportChange,
+  onViewportPreviewStart,
+  onViewportPreview,
 }: {
   viewport: MotionTimeViewport
   contentFrameMax: number
   minVisibleFrames: number
   onViewportChange: (viewport: MotionTimeViewport) => void
+  onViewportPreviewStart: () => void
+  onViewportPreview: (viewport: MotionTimeViewport | null) => void
 }) {
   const currentFrame = useSettledMotionFrame()
   return (
@@ -781,6 +830,8 @@ const MotionCompactNavigator = memo(function MotionCompactNavigator({
       contentFrameMax={contentFrameMax}
       minVisibleFrames={minVisibleFrames}
       onViewportChange={onViewportChange}
+      onViewportPreviewStart={onViewportPreviewStart}
+      onViewportPreview={onViewportPreview}
     />
   )
 })
@@ -2278,6 +2329,9 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const spanTrimRef = useRef<SpanTrimState | null>(null)
   const spanTrimAnimationFrameRef = useRef<number | null>(null)
   const selectionAnchorIdRef = useRef<string | null>(null)
+  const motionViewportPreviewRootRef = useRef<HTMLDivElement>(null)
+  const motionViewportPreviewRef = useRef<MotionViewportPreviewState | null>(null)
+  const motionTimeNavigatorRef = useRef<HTMLDivElement>(null)
   const motionScrollAreaRef = useRef<HTMLDivElement>(null)
   const motionRulerRef = useRef<HTMLDivElement>(null)
   const selectionRetimeDragRef = useRef<MotionSelectionRetimeDragState | null>(null)
@@ -2313,6 +2367,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     startFrame: 0,
     endFrame: 1,
   })
+  const timeViewportRef = useRef(timeViewport)
+  timeViewportRef.current = timeViewport
 
   useEffect(
     () => () => {
@@ -2327,8 +2383,9 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     },
     [],
   )
-  const pendingMotionViewportUpdatesRef = useRef<MotionViewportUpdate[]>([])
-  const motionViewportAnimationFrameRef = useRef<number | null>(null)
+  const wheelMotionViewportRef = useRef<MotionTimeViewport | null>(null)
+  const wheelMotionViewportAnimationFrameRef = useRef<number | null>(null)
+  const wheelMotionViewportCommitTimerRef = useRef<number | null>(null)
   const middlePanRef = useRef<MotionMiddlePanState | null>(null)
   const pendingScrubFrameRef = useRef<number | null>(null)
   const latestScrubFrameRef = useRef<number | null>(null)
@@ -2407,28 +2464,216 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       setTimeViewport(normalizeMotionTimeViewport(viewport, durationInFrames)),
     [durationInFrames],
   )
-  const flushMotionViewportUpdates = useCallback(() => {
-    motionViewportAnimationFrameRef.current = null
-    const updates = pendingMotionViewportUpdatesRef.current
-    pendingMotionViewportUpdatesRef.current = []
-    if (updates.length === 0) return
-
-    setTimeViewport((current) => updates.reduce((viewport, update) => update(viewport), current))
+  const clearMotionTimeViewportPreview = useCallback(() => {
+    const preview = motionViewportPreviewRef.current
+    if (!preview) return
+    for (const target of preview.elements) {
+      target.element.style.left = target.left
+      target.element.style.width = target.width
+      target.element.style.willChange = target.willChange
+    }
+    if (preview.playhead) {
+      preview.playhead.element.style.transform = preview.playhead.transform
+      preview.playhead.element.hidden = preview.playhead.hidden
+    }
+    for (const label of preview.rulerLabels) label.element.textContent = label.text
+    if (preview.navigator) {
+      preview.navigator.element.dataset.startFrame = preview.navigator.startFrame
+      preview.navigator.element.dataset.endFrame = preview.navigator.endFrame
+      preview.navigator.thumb.style.left = preview.navigator.thumbLeft
+      preview.navigator.thumb.style.width = preview.navigator.thumbWidth
+    }
+    motionViewportPreviewRef.current = null
   }, [])
-  const queueMotionViewportUpdate = useCallback(
-    (update: MotionViewportUpdate) => {
-      pendingMotionViewportUpdatesRef.current.push(update)
-      if (motionViewportAnimationFrameRef.current === null) {
-        motionViewportAnimationFrameRef.current = requestAnimationFrame(flushMotionViewportUpdates)
+  const discardMotionTimeViewportPreview = useCallback(() => {
+    const preview = motionViewportPreviewRef.current
+    if (!preview) return
+    for (const target of preview.elements) {
+      target.element.style.willChange = target.willChange
+    }
+    motionViewportPreviewRef.current = null
+  }, [])
+  const prepareMotionTimeViewportPreview = useCallback(() => {
+    clearMotionTimeViewportPreview()
+    const root = motionViewportPreviewRootRef.current
+    if (!root) return
+
+    const baseViewport = timeViewportRef.current
+    const baseRange = Math.max(1, baseViewport.endFrame - baseViewport.startFrame)
+    const elements: MotionViewportPreviewElement[] = []
+    for (const surface of root.querySelectorAll<HTMLElement>('[data-motion-viewport-surface]')) {
+      const surfaceWidth = surface.clientWidth
+      if (surfaceWidth <= 0 || surface.hasAttribute('data-motion-ruler-surface')) continue
+      for (const element of surface.querySelectorAll<HTMLElement>('*')) {
+        if (
+          element.closest<HTMLElement>('[data-motion-viewport-surface]') !== surface ||
+          element.style.left === ''
+        ) {
+          continue
+        }
+        const hasInlineWidth = element.style.width !== ''
+        elements.push({
+          element,
+          surfaceWidth,
+          frame: baseViewport.startFrame + (element.offsetLeft / surfaceWidth) * baseRange,
+          frameSpan: hasInlineWidth ? (element.offsetWidth / surfaceWidth) * baseRange : null,
+          left: element.style.left,
+          width: element.style.width,
+          willChange: element.style.willChange,
+        })
+        element.style.willChange = hasInlineWidth ? 'left, width' : 'left'
+      }
+    }
+    const playheadElement = root.querySelector<HTMLElement>('[data-testid="motion-playhead"]')
+    const playheadWidth = playheadElement?.parentElement?.clientWidth ?? 0
+    const rulerLabels = Array.from(
+      root.querySelectorAll<HTMLElement>('[data-motion-ruler-label-index]'),
+      (element) => ({
+        element,
+        index: Number(element.dataset.motionRulerLabelIndex ?? 0),
+        text: element.textContent ?? '',
+      }),
+    )
+    const navigatorElement = motionTimeNavigatorRef.current
+    const navigatorThumb = navigatorElement?.querySelector<HTMLElement>(
+      '[data-testid="keyframe-navigator-thumb"]',
+    )
+    const navigatorTrackWidth = navigatorThumb?.parentElement?.clientWidth ?? 0
+    motionViewportPreviewRef.current = {
+      baseViewport,
+      elements,
+      playhead:
+        playheadElement && playheadWidth > 0
+          ? {
+              element: playheadElement,
+              width: playheadWidth,
+              transform: playheadElement.style.transform,
+              hidden: playheadElement.hidden,
+            }
+          : null,
+      rulerLabels,
+      navigator:
+        navigatorElement && navigatorThumb
+          ? {
+              element: navigatorElement,
+              startFrame: navigatorElement.dataset.startFrame ?? '',
+              endFrame: navigatorElement.dataset.endFrame ?? '',
+              thumb: navigatorThumb,
+              thumbLeft: navigatorThumb.style.left,
+              thumbWidth: navigatorThumb.style.width,
+              trackWidth: navigatorTrackWidth,
+            }
+          : null,
+    }
+  }, [clearMotionTimeViewportPreview])
+  const previewMotionTimeViewport = useCallback(
+    (viewport: MotionTimeViewport | null) => {
+      if (!viewport) {
+        clearMotionTimeViewportPreview()
+        return
+      }
+
+      if (!motionViewportPreviewRef.current) prepareMotionTimeViewportPreview()
+      const preview = motionViewportPreviewRef.current
+      if (!preview) return
+      const nextRange = Math.max(1, viewport.endFrame - viewport.startFrame)
+
+      for (const target of preview.elements) {
+        target.element.style.left = `${((target.frame - viewport.startFrame) / nextRange) * target.surfaceWidth}px`
+        if (target.frameSpan !== null) {
+          target.element.style.width = `${(target.frameSpan / nextRange) * target.surfaceWidth}px`
+        }
+      }
+      if (preview.playhead) {
+        const playback = usePlaybackStore.getState()
+        const frame = playback.previewFrame ?? playback.currentFrame
+        preview.playhead.element.hidden = frame < viewport.startFrame || frame > viewport.endFrame
+        preview.playhead.element.style.transform = `translate3d(${((frame - viewport.startFrame) / nextRange) * preview.playhead.width}px, 0, 0)`
+      }
+      for (const label of preview.rulerLabels) {
+        const frame = Math.round(
+          viewport.startFrame + (label.index / RULER_DIVISIONS) * nextRange,
+        )
+        label.element.textContent = formatFrameTime(frame, fps)
+      }
+      if (preview.navigator) {
+        preview.navigator.element.dataset.startFrame = String(viewport.startFrame)
+        preview.navigator.element.dataset.endFrame = String(viewport.endFrame)
+        if (preview.navigator.trackWidth > 0) {
+          const metrics = getKeyframeNavigatorThumbMetrics({
+            viewport,
+            contentFrameMax: durationInFrames,
+            trackWidth: preview.navigator.trackWidth,
+          })
+          preview.navigator.thumb.style.left = `${metrics.thumbLeft}px`
+          preview.navigator.thumb.style.width = `${metrics.thumbWidth}px`
+        }
       }
     },
-    [flushMotionViewportUpdates],
+    [clearMotionTimeViewportPreview, durationInFrames, fps, prepareMotionTimeViewportPreview],
   )
+  const commitMotionTimeViewport = useCallback(
+    (viewport: MotionTimeViewport) => {
+      flushSync(() => updateTimeViewport(viewport))
+      discardMotionTimeViewportPreview()
+    },
+    [discardMotionTimeViewportPreview, updateTimeViewport],
+  )
+  useEffect(() => clearMotionTimeViewportPreview, [clearMotionTimeViewportPreview])
+  const queueMotionViewportUpdate = useCallback(
+    (update: MotionViewportUpdate) => {
+      if (!wheelMotionViewportRef.current) prepareMotionTimeViewportPreview()
+      const nextViewport = update(wheelMotionViewportRef.current ?? timeViewport)
+      wheelMotionViewportRef.current = nextViewport
+
+      if (wheelMotionViewportAnimationFrameRef.current === null) {
+        wheelMotionViewportAnimationFrameRef.current = requestAnimationFrame(() => {
+          wheelMotionViewportAnimationFrameRef.current = null
+          const pendingViewport = wheelMotionViewportRef.current
+          if (pendingViewport) previewMotionTimeViewport(pendingViewport)
+        })
+      }
+      if (wheelMotionViewportCommitTimerRef.current !== null) {
+        window.clearTimeout(wheelMotionViewportCommitTimerRef.current)
+      }
+      wheelMotionViewportCommitTimerRef.current = window.setTimeout(() => {
+        wheelMotionViewportCommitTimerRef.current = null
+        if (wheelMotionViewportAnimationFrameRef.current !== null) {
+          cancelAnimationFrame(wheelMotionViewportAnimationFrameRef.current)
+          wheelMotionViewportAnimationFrameRef.current = null
+        }
+        const finalViewport = wheelMotionViewportRef.current
+        wheelMotionViewportRef.current = null
+        if (finalViewport) commitMotionTimeViewport(finalViewport)
+      }, 100)
+    },
+    [
+      prepareMotionTimeViewportPreview,
+      previewMotionTimeViewport,
+      timeViewport,
+      commitMotionTimeViewport,
+    ],
+  )
+  const prepareNavigatorMotionTimeViewportPreview = useCallback(() => {
+    if (wheelMotionViewportCommitTimerRef.current !== null) {
+      window.clearTimeout(wheelMotionViewportCommitTimerRef.current)
+      wheelMotionViewportCommitTimerRef.current = null
+    }
+    if (wheelMotionViewportAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(wheelMotionViewportAnimationFrameRef.current)
+      wheelMotionViewportAnimationFrameRef.current = null
+    }
+    wheelMotionViewportRef.current = null
+    prepareMotionTimeViewportPreview()
+  }, [prepareMotionTimeViewportPreview])
   useEffect(
     () => () => {
-      pendingMotionViewportUpdatesRef.current = []
-      if (motionViewportAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(motionViewportAnimationFrameRef.current)
+      wheelMotionViewportRef.current = null
+      if (wheelMotionViewportAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(wheelMotionViewportAnimationFrameRef.current)
+      }
+      if (wheelMotionViewportCommitTimerRef.current !== null) {
+        window.clearTimeout(wheelMotionViewportCommitTimerRef.current)
       }
     },
     [],
@@ -3628,14 +3873,14 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   )
 
   useEffect(() => {
-    const scrollArea = motionScrollAreaRef.current
-    if (!scrollArea) return
-    scrollArea.addEventListener('wheel', handleMotionTimelineWheel, {
+    const navigationRoot = motionViewportPreviewRootRef.current
+    if (!navigationRoot) return
+    navigationRoot.addEventListener('wheel', handleMotionTimelineWheel, {
       capture: true,
       passive: false,
     })
     return () => {
-      scrollArea.removeEventListener('wheel', handleMotionTimelineWheel, { capture: true })
+      navigationRoot.removeEventListener('wheel', handleMotionTimelineWheel, { capture: true })
     }
   }, [handleMotionTimelineWheel])
 
@@ -3977,6 +4222,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
               onPointerUp={endPlayheadScrub}
               onPointerCancel={endPlayheadScrub}
             >
+              <div data-motion-viewport-surface className="absolute inset-0 overflow-hidden">
               {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
                 <div
                   key={tick}
@@ -4007,6 +4253,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                   <span className="block truncate">{row.track.name}</span>
                 </button>
               )}
+              </div>
             </div>
           </div>
         </MotionRowContextMenu>
@@ -4095,12 +4342,13 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         </button>
       </div>
 
-      <div className="relative min-h-0 flex-1">
+      <div ref={motionViewportPreviewRootRef} className="relative min-h-0 flex-1">
         <div
           className="pointer-events-none absolute inset-0 z-30 overflow-visible"
           data-testid="motion-playhead-overlay"
         >
           <div
+            data-motion-viewport-surface
             className="absolute inset-y-0 right-0 overflow-visible"
             style={{
               left: TIMELINE_CONTENT_LEFT + KEYFRAME_EDGE_INSET,
@@ -4167,14 +4415,19 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                 </div>
               </div>
               <div
-                ref={motionRulerRef}
-                className="relative min-w-0 flex-1 touch-none cursor-ew-resize"
+                className="relative min-w-0 flex-1 touch-none cursor-ew-resize overflow-hidden"
                 style={{ height: RULER_HEIGHT }}
-                onPointerDown={beginPlayheadScrub}
-                onPointerMove={movePlayheadScrub}
-                onPointerUp={endPlayheadScrub}
-                onPointerCancel={endPlayheadScrub}
               >
+                <div
+                  ref={motionRulerRef}
+                  data-motion-viewport-surface
+                  data-motion-ruler-surface
+                  className="absolute inset-0"
+                  onPointerDown={beginPlayheadScrub}
+                  onPointerMove={movePlayheadScrub}
+                  onPointerUp={endPlayheadScrub}
+                  onPointerCancel={endPlayheadScrub}
+                >
                 {Array.from({ length: RULER_DIVISIONS + 1 }, (_, index) => {
                   const frame = Math.round(
                     timeViewport.startFrame + (index / RULER_DIVISIONS) * visibleFrameRange,
@@ -4184,8 +4437,11 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                       key={index}
                       className="absolute inset-y-0 border-l border-border/70"
                       style={{ left: `${(index / RULER_DIVISIONS) * 100}%` }}
-                    >
-                      <span className="ml-1 text-[9px] tabular-nums text-muted-foreground">
+                      >
+                        <span
+                          data-motion-ruler-label-index={index}
+                          className="ml-1 text-[9px] tabular-nums text-muted-foreground"
+                        >
                         {formatFrameTime(frame, fps)}
                       </span>
                     </div>
@@ -4202,6 +4458,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                   onCancel={cancelSelectionRetime}
                   onNudge={nudgeSelectionRetime}
                 />
+                </div>
               </div>
             </div>
 
@@ -4613,13 +4870,17 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                           </div>
                         </div>
                         <div
-                          data-motion-timeline-lane
                           className="relative min-w-0 flex-1 cursor-default overflow-hidden"
-                          onPointerDown={beginPlayheadScrub}
-                          onPointerMove={movePlayheadScrub}
-                          onPointerUp={endPlayheadScrub}
-                          onPointerCancel={endPlayheadScrub}
                         >
+                          <div
+                            data-motion-timeline-lane
+                            data-motion-viewport-surface
+                            className="absolute inset-0 overflow-hidden"
+                            onPointerDown={beginPlayheadScrub}
+                            onPointerMove={movePlayheadScrub}
+                            onPointerUp={endPlayheadScrub}
+                            onPointerCancel={endPlayheadScrub}
+                          >
                           {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
                             <div
                               key={tick}
@@ -4709,6 +4970,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                               ) : null}
                             </button>
                           ) : null}
+                          </div>
                         </div>
                       </div>
                     </MotionRowContextMenu>
@@ -4814,6 +5076,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           style={{ width: LAYER_COLUMN_WIDTH }}
         />
         <div
+          ref={motionTimeNavigatorRef}
           className="min-w-0 flex-1"
           data-testid="motion-time-navigator"
           data-start-frame={timeViewport.startFrame}
@@ -4823,7 +5086,9 @@ export const CompositingTimeline = memo(function CompositingTimeline({
             viewport={timeViewport}
             contentFrameMax={durationInFrames}
             minVisibleFrames={Math.min(10, durationInFrames)}
-            onViewportChange={updateTimeViewport}
+            onViewportChange={commitMotionTimeViewport}
+            onViewportPreviewStart={prepareNavigatorMotionTimeViewportPreview}
+            onViewportPreview={previewMotionTimeViewport}
           />
         </div>
       </div>

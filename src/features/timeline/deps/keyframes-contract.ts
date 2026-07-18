@@ -44,6 +44,7 @@ export {
 } from '@/features/keyframes/components/dopesheet-editor/dopesheet-constants'
 export { getPropertyAccordionGroups } from '@/features/keyframes/components/dopesheet-editor/property-groups'
 export { CompactNavigator } from '@/features/keyframes/components/dopesheet-editor/compact-navigator'
+export { getKeyframeNavigatorThumbMetrics } from '@/features/keyframes/components/dopesheet-editor/compact-navigator-utils'
 export { KEYFRAME_EDGE_INSET } from '@/features/keyframes/components/dopesheet-editor/layout'
 export { getAnimatablePropertiesForItem } from '@/features/keyframes/utils/animatable-properties'
 export {

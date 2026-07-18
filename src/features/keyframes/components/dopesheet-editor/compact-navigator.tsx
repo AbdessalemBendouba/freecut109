@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { cn } from '@/shared/ui/cn'
 
@@ -17,9 +17,20 @@ interface CompactNavigatorProps {
   minVisibleFrames: number
   disabled?: boolean
   onViewportChange: (viewport: KeyframeNavigatorViewport) => void
+  onViewportPreviewStart?: () => void
+  onViewportPreview?: (viewport: KeyframeNavigatorViewport | null) => void
 }
 
 type DragTarget = 'thumb' | KeyframeNavigatorDragTarget | null
+
+interface NavigatorDragSnapshot {
+  startX: number
+  thumbLeft: number
+  thumbWidth: number
+  trackWidth: number
+  viewport: KeyframeNavigatorViewport
+  metrics: ReturnType<typeof getKeyframeNavigatorThumbMetrics>
+}
 
 export function CompactNavigator({
   viewport,
@@ -28,16 +39,21 @@ export function CompactNavigator({
   minVisibleFrames,
   disabled = false,
   onViewportChange,
+  onViewportPreviewStart,
+  onViewportPreview,
 }: CompactNavigatorProps) {
   const trackRef = useRef<HTMLDivElement>(null)
+  const thumbRef = useRef<HTMLDivElement>(null)
   const [trackWidth, setTrackWidth] = useState(0)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
-  const [dragStartX, setDragStartX] = useState(0)
-  const [dragStartThumbLeft, setDragStartThumbLeft] = useState(0)
-  const [dragStartThumbWidth, setDragStartThumbWidth] = useState(0)
+  const dragSnapshotRef = useRef<NavigatorDragSnapshot | null>(null)
+  const latestPreviewViewportRef = useRef<KeyframeNavigatorViewport | null>(null)
+  const pendingPreviewViewportRef = useRef<KeyframeNavigatorViewport | null>(null)
+  const previewAnimationFrameRef = useRef<number | null>(null)
+  const renderedViewport = latestPreviewViewportRef.current ?? viewport
 
   const metrics = getKeyframeNavigatorThumbMetrics({
-    viewport,
+    viewport: renderedViewport,
     contentFrameMax,
     trackWidth,
   })
@@ -61,12 +77,25 @@ export function CompactNavigator({
       if (disabled) return
       event.preventDefault()
       event.stopPropagation()
+      const nextTrackWidth = trackRef.current?.clientWidth ?? trackWidth
+      const startMetrics = getKeyframeNavigatorThumbMetrics({
+        viewport: renderedViewport,
+        contentFrameMax,
+        trackWidth: nextTrackWidth,
+      })
+      dragSnapshotRef.current = {
+        startX: event.clientX,
+        thumbLeft: startMetrics.thumbLeft,
+        thumbWidth: startMetrics.thumbWidth,
+        trackWidth: nextTrackWidth,
+        viewport: renderedViewport,
+        metrics: startMetrics,
+      }
+      latestPreviewViewportRef.current = null
+      onViewportPreviewStart?.()
       setDragTarget(target)
-      setDragStartX(event.clientX)
-      setDragStartThumbLeft(metrics.thumbLeft)
-      setDragStartThumbWidth(metrics.thumbWidth)
     },
-    [disabled, metrics.thumbLeft, metrics.thumbWidth],
+    [contentFrameMax, disabled, onViewportPreviewStart, renderedViewport, trackWidth],
   )
 
   const handleTrackClick = useCallback(
@@ -96,6 +125,12 @@ export function CompactNavigator({
     [disabled, dragTarget, metrics, onViewportChange],
   )
 
+  useLayoutEffect(() => {
+    if (dragTarget || !thumbRef.current) return
+    thumbRef.current.style.left = `${metrics.thumbLeft}px`
+    thumbRef.current.style.width = `${metrics.thumbWidth}px`
+  }, [dragTarget, metrics.thumbLeft, metrics.thumbWidth])
+
   useEffect(() => {
     const track = trackRef.current
     if (!track) return
@@ -119,41 +154,73 @@ export function CompactNavigator({
     if (!dragTarget || disabled) return
 
     const handleMouseMove = (event: MouseEvent) => {
-      if (!trackRef.current) return
+      const snapshot = dragSnapshotRef.current
+      if (!snapshot || snapshot.trackWidth <= 0) return
 
-      const nextTrackWidth = trackRef.current.clientWidth
-      if (nextTrackWidth <= 0) return
-
-      const deltaX = event.clientX - dragStartX
+      const deltaX = event.clientX - snapshot.startX
+      let nextViewport: KeyframeNavigatorViewport
 
       if (dragTarget === 'thumb') {
-        if (metrics.thumbTravel <= 0 || metrics.maxStartFrame <= 0) return
+        if (snapshot.metrics.thumbTravel <= 0 || snapshot.metrics.maxStartFrame <= 0) return
         const nextThumbLeft = Math.max(
-          metrics.edgeInset,
-          Math.min(metrics.edgeInset + metrics.thumbTravel, dragStartThumbLeft + deltaX),
+          snapshot.metrics.edgeInset,
+          Math.min(
+            snapshot.metrics.edgeInset + snapshot.metrics.thumbTravel,
+            snapshot.thumbLeft + deltaX,
+          ),
         )
-        const nextStartFrame = getStartFrameFromNavigatorThumbLeft(nextThumbLeft, metrics)
-        onViewportChange({
+        const nextStartFrame = getStartFrameFromNavigatorThumbLeft(nextThumbLeft, snapshot.metrics)
+        nextViewport = {
           startFrame: nextStartFrame,
-          endFrame: nextStartFrame + metrics.visibleFrameRange,
-        })
-        return
-      }
-
-      onViewportChange(
-        getKeyframeNavigatorResizeDragResult({
+          endFrame: nextStartFrame + snapshot.metrics.visibleFrameRange,
+        }
+      } else {
+        nextViewport = getKeyframeNavigatorResizeDragResult({
           dragTarget,
           deltaX,
-          dragStartThumbWidth,
-          trackWidth: nextTrackWidth,
-          viewport,
+          dragStartThumbWidth: snapshot.thumbWidth,
+          trackWidth: snapshot.trackWidth,
+          viewport: snapshot.viewport,
           contentFrameMax,
           minVisibleFrames,
-        }),
-      )
+        })
+      }
+
+      latestPreviewViewportRef.current = nextViewport
+      const previewMetrics = getKeyframeNavigatorThumbMetrics({
+        viewport: nextViewport,
+        contentFrameMax,
+        trackWidth: snapshot.trackWidth,
+      })
+      if (thumbRef.current) {
+        thumbRef.current.style.left = `${previewMetrics.thumbLeft}px`
+        thumbRef.current.style.width = `${previewMetrics.thumbWidth}px`
+      }
+      pendingPreviewViewportRef.current = nextViewport
+      if (onViewportPreview && previewAnimationFrameRef.current === null) {
+        previewAnimationFrameRef.current = requestAnimationFrame(() => {
+          previewAnimationFrameRef.current = null
+          const pendingViewport = pendingPreviewViewportRef.current
+          pendingPreviewViewportRef.current = null
+          if (pendingViewport) onViewportPreview(pendingViewport)
+        })
+      }
     }
 
     const handleMouseUp = () => {
+      if (previewAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(previewAnimationFrameRef.current)
+        previewAnimationFrameRef.current = null
+      }
+      pendingPreviewViewportRef.current = null
+      const finalViewport = latestPreviewViewportRef.current
+      if (finalViewport) {
+        onViewportPreview?.(finalViewport)
+        onViewportChange(finalViewport)
+      }
+      onViewportPreview?.(null)
+      latestPreviewViewportRef.current = null
+      dragSnapshotRef.current = null
       setDragTarget(null)
     }
 
@@ -163,19 +230,14 @@ export function CompactNavigator({
     return () => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
+      if (previewAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(previewAnimationFrameRef.current)
+        previewAnimationFrameRef.current = null
+      }
+      pendingPreviewViewportRef.current = null
+      if (dragSnapshotRef.current) onViewportPreview?.(null)
     }
-  }, [
-    contentFrameMax,
-    disabled,
-    dragStartThumbLeft,
-    dragStartThumbWidth,
-    dragStartX,
-    dragTarget,
-    metrics,
-    minVisibleFrames,
-    onViewportChange,
-    viewport,
-  ])
+  }, [contentFrameMax, disabled, dragTarget, minVisibleFrames, onViewportChange, onViewportPreview])
 
   return (
     <div className="h-5 border-t border-border bg-background/80 px-2 py-1">
@@ -189,6 +251,7 @@ export function CompactNavigator({
           style={{ left: playheadLeft }}
         />
         <div
+          ref={thumbRef}
           className={cn(
             'absolute top-0 flex h-full items-center justify-between rounded-sm bg-muted-foreground/55 transition-colors',
             disabled
@@ -206,6 +269,7 @@ export function CompactNavigator({
           data-testid="keyframe-navigator-thumb"
         >
           <div
+            data-testid="keyframe-navigator-left-handle"
             className={cn(
               'flex h-full w-2 items-center justify-center',
               disabled ? 'cursor-default' : 'cursor-ew-resize',
@@ -216,6 +280,7 @@ export function CompactNavigator({
           </div>
           <div className="h-1.5 w-5 rounded-full bg-background/25" />
           <div
+            data-testid="keyframe-navigator-right-handle"
             className={cn(
               'flex h-full w-2 items-center justify-center',
               disabled ? 'cursor-default' : 'cursor-ew-resize',

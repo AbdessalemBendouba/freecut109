@@ -7,6 +7,7 @@ export {
   PickWhipIcon,
   PropertyLinkPickWhipOverlay,
   CompactNavigator,
+  getKeyframeNavigatorThumbMetrics,
   GROUP_HEADER_HEIGHT,
   KEYFRAME_EDGE_INSET,
   ROW_HEIGHT,

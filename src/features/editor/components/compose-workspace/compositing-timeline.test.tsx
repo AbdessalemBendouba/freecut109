@@ -435,7 +435,8 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
 
     expect(screen.getByTestId('motion-time-navigator')).toHaveAttribute('data-start-frame', '0')
     expect(screen.getByTestId('motion-time-navigator')).toHaveAttribute('data-end-frame', '120')
-    expect(screen.getByText('0.0s')).toBeInTheDocument()
+    const firstRulerTick = screen.getByText('0.0s').parentElement!
+    const firstRulerTickLeft = firstRulerTick.style.left
     expect(screen.getByText('4.0s')).toBeInTheDocument()
 
     fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
@@ -445,6 +446,8 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByText('0.3s')).toBeInTheDocument()
     expect(screen.getByText('3.5s')).toBeInTheDocument()
     expect(screen.queryByText('4.0s')).not.toBeInTheDocument()
+    expect(screen.getByText('0.3s').parentElement).toBe(firstRulerTick)
+    expect(firstRulerTick.style.left).toBe(firstRulerTickLeft)
 
     const panEvent = createEvent.wheel(scrollArea, {
       clientX: 750,
@@ -457,6 +460,56 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByText('0.3s')).toBeInTheDocument()
     expect(screen.getByText('3.5s')).toBeInTheDocument()
     expect(scrollArea).toHaveClass('overflow-y-auto')
+    animationFrameSpy.mockRestore()
+  })
+
+  it('keeps the final ruler preview when navigator resize commits', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(1000)
+
+    render(<CompositingTimeline />)
+    const navigator = screen.getByTestId('motion-time-navigator')
+    const rulerSurface = screen.getByText('0.0s').parentElement!.parentElement!
+    const originalTicks = Array.from(rulerSurface.children)
+    const originalTickPositions = originalTicks.map((tick) => (tick as HTMLElement).style.left)
+
+    fireEvent.mouseDown(screen.getByTestId('keyframe-navigator-right-handle'), {
+      clientX: 1000,
+    })
+    fireEvent.mouseMove(window, { clientX: 800 })
+    expect(frameCallbacks).toHaveLength(1)
+    act(() => frameCallbacks.shift()?.(performance.now()))
+
+    const previewEndFrame = navigator.dataset.endFrame
+    const previewLabels = Array.from(
+      rulerSurface.querySelectorAll<HTMLElement>('[data-motion-ruler-label-index]'),
+      (label) => label.textContent,
+    )
+    expect(previewEndFrame).not.toBe('120')
+
+    fireEvent.mouseUp(window)
+
+    expect(navigator).toHaveAttribute('data-end-frame', previewEndFrame)
+    expect(
+      Array.from(
+        rulerSurface.querySelectorAll<HTMLElement>('[data-motion-ruler-label-index]'),
+        (label) => label.textContent,
+      ),
+    ).toEqual(previewLabels)
+    expect(Array.from(rulerSurface.children)).toEqual(originalTicks)
+    expect(
+      Array.from(rulerSurface.children, (tick) => (tick as HTMLElement).style.left),
+    ).toEqual(originalTickPositions)
+
+    clientWidthSpy.mockRestore()
     animationFrameSpy.mockRestore()
   })
 

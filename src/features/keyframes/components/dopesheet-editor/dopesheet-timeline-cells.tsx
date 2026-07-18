@@ -179,6 +179,7 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
       className="relative h-full border-l border-border/60 bg-muted/20 overflow-hidden"
       onPointerDown={onBackgroundPointerDown}
     >
+      <div data-motion-viewport-surface className="absolute inset-0">
       {ticks.map((frame) => (
         <div
           key={`${groupId}-tick-${frame}`}
@@ -257,6 +258,7 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
               </div>
             )
           })}
+      </div>
       </div>
     </div>
   )
@@ -361,6 +363,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
       className="relative h-full border-l border-border/60 overflow-hidden"
       onPointerDown={(event) => onRowPointerDown(property, event)}
     >
+      <div data-motion-viewport-surface className="absolute inset-0">
       {ticks.map((frame) => (
         <div
           key={frame}
@@ -485,6 +488,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
             </div>,
           ]
         })}
+      </div>
       </div>
     </div>
   )
