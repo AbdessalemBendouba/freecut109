@@ -906,7 +906,13 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
       { itemId: shape.id, property: 'x', keyframeId: firstId },
       { itemId: secondShape.id, property: 'x', keyframeId: secondId },
     ])
-    const animationFrameSpy = vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1)
+    let previewFrame: FrameRequestCallback | null = null
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        previewFrame = callback
+        return 1
+      })
     const cancelAnimationFrameSpy = vi
       .spyOn(window, 'cancelAnimationFrame')
       .mockImplementation(() => {})
@@ -914,6 +920,11 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     render(<CompositingTimeline />)
 
     const range = screen.getByTestId('motion-selection-retime-range')
+    expect(screen.getByTestId('motion-ruler-viewport')).toHaveClass(
+      'overflow-x-clip',
+      'overflow-y-visible',
+    )
+    expect(screen.getByTestId('motion-ruler-viewport')).not.toHaveClass('overflow-hidden')
     expect(range).toHaveAttribute('title', expect.stringContaining('across 2 layers'))
     const startHandle = screen.getByRole('slider', { name: 'Retime selected keyframes start' })
     vi.spyOn(range.parentElement!, 'getBoundingClientRect').mockReturnValue({
@@ -928,8 +939,19 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
       toJSON: () => ({}),
     })
 
+    const initialRangeLeft = range.style.left
     fireEvent.pointerDown(startHandle, { pointerId: 9, clientX: 100 })
     fireEvent.pointerMove(startHandle, { pointerId: 9, clientX: 200 })
+
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]?.frame,
+    ).toBe(10)
+    act(() => previewFrame?.(16))
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]?.frame,
+    ).toBe(10)
+    expect(range.style.left).not.toBe(initialRangeLeft)
+
     fireEvent.pointerUp(startHandle, { pointerId: 9, clientX: 200 })
 
     expect(
@@ -949,6 +971,17 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
         ?.frame,
     ).toBe(80)
 
+    const restoredRangeLeft = range.style.left
+    fireEvent.pointerDown(startHandle, { pointerId: 10, clientX: 100 })
+    fireEvent.pointerMove(startHandle, { pointerId: 10, clientX: 150 })
+    act(() => previewFrame?.(32))
+    expect(range.style.left).not.toBe(restoredRangeLeft)
+    fireEvent.pointerCancel(startHandle, { pointerId: 10, clientX: 150 })
+    expect(range.style.left).toBe(restoredRangeLeft)
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]?.frame,
+    ).toBe(10)
+
     fireEvent.keyDown(screen.getByRole('slider', { name: 'Retime selected keyframes end' }), {
       key: 'ArrowRight',
     })
@@ -961,6 +994,64 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
       useKeyframesStore.getState().keyframesByItemId[secondShape.id]?.properties[0]?.keyframes[0]
         ?.frame,
     ).toBe(80)
+
+    animationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+  })
+
+  it('previews connector geometry while ruler handles retime selected keyframes', () => {
+    const firstId = useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 10, 100)
+    const secondId = useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 80, 300)
+    useKeyframeSelectionStore.getState().selectKeyframes([
+      { itemId: shape.id, property: 'x', keyframeId: firstId },
+      { itemId: shape.id, property: 'x', keyframeId: secondId },
+    ])
+    let previewFrame: FrameRequestCallback | null = null
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        previewFrame = callback
+        return 1
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => {})
+
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    const connector = screen.getByTestId('keyframe-connector')
+    expect(connector).toHaveAttribute('data-motion-connector-from-keyframe-id', firstId)
+    expect(connector).toHaveAttribute('data-motion-connector-to-keyframe-id', secondId)
+    const initialLeft = connector.style.left
+    const initialWidth = connector.style.width
+    const range = screen.getByTestId('motion-selection-retime-range')
+    vi.spyOn(range.parentElement!, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 28,
+      width: 1000,
+      height: 28,
+      toJSON: () => ({}),
+    })
+    const startHandle = screen.getByRole('slider', { name: 'Retime selected keyframes start' })
+
+    fireEvent.pointerDown(startHandle, { pointerId: 11, clientX: 100 })
+    fireEvent.pointerMove(startHandle, { pointerId: 11, clientX: 200 })
+    act(() => previewFrame?.(16))
+
+    expect(connector.style.left).not.toBe(initialLeft)
+    expect(connector.style.width).not.toBe(initialWidth)
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.properties[0]?.keyframes[0]?.frame,
+    ).toBe(10)
+
+    fireEvent.pointerCancel(startHandle, { pointerId: 11, clientX: 200 })
+    expect(connector.style.left).toBe(initialLeft)
+    expect(connector.style.width).toBe(initialWidth)
 
     animationFrameSpy.mockRestore()
     cancelAnimationFrameSpy.mockRestore()

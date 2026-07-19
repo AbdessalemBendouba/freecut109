@@ -9,6 +9,12 @@
  * The evaluator lives in `@/features/keyframes/utils/motion-modifier-eval`.
  */
 
+import type {
+  EasingConfig,
+  EasingType,
+  TransformAnimatableProperty,
+} from './keyframe'
+
 export type MotionModifierType = 'float-drift' | 'breath-pulse' | 'micro-shake' | 'sway' | 'spin'
 
 /** Transform channels a procedural modifier may target. */
@@ -48,4 +54,40 @@ export interface MotionModifier {
   seed: number
   /** Independently tune or mute the modifier's supported transform channels. */
   channelGains?: MotionModifierChannelGains
+}
+
+/** How an authored motion-layer track composes with the keyframed pose. */
+export type MotionLayerBlendMode = 'add' | 'multiply'
+
+/**
+ * A keyframe inside a non-destructive motion layer. Values are contributions,
+ * not absolute transform values: additive tracks use deltas and multiplicative
+ * Scale tracks use factors where 1 is the identity.
+ */
+export interface MotionLayerKeyframe {
+  id: string
+  frame: number
+  value: number
+  easing: EasingType
+  easingConfig?: EasingConfig
+}
+
+export interface MotionLayerTrack {
+  property: TransformAnimatableProperty
+  blend: MotionLayerBlendMode
+  keyframes: MotionLayerKeyframe[]
+}
+
+/**
+ * Named, independently removable animation applied after base keyframes and
+ * before continuous procedural modifiers. This is the true additive-layer
+ * counterpart to merging generated diamonds into the base lanes.
+ */
+export interface MotionAnimationLayer {
+  id: string
+  name: string
+  enabled: boolean
+  source: 'built-in-preset' | 'saved-preset'
+  sourcePresetId: string
+  tracks: MotionLayerTrack[]
 }

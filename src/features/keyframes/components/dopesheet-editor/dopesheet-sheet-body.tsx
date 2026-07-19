@@ -1,5 +1,5 @@
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { KeyframeMarqueeOverlay, type KeyframeMarqueeRect } from '../keyframe-marquee'
+import type { PointerEvent as ReactPointerEvent, ReactNode, RefObject } from 'react'
+import { KeyframeMarqueeOverlay } from '../keyframe-marquee'
 import { PROPERTY_COLUMN_WIDTH, RULER_HEIGHT } from './dopesheet-constants'
 import { DopesheetEmptyState } from './dopesheet-empty-state'
 
@@ -10,8 +10,7 @@ interface DopesheetSheetBodyProps {
   showEmptyGuidance: boolean
   proceduralHint?: string
   rowElements: ReactNode
-  marqueeRect: KeyframeMarqueeRect | null
-  marqueeJustEnded: boolean
+  marqueeOverlayRef: RefObject<HTMLDivElement | null>
   propertyColumnWidth?: number
   subtractRulerHeight?: boolean
   onTimelineBackgroundPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
@@ -24,8 +23,7 @@ export function DopesheetSheetBody({
   showEmptyGuidance,
   proceduralHint,
   rowElements,
-  marqueeRect,
-  marqueeJustEnded,
+  marqueeOverlayRef,
   propertyColumnWidth = PROPERTY_COLUMN_WIDTH,
   subtractRulerHeight = true,
   onTimelineBackgroundPointerDown,
@@ -51,14 +49,12 @@ export function DopesheetSheetBody({
             onPointerDown={onTimelineBackgroundPointerDown}
           />
           <div className="relative z-10">{rowElements}</div>
-          {marqueeRect && !marqueeJustEnded && (
-            <KeyframeMarqueeOverlay
-              rect={{
-                ...marqueeRect,
-                x: propertyColumnWidth + marqueeRect.x,
-              }}
-            />
-          )}
+          <div
+            className="pointer-events-none absolute inset-y-0 right-0 z-20"
+            style={{ left: propertyColumnWidth }}
+          >
+            <KeyframeMarqueeOverlay ref={marqueeOverlayRef} rect={null} persistent />
+          </div>
         </div>
       )}
     </div>

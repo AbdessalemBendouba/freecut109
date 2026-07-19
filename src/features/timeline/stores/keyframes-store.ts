@@ -13,6 +13,7 @@ import type {
   VectorAnimatableProperty,
   VectorKeyframe,
   VectorPropertyKeyframes,
+  AnimationKeyframeSource,
 } from '@/types/keyframe'
 import {
   ANIMATION_CORE_VERSION,
@@ -54,6 +55,7 @@ export interface KeyframeAddPayload {
   value: number
   easing?: EasingType
   easingConfig?: EasingConfig
+  source?: AnimationKeyframeSource
 }
 
 export interface VectorKeyframeInput {
@@ -63,6 +65,7 @@ export interface VectorKeyframeInput {
   easingConfig?: EasingConfig
   temporalEase?: VectorKeyframe['temporalEase']
   spatial?: VectorKeyframe['spatial']
+  source?: AnimationKeyframeSource
 }
 
 interface KeyframesActions {
@@ -89,6 +92,12 @@ interface KeyframesActions {
   _removeKeyframesForItem: (itemId: string) => void
   _removeKeyframesForItems: (itemIds: string[]) => void
   _removeKeyframesForProperty: (itemId: string, property: AnimatableProperty) => void
+  _removeVectorKeyframesForProperty: (
+    itemId: string,
+    property: VectorAnimatableProperty,
+  ) => void
+  _removeKeyframesByApplication: (itemId: string, applicationId: string) => void
+  _removeManualKeyframes: (itemId: string) => void
   _setDirectPropertyLink: (itemId: string, link: DirectPropertyLink) => void
   _removeDirectPropertyLink: (itemId: string, property: DirectLinkableProperty) => void
   _setPropertyExpression: (itemId: string, expression: PropertyExpression) => void
@@ -322,9 +331,9 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
       let newKeyframes = [...state.keyframes]
 
       for (const payload of payloads) {
-        const { itemId, property, frame, value, easing = 'linear', easingConfig } = payload
+        const { itemId, property, frame, value, easing = 'linear', easingConfig, source } = payload
         const keyframeId = crypto.randomUUID()
-        const newKeyframe: Keyframe = { id: keyframeId, frame, value, easing, easingConfig }
+        const newKeyframe: Keyframe = { id: keyframeId, frame, value, easing, easingConfig, source }
         const existingItemIndex = newKeyframes.findIndex((k) => k.itemId === itemId)
 
         if (existingItemIndex !== -1) {
@@ -518,6 +527,76 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
       ),
     })),
 
+  _removeVectorKeyframesForProperty: (itemId, property) =>
+    set((state) => ({
+      keyframes: state.keyframes
+        .map((itemKeyframes) =>
+          itemKeyframes.itemId === itemId
+            ? {
+                ...itemKeyframes,
+                vectorProperties: itemKeyframes.vectorProperties?.filter(
+                  (candidate) => candidate.property !== property,
+                ),
+              }
+            : itemKeyframes,
+        )
+        .filter(hasStoredAnimation),
+    })),
+
+  _removeKeyframesByApplication: (itemId, applicationId) =>
+    set((state) => ({
+      keyframes: state.keyframes
+        .map((itemKeyframes) =>
+          itemKeyframes.itemId === itemId
+            ? {
+                ...itemKeyframes,
+                properties: itemKeyframes.properties
+                  .map((property) => ({
+                    ...property,
+                    keyframes: property.keyframes.filter(
+                      (keyframe) => keyframe.source?.applicationId !== applicationId,
+                    ),
+                  }))
+                  .filter((property) => property.keyframes.length > 0),
+                vectorProperties: itemKeyframes.vectorProperties
+                  ?.map((property) => ({
+                    ...property,
+                    keyframes: property.keyframes.filter(
+                      (keyframe) => keyframe.source?.applicationId !== applicationId,
+                    ),
+                  }))
+                  .filter((property) => property.keyframes.length > 0),
+              }
+            : itemKeyframes,
+        )
+        .filter(hasStoredAnimation),
+    })),
+
+  _removeManualKeyframes: (itemId) =>
+    set((state) => ({
+      keyframes: state.keyframes
+        .map((itemKeyframes) =>
+          itemKeyframes.itemId === itemId
+            ? {
+                ...itemKeyframes,
+                properties: itemKeyframes.properties
+                  .map((property) => ({
+                    ...property,
+                    keyframes: property.keyframes.filter((keyframe) => keyframe.source),
+                  }))
+                  .filter((property) => property.keyframes.length > 0),
+                vectorProperties: itemKeyframes.vectorProperties
+                  ?.map((property) => ({
+                    ...property,
+                    keyframes: property.keyframes.filter((keyframe) => keyframe.source),
+                  }))
+                  .filter((property) => property.keyframes.length > 0),
+              }
+            : itemKeyframes,
+        )
+        .filter(hasStoredAnimation),
+    })),
+
   _setDirectPropertyLink: (itemId, expression) =>
     set((state) => {
       const existing = state.keyframes.find((itemKeyframes) => itemKeyframes.itemId === itemId)
@@ -638,6 +717,7 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
       easingConfig: input.easingConfig,
       temporalEase: input.temporalEase,
       spatial: input.spatial,
+      source: input.source,
     }
 
     set((state) => {

@@ -23,5 +23,6 @@ export {
   captureAnimationFromItem,
   getPresetCompatibility,
   buildBakeMotionPlan,
+  cloneMotionAnimationLayer,
 } from './keyframes-contract'
 export type { PresetIncompatibilityReason, ProceduralPreviewInput } from './keyframes-contract'

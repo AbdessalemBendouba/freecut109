@@ -1,0 +1,149 @@
+import type {
+  AutoKeyframeOperation,
+} from '@/features/preview/deps/keyframes'
+import {
+  getAutoKeyframeOperation,
+  getVectorAutoKeyframeOperation,
+  removeMotionAnimationLayers,
+  removeMotionModifiers,
+} from '@/features/preview/deps/keyframes'
+import type { ItemKeyframes, TransformAnimatableProperty } from '@/types/keyframe'
+import type { TimelineItem } from '@/types/timeline'
+import type { ResolvedTransform, TransformProperties } from '@/types/transform'
+import { worldToLocalTransform } from '@/shared/utils/transform-parenting'
+
+const SCALAR_GIZMO_PROPERTIES = ['x', 'y', 'width', 'height', 'rotation'] as const
+
+export function resolveEditableGizmoTransform(params: {
+  item: TimelineItem
+  visualTransform: ResolvedTransform
+  parentVisualTransform?: ResolvedTransform
+  relativeFrame: number
+  fps: number
+  frameWidth: number
+  frameHeight: number
+}): ResolvedTransform {
+  const localVisual = worldToLocalTransform(
+    params.visualTransform,
+    params.item.transformParent,
+    params.parentVisualTransform,
+  )
+  const withoutModifiers = removeMotionModifiers(
+    localVisual,
+    params.item.motionModifiers,
+    {
+      frame: params.relativeFrame,
+      fps: params.fps,
+      frameWidth: params.frameWidth,
+      frameHeight: params.frameHeight,
+    },
+  )
+  return removeMotionAnimationLayers(
+    withoutModifiers,
+    params.item.motionLayers,
+    params.relativeFrame,
+  )
+}
+
+export function buildGizmoTransformCommit(params: {
+  item: TimelineItem
+  itemKeyframes: ItemKeyframes | undefined
+  transform: ResolvedTransform
+  baseTransform: ResolvedTransform
+  currentFrame: number
+}): {
+  autoOps: AutoKeyframeOperation[]
+  transformProps: Partial<TransformProperties>
+  shouldUpdateBase: boolean
+} {
+  const propertyValues: Record<TransformAnimatableProperty, number> = {
+    x: params.transform.x,
+    y: params.transform.y,
+    width: params.transform.width,
+    height: params.transform.height,
+    anchorX: params.transform.anchorX,
+    anchorY: params.transform.anchorY,
+    rotation: params.transform.rotation,
+    opacity: params.transform.opacity,
+    cornerRadius: params.transform.cornerRadius,
+  }
+  const autoKeyframedProps = new Set<TransformAnimatableProperty>()
+  const autoOps: AutoKeyframeOperation[] = []
+
+  const positionLane = params.itemKeyframes?.vectorProperties?.find(
+    (lane) => lane.property === 'position' && lane.keyframes.length > 0,
+  )
+  if (positionLane) {
+    const operation = getVectorAutoKeyframeOperation(
+      params.item,
+      params.itemKeyframes,
+      'position',
+      { x: params.transform.x, y: params.transform.y },
+      params.currentFrame,
+    )
+    if (operation) {
+      autoOps.push(operation)
+      autoKeyframedProps.add('x')
+      autoKeyframedProps.add('y')
+    }
+  }
+
+  const scaleLane = params.itemKeyframes?.vectorProperties?.find(
+    (lane) => lane.property === 'scale' && lane.keyframes.length > 0,
+  )
+  if (scaleLane) {
+    const operation = getVectorAutoKeyframeOperation(
+      params.item,
+      params.itemKeyframes,
+      'scale',
+      {
+        x:
+          params.baseTransform.width === 0
+            ? 100
+            : (params.transform.width / params.baseTransform.width) * 100,
+        y:
+          params.baseTransform.height === 0
+            ? 100
+            : (params.transform.height / params.baseTransform.height) * 100,
+      },
+      params.currentFrame,
+    )
+    if (operation) {
+      autoOps.push(operation)
+      autoKeyframedProps.add('width')
+      autoKeyframedProps.add('height')
+    }
+  }
+
+  for (const property of SCALAR_GIZMO_PROPERTIES) {
+    if (
+      (positionLane && (property === 'x' || property === 'y')) ||
+      (scaleLane && (property === 'width' || property === 'height'))
+    ) {
+      continue
+    }
+    const operation = getAutoKeyframeOperation(
+      params.item,
+      params.itemKeyframes,
+      property,
+      propertyValues[property],
+      params.currentFrame,
+    )
+    if (!operation) continue
+    autoOps.push(operation)
+    autoKeyframedProps.add(property)
+  }
+
+  const transformProps: Partial<TransformProperties> = {
+    cornerRadius: params.transform.cornerRadius,
+  }
+  for (const property of SCALAR_GIZMO_PROPERTIES) {
+    if (!autoKeyframedProps.has(property)) transformProps[property] = params.transform[property]
+  }
+
+  return {
+    autoOps,
+    transformProps,
+    shouldUpdateBase: Object.keys(transformProps).length > 1 || autoKeyframedProps.size === 0,
+  }
+}

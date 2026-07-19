@@ -23,6 +23,16 @@ import { toast } from 'sonner'
 import { useShallow } from 'zustand/react/shallow'
 import { cn } from '@/shared/ui/cn'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { ErrorBoundary } from '@/app/error-boundary'
 import {
   getCropPropertyValue,
@@ -1064,24 +1074,29 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       selectedItemForEditor.motionModifiers?.filter(
         (modifier) => modifier.enabled && modifier.amplitude > 0,
       ) ?? []
-    if (modifiers.length === 0) return undefined
+    const layers = selectedItemForEditor.motionLayers?.filter((layer) => layer.enabled) ?? []
+    if (modifiers.length === 0 && layers.length === 0) return undefined
     return {
       base: resolveTransform(
         selectedItemForEditor,
         canvas,
         getSourceDimensions(selectedItemForEditor),
       ),
+      keyframes: allKeyframesByItemId[selectedItemForEditor.id],
       modifiers,
+      layers,
       frameWidth: canvas.width,
       frameHeight: canvas.height,
     }
-  }, [selectedItemForEditor, canvas])
+  }, [selectedItemForEditor, canvas, allKeyframesByItemId])
 
   // The edited clip can be baked when it carries any procedural motion.
   const canBakeProceduralMotion =
     !!selectedItemForEditor &&
     ((selectedItemForEditor.motionModifiers?.some((modifier) => modifier.enabled) ?? false) ||
+      (selectedItemForEditor.motionLayers?.some((layer) => layer.enabled) ?? false) ||
       (selectedItemForEditor.effects?.some((effect) => effect.audioPulse?.enabled) ?? false))
+  const [bakeDialogOpen, setBakeDialogOpen] = useState(false)
 
   const handleBakeProceduralMotion = useCallback(() => {
     if (!selectedItemForEditor) return
@@ -1095,6 +1110,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     })
     if (plan.length === 0) return
     const baked = bakeMotionToKeyframes(plan)
+    setBakeDialogOpen(false)
     toast.success(t('timeline.keyframeEditor.motionBaked', { count: baked }))
   }, [selectedItemForEditor, canvas, t])
   const effectiveSelectedProperty = useMemo(() => {
@@ -2760,7 +2776,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   transitionBlockedRanges={transitionBlockedRanges}
                   proceduralPreview={proceduralPreview}
                   canBakeMotion={canBakeProceduralMotion}
-                  onBakeMotion={handleBakeProceduralMotion}
+                  onBakeMotion={() => setBakeDialogOpen(true)}
                   visualizationMode={effectiveEditorMode}
                   graphMode={vectorGraphMode}
                   onGraphModeChange={activeVectorRow ? setVectorGraphMode : undefined}
@@ -2794,6 +2810,22 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
 
       {placement === 'top' && resizeHandle}
       {propertyLinkDrag ? <PropertyLinkPickWhipOverlay drag={propertyLinkDrag} /> : null}
+      <AlertDialog open={bakeDialogOpen} onOpenChange={setBakeDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('editor.motionGenerator.bakeConfirmTitle')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('editor.motionGenerator.bakeConfirmDescription')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBakeProceduralMotion}>
+              {t('editor.motionGenerator.bakeConfirmAction')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 })

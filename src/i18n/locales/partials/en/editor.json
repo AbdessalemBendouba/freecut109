@@ -98,7 +98,7 @@
       "animatedClip": "Animated"
     },
     "animatePresets": {
-      "title": "Presets",
+      "title": "Motion Library",
       "animationsHeading": "Animations",
       "saveButton": "Save",
       "saveButtonLong": "Save Animation",
@@ -117,10 +117,10 @@
       "incompatibleType": "Needs a {{type}} clip",
       "incompatibleProperty": "Target is missing an animated property",
       "selectClipFirst": "Select a clip to apply",
-      "noAnimationToSave": "Select a clip with keyframes to save",
+      "noAnimationToSave": "Select a clip with keyframes or live motion to save",
       "dialog": {
         "title": "Save animation preset",
-        "description": "Save this clip’s keyframes as a reusable preset for this project.",
+        "description": "Save this clip’s keyframes and live motion as a reusable animation for this project.",
         "nameLabel": "Preset name",
         "namePlaceholder": "My animation",
         "duplicateWarning": "A preset with this name exists and will be overwritten.",
@@ -131,18 +131,39 @@
     },
     "animateStages": {
       "presetsHint": "Presets drop editable keyframes — refine them in the graph.",
-      "continuousTitle": "Continuous motion",
-      "continuousHint": "Runs live and non-destructive until baked.",
+      "continuousTitle": "Loop & behaviors",
+      "continuousHint": "Layer behaviors and text loops run live and non-destructive until baked or removed.",
       "liveBadge": "Live",
+      "editableBadge": "Editable keyframes",
+      "scopeLayer": "Layer",
+      "scopeText": "Text",
       "appliedTitle": "Applied",
       "keyframedChip": "{{count}} keyframed",
       "clearKeyframes": "Clear keyframes",
+      "manualKeyframes": "Manual keyframes",
+      "keyframeCount_one": "{{count}} keyframe",
+      "keyframeCount_other": "{{count}} keyframes",
+      "generatedKeyframes": "Generated keyframes",
+      "removeManualKeyframes": "Remove manual keyframes",
+      "removePresetApplication": "Remove {{name}} keyframes",
+      "additiveLayer": "Additive layer",
+      "removeMotionLayer": "Remove {{name}} layer",
+      "vectorProperties": {
+        "position": "Position",
+        "scale": "Scale",
+        "anchor": "Anchor"
+      },
       "removeModulator": "Remove {{name}}",
       "audioPulseChip": "Audio pulse",
+      "removeAudioPulse": "Remove audio pulse",
+      "presetParameters": "Layer preset parameters",
+      "presetParametersHint": "Affects built-in layer presets, including additive layers.",
+      "savedLayerUnsupported": "Saved animations cannot be converted to an additive layer yet. Use Replace region or Merge keys.",
       "onApply": "On apply",
       "applyMode": {
-        "replace": "Replace",
-        "add": "Add"
+        "replace": "Replace region",
+        "merge": "Merge keys",
+        "layer": "Add layer"
       }
     },
     "motionGenerator": {
@@ -155,6 +176,9 @@
       "modulatorApplyFailed": "Could not apply modulator",
       "bakeToKeyframes": "Bake to keyframes",
       "bakeToKeyframesHint": "Flatten procedural motion on the selected clips into editable keyframes",
+      "bakeConfirmTitle": "Bake motion to keyframes?",
+      "bakeConfirmDescription": "This samples the final visible motion on every frame, replaces existing keyframes on the affected properties, and removes the live motion layers and modifiers. You can undo this operation.",
+      "bakeConfirmAction": "Bake motion",
       "bakeNoMotion": "No procedural motion to bake on the selection",
       "motionBaked": "Baked motion on {{count}} clip(s)",
       "modulators": {

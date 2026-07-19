@@ -98,7 +98,7 @@
       "animatedClip": "Animiert"
     },
     "animatePresets": {
-      "title": "Voreinstellungen",
+      "title": "Motion-Bibliothek",
       "animationsHeading": "Animationen",
       "saveButton": "Speichern",
       "saveButtonLong": "Animation speichern",
@@ -117,10 +117,10 @@
       "incompatibleType": "Benötigt einen {{type}}-Clip",
       "incompatibleProperty": "Dem Ziel fehlt eine animierte Eigenschaft",
       "selectClipFirst": "Wähle einen Clip zum Anwenden aus",
-      "noAnimationToSave": "Wähle einen Clip mit Keyframes zum Speichern aus",
+      "noAnimationToSave": "Wähle einen Clip mit Keyframes oder Live-Bewegung aus",
       "dialog": {
         "title": "Animations-Voreinstellung speichern",
-        "description": "Speichere die Keyframes dieses Clips als wiederverwendbare Voreinstellung für dieses Projekt.",
+        "description": "Speichere die Keyframes und Live-Bewegung dieses Clips als wiederverwendbare Animation für dieses Projekt.",
         "nameLabel": "Name der Voreinstellung",
         "namePlaceholder": "Meine Animation",
         "duplicateWarning": "Eine Voreinstellung mit diesem Namen existiert bereits und wird überschrieben.",
@@ -131,18 +131,39 @@
     },
     "animateStages": {
       "presetsHint": "Vorlagen erzeugen bearbeitbare Keyframes — verfeinere sie im Graphen.",
-      "continuousTitle": "Kontinuierliche Bewegung",
-      "continuousHint": "Läuft live und nicht-destruktiv bis zum Backen.",
+      "continuousTitle": "Schleifen & Verhalten",
+      "continuousHint": "Ebenenverhalten und Textschleifen laufen live und nicht-destruktiv, bis sie gebacken oder entfernt werden.",
       "liveBadge": "Live",
+      "editableBadge": "Bearbeitbare Keyframes",
+      "scopeLayer": "Ebene",
+      "scopeText": "Text",
       "appliedTitle": "Angewendet",
       "keyframedChip": "{{count}} mit Keyframes",
       "clearKeyframes": "Keyframes löschen",
+      "manualKeyframes": "Manuelle Keyframes",
+      "keyframeCount_one": "{{count}} Keyframe",
+      "keyframeCount_other": "{{count}} Keyframes",
+      "generatedKeyframes": "Erzeugte Keyframes",
+      "removeManualKeyframes": "Manuelle Keyframes entfernen",
+      "removePresetApplication": "Keyframes von {{name}} entfernen",
+      "additiveLayer": "Additive Ebene",
+      "removeMotionLayer": "Ebene {{name}} entfernen",
+      "vectorProperties": {
+        "position": "Position",
+        "scale": "Skalierung",
+        "anchor": "Ankerpunkt"
+      },
       "removeModulator": "{{name}} entfernen",
       "audioPulseChip": "Audio-Puls",
+      "removeAudioPulse": "Audio-Puls entfernen",
+      "presetParameters": "Parameter der Ebenenvorlage",
+      "presetParametersHint": "Gilt für integrierte Ebenenvorlagen, einschließlich additiver Ebenen.",
+      "savedLayerUnsupported": "Gespeicherte Animationen können noch nicht in additive Ebenen umgewandelt werden. Verwende Bereich ersetzen oder Keyframes zusammenführen.",
       "onApply": "Beim Anwenden",
       "applyMode": {
-        "replace": "Ersetzen",
-        "add": "Hinzufügen"
+        "replace": "Bereich ersetzen",
+        "merge": "Keyframes zusammenführen",
+        "layer": "Ebene hinzufügen"
       }
     },
     "motionGenerator": {
@@ -155,6 +176,9 @@
       "modulatorApplyFailed": "Modulator konnte nicht angewendet werden",
       "bakeToKeyframes": "In Keyframes backen",
       "bakeToKeyframesHint": "Wandelt die prozedurale Bewegung der ausgewählten Clips in bearbeitbare Keyframes um",
+      "bakeConfirmTitle": "Bewegung in Keyframes backen?",
+      "bakeConfirmDescription": "Die endgültige sichtbare Bewegung wird in jedem Frame abgetastet, vorhandene Keyframes der betroffenen Eigenschaften werden ersetzt und Live-Ebenen sowie Modulatoren entfernt. Dieser Vorgang kann rückgängig gemacht werden.",
+      "bakeConfirmAction": "Bewegung backen",
       "bakeNoMotion": "Keine prozedurale Bewegung zum Backen in der Auswahl",
       "motionBaked": "Bewegung auf {{count}} Clip(s) gebacken",
       "modulators": {

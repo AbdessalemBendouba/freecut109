@@ -50,6 +50,38 @@ describe('captureAnimationFromItem', () => {
     ).toBeNull()
   })
 
+  it('captures a procedural-only layer animation without manufacturing keyframes', () => {
+    const captured = captureAnimationFromItem(
+      videoItem({
+        motionModifiers: [
+          {
+            id: 'drift-1',
+            type: 'float-drift',
+            enabled: true,
+            amplitude: 0.8,
+            frequency: 0.5,
+            phaseFrames: 3,
+            seed: 7,
+            channelGains: { x: 1, y: 0.5 },
+          },
+        ],
+      }),
+      undefined,
+    )
+
+    expect(captured).toMatchObject({
+      properties: [],
+      motionModifiers: [
+        {
+          id: 'drift-1',
+          type: 'float-drift',
+          amplitude: 0.8,
+          channelGains: { x: 1, y: 0.5 },
+        },
+      ],
+    })
+  })
+
   it('captures v2 Position motion without flattening temporal or spatial handles', () => {
     const keyframes: ItemKeyframes = {
       itemId: 'v1',

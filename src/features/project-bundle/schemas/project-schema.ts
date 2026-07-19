@@ -46,12 +46,20 @@ const easingConfigSchema = z.object({
 
 const audioEqCutSlopeSchema = z.union([z.literal(6), z.literal(12), z.literal(18), z.literal(24)])
 
+const animationKeyframeSourceSchema = z.object({
+  applicationId: z.string().min(1),
+  kind: z.enum(['built-in-preset', 'saved-preset']),
+  presetId: z.string().min(1),
+  presetName: z.string().min(1),
+})
+
 const keyframeSchema = z.object({
   id: z.string().min(1),
   frame: z.number().int().min(0),
   value: z.number(),
   easing: easingTypeSchema,
   easingConfig: easingConfigSchema.optional(),
+  source: animationKeyframeSourceSchema.optional(),
 })
 
 const propertyKeyframesSchema = z.object({
@@ -88,6 +96,7 @@ const vectorKeyframeSchema = z.object({
   easingConfig: easingConfigSchema.optional(),
   temporalEase: temporalEaseSchema.optional(),
   spatial: spatialBezierTangentsSchema.optional(),
+  source: animationKeyframeSourceSchema.optional(),
 })
 
 const vectorPropertyKeyframesSchema = z.object({
@@ -777,7 +786,7 @@ const animationPresetSchema = z
 /** The animation presets sidecar file (`animation-presets.json`). */
 const animationPresetsFileSchema = z
   .object({
-    version: z.union([z.literal(1), z.literal(2)]),
+    version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
     presets: z.array(animationPresetSchema),
   })
   .passthrough()

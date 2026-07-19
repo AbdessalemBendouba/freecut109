@@ -12,8 +12,12 @@
 import type { ResolvedTransform } from '@/types/transform'
 import type { AnimatableProperty, TransformAnimatableProperty } from '@/types/keyframe'
 import type { ItemKeyframes } from '@/types/keyframe'
-import type { MotionModifier } from '@/types/motion'
+import type { MotionAnimationLayer, MotionModifier } from '@/types/motion'
 import { applyMotionModifiers, getActiveMotionModifierChannels } from './motion-modifier-eval'
+import {
+  applyMotionAnimationLayers,
+  getActiveMotionLayerChannels,
+} from './motion-layer-eval'
 import { resolveAnimatedTransform } from './animated-transform-resolver'
 
 /**
@@ -22,7 +26,9 @@ import { resolveAnimatedTransform } from './animated-transform-resolver'
  */
 export interface ProceduralPreviewInput {
   base: ResolvedTransform
+  keyframes?: ItemKeyframes
   modifiers: MotionModifier[]
+  layers?: MotionAnimationLayer[]
   frameWidth: number
   frameHeight: number
 }
@@ -88,6 +94,7 @@ export function sampleProceduralCurve(params: {
   base: ResolvedTransform
   keyframes: ItemKeyframes | undefined
   modifiers: readonly MotionModifier[] | undefined
+  layers?: readonly MotionAnimationLayer[]
   fromFrame: number
   toFrame: number
   step: number
@@ -95,22 +102,35 @@ export function sampleProceduralCurve(params: {
   frameWidth: number
   frameHeight: number
 }): ProceduralSamplePoint[] {
-  const { property, base, keyframes, modifiers, fromFrame, toFrame, fps, frameWidth, frameHeight } =
-    params
-  if (!modifiers || modifiers.length === 0 || toFrame <= fromFrame) return []
-  const drivesProperty = modifiers.some(
+  const {
+    property,
+    base,
+    keyframes,
+    modifiers,
+    layers,
+    fromFrame,
+    toFrame,
+    fps,
+    frameWidth,
+    frameHeight,
+  } = params
+  if (toFrame <= fromFrame) return []
+  const modifierDrivesProperty = (modifiers ?? []).some(
     (modifier) =>
       modifier.enabled &&
       modifier.amplitude > 0 &&
       getActiveMotionModifierChannels(modifier).some((channel) => channel === property),
   )
+  const layerDrivesProperty = getActiveMotionLayerChannels(layers).includes(property)
+  const drivesProperty = modifierDrivesProperty || layerDrivesProperty
   if (!drivesProperty) return []
 
   const step = Math.max(1, Math.floor(params.step))
   const points: ProceduralSamplePoint[] = []
   for (let frame = fromFrame; frame <= toFrame; frame += step) {
     const animated = resolveAnimatedTransform(base, keyframes, frame)
-    const resolved = applyMotionModifiers(animated, modifiers, {
+    const layered = applyMotionAnimationLayers(animated, layers, frame)
+    const resolved = applyMotionModifiers(layered, modifiers, {
       frame,
       fps,
       frameWidth,
@@ -121,7 +141,8 @@ export function sampleProceduralCurve(params: {
   // Ensure the final frame is represented for a clean curve end.
   if (points.length > 0 && points[points.length - 1]!.frame !== toFrame) {
     const animated = resolveAnimatedTransform(base, keyframes, toFrame)
-    const resolved = applyMotionModifiers(animated, modifiers, {
+    const layered = applyMotionAnimationLayers(animated, layers, toFrame)
+    const resolved = applyMotionModifiers(layered, modifiers, {
       frame: toFrame,
       fps,
       frameWidth,

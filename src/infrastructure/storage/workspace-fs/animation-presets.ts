@@ -23,7 +23,16 @@ import type {
 } from '@/types/keyframe'
 import type { VisualEffect } from '@/types/effects'
 import type { TimelineItem } from '@/types/timeline'
+import type {
+  MotionModifier,
+  MotionModifierChannel,
+  MotionModifierType,
+  MotionAnimationLayer,
+  MotionLayerTrack,
+} from '@/types/motion'
+import type { TextMotionSpec } from '@/types/text-motion'
 import { createLogger } from '@/shared/logging/logger'
+import { sanitizeTextMotion } from '@/shared/projects/migrations/sanitize-text-motion'
 
 import { requireWorkspaceRoot } from './root'
 import { readJson, writeJsonAtomic } from './fs-primitives'
@@ -53,15 +62,47 @@ export interface AnimationPreset {
   vectorProperties?: AnimationPresetVectorProperty[]
   /** Effect definitions the effect-param keyframes animate. */
   effects: VisualEffect[]
+  /** Live whole-layer behaviours captured from the source clip. */
+  motionModifiers?: MotionModifier[]
+  /** Named additive keyframe layers captured from the source clip. */
+  motionLayers?: MotionAnimationLayer[]
+  /** Per-character/word/line motion captured from a text clip. */
+  textMotion?: TextMotionSpec
   /** Source clip duration in project frames, for optional retiming on apply. */
   sourceDurationInFrames: number
   createdAt: number
 }
 
 interface AnimationPresetsFile {
-  version: 1 | 2
+  version: 1 | 2 | 3 | 4
   presets: AnimationPreset[]
 }
+
+const VALID_MOTION_MODIFIER_TYPES = new Set<MotionModifierType>([
+  'float-drift',
+  'breath-pulse',
+  'micro-shake',
+  'sway',
+  'spin',
+])
+
+const VALID_MOTION_MODIFIER_CHANNELS = new Set<MotionModifierChannel>([
+  'x',
+  'y',
+  'width',
+  'height',
+  'rotation',
+  'opacity',
+])
+
+const VALID_MOTION_LAYER_PROPERTIES = new Set([
+  'x',
+  'y',
+  'width',
+  'height',
+  'rotation',
+  'opacity',
+])
 
 const VALID_ITEM_TYPES = new Set<TimelineItem['type']>([
   'video',
@@ -71,6 +112,7 @@ const VALID_ITEM_TYPES = new Set<TimelineItem['type']>([
   'shape',
   'adjustment',
   'composition',
+  'controller',
   'subtitle',
 ])
 
@@ -83,6 +125,59 @@ function isVisualEffect(value: unknown): value is VisualEffect {
     typeof candidate.params === 'object' &&
     candidate.params !== null
   )
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value))
+}
+
+function sanitizeMotionModifier(value: unknown): MotionModifier | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<MotionModifier>
+  if (
+    typeof candidate.id !== 'string' ||
+    typeof candidate.type !== 'string' ||
+    !VALID_MOTION_MODIFIER_TYPES.has(candidate.type as MotionModifierType)
+  ) {
+    return null
+  }
+
+  const channelGains =
+    candidate.channelGains && typeof candidate.channelGains === 'object'
+      ? Object.fromEntries(
+          Object.entries(candidate.channelGains).flatMap(([channel, gain]) =>
+            VALID_MOTION_MODIFIER_CHANNELS.has(channel as MotionModifierChannel) &&
+            typeof gain === 'number' &&
+            Number.isFinite(gain)
+              ? [[channel, clamp(gain, 0, 2)]]
+              : [],
+          ),
+        )
+      : undefined
+
+  return {
+    ...(channelGains && { version: 2 as const }),
+    id: candidate.id,
+    type: candidate.type as MotionModifierType,
+    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : true,
+    amplitude:
+      typeof candidate.amplitude === 'number' && Number.isFinite(candidate.amplitude)
+        ? clamp(candidate.amplitude, 0, 2)
+        : 1,
+    frequency:
+      typeof candidate.frequency === 'number' && Number.isFinite(candidate.frequency)
+        ? clamp(candidate.frequency, 0.01, 60)
+        : 1,
+    phaseFrames:
+      typeof candidate.phaseFrames === 'number' && Number.isFinite(candidate.phaseFrames)
+        ? Math.max(0, candidate.phaseFrames)
+        : 0,
+    seed:
+      typeof candidate.seed === 'number' && Number.isFinite(candidate.seed)
+        ? Math.round(candidate.seed)
+        : 0,
+    ...(channelGains && { channelGains }),
+  }
 }
 
 function sanitizeKeyframe(value: unknown): Keyframe | null {
@@ -113,6 +208,54 @@ function sanitizeProperty(value: unknown): AnimationPresetProperty | null {
     .filter((kf): kf is Keyframe => kf !== null)
   if (keyframes.length === 0) return null
   return { property: candidate.property, keyframes }
+}
+
+function sanitizeMotionLayerTrack(value: unknown): MotionLayerTrack | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<MotionLayerTrack>
+  if (
+    typeof candidate.property !== 'string' ||
+    !VALID_MOTION_LAYER_PROPERTIES.has(candidate.property) ||
+    (candidate.blend !== 'add' && candidate.blend !== 'multiply') ||
+    !Array.isArray(candidate.keyframes)
+  ) {
+    return null
+  }
+  const keyframes = candidate.keyframes
+    .map(sanitizeKeyframe)
+    .filter((keyframe): keyframe is Keyframe => keyframe !== null)
+  if (keyframes.length === 0) return null
+  return {
+    property: candidate.property as MotionLayerTrack['property'],
+    blend: candidate.blend,
+    keyframes,
+  }
+}
+
+function sanitizeMotionLayer(value: unknown): MotionAnimationLayer | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<MotionAnimationLayer>
+  if (
+    typeof candidate.id !== 'string' ||
+    typeof candidate.name !== 'string' ||
+    (candidate.source !== 'built-in-preset' && candidate.source !== 'saved-preset') ||
+    typeof candidate.sourcePresetId !== 'string' ||
+    !Array.isArray(candidate.tracks)
+  ) {
+    return null
+  }
+  const tracks = candidate.tracks
+    .map(sanitizeMotionLayerTrack)
+    .filter((track): track is MotionLayerTrack => track !== null)
+  if (tracks.length === 0) return null
+  return {
+    id: candidate.id,
+    name: candidate.name,
+    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : true,
+    source: candidate.source,
+    sourcePresetId: candidate.sourcePresetId,
+    tracks,
+  }
 }
 
 function sanitizeVector2(value: unknown): Vector2 | null {
@@ -257,7 +400,27 @@ export function sanitizeAnimationPresets(value: unknown): AnimationPreset[] {
           .map(sanitizeVectorProperty)
           .filter((property): property is AnimationPresetVectorProperty => property !== null)
       : []
-    if (properties.length === 0 && vectorProperties.length === 0) return []
+    const motionModifiers = Array.isArray(candidate.motionModifiers)
+      ? candidate.motionModifiers
+          .map(sanitizeMotionModifier)
+          .filter((modifier): modifier is MotionModifier => modifier !== null)
+      : []
+    const motionLayers = Array.isArray(candidate.motionLayers)
+      ? candidate.motionLayers
+          .map(sanitizeMotionLayer)
+          .filter((layer): layer is MotionAnimationLayer => layer !== null)
+      : []
+    const textMotion =
+      candidate.sourceItemType === 'text' ? sanitizeTextMotion(candidate.textMotion) : undefined
+    if (
+      properties.length === 0 &&
+      vectorProperties.length === 0 &&
+      motionModifiers.length === 0 &&
+      motionLayers.length === 0 &&
+      !textMotion
+    ) {
+      return []
+    }
 
     const effects = Array.isArray(candidate.effects) ? candidate.effects.filter(isVisualEffect) : []
 
@@ -269,6 +432,9 @@ export function sanitizeAnimationPresets(value: unknown): AnimationPreset[] {
         properties,
         ...(vectorProperties.length > 0 && { vectorProperties }),
         effects,
+        ...(motionModifiers.length > 0 && { motionModifiers }),
+        ...(motionLayers.length > 0 && { motionLayers }),
+        ...(textMotion && { textMotion }),
         sourceDurationInFrames:
           typeof candidate.sourceDurationInFrames === 'number' &&
           Number.isFinite(candidate.sourceDurationInFrames)
@@ -300,7 +466,7 @@ export async function saveAnimationPresets(
 ): Promise<void> {
   try {
     const root = requireWorkspaceRoot()
-    const file: AnimationPresetsFile = { version: 2, presets }
+    const file: AnimationPresetsFile = { version: 4, presets }
     await writeJsonAtomic(root, projectAnimationPresetsPath(projectId), file)
   } catch (error) {
     logger.error('saveAnimationPresets failed', error)

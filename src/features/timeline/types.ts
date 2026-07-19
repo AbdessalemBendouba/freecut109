@@ -33,6 +33,8 @@ export type TransformHistoryOperation =
 
 export interface TransformCommandOptions {
   operation?: TransformHistoryOperation
+  /** Optional keyframe writes committed in the same undoable transform gesture. */
+  autoKeyframeOperations?: AutoKeyframeOperation[]
 }
 
 export interface LoadTimelineOptions {

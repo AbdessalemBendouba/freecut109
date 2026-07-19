@@ -70,6 +70,8 @@ function getTimelineGridLineStyle(
 
 interface ConnectorSegment {
   key: string
+  fromKeyframeId: string
+  toKeyframeId: string
   left: number
   width: number
   /** True when the value is held across the span (no interpolation). */
@@ -92,15 +94,33 @@ function buildConnectorSegments(
     const left = Math.min(point.x, next.x)
     const width = Math.abs(next.x - point.x)
     if (width <= 0) return []
-    return [{ key: point.id, left, width, held: point.held }]
+    return [
+      {
+        key: point.id,
+        fromKeyframeId: point.id,
+        toKeyframeId: next.id,
+        left,
+        width,
+        held: point.held,
+      },
+    ]
   })
 }
 
-function KeyframeConnectors({ segments }: { segments: ConnectorSegment[] }) {
+function KeyframeConnectors({
+  itemId,
+  segments,
+}: {
+  itemId: string
+  segments: ConnectorSegment[]
+}) {
   return segments.map((segment) => (
     <div
       key={segment.key}
       data-testid="keyframe-connector"
+      data-motion-item-id={itemId}
+      data-motion-connector-from-keyframe-id={segment.fromKeyframeId}
+      data-motion-connector-to-keyframe-id={segment.toKeyframeId}
       className={cn(
         'pointer-events-none absolute z-0 -translate-y-1/2',
         segment.held ? 'border-t border-dashed border-neutral-500/50' : 'h-px bg-neutral-400/50',
@@ -418,7 +438,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
           />
         )}
 
-        <KeyframeConnectors segments={connectorSegments} />
+        <KeyframeConnectors itemId={itemId} segments={connectorSegments} />
 
         {onSegmentEasingChange &&
           segmentSpans.map((span) => (
@@ -446,6 +466,8 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
               ref={(node) => setKeyframeButtonRef(keyframe.id, node)}
               type="button"
               data-testid={`row-keyframe-${property}-${keyframe.id}`}
+              data-motion-item-id={itemId}
+              data-motion-keyframe-id={keyframe.id}
               className={cn(
                 'group absolute z-10 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center',
                 !locked && 'cursor-grab active:cursor-grabbing',
@@ -479,7 +501,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
             >
               <span
                 className={cn(
-                  'pointer-events-none block h-2 w-2 rotate-45 border transition-colors',
+                  'pointer-events-none block h-2 w-2 rotate-45 border transition-colors group-data-[marquee-selected=true]:!border-blue-100 group-data-[marquee-selected=true]:!bg-blue-500 group-data-[marquee-selected=true]:!shadow-[0_0_0_1px_rgba(59,130,246,0.45)] group-data-[marquee-selected=false]:!border-transparent group-data-[marquee-selected=false]:!bg-neutral-200 group-data-[marquee-selected=false]:!shadow-none',
                   selected
                     ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
                     : 'border-transparent bg-neutral-200 group-hover:bg-white',

@@ -98,7 +98,7 @@
       "animatedClip": "Animado"
     },
     "animatePresets": {
-      "title": "Predefinições",
+      "title": "Biblioteca de movimento",
       "animationsHeading": "Animações",
       "saveButton": "Salvar",
       "saveButtonLong": "Salvar animação",
@@ -117,10 +117,10 @@
       "incompatibleType": "Requer um clipe do tipo {{type}}",
       "incompatibleProperty": "O destino não tem uma propriedade animada",
       "selectClipFirst": "Selecione um clipe para aplicar",
-      "noAnimationToSave": "Selecione um clipe com quadros-chave para salvar",
+      "noAnimationToSave": "Selecione um clipe com quadros-chave ou movimento ao vivo",
       "dialog": {
         "title": "Salvar predefinição de animação",
-        "description": "Salve os quadros-chave deste clipe como uma predefinição reutilizável para este projeto.",
+        "description": "Salve os quadros-chave e o movimento ao vivo deste clipe como uma animação reutilizável para este projeto.",
         "nameLabel": "Nome da predefinição",
         "namePlaceholder": "Minha animação",
         "duplicateWarning": "Já existe uma predefinição com este nome e ela será substituída.",
@@ -131,18 +131,39 @@
     },
     "animateStages": {
       "presetsHint": "As predefinições criam quadros-chave editáveis — refine-os no gráfico.",
-      "continuousTitle": "Movimento contínuo",
-      "continuousHint": "Executa ao vivo e de forma não destrutiva até ser consolidado.",
+      "continuousTitle": "Loops e comportamentos",
+      "continuousHint": "Comportamentos de camada e loops de texto funcionam ao vivo e de forma não destrutiva até serem consolidados ou removidos.",
       "liveBadge": "Ao vivo",
+      "editableBadge": "Quadros-chave editáveis",
+      "scopeLayer": "Camada",
+      "scopeText": "Texto",
       "appliedTitle": "Aplicado",
       "keyframedChip": "{{count}} com quadros-chave",
       "clearKeyframes": "Limpar quadros-chave",
+      "manualKeyframes": "Quadros-chave manuais",
+      "keyframeCount_one": "{{count}} quadro-chave",
+      "keyframeCount_other": "{{count}} quadros-chave",
+      "generatedKeyframes": "Quadros-chave gerados",
+      "removeManualKeyframes": "Remover quadros-chave manuais",
+      "removePresetApplication": "Remover quadros-chave de {{name}}",
+      "additiveLayer": "Camada aditiva",
+      "removeMotionLayer": "Remover camada {{name}}",
+      "vectorProperties": {
+        "position": "Posição",
+        "scale": "Escala",
+        "anchor": "Âncora"
+      },
       "removeModulator": "Remover {{name}}",
       "audioPulseChip": "Pulso de áudio",
+      "removeAudioPulse": "Remover pulso de áudio",
+      "presetParameters": "Parâmetros da predefinição de camada",
+      "presetParametersHint": "Afeta predefinições de camada integradas, incluindo camadas aditivas.",
+      "savedLayerUnsupported": "Animações salvas ainda não podem ser convertidas em camada aditiva. Use Substituir intervalo ou Mesclar chaves.",
       "onApply": "Ao aplicar",
       "applyMode": {
-        "replace": "Substituir",
-        "add": "Adicionar"
+        "replace": "Substituir intervalo",
+        "merge": "Mesclar chaves",
+        "layer": "Adicionar camada"
       }
     },
     "motionGenerator": {
@@ -155,6 +176,9 @@
       "modulatorApplyFailed": "Não foi possível aplicar o modulador",
       "bakeToKeyframes": "Consolidar em quadros-chave",
       "bakeToKeyframesHint": "Achata o movimento procedural dos clipes selecionados em quadros-chave editáveis",
+      "bakeConfirmTitle": "Consolidar movimento em quadros-chave?",
+      "bakeConfirmDescription": "Isso amostra o movimento final visível em cada quadro, substitui os quadros-chave existentes nas propriedades afetadas e remove as camadas e os moduladores ao vivo. Você pode desfazer esta operação.",
+      "bakeConfirmAction": "Consolidar movimento",
       "bakeNoMotion": "Nenhum movimento procedural para consolidar na seleção",
       "motionBaked": "Movimento consolidado em {{count}} clipe(s)",
       "modulators": {

@@ -45,20 +45,16 @@ import {
   worldPointToPositionKeyframeValue,
 } from '../utils/motion-path-edit'
 import { attachWindowMotionPathPointerInteraction } from '../utils/motion-path-pointer-interaction'
-import {
-  getAutoKeyframeOperation,
-  GIZMO_ANIMATABLE_PROPS,
-  type AutoKeyframeOperation,
-} from '@/features/preview/deps/keyframes'
-import type {
-  ItemKeyframes,
-  SpatialBezierTangents,
-  TransformAnimatableProperty,
-} from '@/types/keyframe'
+import type { AutoKeyframeOperation } from '@/features/preview/deps/keyframes'
+import type { ItemKeyframes, SpatialBezierTangents } from '@/types/keyframe'
 import type { TimelineItem } from '@/types/timeline'
 import type { BoundingBox, CoordinateParams, Transform, Point } from '../types/gizmo'
 import type { ResolvedTransform, TransformProperties } from '@/types/transform'
-import { worldToLocalTransform } from '@/shared/utils/transform-parenting'
+import { getSourceDimensions, resolveTransform } from '@/features/preview/deps/composition-runtime'
+import {
+  buildGizmoTransformCommit,
+  resolveEditableGizmoTransform,
+} from '../utils/gizmo-transform-commit'
 
 interface GizmoOverlayProps {
   containerRect: DOMRect | null
@@ -101,69 +97,6 @@ function toResolvedTransform(transform: Transform): ResolvedTransform {
     rotation: transform.rotation,
     opacity: transform.opacity,
     cornerRadius: transform.cornerRadius ?? 0,
-  }
-}
-
-const GIZMO_BASE_TRANSFORM_PROPERTIES = ['x', 'y', 'width', 'height', 'rotation'] as const
-
-function resolveEditableGizmoTransform(
-  item: TimelineItem,
-  transform: Transform,
-  visualTransforms: ReadonlyMap<string, ResolvedTransform>,
-): ResolvedTransform {
-  const parentId = item.transformParent?.parentItemId
-  return worldToLocalTransform(
-    toResolvedTransform(transform),
-    item.transformParent,
-    parentId ? visualTransforms.get(parentId) : undefined,
-  )
-}
-
-function buildGizmoTransformCommit(params: {
-  item: TimelineItem
-  itemKeyframes: ItemKeyframes | undefined
-  transform: ResolvedTransform
-  currentFrame: number
-}): {
-  autoOps: AutoKeyframeOperation[]
-  transformProps: Partial<TransformProperties>
-  shouldUpdateBase: boolean
-} {
-  const propertyValues: Record<TransformAnimatableProperty, number> = {
-    x: params.transform.x,
-    y: params.transform.y,
-    width: params.transform.width,
-    height: params.transform.height,
-    anchorX: params.transform.anchorX,
-    anchorY: params.transform.anchorY,
-    rotation: params.transform.rotation,
-    opacity: params.transform.opacity,
-    cornerRadius: params.transform.cornerRadius,
-  }
-  const autoKeyframedProps = new Set<TransformAnimatableProperty>()
-  const autoOps = GIZMO_ANIMATABLE_PROPS.flatMap((property) => {
-    const operation = getAutoKeyframeOperation(
-      params.item,
-      params.itemKeyframes,
-      property,
-      propertyValues[property],
-      params.currentFrame,
-    )
-    if (!operation) return []
-    autoKeyframedProps.add(property)
-    return [operation]
-  })
-  const transformProps: Partial<TransformProperties> = {
-    cornerRadius: params.transform.cornerRadius,
-  }
-  for (const property of GIZMO_BASE_TRANSFORM_PROPERTIES) {
-    if (!autoKeyframedProps.has(property)) transformProps[property] = params.transform[property]
-  }
-
-  return {
-    autoOps,
-    transformProps,
-    shouldUpdateBase: Object.keys(transformProps).length > 1 || autoKeyframedProps.size === 0,
   }
 }
 
@@ -228,7 +161,6 @@ export function GizmoOverlay({
   const canvasSnapEnabled = useSettingsStore((s) => s.canvasSnapEnabled)
   const updateItemTransform = useTimelineStore((s) => s.updateItemTransform)
   const updateItemsTransformMap = useTimelineStore((s) => s.updateItemsTransformMap)
-  const applyAutoKeyframeOperations = useTimelineStore((s) => s.applyAutoKeyframeOperations)
   const updateVectorKeyframe = useTimelineStore((s) => s.updateVectorKeyframe)
 
   // Ref to track if we just finished a drag (to prevent background click from deselecting)
@@ -699,6 +631,8 @@ export function GizmoOverlay({
               item.transform ?? null,
             )}:${JSON.stringify(item.transformParent ?? null)}:${JSON.stringify(
               item.motionModifiers ?? null,
+            )}:${JSON.stringify(
+              item.motionLayers ?? null,
             )}`,
         )
         .join('|'),
@@ -891,20 +825,32 @@ export function GizmoOverlay({
       const currentFrame = usePlaybackStore.getState().currentFrame
       const item = visualItems.find((i) => i.id === itemId)
       if (!item) return
-      const editableTransform = resolveEditableGizmoTransform(item, transform, visualTransformsMap)
+      const parentId = item.transformParent?.parentItemId
+      const editableTransform = resolveEditableGizmoTransform({
+        item,
+        visualTransform: toResolvedTransform(transform),
+        parentVisualTransform: parentId ? visualTransformsMap.get(parentId) : undefined,
+        relativeFrame: currentFrame - item.from,
+        fps,
+        frameWidth: projectSize.width,
+        frameHeight: projectSize.height,
+      })
       const itemKeyframes = useKeyframesStore.getState().keyframesByItemId[itemId]
       const { autoOps, transformProps, shouldUpdateBase } = buildGizmoTransformCommit({
         item,
         itemKeyframes,
         transform: editableTransform,
+        baseTransform: resolveTransform(
+          item,
+          { width: projectSize.width, height: projectSize.height, fps },
+          getSourceDimensions(item),
+        ),
         currentFrame,
       })
-      if (autoOps.length > 0) {
-        applyAutoKeyframeOperations(autoOps)
-      }
-      if (shouldUpdateBase) {
-        updateItemTransform(itemId, transformProps, { operation })
-      }
+      updateItemTransform(itemId, shouldUpdateBase ? transformProps : {}, {
+        operation,
+        autoKeyframeOperations: autoOps,
+      })
 
       // Prevent background click from deselecting after drag
       justFinishedDragRef.current = true
@@ -926,16 +872,20 @@ export function GizmoOverlay({
       visualItems,
       visualTransformsMap,
       updateItemTransform,
-      applyAutoKeyframeOperations,
       setOtherItemBounds,
+      fps,
+      projectSize.width,
+      projectSize.height,
     ],
   )
 
   // Handle group transform end - commit transforms for all items as a single undo operation
   const handleGroupTransformEnd = useCallback(
     (transforms: Map<string, Transform>, operation: 'move' | 'resize' | 'rotate') => {
+      const currentFrame = usePlaybackStore.getState().currentFrame
       // Convert Transform to TransformProperties for the batch update
       const transformsMap = new Map<string, Partial<TransformProperties>>()
+      const autoKeyframeOperations: AutoKeyframeOperation[] = []
       for (const [itemId, transform] of transforms) {
         const item = visualItems.find((candidate) => candidate.id === itemId)
         if (!item) continue
@@ -946,23 +896,31 @@ export function GizmoOverlay({
           : parentId
             ? visualTransformsMap.get(parentId)
             : undefined
-        const editableTransform = worldToLocalTransform(
-          toResolvedTransform(transform),
-          item.transformParent,
-          parentWorld,
-        )
-        transformsMap.set(itemId, {
-          x: editableTransform.x,
-          y: editableTransform.y,
-          width: editableTransform.width,
-          height: editableTransform.height,
-          rotation: editableTransform.rotation,
-          opacity: editableTransform.opacity,
-          cornerRadius: editableTransform.cornerRadius,
+        const editableTransform = resolveEditableGizmoTransform({
+          item,
+          visualTransform: toResolvedTransform(transform),
+          parentVisualTransform: parentWorld,
+          relativeFrame: currentFrame - item.from,
+          fps,
+          frameWidth: projectSize.width,
+          frameHeight: projectSize.height,
         })
+        const commit = buildGizmoTransformCommit({
+          item,
+          itemKeyframes: useKeyframesStore.getState().keyframesByItemId[itemId],
+          transform: editableTransform,
+          baseTransform: resolveTransform(
+            item,
+            { width: projectSize.width, height: projectSize.height, fps },
+            getSourceDimensions(item),
+          ),
+          currentFrame,
+        })
+        autoKeyframeOperations.push(...commit.autoOps)
+        if (commit.shouldUpdateBase) transformsMap.set(itemId, commit.transformProps)
       }
       // Use batch update for single undo operation
-      updateItemsTransformMap(transformsMap, { operation })
+      updateItemsTransformMap(transformsMap, { operation, autoKeyframeOperations })
 
       // Prevent background click from deselecting after drag
       // Use setTimeout instead of requestAnimationFrame because click events
@@ -973,7 +931,15 @@ export function GizmoOverlay({
       }, 100)
       setOtherItemBounds([])
     },
-    [visualItems, visualTransformsMap, updateItemsTransformMap, setOtherItemBounds],
+    [
+      visualItems,
+      visualTransformsMap,
+      updateItemsTransformMap,
+      setOtherItemBounds,
+      fps,
+      projectSize.width,
+      projectSize.height,
+    ],
   )
 
   // Handle click on overlay background to deselect

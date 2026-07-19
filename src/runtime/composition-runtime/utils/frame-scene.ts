@@ -13,6 +13,7 @@ import {
   resolveAnimatedTransform,
   hasKeyframeAnimation,
   resolveAnimatedTextItem,
+  applyMotionAnimationLayers,
   applyMotionModifiers,
 } from '../deps/keyframes'
 import type { LinkedPropertyEvaluationContext } from '../deps/keyframes'
@@ -85,9 +86,14 @@ export function resolveItemTransformAtRelativeFrame(
       ? resolveAnimatedTransform(baseResolved, keyframes, relativeFrame, expressionContext)
       : baseResolved
 
-  // Procedural motion modifiers layer on top of the keyframe-resolved transform
-  // before any live preview override wins.
-  const modulatedResolved = applyMotionModifiers(animatedResolved, item.motionModifiers, {
+  // Named additive animation layers compose after the base lanes; continuous
+  // procedural modifiers then run on that result before preview overrides win.
+  const layeredResolved = applyMotionAnimationLayers(
+    animatedResolved,
+    item.motionLayers,
+    relativeFrame,
+  )
+  const modulatedResolved = applyMotionModifiers(layeredResolved, item.motionModifiers, {
     frame: relativeFrame,
     fps: canvas.fps,
     frameWidth: canvas.width,

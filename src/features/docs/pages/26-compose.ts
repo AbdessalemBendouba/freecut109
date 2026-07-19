@@ -15,7 +15,8 @@ const page = {
           kind: 'list',
           items: [
             '**Motion** keeps the media library, composition preview, layer timeline, properties, keyframes, graphs, and motion library together.',
-            'Select a layer and open the inspector’s **Motion** tab for presets, procedural generators, text motion, baking, and saved animations.',
+            'Select a layer and open the inspector’s **Motion** tab. The Motion Library groups editable layer keyframes and live layer/text motion by intent: Entrance, Exit, Emphasis, and Loop & Behaviors.',
+            'The Applied section shows every animation currently driving the layer. Saved animations can contain keyframes, live layer behaviors, text motion, or a combination.',
             'Switching to Motion never converts or replaces the regular sequence timeline; it opens the active reusable composition.',
           ],
         },

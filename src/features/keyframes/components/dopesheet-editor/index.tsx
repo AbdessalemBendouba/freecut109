@@ -604,6 +604,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const scrollAreaRef = useRef<HTMLDivElement>(null)
   const graphPaneRef = useRef<HTMLDivElement>(null)
   const keyframeButtonRefs = useRef(new Map<string, HTMLButtonElement>())
+  const committedKeyframeSelectionRef = useRef(selectedKeyframeIds)
+  const marqueePreviewSelectionRef = useRef<Set<string> | null>(null)
+  const marqueePreviewTouchedIdsRef = useRef(new Set<string>())
+  committedKeyframeSelectionRef.current = selectedKeyframeIds
   const snapEnabled = true
   const [valueDrafts, setValueDrafts] = useState<Partial<Record<AnimatableProperty, string>>>({})
   const [editingValueProperty, setEditingValueProperty] = useState<AnimatableProperty | null>(null)
@@ -1094,10 +1098,50 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const setKeyframeButtonRef = useCallback((keyframeId: string, node: HTMLButtonElement | null) => {
     if (node) {
       keyframeButtonRefs.current.set(keyframeId, node)
+      const previewSelection = marqueePreviewSelectionRef.current
+      if (previewSelection) {
+        const previewSelected = previewSelection.has(keyframeId)
+        if (previewSelected !== committedKeyframeSelectionRef.current.has(keyframeId)) {
+          node.dataset.marqueeSelected = String(previewSelected)
+          marqueePreviewTouchedIdsRef.current.add(keyframeId)
+        }
+      }
     } else {
       keyframeButtonRefs.current.delete(keyframeId)
     }
   }, [])
+  const handleMarqueeSelectionPreviewChange = useCallback(
+    (nextSelection: Set<string> | null) => {
+      const touchedIds = new Set(marqueePreviewTouchedIdsRef.current)
+      for (const keyframeId of committedKeyframeSelectionRef.current) touchedIds.add(keyframeId)
+      if (nextSelection) {
+        for (const keyframeId of nextSelection) touchedIds.add(keyframeId)
+      }
+
+      const nextTouchedIds = new Set<string>()
+      for (const keyframeId of touchedIds) {
+        const button = keyframeButtonRefs.current.get(keyframeId)
+        if (!button) continue
+        if (!nextSelection) {
+          delete button.dataset.marqueeSelected
+          continue
+        }
+
+        const previewSelected = nextSelection.has(keyframeId)
+        const committedSelected = committedKeyframeSelectionRef.current.has(keyframeId)
+        if (previewSelected === committedSelected) {
+          delete button.dataset.marqueeSelected
+        } else {
+          button.dataset.marqueeSelected = String(previewSelected)
+          nextTouchedIds.add(keyframeId)
+        }
+      }
+
+      marqueePreviewSelectionRef.current = nextSelection
+      marqueePreviewTouchedIdsRef.current = nextTouchedIds
+    },
+    [],
+  )
   const applyDragPreviewFrames = useCallback(
     (nextPreviewFrames: Record<string, number> | null) => {
       const previousPreviewFrames = appliedDragPreviewFramesRef.current
@@ -1963,8 +2007,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const selectionAnchorByPropertyRef = useRef(new Map<AnimatableProperty, string>())
 
   const {
-    marqueeRect,
-    marqueeJustEndedRef,
+    marqueeOverlayRef,
     getMarqueeModeFromPointerEvent,
     beginMarqueeSelection,
   } = useDopesheetMarquee({
@@ -1973,6 +2016,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     getTimelineXFromClientX,
     getContentYFromClientY,
     onSelectionChange,
+    onSelectionPreviewChange: handleMarqueeSelectionPreviewChange,
   })
 
   const handleKeyframePointerDown = useCallback(
@@ -3841,8 +3885,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       showEmptyGuidance={showEmptyGuidance}
       proceduralHint={proceduralHint}
       rowElements={rowElements}
-      marqueeRect={marqueeRect}
-      marqueeJustEnded={marqueeJustEndedRef.current}
+      marqueeOverlayRef={marqueeOverlayRef}
       propertyColumnWidth={columnWidth}
       subtractRulerHeight={presentation !== 'lanes'}
       onTimelineBackgroundPointerDown={handleTimelineBackgroundPointerDown}

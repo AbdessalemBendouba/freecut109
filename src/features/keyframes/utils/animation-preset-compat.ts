@@ -16,6 +16,9 @@ import {
 } from '@/types/keyframe'
 import type { VisualEffect } from '@/types/effects'
 import type { TimelineItem } from '@/types/timeline'
+import type { MotionModifier } from '@/types/motion'
+import { cloneMotionAnimationLayer } from './motion-layer-eval'
+import type { TextMotionSpec } from '@/types/text-motion'
 import type {
   AnimationPreset,
   AnimationPresetProperty,
@@ -29,7 +32,25 @@ export interface CapturedAnimation {
   properties: AnimationPresetProperty[]
   vectorProperties?: AnimationPresetVectorProperty[]
   effects: VisualEffect[]
+  motionModifiers?: MotionModifier[]
+  motionLayers?: import('@/types/motion').MotionAnimationLayer[]
+  textMotion?: TextMotionSpec
   sourceDurationInFrames: number
+}
+
+function cloneMotionModifier(modifier: MotionModifier): MotionModifier {
+  return {
+    ...modifier,
+    ...(modifier.channelGains && { channelGains: { ...modifier.channelGains } }),
+  }
+}
+
+function cloneTextMotion(spec: TextMotionSpec): TextMotionSpec {
+  return {
+    ...(spec.in && { in: { ...spec.in } }),
+    ...(spec.out && { out: { ...spec.out } }),
+    ...(spec.loop && { loop: { ...spec.loop } }),
+  }
 }
 
 /** Why a preset cannot be applied to a target — drives the disabled-state tooltip. */
@@ -55,28 +76,52 @@ export function captureAnimationFromItem(
   const animatedVectors = (itemKeyframes?.vectorProperties ?? []).filter(
     (property) => property.keyframes.length > 0,
   )
-  if (animated.length === 0 && animatedVectors.length === 0) {
+  const motionModifiers = (item.motionModifiers ?? [])
+    .filter((modifier) => modifier.enabled && modifier.amplitude > 0)
+    .map(cloneMotionModifier)
+  const motionLayers = (item.motionLayers ?? [])
+    .filter((layer) => layer.enabled && layer.tracks.length > 0)
+    .map((layer) => cloneMotionAnimationLayer(layer))
+  const textMotion = item.type === 'text' && item.textMotion ? cloneTextMotion(item.textMotion) : undefined
+  if (
+    animated.length === 0 &&
+    animatedVectors.length === 0 &&
+    motionModifiers.length === 0 &&
+    motionLayers.length === 0 &&
+    !textMotion
+  ) {
     return null
   }
 
-  const minFrame = Math.min(
+  const animatedFrames = [
     ...animated.flatMap((property) => property.keyframes.map((keyframe) => keyframe.frame)),
     ...animatedVectors.flatMap((property) =>
       property.keyframes.map((keyframe) => keyframe.frame),
     ),
-  )
+  ]
+  const minFrame = animatedFrames.length > 0 ? Math.min(...animatedFrames) : 0
 
   const properties: AnimationPresetProperty[] = animated.map((property) => ({
     property: property.property,
     keyframes: property.keyframes
       .toSorted((a, b) => a.frame - b.frame)
-      .map((keyframe) => ({ ...keyframe, frame: keyframe.frame - minFrame })),
+      .map((keyframe) => ({
+        id: keyframe.id,
+        frame: keyframe.frame - minFrame,
+        value: keyframe.value,
+        easing: keyframe.easing,
+        easingConfig: keyframe.easingConfig,
+      })),
   }))
   const vectorProperties: AnimationPresetVectorProperty[] = animatedVectors.map((property) => ({
     property: property.property,
     keyframes: property.keyframes
       .toSorted((left, right) => left.frame - right.frame)
-      .map((keyframe) => cloneVectorKeyframe(keyframe, { frame: keyframe.frame - minFrame })),
+      .map((keyframe) => {
+        const cloned = cloneVectorKeyframe(keyframe, { frame: keyframe.frame - minFrame })
+        delete cloned.source
+        return cloned
+      }),
   }))
 
   // Carry the effect definitions the effect-param keyframes animate so a target
@@ -106,6 +151,9 @@ export function captureAnimationFromItem(
     properties,
     ...(vectorProperties.length > 0 && { vectorProperties }),
     effects,
+    ...(motionModifiers.length > 0 && { motionModifiers }),
+    ...(motionLayers.length > 0 && { motionLayers }),
+    ...(textMotion && { textMotion }),
     sourceDurationInFrames: item.durationInFrames,
   }
 }

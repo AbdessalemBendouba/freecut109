@@ -98,7 +98,7 @@
       "animatedClip": "Animé"
     },
     "animatePresets": {
-      "title": "Préréglages",
+      "title": "Bibliothèque de mouvements",
       "animationsHeading": "Animations",
       "saveButton": "Enregistrer",
       "saveButtonLong": "Enregistrer l’animation",
@@ -117,10 +117,10 @@
       "incompatibleType": "Nécessite un clip de type {{type}}",
       "incompatibleProperty": "Il manque une propriété animée à la cible",
       "selectClipFirst": "Sélectionnez un clip à appliquer",
-      "noAnimationToSave": "Sélectionnez un clip avec des images clés à enregistrer",
+      "noAnimationToSave": "Sélectionnez un clip avec des images clés ou un mouvement en direct",
       "dialog": {
         "title": "Enregistrer le préréglage d'animation",
-        "description": "Enregistrez les images clés de ce clip comme préréglage réutilisable pour ce projet.",
+        "description": "Enregistrez les images clés et le mouvement en direct de ce clip comme animation réutilisable pour ce projet.",
         "nameLabel": "Nom du préréglage",
         "namePlaceholder": "Mon animation",
         "duplicateWarning": "Un préréglage portant ce nom existe déjà et sera écrasé.",
@@ -131,18 +131,39 @@
     },
     "animateStages": {
       "presetsHint": "Les préréglages créent des images clés modifiables — affinez-les dans le graphique.",
-      "continuousTitle": "Mouvement continu",
-      "continuousHint": "S’exécute en direct et de façon non destructive jusqu’à la conversion.",
+      "continuousTitle": "Boucles et comportements",
+      "continuousHint": "Les comportements de calque et les boucles de texte restent en direct et non destructifs jusqu’à leur conversion ou suppression.",
       "liveBadge": "Direct",
+      "editableBadge": "Images clés modifiables",
+      "scopeLayer": "Calque",
+      "scopeText": "Texte",
       "appliedTitle": "Appliqué",
       "keyframedChip": "{{count}} avec images clés",
       "clearKeyframes": "Effacer les images clés",
+      "manualKeyframes": "Images clés manuelles",
+      "keyframeCount_one": "{{count}} image clé",
+      "keyframeCount_other": "{{count}} images clés",
+      "generatedKeyframes": "Images clés générées",
+      "removeManualKeyframes": "Supprimer les images clés manuelles",
+      "removePresetApplication": "Supprimer les images clés de {{name}}",
+      "additiveLayer": "Calque additif",
+      "removeMotionLayer": "Supprimer le calque {{name}}",
+      "vectorProperties": {
+        "position": "Position",
+        "scale": "Échelle",
+        "anchor": "Point d’ancrage"
+      },
       "removeModulator": "Supprimer {{name}}",
       "audioPulseChip": "Impulsion audio",
+      "removeAudioPulse": "Supprimer l’impulsion audio",
+      "presetParameters": "Paramètres du préréglage de calque",
+      "presetParametersHint": "Affecte les préréglages de calque intégrés, y compris les calques additifs.",
+      "savedLayerUnsupported": "Les animations enregistrées ne peuvent pas encore devenir un calque additif. Utilisez Remplacer la plage ou Fusionner les clés.",
       "onApply": "À l’application",
       "applyMode": {
-        "replace": "Remplacer",
-        "add": "Ajouter"
+        "replace": "Remplacer la plage",
+        "merge": "Fusionner les clés",
+        "layer": "Ajouter un calque"
       }
     },
     "motionGenerator": {
@@ -155,6 +176,9 @@
       "modulatorApplyFailed": "Impossible d’appliquer le modulateur",
       "bakeToKeyframes": "Cuire en images clés",
       "bakeToKeyframesHint": "Aplatit le mouvement procédural des clips sélectionnés en images clés modifiables",
+      "bakeConfirmTitle": "Convertir le mouvement en images clés ?",
+      "bakeConfirmDescription": "Cette action échantillonne le mouvement visible final à chaque image, remplace les images clés existantes des propriétés concernées et supprime les calques et modulateurs actifs. Vous pouvez annuler cette opération.",
+      "bakeConfirmAction": "Convertir le mouvement",
       "bakeNoMotion": "Aucun mouvement procédural à cuire dans la sélection",
       "motionBaked": "Mouvement cuit sur {{count}} clip(s)",
       "modulators": {

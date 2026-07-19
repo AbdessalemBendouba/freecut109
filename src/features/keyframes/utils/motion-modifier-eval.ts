@@ -280,6 +280,31 @@ export function applyMotionModifiers(
   }
 }
 
+/** Invert procedural contributions before committing a final visual transform. */
+export function removeMotionModifiers(
+  resolved: ResolvedTransform,
+  modifiers: readonly MotionModifier[] | undefined,
+  ctx: MotionModifierEvalContext,
+): ResolvedTransform {
+  if (!modifiers || modifiers.length === 0) return resolved
+  const contribution = evaluateMotionModifiers(modifiers, ctx)
+  return {
+    ...resolved,
+    x: resolved.x - contribution.dx,
+    y: resolved.y - contribution.dy,
+    rotation: resolved.rotation - contribution.dRotation,
+    width:
+      contribution.scaleWidth === 0
+        ? resolved.width
+        : resolved.width / contribution.scaleWidth,
+    height:
+      contribution.scaleHeight === 0
+        ? resolved.height
+        : resolved.height / contribution.scaleHeight,
+    opacity: clamp(resolved.opacity - contribution.dOpacity, 0, 1),
+  }
+}
+
 /**
  * Build a modifier instance from the generator settings. `itemIndex` staggers
  * phase and varies the noise seed across a multi-clip selection.

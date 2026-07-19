@@ -117,6 +117,64 @@ describe('frame scene', () => {
     expect(resolved.x).toBeCloseTo(60)
   })
 
+  it('composes authored transform keyframes with additive animation layers', () => {
+    const item = {
+      id: 'shape-layered',
+      type: 'shape' as const,
+      shapeType: 'rectangle' as const,
+      fillColor: '#fff',
+      trackId: 'shape-track',
+      from: 0,
+      durationInFrames: 30,
+      label: 'Layered shape',
+      transform: {
+        x: 100,
+        y: 50,
+        width: 200,
+        height: 100,
+        rotation: 0,
+        opacity: 1,
+      },
+      motionLayers: [
+        {
+          id: 'layer-1',
+          name: 'Offset',
+          enabled: true,
+          source: 'built-in-preset' as const,
+          sourcePresetId: 'offset',
+          tracks: [
+            {
+              property: 'x' as const,
+              blend: 'add' as const,
+              keyframes: [
+                { id: 'l0', frame: 0, value: 0, easing: 'linear' as const },
+                { id: 'l1', frame: 10, value: 30, easing: 'linear' as const },
+              ],
+            },
+          ],
+        },
+      ],
+    }
+    const resolved = resolveItemTransformAtFrame(item, {
+      canvas: { width: 1920, height: 1080, fps: 30 },
+      frame: 10,
+      keyframes: {
+        itemId: item.id,
+        properties: [
+          {
+            property: 'x',
+            keyframes: [
+              { id: 'x0', frame: 0, value: 100, easing: 'linear' },
+              { id: 'x1', frame: 10, value: 120, easing: 'linear' },
+            ],
+          },
+        ],
+      },
+    })
+
+    expect(resolved.x).toBe(150)
+  })
+
   it('applies preview path vertices to active path masks', () => {
     const previewVertices = [
       {

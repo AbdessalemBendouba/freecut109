@@ -12,6 +12,7 @@ import {
 import { resolveAnimatedTransform } from '../utils/animated-transform-resolver'
 import { resolveAnimatedTextItem } from '../utils/animated-text-item'
 import { applyMotionModifiers } from '../utils/motion-modifier-eval'
+import { applyMotionAnimationLayers } from '../utils/motion-layer-eval'
 import { resolveTransformHierarchy } from '@/shared/utils/transform-parenting'
 import type { CanvasSettings } from '@/types/transform'
 import type { ItemKeyframes } from '@/types/keyframe'
@@ -49,7 +50,8 @@ function resolveLocalAnimatedTransform(params: {
         getKeyframes: (itemId) => keyframesByItemId.get(itemId),
       })
     : baseResolved
-  const modulated = applyMotionModifiers(resolved, item.motionModifiers, {
+  const layered = applyMotionAnimationLayers(resolved, item.motionLayers, relativeFrame)
+  const modulated = applyMotionModifiers(layered, item.motionModifiers, {
     frame: relativeFrame,
     fps: canvas.fps,
     frameWidth: canvas.width,

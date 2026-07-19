@@ -52,6 +52,7 @@ export {
   type ProceduralPreviewInput,
 } from '@/features/keyframes/utils/procedural-preview'
 export { buildBakeMotionPlan } from '@/features/keyframes/utils/bake-motion'
+export { cloneMotionAnimationLayer } from '@/features/keyframes/utils/motion-layer-eval'
 export { getEffectPropertyBaseValue } from '@/features/keyframes/utils/effect-animatable-properties'
 export {
   captureAnimationFromItem,

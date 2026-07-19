@@ -98,7 +98,7 @@
       "animatedClip": "有动画"
     },
     "animatePresets": {
-      "title": "预设",
+      "title": "动效库",
       "animationsHeading": "动画",
       "saveButton": "保存",
       "saveButtonLong": "保存动画",
@@ -117,10 +117,10 @@
       "incompatibleType": "需要 {{type}} 片段",
       "incompatibleProperty": "目标缺少可动画的属性",
       "selectClipFirst": "选择要应用的片段",
-      "noAnimationToSave": "选择带有关键帧的片段以保存",
+      "noAnimationToSave": "选择带有关键帧或实时动效的片段",
       "dialog": {
         "title": "保存动画预设",
-        "description": "将此片段的关键帧保存为可在本项目中重复使用的预设。",
+        "description": "将此片段的关键帧和实时动效保存为可在本项目中重复使用的动画。",
         "nameLabel": "预设名称",
         "namePlaceholder": "我的动画",
         "duplicateWarning": "已存在同名预设，将被覆盖。",
@@ -131,18 +131,39 @@
     },
     "animateStages": {
       "presetsHint": "预设会生成可编辑的关键帧 — 可在图表中进行细调。",
-      "continuousTitle": "连续运动",
-      "continuousHint": "在烘焙之前以实时且非破坏性的方式运行。",
+      "continuousTitle": "循环与行为",
+      "continuousHint": "图层行为和文本循环会以实时、非破坏方式运行，直到被烘焙或移除。",
       "liveBadge": "实时",
+      "editableBadge": "可编辑关键帧",
+      "scopeLayer": "图层",
+      "scopeText": "文本",
       "appliedTitle": "已应用",
       "keyframedChip": "{{count}} 个关键帧属性",
       "clearKeyframes": "清除关键帧",
+      "manualKeyframes": "手动关键帧",
+      "keyframeCount_one": "{{count}} 个关键帧",
+      "keyframeCount_other": "{{count}} 个关键帧",
+      "generatedKeyframes": "生成的关键帧",
+      "removeManualKeyframes": "移除手动关键帧",
+      "removePresetApplication": "移除 {{name}} 关键帧",
+      "additiveLayer": "叠加动画层",
+      "removeMotionLayer": "移除 {{name}} 动画层",
+      "vectorProperties": {
+        "position": "位置",
+        "scale": "缩放",
+        "anchor": "锚点"
+      },
       "removeModulator": "移除 {{name}}",
       "audioPulseChip": "音频脉冲",
+      "removeAudioPulse": "移除音频脉冲",
+      "presetParameters": "图层预设参数",
+      "presetParametersHint": "影响内置图层预设，包括叠加动画层。",
+      "savedLayerUnsupported": "保存的动画暂时无法转换为叠加动画层。请使用“替换区间”或“合并关键帧”。",
       "onApply": "应用时",
       "applyMode": {
-        "replace": "替换",
-        "add": "添加"
+        "replace": "替换区间",
+        "merge": "合并关键帧",
+        "layer": "添加动画层"
       }
     },
     "motionGenerator": {
@@ -155,6 +176,9 @@
       "modulatorApplyFailed": "无法应用调制器",
       "bakeToKeyframes": "烘焙为关键帧",
       "bakeToKeyframesHint": "将所选片段的程序化运动平铺为可编辑的关键帧",
+      "bakeConfirmTitle": "将运动烘焙为关键帧？",
+      "bakeConfirmDescription": "这会逐帧采样最终可见运动，替换受影响属性上的现有关键帧，并移除实时运动层和调制器。你可以撤销此操作。",
+      "bakeConfirmAction": "烘焙运动",
       "bakeNoMotion": "所选内容中没有可烘焙的程序化运动",
       "motionBaked": "已在 {{count}} 个片段上烘焙运动",
       "modulators": {

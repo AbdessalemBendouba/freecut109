@@ -98,7 +98,7 @@
       "animatedClip": "Animasyonlu"
     },
     "animatePresets": {
-      "title": "Hazır ayarlar",
+      "title": "Hareket kitaplığı",
       "animationsHeading": "Animasyonlar",
       "saveButton": "Kaydet",
       "saveButtonLong": "Animasyonu kaydet",
@@ -117,10 +117,10 @@
       "incompatibleType": "{{type}} türünde bir klip gerekiyor",
       "incompatibleProperty": "Hedefte animasyonlu bir özellik eksik",
       "selectClipFirst": "Uygulamak için bir klip seçin",
-      "noAnimationToSave": "Kaydetmek için anahtar kareleri olan bir klip seçin",
+      "noAnimationToSave": "Anahtar kareleri veya canlı hareketi olan bir klip seçin",
       "dialog": {
         "title": "Animasyon hazır ayarını kaydet",
-        "description": "Bu klibin anahtar karelerini bu proje için yeniden kullanılabilir bir hazır ayar olarak kaydedin.",
+        "description": "Bu klibin anahtar karelerini ve canlı hareketini bu proje için yeniden kullanılabilir bir animasyon olarak kaydedin.",
         "nameLabel": "Hazır ayar adı",
         "namePlaceholder": "Animasyonum",
         "duplicateWarning": "Bu ada sahip bir hazır ayar mevcut ve üzerine yazılacak.",
@@ -131,18 +131,39 @@
     },
     "animateStages": {
       "presetsHint": "Hazır ayarlar düzenlenebilir kareler oluşturur — bunları grafikte iyileştirin.",
-      "continuousTitle": "Sürekli hareket",
-      "continuousHint": "Pişirilene kadar canlı ve tahribatsız çalışır.",
+      "continuousTitle": "Döngüler ve davranışlar",
+      "continuousHint": "Katman davranışları ve metin döngüleri işlenene veya kaldırılana kadar canlı ve tahribatsız çalışır.",
       "liveBadge": "Canlı",
+      "editableBadge": "Düzenlenebilir anahtar kareler",
+      "scopeLayer": "Katman",
+      "scopeText": "Metin",
       "appliedTitle": "Uygulanan",
       "keyframedChip": "{{count}} anahtar kareli",
       "clearKeyframes": "Anahtar kareleri temizle",
+      "manualKeyframes": "Manuel anahtar kareler",
+      "keyframeCount_one": "{{count}} anahtar kare",
+      "keyframeCount_other": "{{count}} anahtar kare",
+      "generatedKeyframes": "Oluşturulan anahtar kareler",
+      "removeManualKeyframes": "Manuel anahtar kareleri kaldır",
+      "removePresetApplication": "{{name}} anahtar karelerini kaldır",
+      "additiveLayer": "Eklemeli katman",
+      "removeMotionLayer": "{{name}} katmanını kaldır",
+      "vectorProperties": {
+        "position": "Konum",
+        "scale": "Ölçek",
+        "anchor": "Bağlantı noktası"
+      },
       "removeModulator": "{{name}} kaldır",
       "audioPulseChip": "Ses darbesi",
+      "removeAudioPulse": "Ses darbesini kaldır",
+      "presetParameters": "Katman hazır ayarı parametreleri",
+      "presetParametersHint": "Eklemeli katmanlar dahil yerleşik katman hazır ayarlarını etkiler.",
+      "savedLayerUnsupported": "Kaydedilmiş animasyonlar henüz eklemeli katmana dönüştürülemiyor. Bölgeyi değiştir veya Anahtarları birleştir seçeneğini kullanın.",
       "onApply": "Uygularken",
       "applyMode": {
-        "replace": "Değiştir",
-        "add": "Ekle"
+        "replace": "Bölgeyi değiştir",
+        "merge": "Anahtarları birleştir",
+        "layer": "Katman ekle"
       }
     },
     "motionGenerator": {
@@ -155,6 +176,9 @@
       "modulatorApplyFailed": "Modülatör uygulanamadı",
       "bakeToKeyframes": "Anahtar karelere pişir",
       "bakeToKeyframesHint": "Seçili kliplerdeki prosedürel hareketi düzenlenebilir anahtar karelere düzleştirir",
+      "bakeConfirmTitle": "Hareket anahtar karelere pişirilsin mi?",
+      "bakeConfirmDescription": "Son görünen hareketi her karede örnekler, etkilenen özelliklerdeki mevcut anahtar kareleri değiştirir ve canlı hareket katmanları ile modülatörleri kaldırır. Bu işlem geri alınabilir.",
+      "bakeConfirmAction": "Hareketi pişir",
       "bakeNoMotion": "Seçimde pişirilecek prosedürel hareket yok",
       "motionBaked": "{{count}} klipte hareket pişirildi",
       "modulators": {

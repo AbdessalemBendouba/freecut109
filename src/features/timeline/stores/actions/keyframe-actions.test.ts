@@ -342,6 +342,86 @@ describe('keyframe actions', () => {
       expect(getKeyframes('a', 'opacity').map((kf) => kf.frame)).toEqual([0])
     })
 
+    it('replaces a region of an existing coupled Position lane', () => {
+      useKeyframesStore.getState()._upsertVectorKeyframe('a', 'position', {
+        frame: 0,
+        value: { x: 0, y: 0 },
+      })
+      useKeyframesStore.getState()._upsertVectorKeyframe('a', 'position', {
+        frame: 30,
+        value: { x: 30, y: 30 },
+      })
+
+      const ids = applyMotionPresetKeyframes(
+        [],
+        [],
+        [
+          {
+            itemId: 'a',
+            property: 'position',
+            keyframes: [
+              {
+                frame: 5,
+                value: { x: 100, y: 200 },
+                easing: 'ease-out',
+                source: {
+                  applicationId: 'app-1',
+                  kind: 'built-in-preset',
+                  presetId: 'slide',
+                  presetName: 'Slide',
+                },
+              },
+            ],
+            replaceRange: { fromFrame: 0, toFrame: 10 },
+          },
+        ],
+      )
+
+      expect(ids).toHaveLength(1)
+      expect(
+        useKeyframesStore
+          .getState()
+          .getKeyframesForItem('a')
+          ?.vectorProperties?.find((property) => property.property === 'position')?.keyframes,
+      ).toMatchObject([
+        { frame: 5, value: { x: 100, y: 200 }, source: { applicationId: 'app-1' } },
+        { frame: 30, value: { x: 30, y: 30 } },
+      ])
+    })
+
+    it('keeps an existing coupled key on Merge collisions', () => {
+      useKeyframesStore.getState()._upsertVectorKeyframe('a', 'position', {
+        frame: 5,
+        value: { x: 7, y: 8 },
+        easing: 'hold',
+      })
+
+      const ids = applyMotionPresetKeyframes(
+        [],
+        [],
+        [
+          {
+            itemId: 'a',
+            property: 'position',
+            keyframes: [
+              { frame: 5, value: { x: 99, y: 99 } },
+              { frame: 10, value: { x: 10, y: 20 } },
+            ],
+          },
+        ],
+      )
+
+      expect(ids).toHaveLength(1)
+      const position = useKeyframesStore
+        .getState()
+        .getKeyframesForItem('a')
+        ?.vectorProperties?.find((property) => property.property === 'position')?.keyframes
+      expect(position).toMatchObject([
+        { frame: 5, value: { x: 7, y: 8 }, easing: 'hold' },
+        { frame: 10, value: { x: 10, y: 20 } },
+      ])
+    })
+
     it('aborts without clearing when any payload is blocked (all-or-nothing)', () => {
       // fade dur 12, alignment 0.5 → frames [54, 60) of clip a are blocked.
       useTransitionsStore.getState().setTransitions([makeFade()])

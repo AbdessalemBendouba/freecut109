@@ -88,6 +88,36 @@ function makePresets(): AnimationPreset[] {
           ],
         },
       ],
+      motionModifiers: [
+        {
+          id: 'drift-1',
+          type: 'float-drift',
+          enabled: true,
+          amplitude: 0.8,
+          frequency: 0.5,
+          phaseFrames: 0,
+          seed: 1,
+        },
+      ],
+      motionLayers: [
+        {
+          id: 'layer-1',
+          name: 'Slide offset',
+          enabled: true,
+          source: 'built-in-preset',
+          sourcePresetId: 'slide-left',
+          tracks: [
+            {
+              property: 'x',
+              blend: 'add',
+              keyframes: [
+                { id: 'layer-kf-1', frame: 0, value: -120, easing: 'ease-out' },
+                { id: 'layer-kf-2', frame: 30, value: 0, easing: 'linear' },
+              ],
+            },
+          ],
+        },
+      ],
       effects: [],
       sourceDurationInFrames: 30,
       createdAt: 100,

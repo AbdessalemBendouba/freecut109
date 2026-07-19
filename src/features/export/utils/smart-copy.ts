@@ -140,9 +140,11 @@ function hasVisualProcessing(item: VideoItem, width: number, height: number): bo
     item.cornerPin,
     hasEnabledTranscriptCaptions(item),
   ].some(Boolean)
-  const collectionsChanged = [hasEntries(item.effects), hasEntries(item.motionModifiers)].some(
-    Boolean,
-  )
+  const collectionsChanged = [
+    hasEntries(item.effects),
+    hasEntries(item.motionModifiers),
+    hasEntries(item.motionLayers),
+  ].some(Boolean)
   return [
     transformChanged,
     flagsChanged,

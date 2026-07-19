@@ -35,6 +35,8 @@ type StableVideoRenderBaseSignature = {
   cropSoftness: number
   cornerPin: StableVideoSequenceComparatorItem['cornerPin']
   blendMode: StableVideoSequenceComparatorItem['blendMode']
+  motionModifiers: StableVideoSequenceComparatorItem['motionModifiers']
+  motionLayers: StableVideoSequenceComparatorItem['motionLayers']
   src: string | undefined
   audioSrc: string | undefined
   reverseConformSrc: string | undefined
@@ -68,6 +70,8 @@ function getStableVideoRenderBaseSignature(
     cropSoftness: item.crop?.softness ?? 0,
     cornerPin: item.cornerPin,
     blendMode: item.blendMode,
+    motionModifiers: item.motionModifiers,
+    motionLayers: item.motionLayers,
     src: item.src,
     audioSrc: item.audioSrc,
     reverseConformSrc: item.reverseConformSrc,
@@ -112,6 +116,8 @@ function areStableVideoRenderBaseSignaturesEqual(
     prevSignature.cropSoftness === nextSignature.cropSoftness &&
     prevSignature.cornerPin === nextSignature.cornerPin &&
     prevSignature.blendMode === nextSignature.blendMode &&
+    prevSignature.motionModifiers === nextSignature.motionModifiers &&
+    prevSignature.motionLayers === nextSignature.motionLayers &&
     prevSignature.src === nextSignature.src &&
     prevSignature.audioSrc === nextSignature.audioSrc &&
     prevSignature.reverseConformSrc === nextSignature.reverseConformSrc &&

@@ -55,6 +55,41 @@ describe('transform actions', () => {
       useTimelineCommandStore.getState().undo()
       expect(getTransform('a').x).toBe(10)
     })
+
+    it('commits coupled gizmo keyframes and base changes in one undo step', () => {
+      const undoDepth = useTimelineCommandStore.getState().undoStack.length
+
+      updateItemTransform(
+        'a',
+        { rotation: 12 },
+        {
+          operation: 'transform',
+          autoKeyframeOperations: [
+            {
+              type: 'vector-add',
+              itemId: 'a',
+              property: 'position',
+              frame: 10,
+              value: { x: 40, y: 50 },
+              easing: 'linear',
+            },
+          ],
+        },
+      )
+
+      expect(useTimelineCommandStore.getState().undoStack.length).toBe(undoDepth + 1)
+      expect(
+        useKeyframesStore
+          .getState()
+          .getKeyframesForItem('a')
+          ?.vectorProperties?.[0]?.keyframes[0]?.value,
+      ).toEqual({ x: 40, y: 50 })
+      expect(getTransform('a').rotation).toBe(12)
+
+      useTimelineCommandStore.getState().undo()
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')).toBeUndefined()
+      expect(getTransform('a').rotation).toBeUndefined()
+    })
   })
 
   describe('multi-item transforms', () => {

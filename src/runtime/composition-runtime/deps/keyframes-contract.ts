@@ -8,6 +8,7 @@ export {
 } from '@/features/keyframes/utils/animated-transform-resolver'
 export type { LinkedPropertyEvaluationContext } from '@/features/keyframes/utils/animated-transform-resolver'
 export { applyMotionModifiers } from '@/features/keyframes/utils/motion-modifier-eval'
+export { applyMotionAnimationLayers } from '@/features/keyframes/utils/motion-layer-eval'
 export { resolveAnimatedCrop } from '@/features/keyframes/utils/animated-crop-resolver'
 export {
   getPropertyKeyframes,

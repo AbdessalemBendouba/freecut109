@@ -4,7 +4,6 @@
  */
 
 export type { TimelineState, TimelineActions } from '@/features/timeline/types'
-export type { MotionPresetClear } from '@/features/timeline/stores/actions/keyframe-actions'
 export {
   useTimelineStore,
 } from '@/features/timeline/stores/timeline-store'
@@ -30,13 +29,23 @@ export { setInOutPointsWithoutHistory } from '@/features/timeline/stores/actions
 export { applyAnimationPreset } from '@/features/timeline/stores/actions/preset-actions'
 export {
   applyMotionPresetKeyframes,
+  removePresetKeyframeApplication,
+  removeManualKeyframes,
+  removeVectorKeyframesForProperty,
+} from '@/features/timeline/stores/actions/keyframe-actions'
+export type {
+  MotionPresetClear,
+  MotionPresetVectorApply,
 } from '@/features/timeline/stores/actions/keyframe-actions'
 export {
+  applyMotionLayersToItems,
+  removeMotionLayerFromItems,
   applyMotionModifierToItems,
   updateMotionModifiersLive,
   beginMotionModifierEdit,
   commitMotionModifierEdit,
   removeMotionModifierFromItems,
+  removeAudioPulseFromItems,
   bakeMotionToKeyframes,
 } from '@/features/timeline/stores/actions/motion-modifier-actions'
 export {

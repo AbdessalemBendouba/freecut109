@@ -98,7 +98,7 @@
       "animatedClip": "Animado"
     },
     "animatePresets": {
-      "title": "Ajustes preestablecidos",
+      "title": "Biblioteca de movimiento",
       "animationsHeading": "Animaciones",
       "saveButton": "Guardar",
       "saveButtonLong": "Guardar animación",
@@ -117,10 +117,10 @@
       "incompatibleType": "Requiere un clip de tipo {{type}}",
       "incompatibleProperty": "Al destino le falta una propiedad animada",
       "selectClipFirst": "Selecciona un clip para aplicar",
-      "noAnimationToSave": "Selecciona un clip con fotogramas clave para guardar",
+      "noAnimationToSave": "Selecciona un clip con fotogramas clave o movimiento en vivo",
       "dialog": {
         "title": "Guardar ajuste preestablecido de animación",
-        "description": "Guarda los fotogramas clave de este clip como un ajuste preestablecido reutilizable para este proyecto.",
+        "description": "Guarda los fotogramas clave y el movimiento en vivo de este clip como una animación reutilizable para este proyecto.",
         "nameLabel": "Nombre del ajuste preestablecido",
         "namePlaceholder": "Mi animación",
         "duplicateWarning": "Ya existe un ajuste preestablecido con este nombre y se sobrescribirá.",
@@ -131,18 +131,39 @@
     },
     "animateStages": {
       "presetsHint": "Las predefiniciones generan fotogramas clave editables: refínalos en el gráfico.",
-      "continuousTitle": "Movimiento continuo",
-      "continuousHint": "Se ejecuta en vivo y sin pérdidas hasta consolidarlo.",
+      "continuousTitle": "Bucles y comportamientos",
+      "continuousHint": "Los comportamientos de capa y los bucles de texto funcionan en vivo y de forma no destructiva hasta consolidarlos o quitarlos.",
       "liveBadge": "En vivo",
+      "editableBadge": "Fotogramas clave editables",
+      "scopeLayer": "Capa",
+      "scopeText": "Texto",
       "appliedTitle": "Aplicado",
       "keyframedChip": "{{count}} con fotogramas",
       "clearKeyframes": "Borrar fotogramas",
+      "manualKeyframes": "Fotogramas clave manuales",
+      "keyframeCount_one": "{{count}} fotograma clave",
+      "keyframeCount_other": "{{count}} fotogramas clave",
+      "generatedKeyframes": "Fotogramas clave generados",
+      "removeManualKeyframes": "Quitar fotogramas clave manuales",
+      "removePresetApplication": "Quitar fotogramas clave de {{name}}",
+      "additiveLayer": "Capa aditiva",
+      "removeMotionLayer": "Quitar la capa {{name}}",
+      "vectorProperties": {
+        "position": "Posición",
+        "scale": "Escala",
+        "anchor": "Anclaje"
+      },
       "removeModulator": "Quitar {{name}}",
       "audioPulseChip": "Pulso de audio",
+      "removeAudioPulse": "Quitar pulso de audio",
+      "presetParameters": "Parámetros del preajuste de capa",
+      "presetParametersHint": "Afecta a los preajustes de capa integrados, incluidas las capas aditivas.",
+      "savedLayerUnsupported": "Las animaciones guardadas aún no se pueden convertir en una capa aditiva. Usa Reemplazar región o Combinar claves.",
       "onApply": "Al aplicar",
       "applyMode": {
-        "replace": "Reemplazar",
-        "add": "Añadir"
+        "replace": "Reemplazar región",
+        "merge": "Combinar claves",
+        "layer": "Añadir capa"
       }
     },
     "motionGenerator": {
@@ -155,6 +176,9 @@
       "modulatorApplyFailed": "No se pudo aplicar el modulador",
       "bakeToKeyframes": "Hornear en fotogramas clave",
       "bakeToKeyframesHint": "Aplana el movimiento procedural de los clips seleccionados en fotogramas clave editables",
+      "bakeConfirmTitle": "¿Hornear el movimiento en fotogramas clave?",
+      "bakeConfirmDescription": "Esto muestrea el movimiento visible final en cada fotograma, reemplaza los fotogramas clave existentes en las propiedades afectadas y elimina las capas y los moduladores en vivo. Puedes deshacer la operación.",
+      "bakeConfirmAction": "Hornear movimiento",
       "bakeNoMotion": "No hay movimiento procedural para hornear en la selección",
       "motionBaked": "Movimiento horneado en {{count}} clip(s)",
       "modulators": {

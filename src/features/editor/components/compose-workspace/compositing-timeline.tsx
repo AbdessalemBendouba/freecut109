@@ -10,7 +10,9 @@ import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   type KeyboardEvent as ReactKeyboardEvent,
+  type Ref,
 } from 'react'
+import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { toast } from 'sonner'
@@ -171,6 +173,7 @@ import {
   mergeMotionKeyframeSelection,
   type MotionSelectionDragState,
   type MotionSelectionFrameUpdates,
+  type MotionSelectionTimeRange,
 } from './motion-keyframe-selection'
 import {
   getMotionVectorProxy,
@@ -600,7 +603,49 @@ interface MotionSelectionRetimeDragState {
   itemById: Record<string, TimelineItem>
   snapshot: ReturnType<typeof captureSnapshot>
   hasMoved: boolean
-  lastTargetFrame: number
+  lastUpdates: MotionSelectionFrameUpdates | null
+  keyframeVisuals: MotionSelectionRetimeKeyframeVisual[]
+  connectorVisuals: MotionSelectionRetimeConnectorVisual[]
+  rangeVisual: MotionSelectionRetimeRangeVisual | null
+}
+
+interface MotionSelectionRetimeKeyframeVisual {
+  element: HTMLButtonElement
+  storageKey: string
+  initialAbsoluteFrame: number
+  inlineTransform: string
+  inlineWillChange: string
+}
+
+interface MotionSelectionRetimeConnectorVisual {
+  element: HTMLDivElement
+  fromReferenceKey: string
+  toReferenceKey: string
+  initialLeft: number
+  initialRight: number
+  inlineLeft: string
+  inlineWidth: string
+  inlineWillChange: string
+}
+
+interface MotionSelectionRetimeRangeVisual {
+  element: HTMLDivElement
+  label: HTMLSpanElement | null
+  startHandle: HTMLButtonElement | null
+  endHandle: HTMLButtonElement | null
+  inlineLeft: string
+  inlineWidth: string
+  inlineVisibility: string
+  inlineWillChange: string
+  title: string | null
+  labelText: string | null
+  labelDisplay: string | null
+  startValueMin: string | null
+  startValueMax: string | null
+  startValueNow: string | null
+  endValueMin: string | null
+  endValueMax: string | null
+  endValueNow: string | null
 }
 
 interface InlineCurveState {
@@ -711,6 +756,344 @@ function applyMotionSelectionFrameUpdates(updates: MotionSelectionFrameUpdates):
   }
 }
 
+function getMotionRetimeStorageKey(
+  itemId: string,
+  kind: 'scalar' | 'vector',
+  property: string,
+  keyframeId: string,
+): string {
+  return `${itemId}\u0000${kind}\u0000${property}\u0000${keyframeId}`
+}
+
+function getMotionRetimeReferenceKey(itemId: string, keyframeId: string): string {
+  return `${itemId}\u0000${keyframeId}`
+}
+
+function captureMotionSelectionRetimeKeyframeVisuals(
+  root: HTMLElement | null,
+  selection: MotionSelectionDragState,
+  itemById: Readonly<Record<string, TimelineItem>>,
+): MotionSelectionRetimeKeyframeVisual[] {
+  if (!root) return []
+  const elementByReferenceKey = new Map<string, HTMLButtonElement>()
+  for (const element of root.querySelectorAll<HTMLButtonElement>(
+    '[data-motion-item-id][data-motion-keyframe-id]',
+  )) {
+    const itemId = element.dataset.motionItemId
+    const keyframeId = element.dataset.motionKeyframeId
+    if (itemId && keyframeId) {
+      elementByReferenceKey.set(getMotionRetimeReferenceKey(itemId, keyframeId), element)
+    }
+  }
+
+  return selection.entries.flatMap((entry) => {
+    const item = itemById[entry.ref.itemId]
+    const element = elementByReferenceKey.get(
+      getMotionRetimeReferenceKey(entry.ref.itemId, entry.ref.keyframeId),
+    )
+    if (!item || !element) return []
+    return [
+      {
+        element,
+        storageKey: getMotionRetimeStorageKey(
+          entry.ref.itemId,
+          entry.storage.kind,
+          entry.storage.property,
+          entry.storage.keyframeId,
+        ),
+        initialAbsoluteFrame: item.from + entry.initialFrame,
+        inlineTransform: element.style.transform,
+        inlineWillChange: element.style.willChange,
+      },
+    ]
+  })
+}
+
+function captureMotionSelectionRetimeConnectorVisuals(
+  root: HTMLElement | null,
+  selection: MotionSelectionDragState,
+): MotionSelectionRetimeConnectorVisual[] {
+  if (!root) return []
+  const selectedReferenceKeys = new Set(
+    selection.entries.map((entry) =>
+      getMotionRetimeReferenceKey(entry.ref.itemId, entry.ref.keyframeId),
+    ),
+  )
+  const visuals: MotionSelectionRetimeConnectorVisual[] = []
+  for (const element of root.querySelectorAll<HTMLDivElement>(
+    '[data-motion-item-id][data-motion-connector-from-keyframe-id][data-motion-connector-to-keyframe-id]',
+  )) {
+    const itemId = element.dataset.motionItemId
+    const fromKeyframeId = element.dataset.motionConnectorFromKeyframeId
+    const toKeyframeId = element.dataset.motionConnectorToKeyframeId
+    if (!itemId || !fromKeyframeId || !toKeyframeId) continue
+    const fromReferenceKey = getMotionRetimeReferenceKey(itemId, fromKeyframeId)
+    const toReferenceKey = getMotionRetimeReferenceKey(itemId, toKeyframeId)
+    if (
+      !selectedReferenceKeys.has(fromReferenceKey) &&
+      !selectedReferenceKeys.has(toReferenceKey)
+    ) {
+      continue
+    }
+    const initialLeft = Number.parseFloat(element.style.left)
+    const initialWidth = Number.parseFloat(element.style.width)
+    if (!Number.isFinite(initialLeft) || !Number.isFinite(initialWidth)) continue
+    visuals.push({
+      element,
+      fromReferenceKey,
+      toReferenceKey,
+      initialLeft,
+      initialRight: initialLeft + initialWidth,
+      inlineLeft: element.style.left,
+      inlineWidth: element.style.width,
+      inlineWillChange: element.style.willChange,
+    })
+  }
+  return visuals
+}
+
+function captureMotionSelectionRetimeRangeVisual(
+  element: HTMLDivElement | null,
+): MotionSelectionRetimeRangeVisual | null {
+  if (!element) return null
+  const label = element.querySelector<HTMLSpanElement>('[data-motion-selection-retime-label]')
+  const startHandle = element.querySelector<HTMLButtonElement>(
+    '[data-motion-selection-retime-edge="start"]',
+  )
+  const endHandle = element.querySelector<HTMLButtonElement>(
+    '[data-motion-selection-retime-edge="end"]',
+  )
+  return {
+    element,
+    label,
+    startHandle,
+    endHandle,
+    inlineLeft: element.style.left,
+    inlineWidth: element.style.width,
+    inlineVisibility: element.style.visibility,
+    inlineWillChange: element.style.willChange,
+    title: element.getAttribute('title'),
+    labelText: label?.textContent ?? null,
+    labelDisplay: label?.style.display ?? null,
+    startValueMin: startHandle?.getAttribute('aria-valuemin') ?? null,
+    startValueMax: startHandle?.getAttribute('aria-valuemax') ?? null,
+    startValueNow: startHandle?.getAttribute('aria-valuenow') ?? null,
+    endValueMin: endHandle?.getAttribute('aria-valuemin') ?? null,
+    endValueMax: endHandle?.getAttribute('aria-valuemax') ?? null,
+    endValueNow: endHandle?.getAttribute('aria-valuenow') ?? null,
+  }
+}
+
+function buildMotionSelectionRetimePreview(
+  drag: MotionSelectionRetimeDragState,
+  updates: MotionSelectionFrameUpdates,
+): { absoluteFrameByStorageKey: Map<string, number>; range: MotionSelectionTimeRange } | null {
+  const localFrameByStorageKey = new Map<string, number>()
+  for (const update of updates.scalar) {
+    localFrameByStorageKey.set(
+      getMotionRetimeStorageKey(
+        update.itemId,
+        'scalar',
+        update.property,
+        update.keyframeId,
+      ),
+      update.frame,
+    )
+  }
+  for (const update of updates.vector) {
+    localFrameByStorageKey.set(
+      getMotionRetimeStorageKey(
+        update.itemId,
+        'vector',
+        update.property,
+        update.keyframeId,
+      ),
+      update.frame,
+    )
+  }
+
+  const absoluteFrameByStorageKey = new Map<string, number>()
+  const absoluteFrames: number[] = []
+  for (const entry of drag.selection.entries) {
+    const item = drag.itemById[entry.ref.itemId]
+    if (!item) continue
+    const storageKey = getMotionRetimeStorageKey(
+      entry.ref.itemId,
+      entry.storage.kind,
+      entry.storage.property,
+      entry.storage.keyframeId,
+    )
+    const absoluteFrame = item.from + (localFrameByStorageKey.get(storageKey) ?? entry.initialFrame)
+    absoluteFrameByStorageKey.set(storageKey, absoluteFrame)
+    absoluteFrames.push(absoluteFrame)
+  }
+  if (absoluteFrames.length === 0) return null
+  return {
+    absoluteFrameByStorageKey,
+    range: {
+      startFrame: Math.min(...absoluteFrames),
+      endFrame: Math.max(...absoluteFrames),
+      keyframeCount: drag.selection.entries.length,
+      itemCount: new Set(drag.selection.entries.map((entry) => entry.ref.itemId)).size,
+    },
+  }
+}
+
+function applyMotionSelectionRetimeVisuals(
+  drag: MotionSelectionRetimeDragState,
+  updates: MotionSelectionFrameUpdates,
+  viewport: MotionTimeViewport,
+): void {
+  const preview = buildMotionSelectionRetimePreview(drag, updates)
+  if (!preview) return
+  const visibleFrameRange = Math.max(1, viewport.endFrame - viewport.startFrame)
+  const offsetPxByReferenceKey = new Map<string, number>()
+  for (const entry of drag.selection.entries) {
+    const item = drag.itemById[entry.ref.itemId]
+    if (!item) continue
+    const storageKey = getMotionRetimeStorageKey(
+      entry.ref.itemId,
+      entry.storage.kind,
+      entry.storage.property,
+      entry.storage.keyframeId,
+    )
+    const initialAbsoluteFrame = item.from + entry.initialFrame
+    const absoluteFrame =
+      preview.absoluteFrameByStorageKey.get(storageKey) ?? initialAbsoluteFrame
+    offsetPxByReferenceKey.set(
+      getMotionRetimeReferenceKey(entry.ref.itemId, entry.ref.keyframeId),
+      ((absoluteFrame - initialAbsoluteFrame) / visibleFrameRange) * drag.rulerWidth,
+    )
+  }
+  for (const visual of drag.keyframeVisuals) {
+    const absoluteFrame =
+      preview.absoluteFrameByStorageKey.get(visual.storageKey) ?? visual.initialAbsoluteFrame
+    const offsetPx = ((absoluteFrame - visual.initialAbsoluteFrame) / visibleFrameRange) * drag.rulerWidth
+    visual.element.style.transform = `translate3d(${offsetPx}px, 0, 0)`
+    visual.element.style.willChange = 'transform'
+  }
+  for (const visual of drag.connectorVisuals) {
+    const nextLeft =
+      visual.initialLeft + (offsetPxByReferenceKey.get(visual.fromReferenceKey) ?? 0)
+    const nextRight =
+      visual.initialRight + (offsetPxByReferenceKey.get(visual.toReferenceKey) ?? 0)
+    visual.element.style.left = `${Math.min(nextLeft, nextRight)}px`
+    visual.element.style.width = `${Math.abs(nextRight - nextLeft)}px`
+    visual.element.style.willChange = 'left, width'
+  }
+
+  const rangeVisual = drag.rangeVisual
+  if (!rangeVisual) return
+  const visibleRange = getVisibleMotionRetimeRange(preview.range, viewport)
+  if (!visibleRange) {
+    rangeVisual.element.style.visibility = 'hidden'
+    return
+  }
+  const selectionDuration = preview.range.endFrame - preview.range.startFrame
+  const layerSuffix = preview.range.itemCount === 1 ? '' : 's'
+  rangeVisual.element.style.visibility = 'visible'
+  rangeVisual.element.style.left = `${
+    ((visibleRange.startFrame - viewport.startFrame) / visibleFrameRange) * 100
+  }%`
+  rangeVisual.element.style.width = `${Math.max(0.4, visibleRange.widthPercent)}%`
+  rangeVisual.element.style.willChange = 'left, width'
+  rangeVisual.element.title = `${preview.range.keyframeCount} selected keyframes across ${preview.range.itemCount} layer${layerSuffix} · ${selectionDuration}f`
+  if (rangeVisual.label) {
+    rangeVisual.label.textContent = `${preview.range.keyframeCount} keys · ${selectionDuration}f`
+    rangeVisual.label.style.display = visibleRange.widthPercent >= 8 ? '' : 'none'
+  }
+  rangeVisual.startHandle?.setAttribute('aria-valuemax', String(preview.range.endFrame - 1))
+  rangeVisual.startHandle?.setAttribute('aria-valuenow', String(preview.range.startFrame))
+  rangeVisual.endHandle?.setAttribute('aria-valuemin', String(preview.range.startFrame + 1))
+  rangeVisual.endHandle?.setAttribute('aria-valuenow', String(preview.range.endFrame))
+}
+
+function restoreMotionSelectionRetimeVisuals(
+  drag: MotionSelectionRetimeDragState,
+  restoreRange: boolean,
+): void {
+  for (const visual of drag.keyframeVisuals) {
+    visual.element.style.transform = visual.inlineTransform
+    visual.element.style.willChange = visual.inlineWillChange
+  }
+  for (const visual of drag.connectorVisuals) {
+    if (restoreRange) {
+      visual.element.style.left = visual.inlineLeft
+      visual.element.style.width = visual.inlineWidth
+    }
+    visual.element.style.willChange = visual.inlineWillChange
+  }
+  const rangeVisual = drag.rangeVisual
+  if (!rangeVisual) return
+  rangeVisual.element.style.visibility = rangeVisual.inlineVisibility
+  rangeVisual.element.style.willChange = rangeVisual.inlineWillChange
+  if (!restoreRange) return
+  rangeVisual.element.style.left = rangeVisual.inlineLeft
+  rangeVisual.element.style.width = rangeVisual.inlineWidth
+  if (rangeVisual.title === null) rangeVisual.element.removeAttribute('title')
+  else rangeVisual.element.setAttribute('title', rangeVisual.title)
+  if (rangeVisual.label) {
+    rangeVisual.label.textContent = rangeVisual.labelText
+    rangeVisual.label.style.display = rangeVisual.labelDisplay ?? ''
+  }
+  const restoreAttribute = (
+    element: HTMLButtonElement | null,
+    name: string,
+    value: string | null,
+  ) => {
+    if (!element) return
+    if (value === null) element.removeAttribute(name)
+    else element.setAttribute(name, value)
+  }
+  restoreAttribute(rangeVisual.startHandle, 'aria-valuemin', rangeVisual.startValueMin)
+  restoreAttribute(rangeVisual.startHandle, 'aria-valuemax', rangeVisual.startValueMax)
+  restoreAttribute(rangeVisual.startHandle, 'aria-valuenow', rangeVisual.startValueNow)
+  restoreAttribute(rangeVisual.endHandle, 'aria-valuemin', rangeVisual.endValueMin)
+  restoreAttribute(rangeVisual.endHandle, 'aria-valuemax', rangeVisual.endValueMax)
+  restoreAttribute(rangeVisual.endHandle, 'aria-valuenow', rangeVisual.endValueNow)
+}
+
+function hasMotionSelectionRetimeChanges(
+  drag: MotionSelectionRetimeDragState,
+  updates: MotionSelectionFrameUpdates,
+): boolean {
+  const initialFrameByStorageKey = new Map(
+    drag.selection.entries.map((entry) => [
+      getMotionRetimeStorageKey(
+        entry.ref.itemId,
+        entry.storage.kind,
+        entry.storage.property,
+        entry.storage.keyframeId,
+      ),
+      entry.initialFrame,
+    ]),
+  )
+  return (
+    updates.scalar.some(
+      (update) =>
+        initialFrameByStorageKey.get(
+          getMotionRetimeStorageKey(
+            update.itemId,
+            'scalar',
+            update.property,
+            update.keyframeId,
+          ),
+        ) !== update.frame,
+    ) ||
+    updates.vector.some(
+      (update) =>
+        initialFrameByStorageKey.get(
+          getMotionRetimeStorageKey(
+            update.itemId,
+            'vector',
+            update.property,
+            update.keyframeId,
+          ),
+        ) !== update.frame,
+    )
+  )
+}
+
 interface MotionSelectionRetimeRangeProps {
   range: ReturnType<typeof getMotionSelectionTimeRange>
   viewport: MotionTimeViewport
@@ -721,6 +1104,7 @@ interface MotionSelectionRetimeRangeProps {
   onEnd: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onCancel: (event: ReactPointerEvent<HTMLButtonElement>) => void
   onNudge: (edge: 'start' | 'end', deltaFrames: number) => void
+  rangeRef: Ref<HTMLDivElement>
 }
 
 const MotionSelectionRetimeRange = memo(function MotionSelectionRetimeRange({
@@ -733,6 +1117,7 @@ const MotionSelectionRetimeRange = memo(function MotionSelectionRetimeRange({
   onEnd,
   onCancel,
   onNudge,
+  rangeRef,
 }: MotionSelectionRetimeRangeProps) {
   const visibleRange = getVisibleMotionRetimeRange(range, viewport)
   if (!range || !visibleRange) return null
@@ -748,6 +1133,7 @@ const MotionSelectionRetimeRange = memo(function MotionSelectionRetimeRange({
 
   return (
     <div
+      ref={rangeRef}
       data-testid="motion-selection-retime-range"
       className="pointer-events-none absolute bottom-0 z-10 h-1 rounded-full bg-primary/70 shadow-[0_0_0_1px_hsl(var(--background)),0_0_6px_hsl(var(--primary)/0.45)]"
       style={{
@@ -757,7 +1143,10 @@ const MotionSelectionRetimeRange = memo(function MotionSelectionRetimeRange({
       title={`${range.keyframeCount} selected keyframes across ${range.itemCount} layer${layerSuffix} · ${selectionDuration}f`}
     >
       {visibleRange.widthPercent >= 8 ? (
-        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm border border-primary/30 bg-background/95 px-1 py-0.5 text-[8px] font-medium normal-case tracking-normal text-primary shadow-sm">
+        <span
+          data-motion-selection-retime-label
+          className="absolute bottom-1 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-sm border border-primary/30 bg-background/95 px-1 py-0.5 text-[8px] font-medium normal-case tracking-normal text-primary shadow-sm"
+        >
           {range.keyframeCount} keys · {selectionDuration}f
         </span>
       ) : null}
@@ -765,6 +1154,7 @@ const MotionSelectionRetimeRange = memo(function MotionSelectionRetimeRange({
         <button
           type="button"
           role="slider"
+          data-motion-selection-retime-edge="start"
           aria-label="Retime selected keyframes start"
           aria-valuemin={0}
           aria-valuemax={range.endFrame - 1}
@@ -781,6 +1171,7 @@ const MotionSelectionRetimeRange = memo(function MotionSelectionRetimeRange({
         <button
           type="button"
           role="slider"
+          data-motion-selection-retime-edge="end"
           aria-label="Retime selected keyframes end"
           aria-valuemin={range.startFrame + 1}
           aria-valuemax={Math.max(1, durationInFrames - 1)}
@@ -2351,6 +2742,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const motionTimeNavigatorRef = useRef<HTMLDivElement>(null)
   const motionScrollAreaRef = useRef<HTMLDivElement>(null)
   const motionRulerRef = useRef<HTMLDivElement>(null)
+  const motionSelectionRetimeRangeRef = useRef<HTMLDivElement>(null)
   const selectionRetimeDragRef = useRef<MotionSelectionRetimeDragState | null>(null)
   const pendingSelectionRetimeFrameRef = useRef<number | null>(null)
   const selectionRetimeAnimationFrameRef = useRef<number | null>(null)
@@ -2858,7 +3250,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       targetFrame,
       durationInFrames,
     )
-    applyMotionSelectionFrameUpdates(updates)
+    drag.lastUpdates = updates
+    applyMotionSelectionRetimeVisuals(drag, updates, timeViewportRef.current)
   }, [durationInFrames])
 
   const flushSelectionRetimePreview = useCallback(() => {
@@ -2876,6 +3269,11 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       event.preventDefault()
       event.stopPropagation()
       const rect = ruler.getBoundingClientRect()
+      const keyframeVisuals = captureMotionSelectionRetimeKeyframeVisuals(
+        motionScrollAreaRef.current,
+        motionSelectionDragState,
+        itemById,
+      )
       selectionRetimeDragRef.current = {
         pointerId: event.pointerId,
         edge,
@@ -2889,10 +3287,15 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         itemById,
         snapshot: captureSnapshot(),
         hasMoved: false,
-        lastTargetFrame:
-          edge === 'start'
-            ? motionSelectionTimeRange.startFrame
-            : motionSelectionTimeRange.endFrame,
+        lastUpdates: null,
+        keyframeVisuals,
+        connectorVisuals: captureMotionSelectionRetimeConnectorVisuals(
+          motionScrollAreaRef.current,
+          motionSelectionDragState,
+        ),
+        rangeVisual: captureMotionSelectionRetimeRangeVisual(
+          motionSelectionRetimeRangeRef.current,
+        ),
       }
       event.currentTarget.setPointerCapture?.(event.pointerId)
     },
@@ -2910,8 +3313,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       )
       if (deltaFrames === 0 && !drag.hasMoved) return
       drag.hasMoved = true
-      drag.lastTargetFrame = drag.initialEdgeFrame + deltaFrames
-      pendingSelectionRetimeFrameRef.current = drag.lastTargetFrame
+      pendingSelectionRetimeFrameRef.current = drag.initialEdgeFrame + deltaFrames
       if (selectionRetimeAnimationFrameRef.current === null) {
         selectionRetimeAnimationFrameRef.current = requestAnimationFrame(
           applySelectionRetimePreview,
@@ -2929,13 +3331,19 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       event.stopPropagation()
       if (drag.hasMoved) {
         flushSelectionRetimePreview()
-        if (drag.lastTargetFrame !== drag.initialEdgeFrame) {
+        const updates = drag.lastUpdates
+        if (updates && hasMotionSelectionRetimeChanges(drag, updates)) {
+          flushSync(() => applyMotionSelectionFrameUpdates(updates))
+          restoreMotionSelectionRetimeVisuals(drag, false)
           useTimelineCommandStore
             .getState()
             .addUndoEntry({ type: 'MOVE_KEYFRAME_GRAPH', payload: {} }, drag.snapshot)
           useTimelineSettingsStore.getState().markDirty()
+        } else {
+          restoreMotionSelectionRetimeVisuals(drag, true)
         }
       }
+      pendingSelectionRetimeFrameRef.current = null
       selectionRetimeDragRef.current = null
     },
     [flushSelectionRetimePreview],
@@ -2947,13 +3355,15 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       if (!drag || drag.pointerId !== event.pointerId) return
       event.preventDefault()
       event.stopPropagation()
-      if (drag.hasMoved) {
-        pendingSelectionRetimeFrameRef.current = drag.initialEdgeFrame
-        flushSelectionRetimePreview()
+      if (selectionRetimeAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(selectionRetimeAnimationFrameRef.current)
+        selectionRetimeAnimationFrameRef.current = null
       }
+      pendingSelectionRetimeFrameRef.current = null
+      restoreMotionSelectionRetimeVisuals(drag, true)
       selectionRetimeDragRef.current = null
     },
-    [flushSelectionRetimePreview],
+    [],
   )
 
   const nudgeSelectionRetime = useCallback(
@@ -2984,6 +3394,10 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       if (selectionRetimeAnimationFrameRef.current !== null) {
         cancelAnimationFrame(selectionRetimeAnimationFrameRef.current)
       }
+      const drag = selectionRetimeDragRef.current
+      if (drag) restoreMotionSelectionRetimeVisuals(drag, true)
+      pendingSelectionRetimeFrameRef.current = null
+      selectionRetimeDragRef.current = null
     },
     [],
   )
@@ -4515,7 +4929,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                 </div>
               </div>
               <div
-                className="relative min-w-0 flex-1 touch-none cursor-ew-resize overflow-hidden"
+                data-testid="motion-ruler-viewport"
+                className="relative min-w-0 flex-1 touch-none cursor-ew-resize overflow-x-clip overflow-y-visible"
                 style={{ height: RULER_HEIGHT }}
               >
                 <div
@@ -4557,6 +4972,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                   onEnd={endSelectionRetime}
                   onCancel={cancelSelectionRetime}
                   onNudge={nudgeSelectionRetime}
+                  rangeRef={motionSelectionRetimeRangeRef}
                 />
                 </div>
               </div>
