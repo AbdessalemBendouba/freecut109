@@ -32,6 +32,15 @@ interface NavigatorDragSnapshot {
   metrics: ReturnType<typeof getKeyframeNavigatorThumbMetrics>
 }
 
+interface NavigatorViewportHandoff {
+  from: KeyframeNavigatorViewport
+  to: KeyframeNavigatorViewport
+}
+
+function isSameViewport(a: KeyframeNavigatorViewport, b: KeyframeNavigatorViewport): boolean {
+  return a.startFrame === b.startFrame && a.endFrame === b.endFrame
+}
+
 export function CompactNavigator({
   viewport,
   currentFrame,
@@ -48,9 +57,15 @@ export function CompactNavigator({
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
   const dragSnapshotRef = useRef<NavigatorDragSnapshot | null>(null)
   const latestPreviewViewportRef = useRef<KeyframeNavigatorViewport | null>(null)
+  const viewportHandoffRef = useRef<NavigatorViewportHandoff | null>(null)
   const pendingPreviewViewportRef = useRef<KeyframeNavigatorViewport | null>(null)
   const previewAnimationFrameRef = useRef<number | null>(null)
-  const renderedViewport = latestPreviewViewportRef.current ?? viewport
+  const viewportHandoff = viewportHandoffRef.current
+  const settledViewport =
+    viewportHandoff && isSameViewport(viewport, viewportHandoff.from)
+      ? viewportHandoff.to
+      : viewport
+  const renderedViewport = latestPreviewViewportRef.current ?? settledViewport
 
   const metrics = getKeyframeNavigatorThumbMetrics({
     viewport: renderedViewport,
@@ -91,6 +106,7 @@ export function CompactNavigator({
         viewport: renderedViewport,
         metrics: startMetrics,
       }
+      viewportHandoffRef.current = null
       latestPreviewViewportRef.current = null
       onViewportPreviewStart?.()
       setDragTarget(target)
@@ -126,10 +142,17 @@ export function CompactNavigator({
   )
 
   useLayoutEffect(() => {
+    const handoff = viewportHandoffRef.current
+    if (
+      handoff &&
+      (isSameViewport(viewport, handoff.to) || !isSameViewport(viewport, handoff.from))
+    ) {
+      viewportHandoffRef.current = null
+    }
     if (dragTarget || !thumbRef.current) return
     thumbRef.current.style.left = `${metrics.thumbLeft}px`
     thumbRef.current.style.width = `${metrics.thumbWidth}px`
-  }, [dragTarget, metrics.thumbLeft, metrics.thumbWidth])
+  }, [dragTarget, metrics.thumbLeft, metrics.thumbWidth, viewport])
 
   useEffect(() => {
     const track = trackRef.current
@@ -215,6 +238,11 @@ export function CompactNavigator({
       pendingPreviewViewportRef.current = null
       const finalViewport = latestPreviewViewportRef.current
       if (finalViewport) {
+        const dragStartViewport = dragSnapshotRef.current?.viewport
+        viewportHandoffRef.current =
+          dragStartViewport && !isSameViewport(dragStartViewport, finalViewport)
+            ? { from: dragStartViewport, to: finalViewport }
+            : null
         onViewportPreview?.(finalViewport)
         onViewportChange(finalViewport)
       }

@@ -102,4 +102,47 @@ describe('CompactNavigator', () => {
     clientWidthSpy.mockRestore()
     animationFrameSpy.mockRestore()
   })
+
+  it('holds the final thumb geometry until a deferred viewport commit arrives', () => {
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(400)
+    const onViewportChange = vi.fn()
+    const initialViewport = { startFrame: 0, endFrame: 50 }
+
+    const { rerender } = render(
+      <CompactNavigator
+        viewport={initialViewport}
+        currentFrame={0}
+        contentFrameMax={100}
+        minVisibleFrames={10}
+        onViewportChange={onViewportChange}
+      />,
+    )
+
+    const thumb = screen.getByTestId('keyframe-navigator-thumb')
+    fireEvent.mouseDown(thumb, { clientX: 0 })
+    fireEvent.mouseMove(window, { clientX: 40 })
+    const finalPreviewLeft = thumb.style.left
+
+    fireEvent.mouseUp(window)
+
+    expect(finalPreviewLeft).not.toBe('')
+    expect(thumb.style.left).toBe(finalPreviewLeft)
+    const committedViewport = onViewportChange.mock.calls[0]?.[0]
+    expect(committedViewport).toBeDefined()
+
+    rerender(
+      <CompactNavigator
+        viewport={committedViewport}
+        currentFrame={0}
+        contentFrameMax={100}
+        minVisibleFrames={10}
+        onViewportChange={onViewportChange}
+      />,
+    )
+    expect(thumb.style.left).toBe(finalPreviewLeft)
+
+    clientWidthSpy.mockRestore()
+  })
 })
