@@ -158,6 +158,7 @@ describe('timeline duplicate item actions', () => {
     useKeyframesStore.getState().setKeyframes([
       {
         itemId: 'clip-1',
+        separatedVectorProperties: ['position'],
         properties: [
           {
             property: 'x',
@@ -205,6 +206,7 @@ describe('timeline duplicate item actions', () => {
 
     expect(copy).toEqual({
       itemId: duplicatedItem!.id,
+      separatedVectorProperties: ['position'],
       properties: [
         {
           property: 'x',

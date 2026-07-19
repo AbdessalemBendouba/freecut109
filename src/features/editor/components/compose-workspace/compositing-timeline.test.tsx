@@ -47,6 +47,13 @@ function makeDataTransfer(payload: unknown) {
   }
 }
 
+function openTransformOptions(): void {
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Transform options' }), {
+    button: 0,
+    ctrlKey: false,
+  })
+}
+
 const track = makeTimelineTrack({ id: 'layer-track', name: 'Rectangle', kind: 'video', order: 0 })
 const shape: ShapeItem = {
   id: 'shape-1',
@@ -120,6 +127,68 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByText('Opacity')).toBeInTheDocument()
     expect(screen.getByLabelText('Position X')).toHaveValue('100.00')
     expect(screen.getByLabelText('Position Y')).toHaveValue('80.00')
+    expect(screen.queryByText('X Position')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Transform options' })).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Separate Position dimensions' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('toggles Position between coupled and separated dimensions through history', () => {
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    openTransformOptions()
+    const separateDimensions = screen.getByRole('menuitemcheckbox', {
+      name: 'Separate Position dimensions',
+    })
+    expect(separateDimensions).toHaveAttribute('aria-checked', 'false')
+    fireEvent.click(separateDimensions)
+
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.separatedVectorProperties,
+    ).toEqual(['position'])
+    expect(screen.getByText('X Position')).toBeInTheDocument()
+    expect(screen.getByText('Y Position')).toBeInTheDocument()
+    openTransformOptions()
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: 'Separate Position dimensions' }),
+    ).toHaveAttribute('aria-checked', 'true')
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    act(() => useTimelineCommandStore.getState().undo())
+
+    expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
+    expect(screen.getByText('Position')).toBeInTheDocument()
+    expect(screen.queryByText('X Position')).not.toBeInTheDocument()
+  })
+
+  it('combines matching legacy X/Y keys into one Position lane', () => {
+    useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 0, 100)
+    useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 30, 200)
+    useKeyframesStore.getState()._addKeyframe(shape.id, 'y', 0, 80)
+    useKeyframesStore.getState()._addKeyframe(shape.id, 'y', 30, 180)
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    openTransformOptions()
+    const separateDimensions = screen.getByRole('menuitemcheckbox', {
+      name: 'Separate Position dimensions',
+    })
+    expect(separateDimensions).toHaveAttribute('aria-checked', 'true')
+    fireEvent.click(separateDimensions)
+
+    const itemKeyframes = useKeyframesStore.getState().keyframesByItemId[shape.id]
+    expect(itemKeyframes?.properties.some((property) => property.property === 'x')).toBe(false)
+    expect(itemKeyframes?.properties.some((property) => property.property === 'y')).toBe(false)
+    expect(
+      itemKeyframes?.vectorProperties?.find((property) => property.property === 'position')
+        ?.keyframes,
+    ).toEqual([
+      expect.objectContaining({ frame: 0, value: { x: 100, y: 80 } }),
+      expect.objectContaining({ frame: 30, value: { x: 200, y: 180 } }),
+    ])
+    expect(screen.getByLabelText('Position X')).toBeInTheDocument()
     expect(screen.queryByText('X Position')).not.toBeInTheDocument()
   })
 

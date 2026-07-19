@@ -132,6 +132,7 @@ describe('timeline project hydration', () => {
       {
         itemId: item.id,
         properties: [],
+        separatedVectorProperties: ['scale'],
         propertyLinks: [
           {
             type: 'link',
@@ -165,6 +166,7 @@ describe('timeline project hydration', () => {
       targetProperty: 'rotation',
       source: 'value + sin(time) * 10',
     })
+    expect(timeline.keyframes?.[0]?.separatedVectorProperties).toEqual(['scale'])
 
     const project: Project = {
       id: 'linked-project',
@@ -184,6 +186,9 @@ describe('timeline project hydration', () => {
     expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual(
       timeline.keyframes?.[0]?.expressions,
     )
+    expect(
+      useKeyframesStore.getState().keyframesByItemId.target?.separatedVectorProperties,
+    ).toEqual(['scale'])
   })
 
   it('round-trips composition control definitions and per-instance values', async () => {

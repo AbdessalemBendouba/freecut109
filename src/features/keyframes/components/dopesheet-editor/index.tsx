@@ -72,6 +72,11 @@ import { DopesheetParameterMenu } from './dopesheet-parameter-menu'
 import { DopesheetLegendPopover } from './dopesheet-legend-popover'
 import { DopesheetViewOptionsMenu } from './dopesheet-view-options-menu'
 import {
+  DopesheetGroupOptionsMenu,
+  type DopesheetDimensionSeparationControl,
+  type DopesheetDimensionSeparationEntry,
+} from './dopesheet-group-options-menu'
+import {
   CompoundPropertyInputs,
   type CompoundPropertyInputConfig,
 } from './compound-property-inputs'
@@ -235,6 +240,10 @@ interface DopesheetEditorProps {
   compoundPropertyRows?: Partial<Record<AnimatableProperty, CompoundPropertyInputConfig>>
   /** Secondary value curve rendered with its compound primary row in Value mode. */
   compoundSecondaryProperties?: Partial<Record<AnimatableProperty, AnimatableProperty>>
+  /** Coupled/separated authoring controls shown in the owning property-group menu. */
+  dimensionSeparationByProperty?: Partial<
+    Record<AnimatableProperty, DopesheetDimensionSeparationControl>
+  >
   /** Callback to commit a property value at the playhead */
   onPropertyValueCommit?: (
     property: AnimatableProperty,
@@ -373,6 +382,20 @@ const EMPTY_PROPERTY_GROUP_IDS: readonly string[] = []
 const EMPTY_HIDDEN_PROPERTIES: readonly AnimatableProperty[] = []
 const EMPTY_COMPOUND_ROWS: Partial<Record<AnimatableProperty, CompoundPropertyInputConfig>> = {}
 const EMPTY_COMPOUND_SECONDARIES: Partial<Record<AnimatableProperty, AnimatableProperty>> = {}
+const EMPTY_DIMENSION_SEPARATION: NonNullable<
+  DopesheetEditorProps['dimensionSeparationByProperty']
+> = {}
+
+function findGroupDimensionSeparation(
+  rows: readonly DopesheetPropertyRow[],
+  controls: NonNullable<DopesheetEditorProps['dimensionSeparationByProperty']>,
+): DopesheetDimensionSeparationEntry | null {
+  for (const row of rows) {
+    const control = controls[row.property]
+    if (control) return { property: row.property, control }
+  }
+  return null
+}
 
 interface ExpressionReferenceDragOrigin {
   itemId: string
@@ -535,6 +558,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   hiddenPropertyRows = EMPTY_HIDDEN_PROPERTIES,
   compoundPropertyRows = EMPTY_COMPOUND_ROWS,
   compoundSecondaryProperties = EMPTY_COMPOUND_SECONDARIES,
+  dimensionSeparationByProperty = EMPTY_DIMENSION_SEPARATION,
   onPropertyValueCommit,
   onPropertyValuePreview,
   propertyLinks,
@@ -3411,6 +3435,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         },
       )
       const isOpen = expandedGroups[group.id] ?? true
+      const dimensionSeparation = findGroupDimensionSeparation(
+        group.rows,
+        dimensionSeparationByProperty,
+      )
 
       return (
         <div className="group flex h-full items-center gap-px border-y border-border/60 bg-muted/70 pl-3 pr-0.5">
@@ -3530,6 +3558,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             </span>
           </button>
           <div className="ml-auto flex items-center gap-0 rounded-sm border border-border/70 bg-background/90 px-px shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <DopesheetGroupOptionsMenu
+              groupLabel={groupLabel}
+              dimensionSeparation={dimensionSeparation}
+              disabled={disabled}
+              isPropertyLocked={isPropertyLocked}
+            />
             <Button
               type="button"
               variant="ghost"
@@ -3602,6 +3636,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     },
     [
       canClearRow,
+      dimensionSeparationByProperty,
       disabled,
       expandedGroups,
       handleClearGroup,

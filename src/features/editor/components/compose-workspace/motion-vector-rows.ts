@@ -2,11 +2,14 @@ import type {
   AnimatableProperty,
   ItemKeyframes,
   Keyframe,
+  PropertyKeyframes,
   TransformAnimatableProperty,
   VectorAnimatableProperty,
   VectorKeyframe,
+  VectorPropertyKeyframes,
 } from '@/types/keyframe'
 import { getDirectPropertyLinks } from '@/types/keyframe'
+import type { ResolvedTransform } from '@/types/transform'
 
 export interface MotionVectorRowDefinition {
   property: VectorAnimatableProperty
@@ -76,8 +79,88 @@ export function shouldUseMotionVectorRow(
   itemKeyframes: ItemKeyframes | undefined,
   row: MotionVectorRowDefinition,
 ): boolean {
-  if (hasScalarAuthoring(itemKeyframes, row)) return false
-  return true
+  return !isMotionVectorRowSeparated(itemKeyframes, row)
+}
+
+export function isMotionVectorRowSeparated(
+  itemKeyframes: ItemKeyframes | undefined,
+  row: MotionVectorRowDefinition,
+): boolean {
+  if (itemKeyframes?.separatedVectorProperties?.includes(row.property)) return true
+  return hasScalarAuthoring(itemKeyframes, row)
+}
+
+function easingConfigsMatch(left: Keyframe, right: Keyframe): boolean {
+  return JSON.stringify(left.easingConfig ?? null) === JSON.stringify(right.easingConfig ?? null)
+}
+
+/** A shared vector timing curve can exactly represent these scalar lanes. */
+export function canCombineMotionVectorRowWithoutBake(
+  itemKeyframes: ItemKeyframes | undefined,
+  row: MotionVectorRowDefinition,
+): boolean {
+  const first =
+    itemKeyframes?.properties.find((candidate) => candidate.property === row.primary)?.keyframes ?? []
+  const second =
+    itemKeyframes?.properties.find((candidate) => candidate.property === row.secondary)?.keyframes ??
+    []
+  if (first.length === 0 || second.length === 0) return true
+  return (
+    first.length === second.length &&
+    first.every(
+      (keyframe, index) =>
+        keyframe.frame === second[index]?.frame &&
+        keyframe.easing === second[index]?.easing &&
+        easingConfigsMatch(keyframe, second[index]!),
+    )
+  )
+}
+
+export function motionVectorSeparationNeedsBake(
+  vectorProperty: VectorPropertyKeyframes | undefined,
+): boolean {
+  return Boolean(
+    vectorProperty?.keyframes.some((keyframe) => keyframe.temporalEase || keyframe.spatial),
+  )
+}
+
+function getSeparatedScalarValue(
+  row: MotionVectorRowDefinition,
+  axis: 'x' | 'y',
+  value: VectorKeyframe['value'],
+  baseTransform: ResolvedTransform,
+): number {
+  if (row.property !== 'scale') return value[axis]
+  const base = axis === 'x' ? baseTransform.width : baseTransform.height
+  return (base * value[axis]) / 100
+}
+
+export function buildMotionVectorSeparationProperties({
+  row,
+  vectorProperty,
+  baseTransform,
+  createId = () => crypto.randomUUID(),
+}: {
+  row: MotionVectorRowDefinition
+  vectorProperty: VectorPropertyKeyframes | undefined
+  baseTransform: ResolvedTransform
+  createId?: () => string
+}): PropertyKeyframes[] {
+  if (!vectorProperty || vectorProperty.keyframes.length === 0) return []
+  return ([
+    [row.primary, 'x'],
+    [row.secondary, 'y'],
+  ] as const).map(([property, axis]) => ({
+    property,
+    keyframes: vectorProperty.keyframes.map((keyframe) => ({
+      id: createId(),
+      frame: keyframe.frame,
+      value: getSeparatedScalarValue(row, axis, keyframe.value, baseTransform),
+      easing: keyframe.easing,
+      easingConfig: keyframe.easingConfig,
+      source: keyframe.source,
+    })),
+  }))
 }
 
 export function toMotionVectorProxyKeyframes(

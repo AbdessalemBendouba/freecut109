@@ -133,6 +133,7 @@ import {
   updateVectorKeyframe,
   upsertVectorKeyframe,
   promoteTransformToVector,
+  setVectorDimensionsSeparated,
   useCompositionNavigationStore,
   useCompositionsStore,
   useItemsStore,
@@ -176,9 +177,13 @@ import {
   type MotionSelectionTimeRange,
 } from './motion-keyframe-selection'
 import {
+  buildMotionVectorSeparationProperties,
+  canCombineMotionVectorRowWithoutBake,
   getMotionVectorProxy,
   getStoredMotionVectorKeyframeId,
+  isMotionVectorRowSeparated,
   MOTION_VECTOR_ROW_DEFINITIONS,
+  motionVectorSeparationNeedsBake,
   shouldUseMotionVectorRow,
   toMotionVectorProxyKeyframes,
 } from './motion-vector-rows'
@@ -193,6 +198,10 @@ const LAYER_ROW_HEIGHT = 34
 const RULER_DIVISIONS = 10
 const EMPTY_LAYER_IDS: string[] = []
 const NO_TRANSFORM_PARENT = '__none__'
+const POSITION_VECTOR_ROW = MOTION_VECTOR_ROW_DEFINITIONS.find(
+  (row) => row.property === 'position',
+)!
+const MAX_DIMENSION_BAKE_FRAMES = 10_000
 const PROCEDURAL_HATCH =
   'repeating-linear-gradient(45deg, rgba(56,189,248,0.55) 0 2px, transparent 2px 5px)'
 interface MotionTimeViewport {
@@ -1715,6 +1724,10 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         : [],
     [itemKeyframes, properties, supportsVectorTransform],
   )
+  const positionDimensionsSeparated = isMotionVectorRowSeparated(
+    itemKeyframes,
+    POSITION_VECTOR_ROW,
+  )
   const hiddenPropertyRows = useMemo<AnimatableProperty[]>(
     () => motionVectorRows.map((row) => row.secondary),
     [motionVectorRows],
@@ -1861,6 +1874,149 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       return getMotionVectorValue(property, resolved, vectorBaseTransform)
     },
     [allKeyframesByItemId, canvas, fps, item.from, itemById, itemKeyframes, vectorBaseTransform],
+  )
+  const commitPositionDimensionMode = useCallback(
+    (separated: boolean, bake: boolean) => {
+      if (!vectorBaseTransform) return
+      const frameCount = Math.max(1, item.durationInFrames)
+      if (bake && frameCount > MAX_DIMENSION_BAKE_FRAMES) {
+        toast.error('Position animation is too long to bake safely', {
+          description: `This conversion would create ${frameCount.toLocaleString()} keyframes per lane.`,
+        })
+        return
+      }
+
+      const vectorProperty = itemKeyframes?.vectorProperties?.find(
+        (candidate) => candidate.property === 'position',
+      )
+      const samples = bake
+        ? Array.from({ length: frameCount }, (_, frame) => ({
+            frame,
+            value: resolveMotionVectorValueAtFrame('position', frame),
+          })).filter(
+            (sample): sample is { frame: number; value: { x: number; y: number } } =>
+              sample.value !== null,
+          )
+        : []
+
+      if (separated) {
+        const scalarProperties = bake
+          ? (['x', 'y'] as const).map((property) => ({
+              property,
+              keyframes: samples.map((sample) => ({
+                id: crypto.randomUUID(),
+                frame: sample.frame,
+                value: sample.value[property],
+                easing: 'linear' as const,
+              })),
+            }))
+          : buildMotionVectorSeparationProperties({
+              row: POSITION_VECTOR_ROW,
+              vectorProperty,
+              baseTransform: vectorBaseTransform,
+            })
+        clearKeyframeSelection()
+        setVectorDimensionsSeparated(item.id, 'position', true, { scalarProperties })
+        return
+      }
+
+      const nextVectorProperty = bake
+        ? {
+            property: 'position' as const,
+            keyframes: samples.map((sample) => ({
+              id: crypto.randomUUID(),
+              frame: sample.frame,
+              value: sample.value,
+              easing: 'linear' as const,
+            })),
+          }
+        : buildVectorPromotionPlan({
+            property: 'position',
+            itemKeyframes,
+            baseTransform: vectorBaseTransform,
+          }).vectorProperty
+      clearKeyframeSelection()
+      setVectorDimensionsSeparated(item.id, 'position', false, {
+        vectorProperty:
+          nextVectorProperty.keyframes.length > 0 ? nextVectorProperty : undefined,
+      })
+    },
+    [
+      clearKeyframeSelection,
+      item.durationInFrames,
+      item.id,
+      itemKeyframes,
+      resolveMotionVectorValueAtFrame,
+      vectorBaseTransform,
+    ],
+  )
+  const handlePositionDimensionModeChange = useCallback(
+    (separated: boolean) => {
+      const blockedTargets = separated
+        ? new Set<DirectLinkableProperty>(['position'])
+        : new Set<DirectLinkableProperty>(['x', 'y'])
+      const hasLink = getDirectPropertyLinks(itemKeyframes).some((link) =>
+        blockedTargets.has(link.targetProperty),
+      )
+      const hasExpression = itemKeyframes?.expressions?.some(
+        (expression) =>
+          expression.type === 'expression' && blockedTargets.has(expression.targetProperty),
+      )
+      if (hasLink || hasExpression) {
+        toast.error(
+          separated
+            ? 'Remove the Position link or expression before separating dimensions'
+            : 'Remove the X/Y links or expressions before combining dimensions',
+        )
+        return
+      }
+
+      const needsBake = separated
+        ? motionVectorSeparationNeedsBake(
+            itemKeyframes?.vectorProperties?.find(
+              (candidate) => candidate.property === 'position',
+            ),
+          )
+        : !canCombineMotionVectorRowWithoutBake(itemKeyframes, POSITION_VECTOR_ROW)
+      if (!needsBake) {
+        commitPositionDimensionMode(separated, false)
+        return
+      }
+
+      toast.warning(
+        separated
+          ? 'Separating Position removes spatial or velocity handles'
+          : 'X and Y use different timing and cannot be combined directly',
+        {
+          description: 'Bake the visible motion to frame-aligned keys before converting?',
+          duration: Infinity,
+          action: {
+            label: separated ? 'Bake & separate' : 'Bake & combine',
+            onClick: () => commitPositionDimensionMode(separated, true),
+          },
+          cancel: { label: 'Cancel', onClick: () => undefined },
+        },
+      )
+    },
+    [commitPositionDimensionMode, itemKeyframes],
+  )
+  const dimensionSeparationByProperty = useMemo(
+    () =>
+      supportsVectorTransform && properties.includes('x') && properties.includes('y')
+        ? {
+            x: {
+              label: 'Position',
+              separated: positionDimensionsSeparated,
+              onChange: handlePositionDimensionModeChange,
+            },
+          }
+        : {},
+    [
+      handlePositionDimensionModeChange,
+      positionDimensionsSeparated,
+      properties,
+      supportsVectorTransform,
+    ],
   )
   const scaleAxesLinked = item.transform?.aspectRatioLocked !== false
   const applyMotionVectorAxisValue = useCallback(
@@ -2294,6 +2450,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           hiddenPropertyRows={hiddenPropertyRows}
           compoundPropertyRows={compoundPropertyRows}
           compoundSecondaryProperties={compoundSecondaryProperties}
+          dimensionSeparationByProperty={dimensionSeparationByProperty}
           propertyLinks={getDirectPropertyLinks(itemKeyframes)}
           propertyExpressions={itemKeyframes?.expressions?.filter(
             (expression) => expression.type === 'expression',

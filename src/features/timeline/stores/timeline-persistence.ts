@@ -767,6 +767,9 @@ export function buildTimelineFromStores(): ProjectTimeline {
             keyframes: property.keyframes.map((keyframe) => cloneVectorKeyframe(keyframe)),
           })),
         }),
+        ...(ik.separatedVectorProperties?.length && {
+          separatedVectorProperties: [...ik.separatedVectorProperties],
+        }),
       })),
     }),
     // Sub-compositions (pre-comps)

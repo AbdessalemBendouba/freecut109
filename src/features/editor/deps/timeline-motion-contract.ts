@@ -44,6 +44,7 @@ export {
 export {
   addKeyframe,
   promoteTransformToVector,
+  setVectorDimensionsSeparated,
   removeVectorKeyframe,
   removePropertyExpression,
   removeKeyframes,

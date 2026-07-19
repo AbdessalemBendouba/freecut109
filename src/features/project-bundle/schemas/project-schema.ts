@@ -134,6 +134,7 @@ const itemKeyframesSchema = z.object({
   animationVersion: z.literal(2).optional(),
   properties: z.array(propertyKeyframesSchema),
   vectorProperties: z.array(vectorPropertyKeyframesSchema).optional(),
+  separatedVectorProperties: z.array(z.enum(['position', 'scale', 'anchor'])).optional(),
   propertyLinks: z.array(linkedPropertyExpressionSchema).optional(),
   expressions: z
     .array(z.union([propertyExpressionSchema, linkedPropertyExpressionSchema]))

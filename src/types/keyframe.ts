@@ -140,10 +140,19 @@ export function areDirectLinkPropertiesCompatible(
   return isVectorAnimatableProperty(target) === isVectorAnimatableProperty(source)
 }
 
-const VECTOR_LINK_COMPONENTS: Record<VectorAnimatableProperty, readonly LinkableAnimatableProperty[]> = {
+const VECTOR_LINK_COMPONENTS: Record<
+  VectorAnimatableProperty,
+  readonly [TransformAnimatableProperty, TransformAnimatableProperty]
+> = {
   position: ['x', 'y'],
   scale: ['width', 'height'],
   anchor: ['anchorX', 'anchorY'],
+}
+
+export function getVectorAnimatablePropertyComponents(
+  property: VectorAnimatableProperty,
+): readonly [TransformAnimatableProperty, TransformAnimatableProperty] {
+  return VECTOR_LINK_COMPONENTS[property]
 }
 
 /** Scalar component and vector links are mutually exclusive on the same channels. */
@@ -152,8 +161,12 @@ export function doDirectLinkTargetsConflict(
   right: DirectLinkableProperty,
 ): boolean {
   if (left === right) return true
-  if (isVectorAnimatableProperty(left)) return VECTOR_LINK_COMPONENTS[left].includes(right as LinkableAnimatableProperty)
-  if (isVectorAnimatableProperty(right)) return VECTOR_LINK_COMPONENTS[right].includes(left)
+  if (isVectorAnimatableProperty(left)) {
+    return VECTOR_LINK_COMPONENTS[left].includes(right as TransformAnimatableProperty)
+  }
+  if (isVectorAnimatableProperty(right)) {
+    return VECTOR_LINK_COMPONENTS[right].includes(left as TransformAnimatableProperty)
+  }
   return false
 }
 
@@ -420,6 +433,8 @@ export interface ItemKeyframes {
   properties: PropertyKeyframes[]
   /** Coupled Position, Scale, and Anchor lanes introduced by Animation Core v2. */
   vectorProperties?: VectorPropertyKeyframes[]
+  /** Vector properties intentionally authored as independent scalar component lanes. */
+  separatedVectorProperties?: VectorAnimatableProperty[]
   /** Typed direct property links, keyed by their target property. */
   propertyLinks?: DirectPropertyLink[]
   /** Sandboxed expressions. Legacy imports may temporarily include type=link records. */

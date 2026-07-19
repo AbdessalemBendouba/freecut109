@@ -3,6 +3,7 @@ import type {
   ItemKeyframes,
   AnimatableProperty,
   Keyframe,
+  PropertyKeyframes,
   EasingType,
   EasingConfig,
   KeyframeRef,
@@ -20,6 +21,7 @@ import {
   doDirectLinkTargetsConflict,
   getDirectPropertyLinks,
   getPropertyExpressions,
+  getVectorAnimatablePropertyComponents,
 } from '@/types/keyframe'
 
 /**
@@ -66,6 +68,12 @@ export interface VectorKeyframeInput {
   temporalEase?: VectorKeyframe['temporalEase']
   spatial?: VectorKeyframe['spatial']
   source?: AnimationKeyframeSource
+}
+
+interface VectorDimensionModeInput {
+  separated: boolean
+  scalarProperties?: readonly PropertyKeyframes[]
+  vectorProperty?: VectorPropertyKeyframes
 }
 
 interface KeyframesActions {
@@ -122,6 +130,11 @@ interface KeyframesActions {
     itemId: string,
     vectorProperty: VectorPropertyKeyframes,
     removeScalarProperties: readonly AnimatableProperty[],
+  ) => void
+  _setVectorDimensionsSeparated: (
+    itemId: string,
+    property: VectorAnimatableProperty,
+    input: VectorDimensionModeInput,
   ) => void
   _scaleKeyframesForItem: (itemId: string, oldDuration: number, newDuration: number) => void
 
@@ -183,12 +196,17 @@ function dedupeKeyframesByFrame<T extends { id: string; frame: number }>(
 }
 
 function hasStoredAnimation(itemKeyframes: ItemKeyframes): boolean {
-  return (
-    itemKeyframes.properties.some((property) => property.keyframes.length > 0) ||
-    (itemKeyframes.vectorProperties?.some((property) => property.keyframes.length > 0) ?? false) ||
-    (itemKeyframes.propertyLinks?.length ?? 0) > 0 ||
-    (itemKeyframes.expressions?.length ?? 0) > 0
-  )
+  if (itemKeyframes.properties.some((property) => property.keyframes.length > 0)) return true
+  if (itemKeyframes.vectorProperties?.some((property) => property.keyframes.length > 0)) {
+    return true
+  }
+
+  const nonScalarAnimation = [
+    itemKeyframes.separatedVectorProperties,
+    itemKeyframes.propertyLinks,
+    itemKeyframes.expressions,
+  ]
+  return nonScalarAnimation.some((entries) => entries !== undefined && entries.length > 0)
 }
 
 function scaleFrameKeyframes<T extends { id: string; frame: number }>(
@@ -867,6 +885,60 @@ export const useKeyframesStore = create<KeyframesState & KeyframesActions>()((se
                 ],
               }
             : itemKeyframes,
+        ),
+      }
+    }),
+
+  _setVectorDimensionsSeparated: (itemId, property, input) =>
+    set((state) => {
+      const componentSet = new Set<AnimatableProperty>(
+        getVectorAnimatablePropertyComponents(property),
+      )
+      const updateItemKeyframes = (itemKeyframes: ItemKeyframes): ItemKeyframes => {
+        const separatedSet = new Set(itemKeyframes.separatedVectorProperties ?? [])
+        if (input.separated) separatedSet.add(property)
+        else separatedSet.delete(property)
+
+        const scalarProperties = input.separated
+          ? (input.scalarProperties ?? []).map((candidate) => ({
+              ...candidate,
+              keyframes: candidate.keyframes.map((keyframe) => ({ ...keyframe })),
+            }))
+          : []
+        const vectorProperties = (itemKeyframes.vectorProperties ?? []).filter(
+          (candidate) => candidate.property !== property,
+        )
+        if (!input.separated && input.vectorProperty) {
+          vectorProperties.push(input.vectorProperty)
+        }
+
+        return {
+          ...itemKeyframes,
+          animationVersion: ANIMATION_CORE_VERSION,
+          properties: [
+            ...itemKeyframes.properties.filter(
+              (candidate) => !componentSet.has(candidate.property),
+            ),
+            ...scalarProperties,
+          ],
+          vectorProperties,
+          separatedVectorProperties: Array.from(separatedSet),
+        }
+      }
+
+      const existing = state.keyframes.find((candidate) => candidate.itemId === itemId)
+      if (!existing) {
+        return {
+          keyframes: [
+            ...state.keyframes,
+            updateItemKeyframes({ itemId, animationVersion: ANIMATION_CORE_VERSION, properties: [] }),
+          ],
+        }
+      }
+
+      return {
+        keyframes: state.keyframes.map((candidate) =>
+          candidate.itemId === itemId ? updateItemKeyframes(candidate) : candidate,
         ),
       }
     }),

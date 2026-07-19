@@ -70,6 +70,7 @@ export {
   removePresetKeyframeApplication,
   removeManualKeyframes,
   promoteTransformToVector,
+  setVectorDimensionsSeparated,
   removeKeyframes,
   updateKeyframe,
   updateVectorKeyframe,

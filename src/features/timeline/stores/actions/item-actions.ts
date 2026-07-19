@@ -541,6 +541,11 @@ function cloneStoredExpression(
     : { ...expression }
 }
 
+function cloneSeparatedVectorProperties(source: ItemKeyframes, clone: ItemKeyframes): void {
+  if (!source.separatedVectorProperties?.length) return
+  clone.separatedVectorProperties = [...source.separatedVectorProperties]
+}
+
 function cloneItemKeyframes(
   source: ItemKeyframes,
   itemId: string,
@@ -564,6 +569,7 @@ function cloneItemKeyframes(
   if (source.vectorProperties?.length) {
     clone.vectorProperties = source.vectorProperties.map(cloneVectorPropertyKeyframes)
   }
+  cloneSeparatedVectorProperties(source, clone)
   return clone
 }
 

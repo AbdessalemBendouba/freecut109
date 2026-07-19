@@ -10,6 +10,7 @@ import type {
   DirectLinkableProperty,
   DirectPropertyLink,
   PropertyExpression,
+  PropertyKeyframes,
   VectorAnimatableProperty,
   VectorKeyframe,
   VectorPropertyKeyframes,
@@ -189,6 +190,28 @@ export function promoteTransformToVector(
       useTimelineSettingsStore.getState().markDirty()
     },
     { itemId, property: vectorProperty.property },
+  )
+}
+
+export function setVectorDimensionsSeparated(
+  itemId: string,
+  property: VectorAnimatableProperty,
+  separated: boolean,
+  conversion: {
+    scalarProperties?: readonly PropertyKeyframes[]
+    vectorProperty?: VectorPropertyKeyframes
+  } = {},
+): void {
+  execute(
+    separated ? 'SEPARATE_VECTOR_DIMENSIONS' : 'COMBINE_VECTOR_DIMENSIONS',
+    () => {
+      useKeyframesStore.getState()._setVectorDimensionsSeparated(itemId, property, {
+        separated,
+        ...conversion,
+      })
+      useTimelineSettingsStore.getState().markDirty()
+    },
+    { itemId, property, separated },
   )
 }
 
