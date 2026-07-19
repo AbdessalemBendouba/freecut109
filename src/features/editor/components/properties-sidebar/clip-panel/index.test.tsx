@@ -173,10 +173,7 @@ describe('ClipPanel inspector tabs', () => {
       'true',
     )
     expect(useEditorStore.getState().clipInspectorTab).toBe('motion')
-    expect(screen.getByText('Parenting')).toBeInTheDocument()
-    expect(
-      screen.getByText('Choose a Null Object or layer to move, scale, and rotate them together.'),
-    ).toBeInTheDocument()
+    expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
   })
 
   it('hides parenting from an ordinary unparented clip in Edit', () => {
@@ -185,7 +182,7 @@ describe('ClipPanel inspector tabs', () => {
     expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
   })
 
-  it('keeps an existing parent relationship reachable in Edit', () => {
+  it('does not duplicate an existing parent relationship in the Edit inspector', () => {
     const parentedVideo: VideoItem = {
       ...VIDEO_ITEM,
       transformParent: {
@@ -199,13 +196,7 @@ describe('ClipPanel inspector tabs', () => {
 
     render(<ClipPanel />)
 
-    expect(screen.getByText('Parenting')).toBeInTheDocument()
-    expect(
-      screen.getByText('Follows Null Object for position, scale, and rotation.'),
-    ).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Parent selection to new Null' }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
   })
 
   it('names the invisible rig layer as a Null Object', () => {
@@ -216,7 +207,7 @@ describe('ClipPanel inspector tabs', () => {
     expect(screen.getByRole('tab', { name: 'Null Object' })).toBeInTheDocument()
   })
 
-  it('offers one shared parent control for a multi-layer Motion selection', () => {
+  it('does not duplicate parenting for a multi-layer Motion selection', () => {
     const secondVideo: VideoItem = {
       ...VIDEO_ITEM,
       id: 'clip-video-2',
@@ -229,22 +220,6 @@ describe('ClipPanel inspector tabs', () => {
     render(<ClipPanel />)
     activateTab('Motion')
 
-    expect(screen.getByText('Parenting')).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'Choose a Null Object or layer to move, scale, and rotate 2 layers together.',
-      ),
-    ).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Parent selection to new Null' }))
-
-    const state = useTimelineStore.getState()
-    const nullParent = state.items.find((item) => item.type === 'controller')
-    const firstChild = state.items.find((item) => item.id === VIDEO_ITEM.id)
-    const secondChild = state.items.find((item) => item.id === secondVideo.id)
-    expect(nullParent).toMatchObject({ label: 'Null Object', controllerKind: 'null' })
-    expect(firstChild?.transformParent?.parentItemId).toBe(nullParent?.id)
-    expect(secondChild?.transformParent?.parentItemId).toBe(nullParent?.id)
-    expect(useSelectionStore.getState().selectedItemIds).toEqual([nullParent?.id])
+    expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
   })
 })

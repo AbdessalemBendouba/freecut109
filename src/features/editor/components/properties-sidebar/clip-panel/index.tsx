@@ -39,7 +39,6 @@ import { LottieSection } from './lottie-section'
 import { ShapeSection } from './shape-section'
 import { CornerPinSection } from './corner-pin-section'
 import { CompositionControlsSection } from './composition-controls-section'
-import { TransformHierarchySection } from './transform-hierarchy-section'
 
 const LazyAudioSection = lazy(() =>
   import('./audio-section').then((module) => ({ default: module.AudioSection })),
@@ -161,8 +160,6 @@ export const ClipPanel = memo(function ClipPanel() {
       ),
     ),
   )
-  const allItems = useItemsStore((state) => state.items)
-
   // Canvas settings
   const canvas = useMemo(
     () => ({
@@ -262,8 +259,6 @@ export const ClipPanel = memo(function ClipPanel() {
   const showVideoTab = layoutFillItems.length > 0
   const showAudioTab = hasAudioItems
   const showMotionTab = workspace === 'motion' && hasVisualItems
-  const showMotionParenting =
-    selectedItems.length > 0 && layoutFillItems.length === selectedItems.length
   // Motion's library already includes the text-motion stage, so a text layer
   // gets one purposeful Motion surface instead of adjacent Animation/Motion tabs.
   const showSecondTab = showAudioTab || (isOnlyText && !showMotionTab)
@@ -372,13 +367,6 @@ export const ClipPanel = memo(function ClipPanel() {
                   onAspectLockToggle={handleAspectLockToggle}
                 />
               )}
-              {workspace !== 'motion' && (
-                <TransformHierarchySection
-                  items={selectedItems}
-                  allItems={allItems}
-                  canvas={canvas}
-                />
-              )}
               <CompositionControlsSection items={selectedItems} />
               {hasVideoItems && <VideoSection items={selectedItems} />}
               {paintableLayoutItems.length > 0 && (
@@ -418,18 +406,7 @@ export const ClipPanel = memo(function ClipPanel() {
         <TabsContent value="motion" className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden">
           {showMotionTab && activeTab === 'motion' ? (
             <div className="flex h-full min-h-0 flex-col">
-              {showMotionParenting && (
-                <div className="shrink-0 border-b border-border pb-2">
-                  <TransformHierarchySection
-                    items={selectedItems}
-                    allItems={allItems}
-                    canvas={canvas}
-                    showUnparented
-                    allowCreateNullParent
-                  />
-                </div>
-              )}
-              <div className="min-h-0 flex-1 pt-2">
+              <div className="min-h-0 flex-1">
                 <Suspense fallback={<div className="h-full rounded-md bg-muted/20" />}>
                   <LazyAnimationPresetLibrary canvas={canvas} embedded />
                 </Suspense>

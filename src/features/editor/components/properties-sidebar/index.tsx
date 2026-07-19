@@ -326,7 +326,15 @@ export const PropertiesSidebar = memo(function PropertiesSidebar() {
                       its chunk resolves it stays subscribed while hidden, so a
                       selection made during playback can commit synchronously
                       instead of waiting for a starved Suspense retry. */}
-                  <div hidden={!hasClipSelection}>
+                  <div
+                    data-testid="properties-clip-panel-host"
+                    hidden={!hasClipSelection}
+                    className={
+                      workspace === 'motion' && clipInspectorTab === 'motion'
+                        ? 'h-full min-h-0'
+                        : undefined
+                    }
+                  >
                     <Suspense fallback={<PropertiesPanelLoadingFallback />}>
                       <LazyClipPanel />
                     </Suspense>

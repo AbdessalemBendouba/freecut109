@@ -64,8 +64,6 @@ const page = {
             'In the Motion layer stack, choose a parent from the **Parent** menu or drag the spiral Parent pick whip onto another layer. Normal assignment preserves the child layer canvas pose.',
             'Hold **Shift** while releasing the Parent pick whip to snap the child position to the parent. Hold **Alt/Option** to use the child authored local pose instead.',
             'Ctrl-click or Command-click a child Parent pick whip to detach it while preserving its current pose. Add **Alt/Option** to detach without compensation and return to the authored local pose.',
-            'Select one or more layers you want it to drive, open the inspector’s **Motion** tab, and choose the Null Object under **Parenting**. A multi-layer selection is parented in one operation and one undo step.',
-            'For a faster setup, choose **Parent selection to new Null**. Motion creates a Null spanning the selected layers, parents them without changing their pose, and selects the new rig for animation—all as one undoable action.',
             'Move, scale, rotate, or keyframe the Null Object to control every layer parented to it as one rig.',
             'A parent chip appears on each child layer in the Motion stack. Click it to jump directly to the parent layer.',
           ],
@@ -73,7 +71,7 @@ const page = {
         {
           kind: 'note',
           tone: 'info',
-          text: 'Parenting is shown up front in Motion. In the regular Edit workspace it stays out of the way unless the selected clip is already parented, where it remains available for inspection or detaching.',
+          text: 'Parenting lives in the Motion layer stack, alongside layer order and timing, so there is one authoritative place to inspect, assign, or detach a parent.',
         },
       ],
     },

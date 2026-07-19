@@ -111,6 +111,15 @@ describe('PropertiesSidebar', () => {
     expect(await screen.findByText('Clip Panel')).toBeInTheDocument()
   })
 
+  it('gives the Motion clip inspector a resolved height for its inner scroller', async () => {
+    useEditorStore.setState({ workspace: 'motion', clipInspectorTab: 'motion' })
+
+    render(<PropertiesSidebar />)
+
+    expect(await screen.findByText('Clip Panel')).toBeInTheDocument()
+    expect(screen.getByTestId('properties-clip-panel-host')).toHaveClass('h-full', 'min-h-0')
+  })
+
   it('shows the first filename with a multi-select summary in the header', () => {
     resetStores([CLIP_A, CLIP_B], [CLIP_A.id, CLIP_B.id])
 
