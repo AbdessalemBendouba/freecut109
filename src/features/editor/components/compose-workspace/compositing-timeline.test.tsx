@@ -447,6 +447,17 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     )
     expect(staticGridTicks.length).toBeGreaterThan(0)
     expect(dynamicGrids.length).toBeGreaterThan(0)
+    expect(
+      dynamicGrids.every(
+        (grid) =>
+          grid.closest<HTMLElement>('[data-motion-viewport-surface]')?.dataset
+            .motionViewportEdgeInset === '9' &&
+          Number(
+            grid.closest<HTMLElement>('[data-motion-viewport-surface]')?.dataset
+              .motionViewportAxisWidth,
+          ) > 0,
+      ),
+    ).toBe(true)
     expect(screen.getByText('4.0s')).toBeInTheDocument()
 
     fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
@@ -471,6 +482,50 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByText('0.3s')).toBeInTheDocument()
     expect(screen.getByText('3.5s')).toBeInTheDocument()
     expect(scrollArea).toHaveClass('overflow-y-auto')
+    animationFrameSpy.mockRestore()
+  })
+
+  it('flushes the final wheel geometry when settle wins before the queued animation frame', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const settleCallbacks: Array<() => void> = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+
+    render(<CompositingTimeline />)
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+    const navigator = screen.getByTestId('motion-time-navigator')
+    const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation((callback, delay) => {
+      if (delay === 100 && typeof callback === 'function') {
+        settleCallbacks.push(callback)
+      }
+      return settleCallbacks.length as unknown as ReturnType<typeof window.setTimeout>
+    })
+
+    fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
+
+    expect(frameCallbacks).toHaveLength(1)
+    expect(settleCallbacks).toHaveLength(1)
+    expect(navigator).toHaveAttribute('data-start-frame', '0')
+    settleCallbacks[0]?.()
+    expect(navigator).toHaveAttribute('data-start-frame', '8')
+    expect(navigator).toHaveAttribute('data-end-frame', '104')
+
+    timeoutSpy.mockRestore()
     animationFrameSpy.mockRestore()
   })
 
@@ -566,7 +621,7 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     animationFrameSpy.mockRestore()
   })
 
-  it('accumulates shift-wheel horizontal panning without cross-axis reversal or frame jumps', () => {
+  it('accumulates shift-wheel panning while previewing its frame-aligned settled position', () => {
     const frameCallbacks: FrameRequestCallback[] = []
     const animationFrameSpy = vi
       .spyOn(window, 'requestAnimationFrame')
@@ -603,13 +658,13 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(firstPan.defaultPrevented).toBe(true)
     expect(frameCallbacks).toHaveLength(1)
     act(() => frameCallbacks.shift()?.(performance.now()))
-    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(8.505)
-    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(104.505)
+    expect(navigator).toHaveAttribute('data-start-frame', '9')
+    expect(navigator).toHaveAttribute('data-end-frame', '105')
 
     fireEvent.wheel(scrollArea, { shiftKey: true, clientX: 750, deltaX: -100, deltaY: 10 })
     act(() => frameCallbacks.shift()?.(performance.now()))
-    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(11.032)
-    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(107.032)
+    expect(navigator).toHaveAttribute('data-start-frame', '11')
+    expect(navigator).toHaveAttribute('data-end-frame', '107')
     animationFrameSpy.mockRestore()
   })
 
@@ -657,8 +712,8 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(navigator).toHaveAttribute('data-start-frame', '8')
 
     act(() => frameCallbacks.shift()?.(performance.now()))
-    expect(Number(navigator.dataset.startFrame)).toBeCloseTo(18.105)
-    expect(Number(navigator.dataset.endFrame)).toBeCloseTo(114.105)
+    expect(navigator).toHaveAttribute('data-start-frame', '18')
+    expect(navigator).toHaveAttribute('data-end-frame', '114')
     animationFrameSpy.mockRestore()
   })
 

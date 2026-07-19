@@ -225,7 +225,8 @@ describe('DopesheetEditor property groups', () => {
     // Category rows summarize child keyframes with diamonds only; the actual
     // property row remains the sole owner of the easing connector.
     expect(screen.getAllByTestId('keyframe-connector')).toHaveLength(1)
-    expect(screen.queryByTestId('row-keyframe-x-kx-offscreen')).toBeNull()
+    const offscreenMarker = screen.getByTestId('row-keyframe-x-kx-offscreen')
+    expect(Number.parseFloat(offscreenMarker.style.left)).toBeLessThan(0)
     expect(screen.getByTestId('row-keyframe-x-kx-visible')).toBeTruthy()
   })
 

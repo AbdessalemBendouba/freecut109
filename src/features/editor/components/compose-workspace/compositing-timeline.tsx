@@ -199,7 +199,8 @@ interface MotionTimeViewport {
 
 interface MotionViewportPreviewElement {
   element: HTMLElement
-  surfaceWidth: number
+  edgeInset: number
+  usableWidth: number
   frame: number
   frameSpan: number | null
   left: string
@@ -222,7 +223,8 @@ interface MotionViewportPreviewRulerLabel {
 
 interface MotionViewportPreviewGrid {
   element: HTMLElement
-  surfaceWidth: number
+  edgeInset: number
+  usableWidth: number
   frames: number[]
   cssText: string
   willChange: string
@@ -248,6 +250,12 @@ interface MotionViewportPreviewState {
 }
 
 type MotionViewportUpdate = (viewport: MotionTimeViewport) => MotionTimeViewport
+
+function resolveMotionInlinePixels(value: string, referenceWidth: number, fallback: number) {
+  const parsed = Number.parseFloat(value)
+  if (!Number.isFinite(parsed)) return fallback
+  return value.trim().endsWith('%') ? (parsed / 100) * referenceWidth : parsed
+}
 
 interface TextMotionTimelineBand {
   slot: TextMotionSlot
@@ -2521,8 +2529,13 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     const grids: MotionViewportPreviewGrid[] = []
     for (const element of root.querySelectorAll<HTMLElement>('[data-motion-grid-frames]')) {
       const surface = element.closest<HTMLElement>('[data-motion-viewport-surface]')
-      const surfaceWidth = surface?.clientWidth ?? 0
+      const surfaceWidth = Math.max(
+        0,
+        Number(surface?.dataset.motionViewportAxisWidth) || surface?.clientWidth || 0,
+      )
       if (surfaceWidth <= 0) continue
+      const edgeInset = Math.max(0, Number(surface?.dataset.motionViewportEdgeInset ?? 0))
+      const usableWidth = Math.max(1, surfaceWidth - edgeInset * 2)
       const frames = (element.dataset.motionGridFrames ?? '')
         .split(',')
         .map(Number)
@@ -2530,7 +2543,8 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       if (frames.length === 0) continue
       grids.push({
         element,
-        surfaceWidth,
+        edgeInset,
+        usableWidth,
         frames,
         cssText: element.style.cssText,
         willChange: element.style.willChange,
@@ -2538,8 +2552,13 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     }
     const elements: MotionViewportPreviewElement[] = []
     for (const surface of root.querySelectorAll<HTMLElement>('[data-motion-viewport-surface]')) {
-      const surfaceWidth = surface.clientWidth
+      const surfaceWidth = Math.max(
+        0,
+        Number(surface.dataset.motionViewportAxisWidth) || surface.clientWidth,
+      )
       if (surfaceWidth <= 0 || surface.hasAttribute('data-motion-ruler-surface')) continue
+      const edgeInset = Math.max(0, Number(surface.dataset.motionViewportEdgeInset ?? 0))
+      const usableWidth = Math.max(1, surfaceWidth - edgeInset * 2)
       for (const element of surface.querySelectorAll<HTMLElement>('*')) {
         if (
           element.closest<HTMLElement>('[data-motion-viewport-surface]') !== surface ||
@@ -2550,11 +2569,21 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           continue
         }
         const hasInlineWidth = element.style.width !== ''
+        const leftPx = resolveMotionInlinePixels(
+          element.style.left,
+          surfaceWidth,
+          element.offsetLeft,
+        )
+        const widthPx = hasInlineWidth
+          ? resolveMotionInlinePixels(element.style.width, surfaceWidth, element.offsetWidth)
+          : 0
         elements.push({
           element,
-          surfaceWidth,
-          frame: baseViewport.startFrame + (element.offsetLeft / surfaceWidth) * baseRange,
-          frameSpan: hasInlineWidth ? (element.offsetWidth / surfaceWidth) * baseRange : null,
+          edgeInset,
+          usableWidth,
+          frame:
+            baseViewport.startFrame + ((leftPx - edgeInset) / usableWidth) * baseRange,
+          frameSpan: hasInlineWidth ? (widthPx / usableWidth) * baseRange : null,
           left: element.style.left,
           width: element.style.width,
           willChange: element.style.willChange,
@@ -2619,21 +2648,23 @@ export const CompositingTimeline = memo(function CompositingTimeline({
 
       for (const grid of preview.grids) {
         const firstX = Math.round(
-          ((grid.frames[0]! - viewport.startFrame) / nextRange) * grid.surfaceWidth,
+          grid.edgeInset +
+            ((grid.frames[0]! - viewport.startFrame) / nextRange) * grid.usableWidth,
         )
         const shadows: string[] = []
         for (let index = 1; index < grid.frames.length; index += 1) {
           const x = Math.round(
-            ((grid.frames[index]! - viewport.startFrame) / nextRange) * grid.surfaceWidth,
+            grid.edgeInset +
+              ((grid.frames[index]! - viewport.startFrame) / nextRange) * grid.usableWidth,
           )
           shadows.push(`${x - firstX}px 0 currentColor`)
         }
         grid.element.style.cssText = `left: ${firstX}px; box-shadow: ${shadows.join(', ')}; will-change: left, box-shadow;`
       }
       for (const target of preview.elements) {
-        target.element.style.left = `${((target.frame - viewport.startFrame) / nextRange) * target.surfaceWidth}px`
+        target.element.style.left = `${target.edgeInset + ((target.frame - viewport.startFrame) / nextRange) * target.usableWidth}px`
         if (target.frameSpan !== null) {
-          target.element.style.width = `${(target.frameSpan / nextRange) * target.surfaceWidth}px`
+          target.element.style.width = `${(target.frameSpan / nextRange) * target.usableWidth}px`
         }
       }
       if (preview.playhead) {
@@ -2682,7 +2713,11 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         wheelMotionViewportAnimationFrameRef.current = requestAnimationFrame(() => {
           wheelMotionViewportAnimationFrameRef.current = null
           const pendingViewport = wheelMotionViewportRef.current
-          if (pendingViewport) previewMotionTimeViewport(pendingViewport)
+          if (pendingViewport) {
+            previewMotionTimeViewport(
+              normalizeMotionTimeViewport(pendingViewport, durationInFrames),
+            )
+          }
         })
       }
       if (wheelMotionViewportCommitTimerRef.current !== null) {
@@ -2695,11 +2730,28 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           wheelMotionViewportAnimationFrameRef.current = null
         }
         const finalViewport = wheelMotionViewportRef.current
-        wheelMotionViewportRef.current = null
-        if (finalViewport) commitMotionTimeViewport(finalViewport)
+        if (finalViewport) {
+          const normalizedFinalViewport = normalizeMotionTimeViewport(
+            finalViewport,
+            durationInFrames,
+          )
+          // A saturated main thread can let the settle timer win before the
+          // final queued RAF. Paint that exact endpoint synchronously so the
+          // deferred React render inherits identical diamond/grid geometry.
+          previewMotionTimeViewport(normalizedFinalViewport)
+          wheelMotionViewportRef.current = null
+          commitMotionTimeViewport(normalizedFinalViewport)
+        } else {
+          wheelMotionViewportRef.current = null
+        }
       }, 100)
     },
-    [prepareMotionTimeViewportPreview, previewMotionTimeViewport, commitMotionTimeViewport],
+    [
+      prepareMotionTimeViewportPreview,
+      previewMotionTimeViewport,
+      commitMotionTimeViewport,
+      durationInFrames,
+    ],
   )
   const prepareNavigatorMotionTimeViewportPreview = useCallback(() => {
     if (wheelMotionViewportCommitTimerRef.current !== null) {

@@ -19,6 +19,7 @@ import { getKeyframeGroupLabel } from '@/features/keyframes/utils/property-i18n'
 import { getDisplayedGroupFrameGroups } from './sheet-preview-frame-groups'
 import type { DopesheetPropertyGroupStructure } from './dopesheet-helpers'
 import type { KeyframeMeta } from './dopesheet-types'
+import { KEYFRAME_EDGE_INSET } from './layout'
 import { SegmentEasingPopover, type SegmentEasingChange } from './segment-easing-popover'
 
 /**
@@ -150,6 +151,7 @@ interface GroupTimelineCellProps {
   /** Stable structural rows (used for drag-preview frame remapping). */
   rows: StructureRow[]
   ticks: number[]
+  axisWidth: number
   frameToX: (frame: number) => number
   getRenderedKeyframeX: (frame: number) => number | null
   selectedKeyframeIds: Set<string>
@@ -171,6 +173,7 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
   frameGroups,
   rows,
   ticks,
+  axisWidth,
   frameToX,
   getRenderedKeyframeX,
   selectedKeyframeIds,
@@ -194,7 +197,12 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
       className="relative h-full border-l border-border/60 bg-muted/20 overflow-hidden"
       onPointerDown={onBackgroundPointerDown}
     >
-      <div data-motion-viewport-surface className="absolute inset-0">
+      <div
+        data-motion-viewport-surface
+        data-motion-viewport-edge-inset={KEYFRAME_EDGE_INSET}
+        data-motion-viewport-axis-width={axisWidth}
+        className="absolute inset-0"
+      >
         <div
           aria-hidden
           data-motion-grid-frames={ticks.join(',')}
@@ -205,10 +213,8 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
       <div data-motion-span-drag-visual className="absolute inset-0">
         {!expanded &&
           renderedFrameGroups.map((frameGroup) => {
-            const renderedX = getRenderedKeyframeX(frameGroup.frame)
-            if (renderedX === null) {
-              return null
-            }
+            const renderedX =
+              getRenderedKeyframeX(frameGroup.frame) ?? frameToX(frameGroup.frame)
 
             const movableEntries = frameGroup.keyframes.filter(
               ({ property }) => !isPropertyLocked(property),
@@ -257,10 +263,8 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
         {!expanded &&
           sheetPreviewDuplicateKeyframeIds &&
           displayedFrameGroups.map((frameGroup) => {
-            const renderedX = getRenderedKeyframeX(frameGroup.frame)
-            if (renderedX === null) {
-              return null
-            }
+            const renderedX =
+              getRenderedKeyframeX(frameGroup.frame) ?? frameToX(frameGroup.frame)
 
             return (
               <div
@@ -285,6 +289,7 @@ interface PropertyTimelineCellProps {
   keyframes: Keyframe[]
   locked: boolean
   ticks: number[]
+  axisWidth: number
   frameToX: (frame: number) => number
   getRenderedKeyframeX: (frame: number) => number | null
   renderedKeyframeXById: Map<string, number>
@@ -317,6 +322,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
   keyframes,
   locked,
   ticks,
+  axisWidth,
   frameToX,
   getRenderedKeyframeX,
   renderedKeyframeXById,
@@ -345,8 +351,10 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
   const displayedFrame = (keyframe: Keyframe) => previewFrames?.[keyframe.id] ?? keyframe.frame
   const xForKeyframe = (keyframe: Keyframe): number | null => {
     const previewFrame = previewFrames?.[keyframe.id]
-    if (previewFrame !== undefined) return getRenderedKeyframeX(previewFrame)
-    return renderedKeyframeXById.get(keyframe.id) ?? null
+    if (previewFrame !== undefined) {
+      return getRenderedKeyframeX(previewFrame) ?? frameToX(previewFrame)
+    }
+    return renderedKeyframeXById.get(keyframe.id) ?? frameToX(keyframe.frame)
   }
   const xForSegmentKeyframe = (keyframe: Keyframe): number => frameToX(displayedFrame(keyframe))
 
@@ -377,7 +385,12 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
       className="relative h-full border-l border-border/60 overflow-hidden"
       onPointerDown={(event) => onRowPointerDown(property, event)}
     >
-      <div data-motion-viewport-surface className="absolute inset-0">
+      <div
+        data-motion-viewport-surface
+        data-motion-viewport-edge-inset={KEYFRAME_EDGE_INSET}
+        data-motion-viewport-axis-width={axisWidth}
+        className="absolute inset-0"
+      >
         <div
           aria-hidden
           data-motion-grid-frames={ticks.join(',')}
@@ -486,10 +499,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
             return []
           }
 
-          const renderedX = getRenderedKeyframeX(previewFrame)
-          if (renderedX === null) {
-            return []
-          }
+          const renderedX = getRenderedKeyframeX(previewFrame) ?? frameToX(previewFrame)
 
           return [
             <div

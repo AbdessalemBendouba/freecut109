@@ -3634,6 +3634,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                   }
                   rows={groupTimelineById.get(entry.group.id)?.rows ?? EMPTY_STRUCTURE_ROWS}
                   ticks={ticks}
+                  axisWidth={effectiveTimelineWidth}
                   frameToX={frameToX}
                   getRenderedKeyframeX={getRenderedKeyframeX}
                   selectedKeyframeIds={selectedKeyframeIds}
@@ -3665,6 +3666,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 keyframes={rowKeyframesByProperty.get(row.property) ?? EMPTY_KEYFRAMES}
                 locked={rowLocked}
                 ticks={ticks}
+                axisWidth={effectiveTimelineWidth}
                 frameToX={frameToX}
                 getRenderedKeyframeX={getRenderedKeyframeX}
                 renderedKeyframeXById={renderedKeyframeXById}
@@ -3702,6 +3704,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       isPropertyLocked,
       disabled,
       ticks,
+      effectiveTimelineWidth,
       frameToX,
       transitionBlockedRanges,
       proceduralBandByProperty,
