@@ -97,4 +97,3 @@ describe('composition control actions', () => {
     ).toBeUndefined()
   })
 })
-

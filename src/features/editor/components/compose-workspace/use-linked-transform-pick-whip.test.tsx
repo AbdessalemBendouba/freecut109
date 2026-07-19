@@ -2,8 +2,10 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { useKeyframesStore, useTimelineCommandStore } from '@/features/editor/deps/timeline-motion'
 import { usePropertyLinkPickWhip } from '@/features/editor/deps/timeline-motion'
+import { PickWhipOverlay } from '@/shared/ui/pick-whip-overlay'
 
-function PickWhipHarness() {
+function PickWhipHarness({ onRender }: { onRender?: () => void } = {}) {
+  onRender?.()
   const { drag, begin } = usePropertyLinkPickWhip()
   return (
     <div data-testid="motion-layer-scroll-area">
@@ -35,13 +37,7 @@ function PickWhipHarness() {
         Shape Trim End
       </div>
       {drag ? (
-        <span
-          data-testid="active-pick-whip"
-          data-start-x={drag.startX}
-          data-start-y={drag.startY}
-          data-clip-top={drag.clipBounds.top}
-          data-clip-bottom={drag.clipBounds.bottom}
-        />
+        <PickWhipOverlay presentation={drag.presentation} testId="active-pick-whip" />
       ) : null}
     </div>
   )
@@ -53,7 +49,7 @@ describe('usePropertyLinkPickWhip', () => {
     useKeyframesStore.getState().setKeyframes([])
   })
 
-  it('creates a property link after dragging to a compatible row', () => {
+  it('creates a property link after dragging to a compatible row', async () => {
     render(<PickWhipHarness />)
     const sourceRow = screen.getByTestId('source-row')
     Object.defineProperty(document, 'elementFromPoint', {
@@ -70,7 +66,9 @@ describe('usePropertyLinkPickWhip', () => {
     expect(screen.getByTestId('active-pick-whip')).toBeTruthy()
 
     fireEvent.pointerMove(window, { pointerId: 9, clientX: 24, clientY: 24 })
-    expect(sourceRow.getAttribute('data-expression-link-hover')).toBe('true')
+    await waitFor(() => {
+      expect(sourceRow.getAttribute('data-expression-link-hover')).toBe('true')
+    })
     fireEvent.pointerUp(window, { pointerId: 9, clientX: 24, clientY: 24 })
 
     expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks).toEqual([
@@ -86,6 +84,54 @@ describe('usePropertyLinkPickWhip', () => {
     expect(sourceRow.hasAttribute('data-expression-link-hover')).toBe(false)
     expect(screen.queryByTestId('active-pick-whip')).toBeNull()
     Reflect.deleteProperty(document, 'elementFromPoint')
+  })
+
+  it('coalesces pointer presentation and hit testing to one animation frame', () => {
+    const animationFrames: FrameRequestCallback[] = []
+    const requestFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        animationFrames.push(callback)
+        return animationFrames.length
+      })
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    const onRender = vi.fn()
+    render(<PickWhipHarness onRender={onRender} />)
+    const sourceRow = screen.getByTestId('source-row')
+    const hitTest = vi.fn(() => sourceRow)
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: hitTest,
+    })
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Target X' }), {
+      button: 0,
+      pointerId: 17,
+      clientX: 0,
+      clientY: 0,
+    })
+    const renderCountAfterBegin = onRender.mock.calls.length
+
+    fireEvent.pointerMove(window, { pointerId: 17, clientX: 8, clientY: 8 })
+    fireEvent.pointerMove(window, { pointerId: 17, clientX: 16, clientY: 16 })
+    fireEvent.pointerMove(window, { pointerId: 17, clientX: 24, clientY: 24 })
+
+    expect(animationFrames).toHaveLength(1)
+    expect(hitTest).not.toHaveBeenCalled()
+    expect(onRender).toHaveBeenCalledTimes(renderCountAfterBegin)
+
+    act(() => animationFrames.shift()?.(16))
+
+    expect(hitTest).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('active-pick-whip').querySelector('circle')?.getAttribute('cx')).toBe(
+      '24',
+    )
+    expect(onRender).toHaveBeenCalledTimes(renderCountAfterBegin)
+
+    fireEvent.pointerUp(window, { pointerId: 17, clientX: 24, clientY: 24 })
+    Reflect.deleteProperty(document, 'elementFromPoint')
+    requestFrame.mockRestore()
+    cancelFrame.mockRestore()
   })
 
   it('accepts Shape scalar rows as link sources', () => {
@@ -198,15 +244,18 @@ describe('usePropertyLinkPickWhip', () => {
       clientX: 16,
       clientY: 26,
     })
-    expect(screen.getByTestId('active-pick-whip').dataset.startY).toBe('26')
-    expect(screen.getByTestId('active-pick-whip').dataset.clipTop).toBe('12')
-    expect(screen.getByTestId('active-pick-whip').dataset.clipBottom).toBe('312')
+    expect(
+      screen.getByTestId('active-pick-whip').querySelector('path')?.getAttribute('d'),
+    ).toMatch(/^M 16 26 /)
+    expect(screen.getByTestId('active-pick-whip').getAttribute('viewBox')).toBe('4 12 500 300')
 
     top = 68
     fireEvent.scroll(button.parentElement!)
 
     await waitFor(() => {
-      expect(screen.getByTestId('active-pick-whip').dataset.startY).toBe('74')
+      expect(
+        screen.getByTestId('active-pick-whip').querySelector('path')?.getAttribute('d'),
+      ).toMatch(/^M 16 74 /)
     })
     fireEvent.pointerUp(window, { pointerId: 11, clientX: 16, clientY: 26 })
     Reflect.deleteProperty(document, 'elementFromPoint')
@@ -251,9 +300,12 @@ describe('usePropertyLinkPickWhip', () => {
       clientY: 150,
     })
     fireEvent.pointerMove(window, { pointerId: 12, clientX: 100, clientY: 292 })
-    expect(animationFrames).toHaveLength(1)
+    expect(animationFrames).toHaveLength(2)
 
-    act(() => animationFrames.shift()?.(16))
+    act(() => {
+      const currentFrame = animationFrames.splice(0)
+      for (const callback of currentFrame) callback(16)
+    })
 
     expect(scrollArea.scrollTop).toBeGreaterThan(100)
     fireEvent.pointerUp(window, { pointerId: 12, clientX: 100, clientY: 292 })

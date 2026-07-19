@@ -20,6 +20,21 @@ interface MotionPickWhipCandidate<TValue> {
   value: TValue
 }
 
+export interface MotionPickWhipOverlaySnapshot {
+  startX: number
+  startY: number
+  currentX: number
+  currentY: number
+  valid: boolean
+  clipBounds: MotionPickWhipClipBounds
+}
+
+export interface MotionPickWhipPresentation {
+  current: MotionPickWhipOverlaySnapshot
+  publish: (snapshot: MotionPickWhipOverlaySnapshot) => void
+  subscribe: (listener: (snapshot: MotionPickWhipOverlaySnapshot) => void) => () => void
+}
+
 export interface MotionPickWhipModifiers {
   shiftKey: boolean
   altKey: boolean
@@ -37,6 +52,7 @@ interface MotionPickWhipDragState<TOrigin, TCandidate> {
   moved: boolean
   candidate: MotionPickWhipCandidate<TCandidate> | null
   clipBounds: MotionPickWhipClipBounds
+  presentation: MotionPickWhipPresentation
 }
 
 interface UseMotionPickWhipDragOptions<TOrigin, TCandidate> {
@@ -97,6 +113,38 @@ function getClipBounds(root: HTMLElement): MotionPickWhipClipBounds {
   return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }
 }
 
+function createPresentation(
+  initialSnapshot: MotionPickWhipOverlaySnapshot,
+): MotionPickWhipPresentation {
+  const listeners = new Set<(snapshot: MotionPickWhipOverlaySnapshot) => void>()
+  const presentation: MotionPickWhipPresentation = {
+    current: initialSnapshot,
+    publish: (snapshot) => {
+      presentation.current = snapshot
+      for (const listener of listeners) listener(snapshot)
+    },
+    subscribe: (listener) => {
+      listeners.add(listener)
+      listener(presentation.current)
+      return () => listeners.delete(listener)
+    },
+  }
+  return presentation
+}
+
+function getOverlaySnapshot<TOrigin, TCandidate>(
+  drag: MotionPickWhipDragState<TOrigin, TCandidate>,
+): MotionPickWhipOverlaySnapshot {
+  return {
+    startX: drag.startX,
+    startY: drag.startY,
+    currentX: drag.currentX,
+    currentY: drag.currentY,
+    valid: Boolean(drag.candidate),
+    clipBounds: drag.clipBounds,
+  }
+}
+
 export function useMotionPickWhipDrag<TOrigin, TCandidate>(
   options: UseMotionPickWhipDragOptions<TOrigin, TCandidate>,
 ) {
@@ -107,7 +155,8 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
   const hoverRef = useRef<HTMLElement | null>(null)
   const originElementRef = useRef<HTMLElement | null>(null)
   const clipRootRef = useRef<HTMLElement | null>(null)
-  const layoutFrameRef = useRef<number | null>(null)
+  const presentationFrameRef = useRef<number | null>(null)
+  const layoutRefreshPendingRef = useRef(false)
   const autoScrollFrameRef = useRef<number | null>(null)
   const autoScrollTimeRef = useRef<number | null>(null)
 
@@ -120,16 +169,27 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
       )
     if (!clipRoot) return
     const rect = event.currentTarget.getBoundingClientRect()
+    const clipBounds = getClipBounds(clipRoot)
+    const startX = rect.left + rect.width / 2
+    const startY = rect.top + rect.height / 2
     const next: MotionPickWhipDragState<TOrigin, TCandidate> = {
       pointerId: event.pointerId,
       origin,
-      startX: rect.left + rect.width / 2,
-      startY: rect.top + rect.height / 2,
+      startX,
+      startY,
       currentX: event.clientX,
       currentY: event.clientY,
       moved: false,
       candidate: null,
-      clipBounds: getClipBounds(clipRoot),
+      clipBounds,
+      presentation: createPresentation({
+        startX,
+        startY,
+        currentX: event.clientX,
+        currentY: event.clientY,
+        valid: false,
+        clipBounds,
+      }),
     }
     originElementRef.current = event.currentTarget
     clipRootRef.current = clipRoot
@@ -140,38 +200,50 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
   useEffect(() => {
     const clearHover = () =>
       updateHover(hoverRef, null, optionsRef.current.hoverAttribute)
-    const cancelLayoutRefresh = () => {
-      if (layoutFrameRef.current === null) return
-      window.cancelAnimationFrame(layoutFrameRef.current)
-      layoutFrameRef.current = null
+    const cancelPresentation = () => {
+      if (presentationFrameRef.current !== null) {
+        window.cancelAnimationFrame(presentationFrameRef.current)
+        presentationFrameRef.current = null
+      }
+      layoutRefreshPendingRef.current = false
     }
-    const refreshFromLayout = () => {
-      layoutFrameRef.current = null
+    const presentDrag = () => {
+      presentationFrameRef.current = null
       const current = dragRef.current
-      const originElement = originElementRef.current
-      const clipRoot = clipRootRef.current
-      if (!current || !originElement?.isConnected || !clipRoot?.isConnected) return
+      if (!current) return
       const candidate = optionsRef.current.resolveCandidate(
         current.currentX,
         current.currentY,
         current.origin,
       )
       updateHover(hoverRef, candidate?.row ?? null, optionsRef.current.hoverAttribute)
-      const rect = originElement.getBoundingClientRect()
-      const next = {
+      let next: MotionPickWhipDragState<TOrigin, TCandidate> = {
         ...current,
-        startX: rect.left + rect.width / 2,
-        startY: rect.top + rect.height / 2,
         candidate,
-        clipBounds: getClipBounds(clipRoot),
+      }
+      if (layoutRefreshPendingRef.current) {
+        const originElement = originElementRef.current
+        const clipRoot = clipRootRef.current
+        layoutRefreshPendingRef.current = false
+        if (!originElement?.isConnected || !clipRoot?.isConnected) return
+        const rect = originElement.getBoundingClientRect()
+        next = {
+          ...next,
+          startX: rect.left + rect.width / 2,
+          startY: rect.top + rect.height / 2,
+          clipBounds: getClipBounds(clipRoot),
+        }
       }
       dragRef.current = next
-      setDrag(next)
+      next.presentation.publish(getOverlaySnapshot(next))
     }
-    const scheduleLayoutRefresh = () => {
-      if (!dragRef.current || layoutFrameRef.current !== null) return
-      layoutFrameRef.current = window.requestAnimationFrame(refreshFromLayout)
+    const schedulePresentation = (refreshLayout = false) => {
+      if (!dragRef.current) return
+      if (refreshLayout) layoutRefreshPendingRef.current = true
+      if (presentationFrameRef.current !== null) return
+      presentationFrameRef.current = window.requestAnimationFrame(presentDrag)
     }
+    const scheduleLayoutRefresh = () => schedulePresentation(true)
     const cancelAutoScroll = () => {
       if (autoScrollFrameRef.current !== null) {
         window.cancelAnimationFrame(autoScrollFrameRef.current)
@@ -227,12 +299,6 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
     const move = (event: PointerEvent) => {
       const current = dragRef.current
       if (!current || current.pointerId !== event.pointerId) return
-      const candidate = optionsRef.current.resolveCandidate(
-        event.clientX,
-        event.clientY,
-        current.origin,
-      )
-      updateHover(hoverRef, candidate?.row ?? null, optionsRef.current.hoverAttribute)
       const next = {
         ...current,
         currentX: event.clientX,
@@ -240,24 +306,31 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
         moved:
           current.moved ||
           Math.hypot(event.clientX - current.startX, event.clientY - current.startY) >= 3,
-        candidate,
       }
       dragRef.current = next
-      setDrag(next)
+      schedulePresentation()
       updateAutoScroll()
     }
     const finish = (event: PointerEvent, commit: boolean) => {
       const current = dragRef.current
       if (!current || current.pointerId !== event.pointerId) return
+      const candidate =
+        commit && current.moved
+          ? optionsRef.current.resolveCandidate(
+              event.clientX,
+              event.clientY,
+              current.origin,
+            )
+          : null
       clearHover()
-      cancelLayoutRefresh()
+      cancelPresentation()
       cancelAutoScroll()
       dragRef.current = null
       originElementRef.current = null
       clipRootRef.current = null
       setDrag(null)
-      if (!commit || !current.moved || !current.candidate) return
-      optionsRef.current.onCommit(current.origin, current.candidate.value, {
+      if (!candidate) return
+      optionsRef.current.onCommit(current.origin, candidate.value, {
         shiftKey: event.shiftKey,
         altKey: event.altKey,
         ctrlKey: event.ctrlKey,
@@ -269,7 +342,7 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
     const keyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !dragRef.current) return
       clearHover()
-      cancelLayoutRefresh()
+      cancelPresentation()
       cancelAutoScroll()
       dragRef.current = null
       originElementRef.current = null
@@ -285,7 +358,7 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
     window.addEventListener('resize', scheduleLayoutRefresh)
     return () => {
       clearHover()
-      cancelLayoutRefresh()
+      cancelPresentation()
       cancelAutoScroll()
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', pointerUp)

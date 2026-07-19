@@ -88,6 +88,7 @@ export function usePropertyLinkPickWhip() {
         sourceItemId: genericDrag.candidate?.value.itemId ?? null,
         sourceProperty: genericDrag.candidate?.value.property ?? null,
         clipBounds: genericDrag.clipBounds,
+        presentation: genericDrag.presentation,
       }
     : null
 

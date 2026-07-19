@@ -43,4 +43,3 @@ export function resolveSubCompRenderDataForInstance(
   rctx.instanceSubCompRenderDataCache?.set(item.id, { source, overrides, resolved })
   return resolved
 }
-

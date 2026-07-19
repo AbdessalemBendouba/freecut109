@@ -25,4 +25,3 @@ export interface CompositionControlSchemaV1 {
 
 export type CompositionControlSchema = CompositionControlSchemaV1
 export type CompositionControlOverrides = Record<string, string>
-

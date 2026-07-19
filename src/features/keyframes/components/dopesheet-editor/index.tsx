@@ -4179,10 +4179,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         {expressionDockElement}
         {expressionReferenceDrag ? (
           <PickWhipOverlay
-            drag={{
-              ...expressionReferenceDrag,
-              valid: Boolean(expressionReferenceDrag.candidate),
-            }}
+            presentation={expressionReferenceDrag.presentation}
             testId="expression-reference-pick-whip"
           />
         ) : null}
@@ -4430,7 +4427,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       </div>
       {expressionReferenceDrag ? (
         <PickWhipOverlay
-          drag={{ ...expressionReferenceDrag, valid: Boolean(expressionReferenceDrag.candidate) }}
+          presentation={expressionReferenceDrag.presentation}
           testId="expression-reference-pick-whip"
         />
       ) : null}

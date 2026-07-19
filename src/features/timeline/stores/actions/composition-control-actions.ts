@@ -17,7 +17,6 @@ export interface AddCompositionControlInput {
   kind: CompositionControlKind
   defaultValue: string
 }
-
 function getCompositionControlSource(compositionId: string) {
   const composition = useCompositionsStore.getState().getComposition(compositionId)
   if (!composition || composition.editorKind !== 'composite-2d') return null
@@ -124,4 +123,3 @@ export function removeCompositionControl(compositionId: string, controlId: strin
     { compositionId, controlId },
   )
 }
-

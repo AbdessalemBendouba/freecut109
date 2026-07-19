@@ -220,12 +220,14 @@ export function CompactNavigator({
         thumbRef.current.style.width = `${previewMetrics.thumbWidth}px`
       }
       pendingPreviewViewportRef.current = nextViewport
-      if (onViewportPreview && previewAnimationFrameRef.current === null) {
+      if (previewAnimationFrameRef.current === null) {
         previewAnimationFrameRef.current = requestAnimationFrame(() => {
           previewAnimationFrameRef.current = null
           const pendingViewport = pendingPreviewViewportRef.current
           pendingPreviewViewportRef.current = null
-          if (pendingViewport) onViewportPreview(pendingViewport)
+          if (!pendingViewport) return
+          if (onViewportPreview) onViewportPreview(pendingViewport)
+          else onViewportChange(pendingViewport)
         })
       }
     }

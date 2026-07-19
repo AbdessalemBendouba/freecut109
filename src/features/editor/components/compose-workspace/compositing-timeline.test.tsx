@@ -441,6 +441,81 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     animationFrameSpy.mockRestore()
   })
 
+  it('auto-pans the zoomed Motion viewport while the playhead is held near an edge', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const settleCallbacks: Array<() => void> = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation((callback, delay) => {
+      if (delay === 100 && typeof callback === 'function') settleCallbacks.push(callback)
+      return settleCallbacks.length as unknown as ReturnType<typeof window.setTimeout>
+    })
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(300)
+
+    render(<CompositingTimeline />)
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+    const navigator = screen.getByTestId('motion-time-navigator')
+
+    fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
+    act(() => settleCallbacks[0]?.())
+    expect(navigator).toHaveAttribute('data-start-frame', '8')
+    expect(navigator).toHaveAttribute('data-end-frame', '104')
+    frameCallbacks.length = 0
+    timeoutSpy.mockRestore()
+
+    const ruler = document.querySelector<HTMLElement>('[data-motion-ruler-surface]')!
+    vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 28,
+      width: 300,
+      height: 28,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(ruler, { pointerId: 4, button: 0, clientX: 300 })
+    expect(frameCallbacks).toHaveLength(1)
+    act(() => frameCallbacks.shift()?.(16))
+    const firstAutoPanStart = Number(navigator.dataset.startFrame)
+    const playhead = screen.getByTestId('motion-playhead')
+    expect(firstAutoPanStart).toBeGreaterThan(8)
+    expect(playhead).not.toHaveAttribute('hidden')
+    expect(playhead).toHaveStyle({ transform: 'translate3d(299px, 0, 0)' })
+    expect(frameCallbacks).toHaveLength(1)
+
+    act(() => frameCallbacks.shift()?.(32))
+    expect(Number(navigator.dataset.startFrame)).toBeGreaterThan(firstAutoPanStart)
+    expect(playhead).not.toHaveAttribute('hidden')
+    expect(playhead).toHaveStyle({ transform: 'translate3d(299px, 0, 0)' })
+    expect(frameCallbacks).toHaveLength(1)
+
+    fireEvent.pointerUp(ruler, { pointerId: 4, clientX: 300 })
+    expect(Number(navigator.dataset.startFrame)).toBeGreaterThan(8)
+    expect(usePlaybackStore.getState().previewFrame).toBeNull()
+    clientWidthSpy.mockRestore()
+    animationFrameSpy.mockRestore()
+  })
+
   it('keeps expanded property editors render-idle until a scrub settles', () => {
     useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 0, 100)
     useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 60, 300)
@@ -1458,7 +1533,7 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(parentSelect).toHaveTextContent('None')
   })
 
-  it('parents by dragging the Parent pick whip and detaches with Ctrl-click', () => {
+  it('parents by dragging the Parent pick whip and detaches with Ctrl-click', async () => {
     const nullTrack = makeTimelineTrack({
       id: 'null-track',
       name: 'Null Object',
@@ -1491,7 +1566,9 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     fireEvent.pointerDown(pickWhip, { button: 0, pointerId: 41, clientX: 0, clientY: 0 })
     expect(screen.getByTestId('transform-parent-pick-whip')).toBeInTheDocument()
     fireEvent.pointerMove(window, { pointerId: 41, clientX: 32, clientY: 24 })
-    expect(parentRow).toHaveAttribute('data-transform-parent-link-hover', 'true')
+    await waitFor(() => {
+      expect(parentRow).toHaveAttribute('data-transform-parent-link-hover', 'true')
+    })
     fireEvent.pointerUp(window, { pointerId: 41, clientX: 32, clientY: 24 })
 
     expect(useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId).toBe(

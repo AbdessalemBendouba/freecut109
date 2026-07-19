@@ -94,4 +94,3 @@ describe('resolveSubCompRenderDataForInstance', () => {
     expect(third?.itemsById?.get('title')).toMatchObject({ text: 'Instance B' })
   })
 })
-

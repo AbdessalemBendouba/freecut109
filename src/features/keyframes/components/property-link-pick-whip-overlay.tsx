@@ -1,4 +1,5 @@
 import { PickWhipOverlay } from '@/shared/ui/pick-whip-overlay'
+import type { MotionPickWhipPresentation } from '@/shared/hooks/use-pick-whip-drag'
 
 interface PropertyLinkDragState {
   startX: number
@@ -12,13 +13,11 @@ interface PropertyLinkDragState {
     right: number
     bottom: number
   }
+  presentation: MotionPickWhipPresentation
 }
 
 export function PropertyLinkPickWhipOverlay({ drag }: { drag: PropertyLinkDragState }) {
   return (
-    <PickWhipOverlay
-      drag={{ ...drag, valid: Boolean(drag.sourceItemId) }}
-      testId="property-link-pick-whip"
-    />
+    <PickWhipOverlay presentation={drag.presentation} testId="property-link-pick-whip" />
   )
 }

@@ -103,6 +103,42 @@ describe('CompactNavigator', () => {
     animationFrameSpy.mockRestore()
   })
 
+  it('falls back to live viewport changes when no preview callback is provided', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(400)
+    const onViewportChange = vi.fn()
+
+    render(
+      <CompactNavigator
+        viewport={{ startFrame: 0, endFrame: 50 }}
+        currentFrame={0}
+        contentFrameMax={100}
+        minVisibleFrames={10}
+        onViewportChange={onViewportChange}
+      />,
+    )
+
+    fireEvent.mouseDown(screen.getByTestId('keyframe-navigator-thumb'), { clientX: 0 })
+    fireEvent.mouseMove(window, { clientX: 30 })
+
+    expect(onViewportChange).not.toHaveBeenCalled()
+    expect(frameCallbacks).toHaveLength(1)
+    frameCallbacks.shift()?.(performance.now())
+    expect(onViewportChange).toHaveBeenCalledTimes(1)
+
+    fireEvent.mouseUp(window)
+    clientWidthSpy.mockRestore()
+    animationFrameSpy.mockRestore()
+  })
+
   it('holds the final thumb geometry until a deferred viewport commit arrives', () => {
     const clientWidthSpy = vi
       .spyOn(HTMLElement.prototype, 'clientWidth', 'get')

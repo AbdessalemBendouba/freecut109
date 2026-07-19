@@ -111,6 +111,7 @@ export function useTransformParentPickWhip(canvas: CanvasSettings) {
         currentY: genericDrag.currentY,
         sourceItemId: genericDrag.candidate?.value.parentItemId ?? null,
         clipBounds: genericDrag.clipBounds,
+        presentation: genericDrag.presentation,
       }
     : null
 

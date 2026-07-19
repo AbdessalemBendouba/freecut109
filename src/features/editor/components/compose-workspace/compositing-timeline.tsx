@@ -196,6 +196,8 @@ const TIMELINE_CONTENT_LEFT = LAYER_COLUMN_WIDTH + 1
 const RULER_HEIGHT = 28
 const LAYER_ROW_HEIGHT = 34
 const RULER_DIVISIONS = 10
+const PLAYHEAD_EDGE_SCROLL_ZONE_PX = 48
+const PLAYHEAD_EDGE_SCROLL_MAX_PX_PER_SECOND = 720
 const EMPTY_LAYER_IDS: string[] = []
 const NO_TRANSFORM_PARENT = '__none__'
 const POSITION_VECTOR_ROW = MOTION_VECTOR_ROW_DEFINITIONS.find(
@@ -2761,6 +2763,27 @@ function getMotionTimelinePanDelta(event: WheelEvent): number | null {
   return event.deltaX
 }
 
+function getMotionPlayheadEdgeScrollVelocity(
+  clientX: number,
+  bounds: Pick<DOMRect, 'left' | 'right'>,
+): number {
+  const leftDepth = PLAYHEAD_EDGE_SCROLL_ZONE_PX - (clientX - bounds.left)
+  if (leftDepth > 0) {
+    return (
+      -PLAYHEAD_EDGE_SCROLL_MAX_PX_PER_SECOND *
+      Math.min(1, leftDepth / PLAYHEAD_EDGE_SCROLL_ZONE_PX)
+    )
+  }
+  const rightDepth = PLAYHEAD_EDGE_SCROLL_ZONE_PX - (bounds.right - clientX)
+  if (rightDepth > 0) {
+    return (
+      PLAYHEAD_EDGE_SCROLL_MAX_PX_PER_SECOND *
+      Math.min(1, rightDepth / PLAYHEAD_EDGE_SCROLL_ZONE_PX)
+    )
+  }
+  return 0
+}
+
 function panMotionTimeViewport(
   viewport: MotionTimeViewport,
   panPixels: number,
@@ -2960,10 +2983,13 @@ export const CompositingTimeline = memo(function CompositingTimeline({
   const wheelMotionViewportAnimationFrameRef = useRef<number | null>(null)
   const wheelMotionViewportCommitTimerRef = useRef<number | null>(null)
   const middlePanRef = useRef<MotionMiddlePanState | null>(null)
-  const pendingScrubFrameRef = useRef<number | null>(null)
   const latestScrubFrameRef = useRef<number | null>(null)
   const scrubAnimationFrameRef = useRef<number | null>(null)
+  const scrubAnimationTimeRef = useRef<number | null>(null)
   const playheadScrubPointerIdRef = useRef<number | null>(null)
+  const playheadScrubClientXRef = useRef<number | null>(null)
+  const playheadScrubSurfaceRef = useRef<HTMLDivElement | null>(null)
+  const playheadScrubViewportRef = useRef<MotionTimeViewport | null>(null)
   const viewportCompositionIdRef = useRef<string | null>(null)
   const activeCompositionId = useCompositionNavigationStore((state) => state.activeCompositionId)
   const compositions = useCompositionsStore((state) => state.compositions)
@@ -3191,7 +3217,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     }
   }, [clearMotionTimeViewportPreview])
   const previewMotionTimeViewport = useCallback(
-    (viewport: MotionTimeViewport | null) => {
+    (viewport: MotionTimeViewport | null, scrubPlayheadProgress?: number) => {
       if (!viewport) {
         clearMotionTimeViewportPreview()
         return
@@ -3226,8 +3252,20 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       if (preview.playhead) {
         const playback = usePlaybackStore.getState()
         const frame = playback.previewFrame ?? playback.currentFrame
-        preview.playhead.element.hidden = frame < viewport.startFrame || frame > viewport.endFrame
-        preview.playhead.element.style.transform = `translate3d(${((frame - viewport.startFrame) / nextRange) * preview.playhead.width}px, 0, 0)`
+        const isScrubbing = scrubPlayheadProgress !== undefined
+        preview.playhead.element.hidden = isScrubbing
+          ? false
+          : frame < viewport.startFrame || frame > viewport.endFrame
+        const playheadX = isScrubbing
+          ? Math.max(
+              0,
+              Math.min(
+                Math.max(0, preview.playhead.width - 1),
+                Math.max(0, Math.min(1, scrubPlayheadProgress)) * preview.playhead.width,
+              ),
+            )
+          : ((frame - viewport.startFrame) / nextRange) * preview.playhead.width
+        preview.playhead.element.style.transform = `translate3d(${playheadX}px, 0, 0)`
       }
       for (const label of preview.rulerLabels) {
         const frame = Math.round(
@@ -4493,22 +4531,82 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     setDropActive(false)
   }, [])
 
-  const frameFromPointer = useCallback(
-    (event: React.PointerEvent<HTMLDivElement>) => {
-      const rect = event.currentTarget.getBoundingClientRect()
+  const frameFromClientX = useCallback(
+    (clientX: number, surface: HTMLDivElement, viewport: MotionTimeViewport) => {
+      const rect = surface.getBoundingClientRect()
       if (rect.width <= 0) return null
+      const frameRange = Math.max(1, viewport.endFrame - viewport.startFrame)
       return Math.max(
         0,
         Math.min(
           durationInFrames - 1,
           Math.round(
-            timeViewport.startFrame +
-              ((event.clientX - rect.left) / rect.width) * visibleFrameRange,
+            viewport.startFrame + ((clientX - rect.left) / rect.width) * frameRange,
           ),
         ),
       )
     },
-    [durationInFrames, timeViewport.startFrame, visibleFrameRange],
+    [durationInFrames],
+  )
+
+  const runPlayheadScrubLoop = useCallback(
+    (timestamp: number) => {
+      scrubAnimationFrameRef.current = null
+      const pointerId = playheadScrubPointerIdRef.current
+      const clientX = playheadScrubClientXRef.current
+      const surface = playheadScrubSurfaceRef.current
+      let viewport = playheadScrubViewportRef.current
+      if (pointerId === null || clientX === null || !surface || !viewport) return
+
+      const rect = surface.getBoundingClientRect()
+      const visibleRange = Math.max(1, viewport.endFrame - viewport.startFrame)
+      const velocity =
+        visibleRange < durationInFrames
+          ? getMotionPlayheadEdgeScrollVelocity(clientX, rect)
+          : 0
+      let keepScrolling = false
+      if (velocity !== 0 && rect.width > 0) {
+        const previousTimestamp = scrubAnimationTimeRef.current ?? timestamp - 1000 / 60
+        const elapsedSeconds =
+          Math.min(32, Math.max(0, timestamp - previousTimestamp)) / 1000
+        scrubAnimationTimeRef.current = timestamp
+        const nextViewport = panMotionTimeViewport(
+          viewport,
+          velocity * elapsedSeconds,
+          rect.width,
+          durationInFrames,
+        )
+        if (
+          nextViewport.startFrame !== viewport.startFrame ||
+          nextViewport.endFrame !== viewport.endFrame
+        ) {
+          viewport = nextViewport
+          playheadScrubViewportRef.current = nextViewport
+          keepScrolling = true
+        }
+      } else {
+        scrubAnimationTimeRef.current = null
+      }
+
+      const frame = frameFromClientX(clientX, surface, viewport)
+      if (frame !== null && frame !== latestScrubFrameRef.current) {
+        latestScrubFrameRef.current = frame
+        setPreviewFrame(frame)
+      }
+      if (viewport !== timeViewportRef.current) {
+        // Keep the drag visual locked to the pointer. The preview frame remains
+        // integer-quantized, which otherwise produces a visible sawtooth while
+        // the viewport itself advances by fractional frames.
+        const playheadProgress =
+          rect.width > 0 ? (clientX - rect.left) / rect.width : undefined
+        previewMotionTimeViewport(viewport, playheadProgress)
+      }
+
+      if (keepScrolling) {
+        scrubAnimationFrameRef.current = requestAnimationFrame(runPlayheadScrubLoop)
+      }
+    },
+    [durationInFrames, frameFromClientX, previewMotionTimeViewport, setPreviewFrame],
   )
 
   const handleMotionTimelineWheel = useCallback(
@@ -4625,33 +4723,32 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (event.button !== 0) return
       playheadScrubPointerIdRef.current = event.pointerId
+      playheadScrubClientXRef.current = event.clientX
+      playheadScrubSurfaceRef.current = event.currentTarget
+      playheadScrubViewportRef.current = timeViewportRef.current
+      scrubAnimationTimeRef.current = null
       event.currentTarget.setPointerCapture?.(event.pointerId)
       pause()
-      const frame = frameFromPointer(event)
+      const frame = frameFromClientX(event.clientX, event.currentTarget, timeViewportRef.current)
       if (frame !== null) {
         latestScrubFrameRef.current = frame
         setPreviewFrame(frame)
       }
+      if (scrubAnimationFrameRef.current === null) {
+        scrubAnimationFrameRef.current = requestAnimationFrame(runPlayheadScrubLoop)
+      }
     },
-    [frameFromPointer, pause, setPreviewFrame],
+    [frameFromClientX, pause, runPlayheadScrubLoop, setPreviewFrame],
   )
 
   const movePlayheadScrub = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (playheadScrubPointerIdRef.current !== event.pointerId) return
-      const frame = frameFromPointer(event)
-      if (frame === null) return
-      latestScrubFrameRef.current = frame
-      pendingScrubFrameRef.current = frame
+      playheadScrubClientXRef.current = event.clientX
       if (scrubAnimationFrameRef.current !== null) return
-      scrubAnimationFrameRef.current = requestAnimationFrame(() => {
-        scrubAnimationFrameRef.current = null
-        const pendingFrame = pendingScrubFrameRef.current
-        pendingScrubFrameRef.current = null
-        if (pendingFrame !== null) setPreviewFrame(pendingFrame)
-      })
+      scrubAnimationFrameRef.current = requestAnimationFrame(runPlayheadScrubLoop)
     },
-    [frameFromPointer, setPreviewFrame],
+    [runPlayheadScrubLoop],
   )
 
   const endPlayheadScrub = useCallback(
@@ -4662,16 +4759,30 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         cancelAnimationFrame(scrubAnimationFrameRef.current)
         scrubAnimationFrameRef.current = null
       }
-      const finalFrame = latestScrubFrameRef.current
-      pendingScrubFrameRef.current = null
+      const surface = playheadScrubSurfaceRef.current
+      const finalViewport = playheadScrubViewportRef.current ?? timeViewportRef.current
+      const pointerFrame = surface && event.type !== 'pointercancel'
+        ? frameFromClientX(event.clientX, surface, finalViewport)
+        : null
+      const finalFrame = pointerFrame ?? latestScrubFrameRef.current
       latestScrubFrameRef.current = null
+      scrubAnimationTimeRef.current = null
+      playheadScrubClientXRef.current = null
+      playheadScrubSurfaceRef.current = null
+      playheadScrubViewportRef.current = null
       if (finalFrame !== null) setScrubFrame(finalFrame)
       setPreviewFrame(null)
+      if (
+        finalViewport.startFrame !== timeViewportRef.current.startFrame ||
+        finalViewport.endFrame !== timeViewportRef.current.endFrame
+      ) {
+        commitMotionTimeViewport(finalViewport)
+      }
       if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
         event.currentTarget.releasePointerCapture?.(event.pointerId)
       }
     },
-    [setPreviewFrame, setScrubFrame],
+    [commitMotionTimeViewport, frameFromClientX, setPreviewFrame, setScrubFrame],
   )
 
   useEffect(
@@ -4679,6 +4790,10 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       if (scrubAnimationFrameRef.current !== null) {
         cancelAnimationFrame(scrubAnimationFrameRef.current)
       }
+      scrubAnimationTimeRef.current = null
+      playheadScrubClientXRef.current = null
+      playheadScrubSurfaceRef.current = null
+      playheadScrubViewportRef.current = null
       setPreviewFrame(null)
     },
     [setPreviewFrame],
