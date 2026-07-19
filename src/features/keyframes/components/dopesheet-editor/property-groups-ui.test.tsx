@@ -2,6 +2,7 @@ import { useState, type ComponentProps } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { DopesheetEditor } from './index'
+import { EXPRESSION_DOCK_HEIGHT } from './dopesheet-expression-dock'
 
 describe('DopesheetEditor property groups', () => {
   beforeAll(() => {
@@ -30,6 +31,15 @@ describe('DopesheetEditor property groups', () => {
         {...overrides}
       />,
     )
+  }
+
+  async function openExpressionEditor(propertyLabel: string): Promise<void> {
+    fireEvent.click(
+      screen.getByRole('button', { name: new RegExp(`add ${propertyLabel} expression`, 'i') }),
+    )
+    await screen.findByRole('textbox', {
+      name: new RegExp(`${propertyLabel} expression source`, 'i'),
+    })
   }
 
   it('renders accordion-style groups and collapses their rows', () => {
@@ -146,7 +156,7 @@ describe('DopesheetEditor property groups', () => {
     expect(onPropertyLinkPointerDown).toHaveBeenCalledWith(expect.anything(), 'x')
   })
 
-  it('edits, validates, enables, and applies a sandboxed expression', () => {
+  it('edits, validates, enables, and applies a sandboxed expression', async () => {
     const onSetPropertyExpression = vi.fn()
     renderEditor({
       keyframesByProperty: { x: [] },
@@ -156,25 +166,169 @@ describe('DopesheetEditor property groups', () => {
       onRemovePropertyExpression: vi.fn(),
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /add x position expression/i }))
+    await openExpressionEditor('X Position')
     const editor = screen.getByRole('textbox', {
       name: /x position expression source/i,
     }) as HTMLTextAreaElement
+    expect(screen.getByText('Advanced')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'X Position expression editor' })).toBeInTheDocument()
     expect(screen.getByText('Pre-expression').parentElement).toHaveTextContent('100.00')
-    expect(screen.getByText('Post-expression').parentElement).toHaveTextContent('200.00')
+    expect(screen.getByText('Post-expression').parentElement).toHaveTextContent('100.00')
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Expression presets' }), {
+      target: { value: 'value + sin(time * 6.283) * 20' },
+    })
+    expect(editor).toHaveValue('value + sin(time * 6.283) * 20')
 
     fireEvent.change(editor, { target: { value: 'value / 0' } })
     expect(screen.getByText('Division by zero')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled()
 
     fireEvent.change(editor, { target: { value: 'value * 2' } })
+    expect(screen.getByText('Post-expression').parentElement).toHaveTextContent('200.00')
     fireEvent.click(screen.getByRole('button', { name: 'Enabled' }))
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
 
     expect(onSetPropertyExpression).toHaveBeenCalledWith('x', 'value * 2', false)
   })
 
-  it('inserts an Expression pick-whip reference at the editor cursor', () => {
+  it('offers categorized presets and an in-dock syntax guide', async () => {
+    renderEditor({
+      keyframesByProperty: { x: [] },
+      propertyValues: { x: 100 },
+      onSetPropertyExpression: vi.fn(),
+    })
+
+    await openExpressionEditor('X Position')
+    const editor = screen.getByRole('textbox', {
+      name: /x position expression source/i,
+    }) as HTMLTextAreaElement
+    const presets = screen.getByRole('combobox', { name: 'Expression presets' })
+
+    expect(presets.querySelectorAll('optgroup')).toHaveLength(3)
+    expect(presets.querySelectorAll('option').length).toBeGreaterThan(8)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open expression syntax guide' }))
+    expect(screen.getByRole('region', { name: 'Expression syntax guide' })).toBeInTheDocument()
+    expect(screen.getByText('Current value')).toBeInTheDocument()
+    expect(screen.getByText('value', { selector: 'code' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Functions' }))
+    expect(screen.getByText('Clamp')).toBeInTheDocument()
+    expect(screen.getByText('clamp(x, min, max)')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'References' }))
+    expect(screen.getByText('prop("layer-id", "property")')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Errors' }))
+    expect(screen.getByText('Wrong value type')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Recipes' }))
+    fireEvent.click(screen.getByRole('button', { name: /gentle oscillation/i }))
+    expect(editor).toHaveValue('value + sin(time * 6.283) * 20')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close expression syntax guide' }))
+    expect(screen.queryByRole('region', { name: 'Expression syntax guide' })).toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Expression presets' })).toBeInTheDocument()
+  })
+
+  it('keeps a stored expression unchanged when its docked draft is cancelled', () => {
+    const onSetPropertyExpression = vi.fn()
+    renderEditor({
+      keyframesByProperty: { x: [] },
+      propertyValues: { x: 200 },
+      preExpressionPropertyValues: { x: 100 },
+      propertyExpressions: [
+        {
+          type: 'expression',
+          targetProperty: 'x',
+          source: 'value * 2',
+          enabled: true,
+        },
+      ],
+      onSetPropertyExpression,
+      onRemovePropertyExpression: vi.fn(),
+    })
+
+    const indicator = screen.getByRole('button', { name: /edit x position expression/i })
+    fireEvent.click(indicator)
+    fireEvent.change(screen.getByRole('textbox', { name: /x position expression source/i }), {
+      target: { value: 'value / 0' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(onSetPropertyExpression).not.toHaveBeenCalled()
+    fireEvent.click(indicator)
+    expect(screen.getByRole('textbox', { name: /x position expression source/i })).toHaveValue(
+      'value * 2',
+    )
+  })
+
+  it('reports dock height while the expression editor is open', async () => {
+    const onExpressionDockHeightChange = vi.fn()
+    renderEditor({
+      keyframesByProperty: { x: [] },
+      propertyValues: { x: 100 },
+      onSetPropertyExpression: vi.fn(),
+      onRemovePropertyExpression: vi.fn(),
+      onExpressionDockHeightChange,
+    })
+
+    await openExpressionEditor('X Position')
+    expect(onExpressionDockHeightChange).toHaveBeenLastCalledWith(EXPRESSION_DOCK_HEIGHT)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onExpressionDockHeightChange).toHaveBeenLastCalledWith(0)
+  })
+
+  it('keeps the expression button directly available and shows stored state', () => {
+    renderEditor({
+      keyframesByProperty: { x: [] },
+      propertyValues: { x: 200 },
+      preExpressionPropertyValues: { x: 100 },
+      propertyExpressions: [
+        {
+          type: 'expression',
+          targetProperty: 'x',
+          source: 'value * 2',
+          enabled: true,
+        },
+      ],
+      onSetPropertyExpression: vi.fn(),
+      onRemovePropertyExpression: vi.fn(),
+    })
+
+    expect(screen.queryByRole('button', { name: /add x position expression/i })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /edit x position expression/i }))
+    expect(screen.getByRole('textbox', { name: /x position expression source/i })).toHaveValue(
+      'value * 2',
+    )
+  })
+
+  it('surfaces a stored expression error on its indicator', () => {
+    renderEditor({
+      keyframesByProperty: { x: [] },
+      propertyValues: { x: 100 },
+      preExpressionPropertyValues: { x: 100 },
+      propertyExpressions: [
+        {
+          type: 'expression',
+          targetProperty: 'x',
+          source: 'value / 0',
+          enabled: true,
+        },
+      ],
+      onSetPropertyExpression: vi.fn(),
+      onRemovePropertyExpression: vi.fn(),
+    })
+
+    const indicator = screen.getByRole('button', {
+      name: /edit x position expression: division by zero/i,
+    })
+    expect(indicator).toHaveAttribute('title', 'X Position expression error: Division by zero')
+    expect(indicator).toHaveClass('text-red-400')
+  })
+
+  it('inserts an Expression pick-whip reference at the editor cursor', async () => {
     renderEditor({
       keyframesByProperty: { x: [], y: [] },
       propertyValues: { x: 100, y: 200 },
@@ -183,7 +337,7 @@ describe('DopesheetEditor property groups', () => {
       resolveExpressionReference: (_itemId, property) => (property === 'y' ? 200 : 100),
     })
 
-    fireEvent.click(screen.getByRole('button', { name: /add x position expression/i }))
+    await openExpressionEditor('X Position')
     const editor = screen.getByRole('textbox', {
       name: /x position expression source/i,
     }) as HTMLTextAreaElement
@@ -197,16 +351,101 @@ describe('DopesheetEditor property groups', () => {
       value: vi.fn(() => yRow),
     })
 
-    fireEvent.pointerDown(
-      screen.getByRole('button', { name: /expression pick whip for x position/i }),
-      { button: 0, pointerId: 21, clientX: 0, clientY: 0 },
-    )
+    const referenceControl = screen.getByRole('button', {
+      name: /pick a reference property for x position/i,
+    })
+
+    fireEvent.pointerDown(referenceControl, { button: 0, pointerId: 21, clientX: 0, clientY: 0 })
     expect(screen.getByTestId('expression-reference-pick-whip')).toBeInTheDocument()
     fireEvent.pointerMove(window, { pointerId: 21, clientX: 30, clientY: 30 })
     fireEvent.pointerUp(window, { pointerId: 21, clientX: 30, clientY: 30 })
 
     expect(editor).toHaveValue('value + prop("item-1", "y")')
     Reflect.deleteProperty(document, 'elementFromPoint')
+  })
+
+  it('inserts a reference by clicking a highlighted property and cancels picking with Escape', async () => {
+    renderEditor({
+      keyframesByProperty: { x: [], y: [], width: [], height: [] },
+      propertyValues: { x: 100, y: 200, width: 100, height: 100 },
+      hiddenPropertyRows: ['height'],
+      compoundPropertyRows: {
+        width: {
+          label: 'Scale',
+          value: { x: 100, y: 100 },
+          preExpressionValue: { x: 100, y: 100 },
+          unit: '%',
+          linkProperty: 'scale',
+          onCommit: vi.fn(),
+        },
+      },
+      onSetPropertyExpression: vi.fn(),
+      onRemovePropertyExpression: vi.fn(),
+      resolveExpressionReference: (_itemId, property) => (property === 'y' ? 200 : 100),
+    })
+
+    await openExpressionEditor('X Position')
+    const editor = screen.getByRole('textbox', {
+      name: /x position expression source/i,
+    }) as HTMLTextAreaElement
+    fireEvent.change(editor, { target: { value: 'value + ' } })
+    editor.setSelectionRange(8, 8)
+
+    const referenceControl = screen.getByRole('button', {
+      name: /pick a reference property for x position/i,
+    })
+    const xRow = screen
+      .getByText('X Position')
+      .closest<HTMLElement>('[data-expression-item-id][data-expression-property]')!
+    const yRow = screen
+      .getByText('Y Position')
+      .closest<HTMLElement>('[data-expression-item-id][data-expression-property]')!
+    const scaleRow = screen
+      .getByText('Scale', { exact: true })
+      .closest<HTMLElement>('[data-expression-item-id][data-expression-property]')!
+
+    fireEvent.click(referenceControl)
+    expect(screen.getByText(/click a highlighted row/i)).toBeInTheDocument()
+    expect(xRow).toHaveAttribute('data-expression-reference-unavailable', 'true')
+    expect(yRow).toHaveAttribute('data-expression-reference-pickable', 'true')
+    expect(scaleRow).toHaveAttribute('data-expression-reference-unavailable', 'true')
+
+    fireEvent.click(yRow)
+    expect(editor).toHaveValue('value + prop("item-1", "y")')
+    expect(screen.queryByText(/click a highlighted row/i)).toBeNull()
+    expect(yRow).not.toHaveAttribute('data-expression-reference-pickable')
+
+    fireEvent.click(referenceControl)
+    expect(screen.getByText(/click a highlighted row/i)).toBeInTheDocument()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.queryByText(/click a highlighted row/i)).toBeNull()
+    expect(yRow).not.toHaveAttribute('data-expression-reference-pickable')
+  })
+
+  it('replaces the untouched default value when a reference property is clicked', async () => {
+    renderEditor({
+      keyframesByProperty: { x: [], y: [] },
+      propertyValues: { x: 100, y: 200 },
+      onSetPropertyExpression: vi.fn(),
+      resolveExpressionReference: (_itemId, property) => (property === 'y' ? 200 : 100),
+    })
+
+    await openExpressionEditor('X Position')
+    const editor = screen.getByRole('textbox', {
+      name: /x position expression source/i,
+    }) as HTMLTextAreaElement
+    const referenceControl = screen.getByRole('button', {
+      name: /pick a reference property for x position/i,
+    })
+    const yRow = screen
+      .getByText('Y Position')
+      .closest<HTMLElement>('[data-expression-item-id][data-expression-property]')!
+
+    expect(editor).toHaveValue('value')
+    fireEvent.click(referenceControl)
+    fireEvent.click(yRow)
+
+    expect(editor).toHaveValue('prop("item-1", "y")')
   })
 
   it('keeps connectors when one endpoint is outside the zoomed viewport', () => {

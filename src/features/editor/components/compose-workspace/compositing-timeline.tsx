@@ -1661,6 +1661,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   const pendingCrossLayerDeltaRef = useRef<number | null>(null)
   const crossLayerPreviewFrameRef = useRef<number | null>(null)
   const [paneSize, setPaneSize] = useState({ width: 0, height: 0 })
+  const [expressionDockHeight, setExpressionDockHeight] = useState(0)
   const isNearScrollViewport = useNearMotionScrollViewport(rootRef, paneMode === 'lanes')
   const itemKeyframes = useKeyframesStore(
     useCallback((state) => state.keyframesByItemId[item.id], [item.id]),
@@ -2429,7 +2430,10 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         disabled && 'opacity-60',
       )}
       style={{
-        height: getMotionDopesheetLaneHeight(paneMode, laneContentHeight),
+        height: getMotionDopesheetLaneHeight(
+          paneMode,
+          laneContentHeight + expressionDockHeight,
+        ),
       }}
       onPointerEnter={() => setKeyframeEditorShortcutScopeActive(true)}
       onPointerLeave={() => setKeyframeEditorShortcutScopeActive(false)}
@@ -2467,6 +2471,9 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
               ? (property) => onRemovePropertyExpression(item.id, property)
               : undefined
           }
+          onExpressionDockHeightChange={
+            paneMode === 'lanes' ? setExpressionDockHeight : undefined
+          }
           propertyLinkSourceLabels={propertyLinkSourceLabels}
           onPropertyLinkPointerDown={propertyLinkHandlers.onPointerDown}
           onRemovePropertyLink={propertyLinkHandlers.onRemove}
@@ -2481,7 +2488,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           height={
             paneMode === 'graph'
               ? Math.max(120, paneSize.height)
-              : Math.max(ROW_HEIGHT, laneContentHeight)
+              : Math.max(ROW_HEIGHT, laneContentHeight + expressionDockHeight)
           }
           frameViewport={timeViewport}
           onFrameViewportChange={onTimeViewportChange}
