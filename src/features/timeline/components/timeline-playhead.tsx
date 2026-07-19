@@ -11,6 +11,11 @@ import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
 import { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub-throttle'
 import { withPerfMeasure, perfMarkRender } from '@/shared/logging/perf-marks'
 import { PlayheadMarks } from '@/shared/ui/playhead-marks'
+import {
+  getEdgeScrollDelta,
+  getPlayheadEdgeScrollVelocity,
+  getVisiblePlayheadClientX,
+} from '../utils/playhead-edge-scroll'
 
 interface TimelinePlayheadProps {
   inRuler?: boolean // If true, shows diamond indicator for ruler
@@ -60,9 +65,11 @@ export function TimelinePlayhead({
   const pixelsPerSecondRef = useRef(pixelsPerSecond)
 
   // RAF throttling refs for smooth scrubbing without excessive state updates
-  const pendingFrameRef = useRef<number | null>(null)
-  const pendingPointerXRef = useRef<number | null>(null)
   const rafIdRef = useRef<number | null>(null)
+  const scrubClientXRef = useRef<number | null>(null)
+  const scrubAnimationTimeRef = useRef<number | null>(null)
+  const scrubScrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const scrubPlayheadElementsRef = useRef<HTMLElement[]>([])
   const scrubThrottleStateRef = useRef(
     createScrubThrottleState({
       frame: usePlaybackStore.getState().currentFrame,
@@ -151,15 +158,29 @@ export function TimelinePlayhead({
       const container = inRuler
         ? playheadRef.current?.closest('.timeline-ruler')
         : playheadRef.current?.closest('.timeline-tracks')
-      const rect = container?.getBoundingClientRect()
+      const scrollContainer = playheadRef.current?.closest(
+        '.timeline-container',
+      ) as HTMLDivElement | null
+      const rect = scrollContainer?.getBoundingClientRect() ?? container?.getBoundingClientRect()
       const pointerX = rect
-        ? e.clientX - rect.left
+        ? e.clientX - rect.left + (scrollContainer?.scrollLeft ?? 0)
         : frameToPixelsRef.current(usePlaybackStore.getState().currentFrame)
+      scrubClientXRef.current = e.clientX
+      scrubAnimationTimeRef.current = null
+      scrubScrollContainerRef.current = scrollContainer
+      scrubPlayheadElementsRef.current = scrollContainer
+        ? Array.from(
+            scrollContainer.querySelectorAll<HTMLElement>('[data-timeline-playhead]'),
+          )
+        : playheadRef.current
+          ? [playheadRef.current]
+          : []
       scrubThrottleStateRef.current = createScrubThrottleState({
         pointerX,
         frame: usePlaybackStore.getState().currentFrame,
         nowMs: performance.now(),
       })
+      isDraggingRef.current = true
       setIsDragging(true)
     },
     [inRuler],
@@ -173,75 +194,107 @@ export function TimelinePlayhead({
     const originalCursor = document.body.style.cursor
     document.body.style.cursor = 'grabbing'
 
-    const handleMouseMove = (e: MouseEvent) => {
-      // Find the correct container based on where the playhead is rendered
-      // - If in ruler: use .timeline-ruler as the container
-      // - If in tracks: use .timeline-tracks as the container
-      const container = inRuler
-        ? playheadRef.current?.closest('.timeline-ruler')
-        : playheadRef.current?.closest('.timeline-tracks')
+    const runScrubLoop = (timestamp: number) => {
+      rafIdRef.current = null
+      const clientX = scrubClientXRef.current
+      if (clientX === null) return
 
-      if (!container) return
+      withPerfMeasure('tl.raf.playheadScrub', () => {
+        const scrollContainer = scrubScrollContainerRef.current
+        const bounds = scrollContainer?.getBoundingClientRect()
+        if (scrollContainer && bounds) {
+          const velocity = getPlayheadEdgeScrollVelocity(clientX, bounds)
+          const canScroll =
+            (velocity < 0 && scrollContainer.scrollLeft > 0) ||
+            (velocity > 0 &&
+              scrollContainer.scrollLeft + scrollContainer.clientWidth <
+                scrollContainer.scrollWidth)
+          if (velocity !== 0 && canScroll) {
+            const previousTimestamp = scrubAnimationTimeRef.current ?? timestamp - 1000 / 60
+            scrollContainer.scrollLeft += getEdgeScrollDelta(
+              velocity,
+              timestamp,
+              previousTimestamp,
+            )
+            scrubAnimationTimeRef.current = timestamp
+          } else {
+            scrubAnimationTimeRef.current = null
+          }
+        }
 
-      const rect = container.getBoundingClientRect()
-      const x = e.clientX - rect.left
+        const coordinateBounds =
+          scrollContainer?.getBoundingClientRect() ??
+          (inRuler
+            ? playheadRef.current?.closest('.timeline-ruler')?.getBoundingClientRect()
+            : playheadRef.current?.closest('.timeline-tracks')?.getBoundingClientRect())
+        if (!coordinateBounds) return
 
-      // Convert pixel position to frame number using ref to avoid stale closure
-      // Round to whole frames for pixel-perfect positioning
-      // Clamp to [0, maxFrame] to keep playhead within content duration
-      let frame = Math.max(0, Math.round(pixelsToFrameRef.current(x)))
-      if (maxFrameRef.current !== undefined) {
-        frame = Math.min(frame, maxFrameRef.current)
-      }
+        const scrollLeft = scrollContainer?.scrollLeft ?? 0
+        const pointerX = clientX - coordinateBounds.left + scrollLeft
+        let targetFrame = Math.max(0, Math.round(pixelsToFrameRef.current(pointerX)))
+        if (maxFrameRef.current !== undefined) {
+          targetFrame = Math.min(targetFrame, maxFrameRef.current)
+        }
 
-      // RAF throttling: batch frame updates to max 60fps to reduce state updates
-      pendingFrameRef.current = frame
-      pendingPointerXRef.current = x
-
-      if (rafIdRef.current === null) {
-        rafIdRef.current = requestAnimationFrame(() => {
-          rafIdRef.current = null
-          withPerfMeasure('tl.raf.playheadScrub', () => {
-            if (pendingFrameRef.current !== null && pendingPointerXRef.current !== null) {
-              const targetFrame = pendingFrameRef.current
-              const pointerX = pendingPointerXRef.current
-              if (
-                shouldCommitScrubFrame({
-                  state: scrubThrottleStateRef.current,
-                  pointerX,
-                  targetFrame,
-                  pixelsPerSecond: pixelsPerSecondRef.current,
-                  nowMs: performance.now(),
-                })
-              ) {
-                setScrubFrameRef.current(targetFrame)
-              }
-            }
+        if (
+          shouldCommitScrubFrame({
+            state: scrubThrottleStateRef.current,
+            pointerX,
+            targetFrame,
+            pixelsPerSecond: pixelsPerSecondRef.current,
+            nowMs: performance.now(),
           })
-        })
-      }
+        ) {
+          setScrubFrameRef.current(targetFrame)
+        }
+
+        const visualClientX = getVisiblePlayheadClientX(clientX, coordinateBounds)
+        const visualTimelineX = visualClientX - coordinateBounds.left + scrollLeft
+        for (const element of scrubPlayheadElementsRef.current) {
+          element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
+        }
+      })
+
+      if (isDraggingRef.current) rafIdRef.current = requestAnimationFrame(runScrubLoop)
+    }
+
+    const handleMouseMove = (e: MouseEvent) => {
+      scrubClientXRef.current = e.clientX
     }
 
     const handleMouseUp = () => {
-      const pendingFrame = pendingFrameRef.current
       // Cancel any pending RAF before clearing preview to prevent resurrection
       if (rafIdRef.current !== null) {
         cancelAnimationFrame(rafIdRef.current)
         rafIdRef.current = null
       }
 
-      if (pendingFrame !== null) {
-        setScrubFrameRef.current(pendingFrame)
+      const clientX = scrubClientXRef.current
+      const scrollContainer = scrubScrollContainerRef.current
+      const bounds =
+        scrollContainer?.getBoundingClientRect() ??
+        (inRuler
+          ? playheadRef.current?.closest('.timeline-ruler')?.getBoundingClientRect()
+          : playheadRef.current?.closest('.timeline-tracks')?.getBoundingClientRect())
+      if (clientX !== null && bounds) {
+        const pointerX = clientX - bounds.left + (scrollContainer?.scrollLeft ?? 0)
+        let frame = Math.max(0, Math.round(pixelsToFrameRef.current(pointerX)))
+        if (maxFrameRef.current !== undefined) frame = Math.min(frame, maxFrameRef.current)
+        setScrubFrameRef.current(frame)
       }
 
-      pendingFrameRef.current = null
-      pendingPointerXRef.current = null
+      isDraggingRef.current = false
+      scrubClientXRef.current = null
+      scrubAnimationTimeRef.current = null
+      scrubScrollContainerRef.current = null
+      scrubPlayheadElementsRef.current = []
       setPreviewFrameRef.current(null)
       setIsDragging(false)
     }
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
+    rafIdRef.current = requestAnimationFrame(runScrubLoop)
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
@@ -253,12 +306,14 @@ export function TimelinePlayhead({
         cancelAnimationFrame(rafIdRef.current)
         rafIdRef.current = null
       }
+      scrubAnimationTimeRef.current = null
     }
   }, [isDragging, inRuler]) // Stable dependencies - no stale closures
 
   return (
     <div
       ref={playheadRef}
+      data-timeline-playhead={inRuler ? 'ruler' : 'tracks'}
       className="absolute top-0 bottom-0"
       style={{
         // left is set via ref subscription in useEffect (no re-renders during playback)

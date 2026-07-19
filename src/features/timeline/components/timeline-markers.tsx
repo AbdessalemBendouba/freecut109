@@ -24,11 +24,11 @@ import { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub
 import { EDITOR_LAYOUT_CSS_VALUES, getEditorLayout } from '@/config/editor-layout'
 import { sanitizeInOutPoints } from '../utils/in-out-points'
 import { pixelsToFrameNow } from '../utils/zoom-conversions'
-
-// Edge-scrolling configuration
-const EDGE_SCROLL_MAX_SPEED = 20 // Max pixels per frame at max distance
-const EDGE_SCROLL_ACCELERATION = 0.3 // Speed multiplier per pixel of distance
-const EDGE_SCROLL_ZONE = 30 // Pixels from edge to trigger scroll (inside viewport)
+import {
+  getEdgeScrollDelta,
+  getPlayheadEdgeScrollVelocity,
+  getVisiblePlayheadClientX,
+} from '../utils/playhead-edge-scroll'
 
 interface TimelineMarkersProps {
   duration: number // Total timeline duration in seconds
@@ -398,6 +398,8 @@ export const TimelineMarkers = memo(function TimelineMarkers({
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrubMouseClientXRef = useRef<number>(0)
   const scrubRAFIdRef = useRef<number | null>(null)
+  const scrubAnimationTimeRef = useRef<number | null>(null)
+  const scrubPlayheadElementsRef = useRef<HTMLElement[]>([])
   const isScrubActiveRef = useRef(false)
   const scrubThrottleStateRef = useRef(createScrubThrottleState())
 
@@ -679,7 +681,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
    * Unified scrub loop - handles BOTH edge scroll AND playhead in same RAF frame
    * This ensures scroll and playhead are always perfectly synchronized
    */
-  const runUnifiedScrubLoop = useCallback(() => {
+  const runUnifiedScrubLoop = useCallback((timestamp: number) => {
     if (!isScrubActiveRef.current || !containerRef.current) {
       scrubRAFIdRef.current = null
       return
@@ -691,42 +693,21 @@ export const TimelineMarkers = memo(function TimelineMarkers({
     // --- STEP 1: Calculate and apply edge scroll ---
     if (scrollContainer) {
       const viewportRect = scrollContainer.getBoundingClientRect()
-      const leftEdge = viewportRect.left
-      const rightEdge = viewportRect.right
-
-      // Distance calculations
-      const distancePastLeft = leftEdge - mouseClientX
-      const distancePastRight = mouseClientX - rightEdge
-      const distanceFromLeftEdge = mouseClientX - leftEdge
-      const distanceFromRightEdge = rightEdge - mouseClientX
-
-      // Check scroll boundaries
-      const canScrollLeft = scrollContainer.scrollLeft > 0
-      const canScrollRight =
-        scrollContainer.scrollLeft + scrollContainer.clientWidth < scrollContainer.scrollWidth
-
-      // Left edge: past edge OR in zone
-      const inLeftZone = distanceFromLeftEdge >= 0 && distanceFromLeftEdge < EDGE_SCROLL_ZONE
-      const pastLeftEdge = distancePastLeft > 0
-
-      if ((pastLeftEdge || inLeftZone) && canScrollLeft) {
-        const distance = pastLeftEdge
-          ? distancePastLeft
-          : (EDGE_SCROLL_ZONE - distanceFromLeftEdge) * 0.5
-        const speed = Math.min(distance * EDGE_SCROLL_ACCELERATION, EDGE_SCROLL_MAX_SPEED)
-        scrollContainer.scrollLeft -= speed
-      }
-
-      // Right edge: past edge OR in zone
-      const inRightZone = distanceFromRightEdge >= 0 && distanceFromRightEdge < EDGE_SCROLL_ZONE
-      const pastRightEdge = distancePastRight > 0
-
-      if ((pastRightEdge || inRightZone) && canScrollRight) {
-        const distance = pastRightEdge
-          ? distancePastRight
-          : (EDGE_SCROLL_ZONE - distanceFromRightEdge) * 0.5
-        const speed = Math.min(distance * EDGE_SCROLL_ACCELERATION, EDGE_SCROLL_MAX_SPEED)
-        scrollContainer.scrollLeft += speed
+      const velocity = getPlayheadEdgeScrollVelocity(mouseClientX, viewportRect)
+      const canScroll =
+        (velocity < 0 && scrollContainer.scrollLeft > 0) ||
+        (velocity > 0 &&
+          scrollContainer.scrollLeft + scrollContainer.clientWidth < scrollContainer.scrollWidth)
+      if (velocity !== 0 && canScroll) {
+        const previousTimestamp = scrubAnimationTimeRef.current ?? timestamp - 1000 / 60
+        scrollContainer.scrollLeft += getEdgeScrollDelta(
+          velocity,
+          timestamp,
+          previousTimestamp,
+        )
+        scrubAnimationTimeRef.current = timestamp
+      } else {
+        scrubAnimationTimeRef.current = null
       }
     }
 
@@ -760,6 +741,15 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       })
     ) {
       setScrubFrameRef.current(frame)
+    }
+
+    if (scrollContainer) {
+      const viewportRect = scrollContainer.getBoundingClientRect()
+      const visualClientX = getVisiblePlayheadClientX(mouseClientX, viewportRect)
+      const visualTimelineX = visualClientX - viewportRect.left + scrollContainer.scrollLeft
+      for (const element of scrubPlayheadElementsRef.current) {
+        element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
+      }
     }
 
     // --- STEP 3: Continue loop while scrubbing ---
@@ -902,9 +892,15 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       scrollContainerRef.current = containerRef.current.closest(
         '.timeline-container',
       ) as HTMLDivElement | null
+      scrubPlayheadElementsRef.current = scrollContainerRef.current
+        ? Array.from(
+            scrollContainerRef.current.querySelectorAll<HTMLElement>('[data-timeline-playhead]'),
+          )
+        : []
 
       // Initialize unified scrub state
       scrubMouseClientXRef.current = e.clientX
+      scrubAnimationTimeRef.current = null
       isScrubActiveRef.current = true
 
       pauseRef.current()
@@ -922,6 +918,15 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       const maxFrame = Math.floor(durationRef.current * fpsRef.current)
       const frame = Math.min(maxFrame, Math.max(0, Math.round(pixelsToFrameRef.current(x))))
       setScrubFrameRef.current(frame)
+      if (scrollContainerRef.current) {
+        const viewportRect = scrollContainerRef.current.getBoundingClientRect()
+        const visualClientX = getVisiblePlayheadClientX(e.clientX, viewportRect)
+        const visualTimelineX =
+          visualClientX - viewportRect.left + scrollContainerRef.current.scrollLeft
+        for (const element of scrubPlayheadElementsRef.current) {
+          element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
+        }
+      }
       scrubThrottleStateRef.current = createScrubThrottleState({
         pointerX: x,
         frame,
@@ -956,6 +961,9 @@ export const TimelineMarkers = memo(function TimelineMarkers({
         cancelAnimationFrame(scrubRAFIdRef.current)
         scrubRAFIdRef.current = null
       }
+      setScrubFrameRef.current(getFrameFromClientX(scrubMouseClientXRef.current))
+      scrubAnimationTimeRef.current = null
+      scrubPlayheadElementsRef.current = []
       setIsDragging(false)
       setPreviewFrameRef.current(null)
     }
@@ -973,8 +981,10 @@ export const TimelineMarkers = memo(function TimelineMarkers({
         cancelAnimationFrame(scrubRAFIdRef.current)
         scrubRAFIdRef.current = null
       }
+      scrubAnimationTimeRef.current = null
+      scrubPlayheadElementsRef.current = []
     }
-  }, [isDragging])
+  }, [getFrameFromClientX, isDragging])
 
   // Tear down an in-flight range drag if the component unmounts mid-gesture.
   useEffect(() => () => rangeDragCleanupRef.current?.(), [])

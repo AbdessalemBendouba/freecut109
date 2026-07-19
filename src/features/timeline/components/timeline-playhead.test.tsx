@@ -69,4 +69,70 @@ describe('TimelinePlayhead', () => {
       expect(usePlaybackStore.getState().previewFrame).toBeNull()
     })
   })
+
+  it('auto-scrolls at the viewport edge while keeping both playheads cursor-locked', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const { container } = render(
+      <div className="timeline-container">
+        <div className="timeline-ruler">
+          <TimelinePlayhead inRuler maxFrame={300} />
+        </div>
+        <div className="timeline-tracks">
+          <TimelinePlayhead maxFrame={300} />
+        </div>
+      </div>,
+    )
+    const scrollContainer = container.querySelector('.timeline-container') as HTMLDivElement
+    Object.defineProperties(scrollContainer, {
+      clientWidth: { configurable: true, value: 300 },
+      scrollWidth: { configurable: true, value: 1200 },
+      scrollLeft: { configurable: true, value: 100, writable: true },
+    })
+    scrollContainer.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 200,
+      width: 300,
+      height: 200,
+      toJSON: () => ({}),
+    })
+    const hitArea = container.querySelector('[style*="width: 20px"]') as HTMLDivElement
+    const rulerPlayhead = container.querySelector<HTMLElement>(
+      '[data-timeline-playhead="ruler"]',
+    )!
+    const tracksPlayhead = container.querySelector<HTMLElement>(
+      '[data-timeline-playhead="tracks"]',
+    )!
+
+    fireEvent.mouseDown(hitArea, { clientX: 300, clientY: 8, button: 0 })
+    expect(frameCallbacks).toHaveLength(1)
+    frameCallbacks.shift()?.(16)
+    const firstScrollLeft = scrollContainer.scrollLeft
+    expect(firstScrollLeft).toBeGreaterThan(100)
+    expect(Number.parseFloat(rulerPlayhead.style.transform.match(/\(([^p]+)/)?.[1] ?? '0')).toBe(
+      299 + firstScrollLeft,
+    )
+    expect(tracksPlayhead.style.transform).toBe(rulerPlayhead.style.transform)
+    expect(frameCallbacks).toHaveLength(1)
+
+    frameCallbacks.shift()?.(32)
+    expect(scrollContainer.scrollLeft).toBeGreaterThan(firstScrollLeft)
+    expect(Number.parseFloat(rulerPlayhead.style.transform.match(/\(([^p]+)/)?.[1] ?? '0')).toBe(
+      299 + scrollContainer.scrollLeft,
+    )
+    expect(tracksPlayhead.style.transform).toBe(rulerPlayhead.style.transform)
+
+    fireEvent.mouseUp(document, { clientX: 300, clientY: 8 })
+    expect(usePlaybackStore.getState().previewFrame).toBeNull()
+    animationFrameSpy.mockRestore()
+  })
 })
