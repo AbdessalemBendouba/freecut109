@@ -36,9 +36,7 @@ function PickWhipHarness({ onRender }: { onRender?: () => void } = {}) {
       >
         Shape Trim End
       </div>
-      {drag ? (
-        <PickWhipOverlay presentation={drag.presentation} testId="active-pick-whip" />
-      ) : null}
+      {drag ? <PickWhipOverlay presentation={drag.presentation} testId="active-pick-whip" /> : null}
     </div>
   )
 }
@@ -64,6 +62,14 @@ describe('usePropertyLinkPickWhip', () => {
       clientY: 0,
     })
     expect(screen.getByTestId('active-pick-whip')).toBeTruthy()
+    expect(sourceRow).toHaveAttribute('data-expression-link-eligible', 'true')
+    expect(screen.getByTestId('shape-source-row')).toHaveAttribute(
+      'data-expression-link-eligible',
+      'true',
+    )
+    expect(screen.getByTestId('vector-source-row')).not.toHaveAttribute(
+      'data-expression-link-eligible',
+    )
 
     fireEvent.pointerMove(window, { pointerId: 9, clientX: 24, clientY: 24 })
     await waitFor(() => {
@@ -82,8 +88,30 @@ describe('usePropertyLinkPickWhip', () => {
       },
     ])
     expect(sourceRow.hasAttribute('data-expression-link-hover')).toBe(false)
+    expect(sourceRow).not.toHaveAttribute('data-expression-link-eligible')
+    expect(screen.getByTestId('shape-source-row')).not.toHaveAttribute(
+      'data-expression-link-eligible',
+    )
     expect(screen.queryByTestId('active-pick-whip')).toBeNull()
     Reflect.deleteProperty(document, 'elementFromPoint')
+  })
+
+  it('clears eligible row highlights when the drag is canceled', () => {
+    render(<PickWhipHarness />)
+    const sourceRow = screen.getByTestId('source-row')
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Target X' }), {
+      button: 0,
+      pointerId: 18,
+      clientX: 0,
+      clientY: 0,
+    })
+    expect(sourceRow).toHaveAttribute('data-expression-link-eligible', 'true')
+
+    fireEvent.pointerCancel(window, { pointerId: 18 })
+
+    expect(sourceRow).not.toHaveAttribute('data-expression-link-eligible')
+    expect(screen.queryByTestId('active-pick-whip')).toBeNull()
   })
 
   it('coalesces pointer presentation and hit testing to one animation frame', () => {
@@ -151,11 +179,13 @@ describe('usePropertyLinkPickWhip', () => {
     fireEvent.pointerMove(window, { pointerId: 10, clientX: 24, clientY: 24 })
     fireEvent.pointerUp(window, { pointerId: 10, clientX: 24, clientY: 24 })
 
-    expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks?.[0]).toMatchObject({
-      targetProperty: 'x',
-      sourceItemId: 'shape-source',
-      sourceProperty: 'trimPathEnd',
-    })
+    expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks?.[0]).toMatchObject(
+      {
+        targetProperty: 'x',
+        sourceItemId: 'shape-source',
+        sourceProperty: 'trimPathEnd',
+      },
+    )
     Reflect.deleteProperty(document, 'elementFromPoint')
   })
 
@@ -244,9 +274,9 @@ describe('usePropertyLinkPickWhip', () => {
       clientX: 16,
       clientY: 26,
     })
-    expect(
-      screen.getByTestId('active-pick-whip').querySelector('path')?.getAttribute('d'),
-    ).toMatch(/^M 16 26 /)
+    expect(screen.getByTestId('active-pick-whip').querySelector('path')?.getAttribute('d')).toMatch(
+      /^M 16 26 /,
+    )
     expect(screen.getByTestId('active-pick-whip').getAttribute('viewBox')).toBe('4 12 500 300')
 
     top = 68
