@@ -156,4 +156,82 @@ describe('timeline navigator interaction', () => {
     clientWidthSpy.mockRestore()
     animationFrameSpy.mockRestore()
   })
+
+  it('rebases an active handle drag when the navigator track resizes', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    let currentTrackWidth = 400
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockImplementation(() => currentTrackWidth)
+    const scrollContainer = document.createElement('div')
+    scrollContainer.scrollLeft = 120
+
+    const { getByTestId } = render(
+      <TimelineNavigator
+        actualDuration={10}
+        timelineWidth={1240}
+        scrollContainerRef={{ current: scrollContainer }}
+      />,
+    )
+
+    const initialMetrics = getNavigatorThumbMetrics({
+      timelineWidth: 1240,
+      viewportWidth: 300,
+      trackWidth: 400,
+      scrollLeft: 120,
+    })
+    fireEvent.mouseDown(getByTestId('timeline-navigator-right-handle'), { clientX: 200 })
+    fireEvent.mouseMove(window, { clientX: 240 })
+
+    const firstDrag = getNavigatorResizeDragResult({
+      dragTarget: 'right',
+      deltaX: 40,
+      dragStartThumbLeft: initialMetrics.thumbLeft,
+      dragStartThumbWidth: initialMetrics.thumbWidth,
+      trackWidth: 400,
+      viewportWidth: 300,
+      contentDuration: 10,
+    })
+    const rebasedMetrics = getNavigatorThumbMetrics({
+      timelineWidth: firstDrag.nextTimelineWidth,
+      viewportWidth: 300,
+      trackWidth: 800,
+      scrollLeft: firstDrag.nextScrollLeft,
+    })
+
+    currentTrackWidth = 800
+    fireEvent.mouseMove(window, { clientX: 250 })
+
+    const finalDrag = getNavigatorResizeDragResult({
+      dragTarget: 'right',
+      deltaX: 10,
+      dragStartThumbLeft: rebasedMetrics.thumbLeft,
+      dragStartThumbWidth: rebasedMetrics.thumbWidth,
+      trackWidth: 800,
+      viewportWidth: 300,
+      contentDuration: 10,
+    })
+    const finalMetrics = getNavigatorThumbMetrics({
+      timelineWidth: finalDrag.nextTimelineWidth,
+      viewportWidth: 300,
+      trackWidth: 800,
+      scrollLeft: finalDrag.nextScrollLeft,
+    })
+    const thumb = getByTestId('timeline-navigator-thumb')
+    expect(Number.parseFloat(thumb.style.width)).toBeCloseTo(finalMetrics.thumbWidth)
+    expect(Number.parseFloat(thumb.style.left)).toBeCloseTo(finalMetrics.thumbLeft)
+
+    fireEvent.mouseUp(window)
+
+    expect(useZoomStore.getState().level).toBeCloseTo(finalDrag.nextZoom)
+
+    clientWidthSpy.mockRestore()
+    animationFrameSpy.mockRestore()
+  })
 })
