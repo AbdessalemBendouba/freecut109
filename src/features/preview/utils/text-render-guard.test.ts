@@ -88,7 +88,7 @@ describe('shouldPreferPlayerForStyledTextScrub', () => {
     expect(shouldPreferPlayerForStyledTextScrub(tracks, [])).toBe(true)
   })
 
-  it('returns false for plain (unstyled) text without animation', () => {
+  it('returns true for plain text so scrub and rest use the same rasterizer', () => {
     const tracks: TimelineTrack[] = [
       {
         ...BASE_TRACK,
@@ -107,7 +107,7 @@ describe('shouldPreferPlayerForStyledTextScrub', () => {
       },
     ]
 
-    expect(shouldPreferPlayerForStyledTextScrub(tracks, [])).toBe(false)
+    expect(shouldPreferPlayerForStyledTextScrub(tracks, [])).toBe(true)
   })
 
   it('returns true for stroked text without animation', () => {

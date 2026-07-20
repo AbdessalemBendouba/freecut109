@@ -397,6 +397,28 @@ export const useCompositionNavigationStore = create<
     const currentTabId = getActiveTabId(state.breadcrumbs)
 
     if (currentTabId === sequenceId) {
+      // A refresh/HMR can preserve the selected sequence id after its isolated
+      // runtime holder has been lost. In that state the UI says Motion is open
+      // while the live domain stores still contain Main. Rebuild the sequence
+      // root from the registry instead of accepting the id as sufficient proof
+      // that the correct timeline is loaded.
+      if (sequenceId !== null && state.mainHolder === null) {
+        const comp = useCompositionsStore.getState().getComposition(sequenceId)
+        if (!comp) return
+        const mainStash = captureCurrentTimeline(null)
+        loadComposition(sequenceId)
+        usePlaybackStore.getState().setCurrentFrame(0)
+        setActiveCompositionId(sequenceId)
+        useTimelineCommandStore.getState().setActiveContext(sequenceId)
+        set({
+          breadcrumbs: [{ compositionId: sequenceId, label: comp.name }],
+          activeCompositionId: sequenceId,
+          stashStack: [],
+          mainHolder: mainStash,
+        })
+        applySequenceView(useSequencesStore.getState().getSequenceView(tabViewKey(sequenceId)))
+        return
+      }
       // Already on this tab; collapse any drill-in back to its root.
       if (state.breadcrumbs.length > 1) {
         get().navigateTo(0)
