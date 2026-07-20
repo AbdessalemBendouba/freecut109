@@ -313,7 +313,6 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
         ? {
             ...inputProps,
             tracks: domTextScrubOverlayPlan.textTracks,
-            transitions: [],
             backgroundColor: 'transparent',
             keyframes: domTextScrubOverlayPlan.textKeyframes,
           }

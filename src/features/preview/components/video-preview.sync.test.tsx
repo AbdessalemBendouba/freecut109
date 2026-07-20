@@ -368,6 +368,7 @@ vi.mock('@/features/preview/deps/player-core', async () => {
 vi.mock('@/features/preview/deps/composition-runtime', () => ({
   MainComposition: (props: {
     tracks?: Array<{ items?: Array<{ id?: string; src?: string; transform?: { x?: number } }> }>
+    transitions?: Array<{ id: string }>
     keyframes?: Array<{
       itemId: string
       properties: Array<{
@@ -381,7 +382,11 @@ vi.mock('@/features/preview/deps/composition-runtime', () => ({
       .flatMap((track) => track.items ?? [])
       .map((item) => item.src ?? '')
       .filter((src) => src.length > 0)
-    return <div data-testid="mock-player-frame">{String(mockedPlayerFrame)}</div>
+    return (
+      <div data-testid="mock-player-frame" data-transition-count={props.transitions?.length ?? 0}>
+        {String(mockedPlayerFrame)}
+      </div>
+    )
   },
   getBestDomVideoElementForItem: vi.fn(() => null),
   getVideoTargetTimeSeconds: (
@@ -3434,6 +3439,68 @@ describe('VideoPreview sync behavior', () => {
     expect(document.querySelector('[data-dom-text-scrub-overlay]')).not.toBeNull()
   })
 
+  it('preserves timeline transitions in the DOM text scrub composition', async () => {
+    useItemsStore.getState().setTracks([
+      {
+        id: 'track-text',
+        name: 'Text',
+        height: 60,
+        locked: false,
+        visible: true,
+        muted: false,
+        solo: false,
+        order: 0,
+        items: [],
+      },
+    ])
+    useItemsStore.getState().setItems([
+      {
+        id: 'text-left',
+        type: 'text',
+        trackId: 'track-text',
+        from: 0,
+        durationInFrames: 60,
+        label: 'Left title',
+        text: 'Left',
+        color: '#ffffff',
+      },
+      {
+        id: 'text-right',
+        type: 'text',
+        trackId: 'track-text',
+        from: 60,
+        durationInFrames: 60,
+        label: 'Right title',
+        text: 'Right',
+        color: '#ffffff',
+      },
+    ] as unknown as ReturnType<typeof useItemsStore.getState>['items'])
+    useTransitionsStore.getState().setTransitions([
+      {
+        id: 'text-transition',
+        type: 'crossfade',
+        presentation: 'fade',
+        timing: 'linear',
+        leftClipId: 'text-left',
+        rightClipId: 'text-right',
+        trackId: 'track-text',
+        durationInFrames: 20,
+      },
+    ])
+
+    const { scrubCanvas } = await renderPreviewAfterInitialSeek()
+
+    act(() => {
+      usePlaybackStore.getState().setScrubFrame(55)
+    })
+
+    await waitForLatestRendererFrame(55, scrubCanvas, { expectedDisplayedFrame: 55 })
+    const overlayComposition = document.querySelector(
+      '[data-dom-text-scrub-overlay] [data-testid="mock-player-frame"]',
+    )
+    expect(overlayComposition).toHaveAttribute('data-transition-count', '1')
+  })
+
   it('keeps fast-scrub overlay visible until Player confirms the exact scrub release frame', async () => {
     const { scrubCanvas } = await renderPreviewAfterInitialSeek()
 
@@ -3876,9 +3943,14 @@ describe('VideoPreview sync behavior', () => {
 
     await waitFor(() => {
       expect(seekToMock).toHaveBeenCalledWith(72)
-      for (const frame of screen.getAllByTestId('mock-player-frame')) {
-        expect(frame).toHaveTextContent('72')
-      }
+      expect(screen.getAllByTestId('mock-player-frame')[0]).toHaveTextContent('72')
+      const displayedFrame = getDisplayedFrame()
+      expect(displayedFrame).not.toBeNull()
+      expect(
+        document.querySelector(
+          '[data-dom-text-scrub-overlay] [data-testid="mock-player-frame"]',
+        ),
+      ).toHaveTextContent(String(displayedFrame))
       const keyframesForItem = lastCompositionKeyframes.find((entry) => entry.itemId === 'item-1')
       const xProperty = keyframesForItem?.properties.find((property) => property.property === 'x')
       expect(

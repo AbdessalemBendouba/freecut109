@@ -1,6 +1,7 @@
 import { memo, useCallback, useLayoutEffect, useRef, type RefObject } from 'react'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { getResolvedPlaybackFrame } from '@/shared/state/playback/frame-resolution'
+import { usePreviewBridgeStore } from '@/shared/state/preview-bridge'
 import type { CompositionInputProps } from '@/types/export'
 import { HeadlessPlayer, type PlayerRef } from '@/features/preview/deps/player-core'
 import { MainComposition } from '@/features/preview/deps/composition-runtime'
@@ -54,17 +55,32 @@ export const DomTextScrubOverlay = memo(function DomTextScrubOverlay({
         rafRef.current = requestAnimationFrame(flushFrame)
       }
     }
-    const initialState = usePlaybackStore.getState()
-    queueFrame(getResolvedPlaybackFrame({ ...initialState, displayedFrame: null }))
+    const getVisibleFrame = () => {
+      const playbackState = usePlaybackStore.getState()
+      return getResolvedPlaybackFrame({
+        currentFrame: playbackState.currentFrame,
+        currentFrameEpoch: playbackState.currentFrameEpoch,
+        previewFrame: playbackState.previewFrame,
+        previewFrameEpoch: playbackState.previewFrameEpoch,
+        isPlaying: playbackState.isPlaying,
+        displayedFrame: usePreviewBridgeStore.getState().displayedFrame,
+      })
+    }
+    let resolvedFrame = getVisibleFrame()
+    queueFrame(resolvedFrame)
 
-    const unsubscribe = usePlaybackStore.subscribe((state, previousState) => {
-      const frame = getResolvedPlaybackFrame({ ...state, displayedFrame: null })
-      const previousFrame = getResolvedPlaybackFrame({ ...previousState, displayedFrame: null })
-      if (frame !== previousFrame) queueFrame(frame)
-    })
+    const syncVisibleFrame = () => {
+      const frame = getVisibleFrame()
+      if (frame === resolvedFrame) return
+      resolvedFrame = frame
+      queueFrame(frame)
+    }
+    const unsubscribePlayback = usePlaybackStore.subscribe(syncVisibleFrame)
+    const unsubscribePreviewBridge = usePreviewBridgeStore.subscribe(syncVisibleFrame)
 
     return () => {
-      unsubscribe()
+      unsubscribePlayback()
+      unsubscribePreviewBridge()
       pendingFrameRef.current = null
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current)
