@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useTimelineViewportStore } from '../stores/timeline-viewport-store'
 import { useTimelineStore } from '../stores/timeline-store'
 import { useItemsStore } from '../stores/items-store'
 import { useZoomStore } from '../stores/zoom-store'
+import { getTimelineWidth } from '../utils/timeline-layout'
 import { cn } from '@/shared/ui/cn'
 import { getNavigatorResizeDragResult, getNavigatorThumbMetrics } from './timeline-navigator-utils'
 
@@ -15,24 +16,153 @@ interface TimelineNavigatorProps {
 
 type DragTarget = 'thumb' | 'left' | 'right' | null
 
+interface NavigatorDragSnapshot {
+  startX: number
+  lastX: number
+  thumbLeft: number
+  thumbWidth: number
+  trackWidth: number
+  timelineWidth: number
+  scrollLeft: number
+  maxScrollLeft: number
+  thumbTravel: number
+}
+
+interface NavigatorDragPreview {
+  timelineWidth: number
+  scrollLeft: number
+  thumbLeft: number
+  thumbWidth: number
+  zoom?: number
+}
+
+interface NavigatorViewHandoff {
+  from: Pick<NavigatorDragPreview, 'timelineWidth' | 'scrollLeft'>
+  to: Pick<NavigatorDragPreview, 'timelineWidth' | 'scrollLeft'>
+  thumbLeft: number
+  thumbWidth: number
+}
+
+interface NavigatorDragPreviewInput {
+  dragTarget: Exclude<DragTarget, null>
+  snapshot: NavigatorDragSnapshot
+  deltaX: number
+  viewportWidth: number
+  contentDuration: number
+}
+
+function shouldRebaseDrag(snapshot: NavigatorDragSnapshot, nextTrackWidth: number): boolean {
+  return nextTrackWidth > 0 && Math.abs(nextTrackWidth - snapshot.trackWidth) >= 0.5
+}
+
+function getDragView(
+  snapshot: NavigatorDragSnapshot,
+  preview: NavigatorDragPreview | null,
+): Pick<NavigatorDragPreview, 'timelineWidth' | 'scrollLeft'> {
+  if (preview) {
+    return { timelineWidth: preview.timelineWidth, scrollLeft: preview.scrollLeft }
+  }
+  return { timelineWidth: snapshot.timelineWidth, scrollLeft: snapshot.scrollLeft }
+}
+
+function updateNavigatorThumb(
+  thumb: HTMLDivElement | null,
+  metrics: Pick<NavigatorDragPreview, 'thumbLeft' | 'thumbWidth'>,
+): void {
+  if (!thumb) return
+  thumb.style.left = `${metrics.thumbLeft}px`
+  thumb.style.width = `${metrics.thumbWidth}px`
+}
+
+function getNavigatorDragPreview({
+  dragTarget,
+  snapshot,
+  deltaX,
+  viewportWidth,
+  contentDuration,
+}: NavigatorDragPreviewInput): NavigatorDragPreview | null {
+  if (dragTarget === 'thumb') {
+    if (snapshot.thumbTravel <= 0 || snapshot.maxScrollLeft <= 0) return null
+    const nextThumbLeft = Math.max(0, Math.min(snapshot.thumbTravel, snapshot.thumbLeft + deltaX))
+    return {
+      timelineWidth: snapshot.timelineWidth,
+      scrollLeft: (nextThumbLeft / snapshot.thumbTravel) * snapshot.maxScrollLeft,
+      thumbLeft: nextThumbLeft,
+      thumbWidth: snapshot.thumbWidth,
+    }
+  }
+
+  if (contentDuration <= 0) return null
+  const result = getNavigatorResizeDragResult({
+    dragTarget,
+    deltaX,
+    dragStartThumbLeft: snapshot.thumbLeft,
+    dragStartThumbWidth: snapshot.thumbWidth,
+    trackWidth: snapshot.trackWidth,
+    viewportWidth,
+    contentDuration,
+  })
+  const previewMetrics = getNavigatorThumbMetrics({
+    timelineWidth: result.nextTimelineWidth,
+    viewportWidth,
+    trackWidth: snapshot.trackWidth,
+    scrollLeft: result.nextScrollLeft,
+  })
+  return {
+    timelineWidth: result.nextTimelineWidth,
+    scrollLeft: result.nextScrollLeft,
+    thumbLeft: previewMetrics.thumbLeft,
+    thumbWidth: previewMetrics.thumbWidth,
+    zoom: result.nextZoom,
+  }
+}
+
+function isSameNavigatorView(
+  timelineWidth: number,
+  scrollLeft: number,
+  view: Pick<NavigatorDragPreview, 'timelineWidth' | 'scrollLeft'>,
+): boolean {
+  return (
+    Math.abs(timelineWidth - view.timelineWidth) < 0.5 &&
+    Math.abs(scrollLeft - view.scrollLeft) < 0.5
+  )
+}
+
+function isNavigatorViewHandoffState(
+  timelineWidth: number,
+  scrollLeft: number,
+  handoff: NavigatorViewHandoff,
+): boolean {
+  const timelineWidthIsExpected =
+    Math.abs(timelineWidth - handoff.from.timelineWidth) < 0.5 ||
+    Math.abs(timelineWidth - handoff.to.timelineWidth) < 0.5
+  const scrollLeftIsExpected =
+    Math.abs(scrollLeft - handoff.from.scrollLeft) < 0.5 ||
+    Math.abs(scrollLeft - handoff.to.scrollLeft) < 0.5
+  return timelineWidthIsExpected && scrollLeftIsExpected
+}
+
 export function TimelineNavigator({
   actualDuration,
   timelineWidth,
   scrollContainerRef,
 }: TimelineNavigatorProps) {
   const trackRef = useRef<HTMLDivElement>(null)
+  const thumbRef = useRef<HTMLDivElement>(null)
   const dragRafRef = useRef<number | null>(null)
-  const latestDeltaXRef = useRef(0)
+  const dragSnapshotRef = useRef<NavigatorDragSnapshot | null>(null)
+  const pendingPreviewRef = useRef<NavigatorDragPreview | null>(null)
+  const latestPreviewRef = useRef<NavigatorDragPreview | null>(null)
+  const viewHandoffRef = useRef<NavigatorViewHandoff | null>(null)
   const fps = useTimelineStore((s) => s.fps)
   const setZoomImmediate = useZoomStore((s) => s.setZoomLevelImmediate)
   const scrollLeft = useTimelineViewportStore((s) => s.scrollLeft)
   const viewportWidth = useTimelineViewportStore((s) => s.viewportWidth)
+  const livePixelsPerSecondRef = useRef(useZoomStore.getState().pixelsPerSecond)
+  const liveScrollLeftRef = useRef(scrollLeft)
 
   const [trackWidth, setTrackWidth] = useState(0)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
-  const [dragStartX, setDragStartX] = useState(0)
-  const [dragStartThumbLeft, setDragStartThumbLeft] = useState(0)
-  const [dragStartThumbWidth, setDragStartThumbWidth] = useState(0)
 
   const maxFrame = useItemsStore((s) => s.maxItemEndFrame)
 
@@ -41,47 +171,168 @@ export function TimelineNavigator({
     return Math.max(actualDuration, furthestEndSeconds, 10)
   }, [actualDuration, fps, maxFrame])
 
-  const { maxScrollLeft, thumbWidth, thumbTravel, thumbLeft } = getNavigatorThumbMetrics({
-    timelineWidth,
+  // The timeline content deliberately defers its expensive settled geometry
+  // while wheel zoom is active. The navigator is lightweight and should mirror
+  // the live geometry so its thumb does not jump only after input settles.
+  const navigatorTimelineWidth =
+    viewportWidth > 0
+      ? getTimelineWidth({
+          contentWidth: contentDuration * livePixelsPerSecondRef.current,
+          viewportWidth,
+        })
+      : timelineWidth
+  const navigatorScrollLeft = liveScrollLeftRef.current
+
+  const currentMetrics = getNavigatorThumbMetrics({
+    timelineWidth: navigatorTimelineWidth,
     viewportWidth,
     trackWidth,
-    scrollLeft,
+    scrollLeft: navigatorScrollLeft,
   })
+  const handoff = viewHandoffRef.current
+  const renderedMetrics = latestPreviewRef.current
+    ? {
+        ...currentMetrics,
+        thumbLeft: latestPreviewRef.current.thumbLeft,
+        thumbWidth: latestPreviewRef.current.thumbWidth,
+      }
+    : handoff && isNavigatorViewHandoffState(navigatorTimelineWidth, navigatorScrollLeft, handoff)
+      ? { ...currentMetrics, thumbLeft: handoff.thumbLeft, thumbWidth: handoff.thumbWidth }
+      : currentMetrics
+  const { thumbWidth, thumbLeft } = renderedMetrics
 
   const setScrollLeftOnContainer = useCallback(
     (nextScrollLeft: number) => {
       const node = scrollContainerRef.current
       if (!node) return
       node.scrollLeft = nextScrollLeft
+      liveScrollLeftRef.current = node.scrollLeft
     },
     [scrollContainerRef],
+  )
+
+  const getLiveNavigatorMetrics = useCallback(() => {
+    const nextTrackWidth = trackRef.current?.clientWidth ?? trackWidth
+    const nextPixelsPerSecond = useZoomStore.getState().pixelsPerSecond
+    const nextScrollLeft = scrollContainerRef.current?.scrollLeft ?? liveScrollLeftRef.current
+    const nextTimelineWidth =
+      viewportWidth > 0
+        ? getTimelineWidth({
+            contentWidth: contentDuration * nextPixelsPerSecond,
+            viewportWidth,
+          })
+        : timelineWidth
+
+    livePixelsPerSecondRef.current = nextPixelsPerSecond
+    liveScrollLeftRef.current = nextScrollLeft
+    return {
+      timelineWidth: nextTimelineWidth,
+      scrollLeft: nextScrollLeft,
+      metrics: getNavigatorThumbMetrics({
+        timelineWidth: nextTimelineWidth,
+        viewportWidth,
+        trackWidth: nextTrackWidth,
+        scrollLeft: nextScrollLeft,
+      }),
+    }
+  }, [contentDuration, scrollContainerRef, timelineWidth, trackWidth, viewportWidth])
+
+  const syncThumbToLiveGeometry = useCallback(() => {
+    if (dragSnapshotRef.current || !thumbRef.current) return
+    const live = getLiveNavigatorMetrics()
+    updateNavigatorThumb(thumbRef.current, live.metrics)
+  }, [getLiveNavigatorMetrics])
+
+  const rebaseActiveDragToTrackWidth = useCallback(
+    (nextTrackWidth: number) => {
+      const snapshot = dragSnapshotRef.current
+      if (!snapshot) return
+      if (!shouldRebaseDrag(snapshot, nextTrackWidth)) return
+
+      const preview = latestPreviewRef.current
+      const { timelineWidth: nextTimelineWidth, scrollLeft: nextScrollLeft } = getDragView(
+        snapshot,
+        preview,
+      )
+      const nextMetrics = getNavigatorThumbMetrics({
+        timelineWidth: nextTimelineWidth,
+        viewportWidth,
+        trackWidth: nextTrackWidth,
+        scrollLeft: nextScrollLeft,
+      })
+
+      dragSnapshotRef.current = {
+        ...snapshot,
+        startX: snapshot.lastX,
+        thumbLeft: nextMetrics.thumbLeft,
+        thumbWidth: nextMetrics.thumbWidth,
+        trackWidth: nextTrackWidth,
+        timelineWidth: nextTimelineWidth,
+        scrollLeft: nextScrollLeft,
+        maxScrollLeft: nextMetrics.maxScrollLeft,
+        thumbTravel: nextMetrics.thumbTravel,
+      }
+
+      if (!preview) return
+      const rebasedPreview = {
+        ...preview,
+        thumbLeft: nextMetrics.thumbLeft,
+        thumbWidth: nextMetrics.thumbWidth,
+      }
+      latestPreviewRef.current = rebasedPreview
+      if (pendingPreviewRef.current) pendingPreviewRef.current = rebasedPreview
+      updateNavigatorThumb(thumbRef.current, nextMetrics)
+    },
+    [viewportWidth],
   )
 
   const handleMouseDown = useCallback(
     (event: React.MouseEvent, target: Exclude<DragTarget, null>) => {
       event.preventDefault()
       event.stopPropagation()
+      const live = getLiveNavigatorMetrics()
+      dragSnapshotRef.current = {
+        startX: event.clientX,
+        lastX: event.clientX,
+        thumbLeft: live.metrics.thumbLeft,
+        thumbWidth: live.metrics.thumbWidth,
+        trackWidth: trackRef.current?.clientWidth ?? trackWidth,
+        timelineWidth: live.timelineWidth,
+        scrollLeft: live.scrollLeft,
+        maxScrollLeft: live.metrics.maxScrollLeft,
+        thumbTravel: live.metrics.thumbTravel,
+      }
+      latestPreviewRef.current = null
+      pendingPreviewRef.current = null
+      viewHandoffRef.current = null
       setDragTarget(target)
-      setDragStartX(event.clientX)
-      setDragStartThumbLeft(thumbLeft)
-      setDragStartThumbWidth(thumbWidth)
     },
-    [thumbLeft, thumbWidth],
+    [getLiveNavigatorMetrics, trackWidth],
   )
 
   const handleTrackClick = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
-      if (!trackRef.current || dragTarget || maxScrollLeft <= 0 || thumbTravel <= 0) {
+      const live = getLiveNavigatorMetrics()
+      if (
+        !trackRef.current ||
+        dragTarget ||
+        live.metrics.maxScrollLeft <= 0 ||
+        live.metrics.thumbTravel <= 0
+      ) {
         return
       }
 
       const rect = trackRef.current.getBoundingClientRect()
       const clickX = event.clientX - rect.left
-      const desiredThumbLeft = Math.max(0, Math.min(thumbTravel, clickX - thumbWidth / 2))
-      const nextScrollLeft = (desiredThumbLeft / thumbTravel) * maxScrollLeft
+      const desiredThumbLeft = Math.max(
+        0,
+        Math.min(live.metrics.thumbTravel, clickX - live.metrics.thumbWidth / 2),
+      )
+      const nextScrollLeft =
+        (desiredThumbLeft / live.metrics.thumbTravel) * live.metrics.maxScrollLeft
       setScrollLeftOnContainer(nextScrollLeft)
     },
-    [dragTarget, maxScrollLeft, setScrollLeftOnContainer, thumbTravel, thumbWidth],
+    [dragTarget, getLiveNavigatorMetrics, setScrollLeftOnContainer],
   )
 
   useEffect(() => {
@@ -97,7 +348,9 @@ export function TimelineNavigator({
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (entry) {
-        setTrackWidth(entry.contentRect.width)
+        const nextTrackWidth = entry.contentRect.width
+        rebaseActiveDragToTrackWidth(nextTrackWidth)
+        setTrackWidth(nextTrackWidth)
       }
     })
 
@@ -106,7 +359,55 @@ export function TimelineNavigator({
     return () => {
       observer.disconnect()
     }
-  }, [])
+  }, [rebaseActiveDragToTrackWidth])
+
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current
+    let microtaskQueued = false
+    let disposed = false
+    const scheduleSynchronizedUpdate = () => {
+      if (microtaskQueued) return
+      microtaskQueued = true
+      queueMicrotask(() => {
+        microtaskQueued = false
+        if (!disposed) syncThumbToLiveGeometry()
+      })
+    }
+    const handleScroll = () => syncThumbToLiveGeometry()
+    const unsubscribeZoom = useZoomStore.subscribe((state, previousState) => {
+      if (state.pixelsPerSecond !== previousState.pixelsPerSecond) {
+        scheduleSynchronizedUpdate()
+      }
+    })
+
+    scrollContainer?.addEventListener('scroll', handleScroll, { passive: true })
+    return () => {
+      disposed = true
+      unsubscribeZoom()
+      scrollContainer?.removeEventListener('scroll', handleScroll)
+    }
+  }, [scrollContainerRef, syncThumbToLiveGeometry])
+
+  useLayoutEffect(() => {
+    const nextHandoff = viewHandoffRef.current
+    if (
+      nextHandoff &&
+      (isSameNavigatorView(navigatorTimelineWidth, navigatorScrollLeft, nextHandoff.to) ||
+        !isNavigatorViewHandoffState(navigatorTimelineWidth, navigatorScrollLeft, nextHandoff))
+    ) {
+      viewHandoffRef.current = null
+    }
+    if (dragTarget || !thumbRef.current) return
+    thumbRef.current.style.left = `${renderedMetrics.thumbLeft}px`
+    thumbRef.current.style.width = `${renderedMetrics.thumbWidth}px`
+  }, [
+    dragTarget,
+    navigatorScrollLeft,
+    navigatorTimelineWidth,
+    renderedMetrics.thumbLeft,
+    renderedMetrics.thumbWidth,
+    scrollLeft,
+  ])
 
   useEffect(() => {
     return () => {
@@ -117,52 +418,73 @@ export function TimelineNavigator({
   }, [])
 
   useEffect(() => {
-    if (!dragTarget) return
+    const activeDragTarget = dragTarget
+    if (!activeDragTarget) return
 
-    // Coalesce mousemoves into one RAF: high-refresh displays fire mousemove
-    // > 60Hz, and each setZoomImmediate triggers a full timeline re-render
-    // (level/pixelsPerSecond subscribers in timeline-content cascade down to
-    // tracks and items). One zoom-store write per frame is plenty.
     const flush = () => {
       dragRafRef.current = null
-      const track = trackRef.current
-      if (!track) return
-      const nextTrackWidth = track.clientWidth
-      if (nextTrackWidth <= 0) return
-
-      const deltaX = latestDeltaXRef.current
-
-      if (dragTarget === 'thumb') {
-        if (thumbTravel <= 0 || maxScrollLeft <= 0) return
-        const nextThumbLeft = Math.max(0, Math.min(thumbTravel, dragStartThumbLeft + deltaX))
-        const nextScrollLeft = (nextThumbLeft / thumbTravel) * maxScrollLeft
-        setScrollLeftOnContainer(nextScrollLeft)
-        return
-      }
-
-      if (contentDuration <= 0) return
-
-      const { nextZoom, nextScrollLeft } = getNavigatorResizeDragResult({
-        dragTarget,
-        deltaX,
-        dragStartThumbLeft,
-        dragStartThumbWidth,
-        trackWidth: nextTrackWidth,
-        viewportWidth,
-        contentDuration,
-      })
-
-      setZoomImmediate(nextZoom)
-      setScrollLeftOnContainer(nextScrollLeft)
+      const preview = pendingPreviewRef.current
+      pendingPreviewRef.current = null
+      if (!preview) return
+      if (preview.zoom !== undefined) setZoomImmediate(preview.zoom)
+      setScrollLeftOnContainer(preview.scrollLeft)
     }
 
     const handleMouseMove = (event: MouseEvent) => {
-      latestDeltaXRef.current = event.clientX - dragStartX
+      const measuredTrackWidth = trackRef.current?.clientWidth
+      if (measuredTrackWidth !== undefined) {
+        rebaseActiveDragToTrackWidth(measuredTrackWidth)
+      }
+      const snapshot = dragSnapshotRef.current
+      if (!snapshot || snapshot.trackWidth <= 0) return
+
+      const deltaX = event.clientX - snapshot.startX
+      const preview = getNavigatorDragPreview({
+        dragTarget: activeDragTarget,
+        snapshot,
+        deltaX,
+        viewportWidth,
+        contentDuration,
+      })
+      if (!preview) return
+
+      latestPreviewRef.current = preview
+      pendingPreviewRef.current = preview
+      dragSnapshotRef.current = { ...snapshot, lastX: event.clientX }
+      updateNavigatorThumb(thumbRef.current, preview)
       if (dragRafRef.current !== null) return
       dragRafRef.current = requestAnimationFrame(flush)
     }
 
     const handleMouseUp = () => {
+      const measuredTrackWidth = trackRef.current?.clientWidth
+      if (measuredTrackWidth !== undefined) {
+        rebaseActiveDragToTrackWidth(measuredTrackWidth)
+      }
+      if (dragRafRef.current !== null) {
+        cancelAnimationFrame(dragRafRef.current)
+        dragRafRef.current = null
+      }
+      flush()
+      const snapshot = dragSnapshotRef.current
+      const finalPreview = latestPreviewRef.current
+      viewHandoffRef.current =
+        snapshot && finalPreview
+          ? {
+              from: {
+                timelineWidth: snapshot.timelineWidth,
+                scrollLeft: snapshot.scrollLeft,
+              },
+              to: {
+                timelineWidth: finalPreview.timelineWidth,
+                scrollLeft: finalPreview.scrollLeft,
+              },
+              thumbLeft: finalPreview.thumbLeft,
+              thumbWidth: finalPreview.thumbWidth,
+            }
+          : null
+      latestPreviewRef.current = null
+      dragSnapshotRef.current = null
       setDragTarget(null)
     }
 
@@ -176,17 +498,14 @@ export function TimelineNavigator({
         cancelAnimationFrame(dragRafRef.current)
         dragRafRef.current = null
       }
+      pendingPreviewRef.current = null
     }
   }, [
     contentDuration,
-    dragStartThumbLeft,
-    dragStartThumbWidth,
-    dragStartX,
     dragTarget,
-    maxScrollLeft,
+    rebaseActiveDragToTrackWidth,
     setZoomImmediate,
     setScrollLeftOnContainer,
-    thumbTravel,
     viewportWidth,
   ])
 
@@ -198,6 +517,7 @@ export function TimelineNavigator({
         onClick={handleTrackClick}
       >
         <div
+          ref={thumbRef}
           className={cn(
             'absolute top-0 flex h-full items-center justify-between rounded-sm bg-muted-foreground/55 transition-colors',
             dragTarget
@@ -213,6 +533,7 @@ export function TimelineNavigator({
           data-testid="timeline-navigator-thumb"
         >
           <div
+            data-testid="timeline-navigator-left-handle"
             className="flex h-full w-3 items-center justify-center cursor-ew-resize"
             onMouseDown={(event) => handleMouseDown(event, 'left')}
           >
@@ -220,6 +541,7 @@ export function TimelineNavigator({
           </div>
           <div className="h-2 w-8 rounded-full bg-background/20" />
           <div
+            data-testid="timeline-navigator-right-handle"
             className="flex h-full w-3 items-center justify-center cursor-ew-resize"
             onMouseDown={(event) => handleMouseDown(event, 'right')}
           >
