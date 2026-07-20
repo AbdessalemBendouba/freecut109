@@ -1,8 +1,8 @@
-import { fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vite-plus/test'
 
 import { TimelineNavigator } from './timeline-navigator'
-import { getNavigatorResizeDragResult } from './timeline-navigator-utils'
+import { getNavigatorResizeDragResult, getNavigatorThumbMetrics } from './timeline-navigator-utils'
 import { useTimelineViewportStore } from '../stores/timeline-viewport-store'
 import { useTimelineSettingsStore } from '../stores/timeline-settings-store'
 import { useItemsStore } from '../stores/items-store'
@@ -69,5 +69,91 @@ describe('timeline navigator interaction', () => {
     fireEvent.click(getByTestId('timeline-navigator-thumb'))
 
     expect(scrollContainer.scrollLeft).toBe(120)
+  })
+
+  it('keeps live wheel zoom and anchor scrolling synchronized before content settles', async () => {
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(400)
+    const scrollContainer = document.createElement('div')
+
+    const { getByTestId } = render(
+      <TimelineNavigator
+        actualDuration={10}
+        timelineWidth={1240}
+        scrollContainerRef={{ current: scrollContainer }}
+      />,
+    )
+
+    const thumb = getByTestId('timeline-navigator-thumb')
+    const initialWidth = thumb.style.width
+
+    await act(async () => {
+      useZoomStore.getState().setZoomLevelImmediate(0.5)
+      scrollContainer.scrollLeft = 200
+      await Promise.resolve()
+    })
+
+    const expected = getNavigatorThumbMetrics({
+      timelineWidth: 740,
+      viewportWidth: 300,
+      trackWidth: 400,
+      scrollLeft: 200,
+    })
+    expect(thumb.style.width).not.toBe(initialWidth)
+    expect(Number.parseFloat(thumb.style.width)).toBeCloseTo(expected.thumbWidth)
+    expect(Number.parseFloat(thumb.style.left)).toBeCloseTo(expected.thumbLeft)
+
+    clientWidthSpy.mockRestore()
+  })
+
+  it('previews handle resizing immediately and flushes the final drag on release', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(400)
+    const scrollContainer = document.createElement('div')
+    scrollContainer.scrollLeft = 120
+    const scrollContainerRef = { current: scrollContainer }
+
+    const { getByTestId, rerender } = render(
+      <TimelineNavigator
+        actualDuration={10}
+        timelineWidth={1000}
+        scrollContainerRef={scrollContainerRef}
+      />,
+    )
+
+    const thumb = getByTestId('timeline-navigator-thumb')
+    const initialWidth = thumb.style.width
+    fireEvent.mouseDown(getByTestId('timeline-navigator-right-handle'), { clientX: 200 })
+    fireEvent.mouseMove(window, { clientX: 240 })
+
+    const previewWidth = thumb.style.width
+    expect(previewWidth).not.toBe(initialWidth)
+    expect(frameCallbacks).toHaveLength(1)
+
+    rerender(
+      <TimelineNavigator
+        actualDuration={10}
+        timelineWidth={1000}
+        scrollContainerRef={scrollContainerRef}
+      />,
+    )
+    expect(thumb.style.width).toBe(previewWidth)
+
+    fireEvent.mouseUp(window)
+
+    expect(useZoomStore.getState().level).not.toBe(1)
+    expect(thumb.style.width).toBe(previewWidth)
+
+    clientWidthSpy.mockRestore()
+    animationFrameSpy.mockRestore()
   })
 })
