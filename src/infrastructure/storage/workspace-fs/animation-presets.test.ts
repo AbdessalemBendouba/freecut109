@@ -59,17 +59,105 @@ describe('workspace animation presets storage', () => {
     expect(mocks.writeJsonAtomic).toHaveBeenCalledWith(
       mocks.root,
       ['projects', 'proj-A', 'animation-presets.json'],
-      { version: 1, presets: [preset] },
+      { version: 4, presets: [preset] },
     )
 
     // Reading back the same envelope yields identical sanitized data.
-    mocks.readJson.mockResolvedValue({ version: 1, presets: [preset] })
+    mocks.readJson.mockResolvedValue({ version: 2, presets: [preset] })
     await expect(readAnimationPresets('proj-A')).resolves.toEqual([preset])
     expect(mocks.readJson).toHaveBeenCalledWith(mocks.root, [
       'projects',
       'proj-A',
       'animation-presets.json',
     ])
+  })
+
+  it('round-trips procedural-only layer and text recipes', () => {
+    const result = sanitizeAnimationPresets({
+      version: 3,
+      presets: [
+        {
+          id: 'live-shape',
+          name: 'Living shape',
+          sourceItemType: 'shape',
+          properties: [],
+          motionModifiers: [
+            {
+              id: 'sway-1',
+              type: 'sway',
+              enabled: true,
+              amplitude: 1.25,
+              frequency: 0.5,
+              phaseFrames: 0,
+              seed: 1,
+            },
+          ],
+        },
+        {
+          id: 'text-rise',
+          name: 'Word rise',
+          sourceItemType: 'text',
+          properties: [],
+          textMotion: {
+            in: {
+              presetId: 'rise',
+              durationFrames: 14,
+              staggerFrames: 4,
+              intensity: 1,
+              order: 'forward',
+              easing: 'ease-out',
+              seed: 0,
+              unit: 'word',
+            },
+          },
+        },
+      ],
+    })
+
+    expect(result).toHaveLength(2)
+    expect(result[0]?.motionModifiers?.[0]).toMatchObject({
+      type: 'sway',
+      amplitude: 1.25,
+    })
+    expect(result[1]?.textMotion?.in).toMatchObject({ presetId: 'rise', unit: 'word' })
+  })
+
+  it('round-trips named additive animation layers', () => {
+    const result = sanitizeAnimationPresets({
+      version: 4,
+      presets: [
+        {
+          id: 'layered',
+          name: 'Layered slide',
+          sourceItemType: 'shape',
+          properties: [],
+          motionLayers: [
+            {
+              id: 'layer-1',
+              name: 'Slide Left',
+              enabled: true,
+              source: 'built-in-preset',
+              sourcePresetId: 'slide-left',
+              tracks: [
+                {
+                  property: 'x',
+                  blend: 'add',
+                  keyframes: [
+                    { id: 'k0', frame: 0, value: -100, easing: 'ease-out' },
+                    { id: 'k1', frame: 20, value: 0, easing: 'linear' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(result[0]?.motionLayers?.[0]).toMatchObject({
+      name: 'Slide Left',
+      tracks: [{ property: 'x', blend: 'add' }],
+    })
   })
 
   it('sanitizes malformed/partial data without throwing', async () => {
@@ -167,6 +255,57 @@ describe('workspace animation presets storage', () => {
       type: 'cubic-bezier',
       bezier: { x1: 0.4, y1: 0, x2: 0.6, y2: 1 },
     })
+  })
+
+  it('round-trips v2 vector motion with temporal velocity and spatial handles', () => {
+    const result = sanitizeAnimationPresets({
+      version: 2,
+      presets: [
+        {
+          id: 'vector-only',
+          name: 'Curved move',
+          sourceItemType: 'shape',
+          properties: [],
+          vectorProperties: [
+            {
+              property: 'position',
+              keyframes: [
+                {
+                  id: 'p0',
+                  frame: 0,
+                  value: { x: -120, y: 20 },
+                  easing: 'linear',
+                  temporalEase: { out: { speed: 220, influence: 45 } },
+                  spatial: {
+                    inTangent: { x: 0, y: 0 },
+                    outTangent: { x: 60, y: -40 },
+                    continuous: false,
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+
+    expect(result).toHaveLength(1)
+    expect(result[0]?.properties).toEqual([])
+    expect(result[0]?.vectorProperties?.[0]?.keyframes[0]).toMatchObject({
+      value: { x: -120, y: 20 },
+      temporalEase: { out: { speed: 220, influence: 45 } },
+      spatial: {
+        inTangent: { x: 0, y: 0 },
+        outTangent: { x: 60, y: -40 },
+        continuous: false,
+      },
+    })
+  })
+
+  it('continues loading legacy v1 scalar-only preset files', () => {
+    expect(
+      sanitizeAnimationPresets({ version: 1, presets: [makePreset()] }),
+    ).toEqual([makePreset()])
   })
 
   it('returns an empty set when the file does not exist', async () => {

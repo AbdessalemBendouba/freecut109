@@ -56,6 +56,7 @@ type ShapePreviewProperty =
   | 'innerRadius'
   | 'pathClosed'
   | 'maskFeather'
+  | 'maskOpacity'
 
 export interface ItemPropertiesPreview extends Partial<Pick<ShapeItem, ShapePreviewProperty>> {
   fadeIn?: number
@@ -263,6 +264,9 @@ interface GizmoStoreActions {
    * Merges with existing preview data for each item.
    */
   setPreview: (previews: Record<string, ItemPreview>) => void
+
+  /** Restore or remove one item's preview without disturbing other live edits. */
+  replaceItemPreview: (itemId: string, preview: ItemPreview | null) => void
 
   /**
    * Update transform preview for specific items.
@@ -503,6 +507,13 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
       }
     }
     set({ preview: merged })
+  },
+
+  replaceItemPreview: (itemId, itemPreview) => {
+    const next = { ...(get().preview ?? {}) }
+    if (itemPreview) next[itemId] = itemPreview
+    else delete next[itemId]
+    set({ preview: Object.keys(next).length > 0 ? next : null })
   },
 
   setTransformPreview: (transforms) => {

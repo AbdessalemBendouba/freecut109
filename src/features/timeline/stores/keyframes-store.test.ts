@@ -151,6 +151,107 @@ describe('useKeyframesStore', () => {
 
       expect(useKeyframesStore.getState().keyframes).toBe(before)
     })
+
+    it('retimes coupled vector keyframes with the scalar lanes', () => {
+      useKeyframesStore.getState().setKeyframes([
+        {
+          itemId: 'item-1',
+          animationVersion: 2,
+          properties: [],
+          vectorProperties: [
+            {
+              property: 'position',
+              keyframes: [
+                { id: 'p1', frame: 0, value: { x: 0, y: 0 }, easing: 'linear' },
+                { id: 'p2', frame: 50, value: { x: 100, y: 200 }, easing: 'linear' },
+              ],
+            },
+          ],
+        },
+      ])
+
+      useKeyframesStore.getState()._scaleKeyframesForItem('item-1', 100, 200)
+
+      expect(
+        useKeyframesStore
+          .getState()
+          .getVectorKeyframesForProperty('item-1', 'position')
+          .map((keyframe) => keyframe.frame),
+      ).toEqual([0, 100])
+    })
+  })
+
+  describe('Animation Core v2 vector mutations', () => {
+    it('atomically replaces legacy scalar lanes during vector promotion', () => {
+      useKeyframesStore.getState().setKeyframes([
+        {
+          itemId: 'item-1',
+          properties: [
+            { property: 'x', keyframes: [makeKeyframe('x', 0, 10)] },
+            { property: 'y', keyframes: [makeKeyframe('y', 0, 20)] },
+            { property: 'rotation', keyframes: [makeKeyframe('r', 0, 45)] },
+          ],
+        },
+      ])
+
+      useKeyframesStore.getState()._replaceScalarPropertiesWithVectorProperty(
+        'item-1',
+        {
+          property: 'position',
+          keyframes: [{ id: 'position', frame: 0, value: { x: 10, y: 20 }, easing: 'linear' }],
+        },
+        ['x', 'y'],
+      )
+
+      expect(useKeyframesStore.getState().getKeyframesForItem('item-1')).toMatchObject({
+        animationVersion: 2,
+        properties: [{ property: 'rotation' }],
+        vectorProperties: [{ property: 'position' }],
+      })
+    })
+
+    it('creates and upserts a coupled Position keyframe at one frame', () => {
+      const firstId = useKeyframesStore.getState()._upsertVectorKeyframe('item-1', 'position', {
+        frame: 12,
+        value: { x: 10, y: 20 },
+        easing: 'linear',
+      })
+      const secondId = useKeyframesStore.getState()._upsertVectorKeyframe('item-1', 'position', {
+        frame: 12,
+        value: { x: 30, y: 40 },
+        easing: 'ease-out',
+      })
+
+      expect(secondId).toBe(firstId)
+      expect(useKeyframesStore.getState().getKeyframesForItem('item-1')).toMatchObject({
+        animationVersion: 2,
+        properties: [],
+        vectorProperties: [
+          {
+            property: 'position',
+            keyframes: [
+              {
+                id: firstId,
+                frame: 12,
+                value: { x: 30, y: 40 },
+                easing: 'ease-out',
+              },
+            ],
+          },
+        ],
+      })
+    })
+
+    it('removes an empty vector-only animation record', () => {
+      const id = useKeyframesStore.getState()._upsertVectorKeyframe('item-1', 'scale', {
+        frame: 0,
+        value: { x: 100, y: 100 },
+      })
+
+      useKeyframesStore.getState()._removeVectorKeyframe('item-1', 'scale', id)
+
+      expect(useKeyframesStore.getState().getKeyframesForItem('item-1')).toBeUndefined()
+    })
   })
 
   describe('_moveKeyframes', () => {
@@ -264,6 +365,82 @@ describe('useKeyframesStore', () => {
 
       const remaining = useKeyframesStore.getState().keyframes.map((ik) => ik.itemId)
       expect(remaining).toEqual(['item-2'])
+    })
+
+    it('removes dependent links when their source item is deleted', () => {
+      useKeyframesStore.getState().setKeyframes([
+        {
+          itemId: 'source',
+          properties: [{ property: 'x', keyframes: [makeKeyframe('source-x', 0)] }],
+        },
+        {
+          itemId: 'target',
+          properties: [{ property: 'y', keyframes: [makeKeyframe('target-y', 0)] }],
+          expressions: [
+            {
+              type: 'link',
+              targetProperty: 'x',
+              sourceItemId: 'source',
+              sourceProperty: 'x',
+              enabled: true,
+              timeOffsetFrames: 0,
+            },
+          ],
+        },
+      ])
+
+      useKeyframesStore.getState()._removeKeyframesForItems(['source'])
+
+      expect(useKeyframesStore.getState().keyframesByItemId.source).toBeUndefined()
+      expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual([])
+      expect(useKeyframesStore.getState().keyframesByItemId.target?.properties).toHaveLength(1)
+    })
+  })
+
+  describe('direct property links', () => {
+    const expression = {
+      type: 'link' as const,
+      targetProperty: 'x' as const,
+      sourceItemId: 'source',
+      sourceProperty: 'rotation' as const,
+      enabled: true,
+      timeOffsetFrames: 0,
+    }
+
+    it('creates, replaces, and removes links without requiring keyframes', () => {
+      useKeyframesStore.getState()._setDirectPropertyLink('target', expression)
+      expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks).toEqual([
+        expression,
+      ])
+
+      useKeyframesStore.getState()._setDirectPropertyLink('target', {
+        ...expression,
+        sourceProperty: 'y',
+      })
+      expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks).toEqual([
+        { ...expression, sourceProperty: 'y' },
+      ])
+
+      useKeyframesStore.getState()._removeDirectPropertyLink('target', 'x')
+      expect(useKeyframesStore.getState().keyframesByItemId.target).toBeUndefined()
+    })
+
+    it('keeps direct links when clearing an item keyframes', () => {
+      useKeyframesStore.getState().setKeyframes([
+        {
+          itemId: 'target',
+          properties: [{ property: 'x', keyframes: [makeKeyframe('x', 0)] }],
+          propertyLinks: [expression],
+        },
+      ])
+
+      useKeyframesStore.getState()._removeKeyframesForItem('target')
+
+      expect(useKeyframesStore.getState().keyframesByItemId.target).toEqual({
+        itemId: 'target',
+        properties: [],
+        propertyLinks: [expression],
+      })
     })
   })
 

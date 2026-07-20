@@ -108,7 +108,6 @@ export async function renderItemWithEffects(
     canvasPool,
     getCurrentItem,
     getCurrentKeyframes,
-    getPreviewTransformOverride,
     getPreviewCornerPinOverride,
     getPreviewEffectsOverride,
     getLiveItemSnapshot,
@@ -117,17 +116,7 @@ export async function renderItemWithEffects(
   const item = getCurrentItem(baseItem)
   // Get animated transform
   const itemKeyframes = getCurrentKeyframes(item.id)
-  let transform = getAnimatedTransform(item, itemKeyframes, frame, canvasSettings)
-  if (renderMode === 'preview') {
-    const previewOverride = getPreviewTransformOverride?.(item.id)
-    if (previewOverride) {
-      transform = {
-        ...transform,
-        ...previewOverride,
-        cornerRadius: previewOverride.cornerRadius ?? transform.cornerRadius,
-      }
-    }
-  }
+  const transform = getAnimatedTransform(item, itemKeyframes, frame, canvasSettings)
 
   // Apply corner pin preview override during interactive drag
   let effectiveItem = item

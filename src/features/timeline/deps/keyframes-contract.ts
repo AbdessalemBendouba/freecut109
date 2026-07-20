@@ -6,6 +6,13 @@
 export type { AutoKeyframeOperation } from '@/features/keyframes/utils/auto-keyframe'
 export { getCropPropertyValue } from '@/features/keyframes/utils/animated-crop-resolver'
 export { interpolatePropertyValue } from '@/features/keyframes/utils/interpolation'
+export { sampleVectorSpeedGraph } from '@/features/keyframes/utils/vector-interpolation'
+export { buildVectorPromotionPlan } from '@/features/keyframes/utils/vector-promotion'
+export {
+  resolveAnimatedTransform,
+  resolveExpressionReferenceValue,
+  wouldCreateDirectPropertyLinkCycle,
+} from '@/features/keyframes/utils/animated-transform-resolver'
 export {
   getTextAnimatableBaseValue,
   isTextAnimatableProperty,
@@ -13,6 +20,7 @@ export {
 export {
   getShapeAnimatableBaseValue,
   isShapeAnimatableProperty,
+  resolveAnimatedShapeItem,
 } from '@/features/keyframes/utils/animated-shape-item'
 export {
   BEZIER_PRESETS,
@@ -28,7 +36,15 @@ export {
   isFrameInTransitionRegion,
 } from '@/features/keyframes/utils/transition-region'
 export { DopesheetEditor } from '@/features/keyframes/components/dopesheet-editor'
+export { PickWhipIcon } from '@/features/keyframes/components/dopesheet-editor/pick-whip-icon'
+export { PropertyLinkPickWhipOverlay } from '@/features/keyframes/components/property-link-pick-whip-overlay'
+export {
+  GROUP_HEADER_HEIGHT,
+  ROW_HEIGHT,
+} from '@/features/keyframes/components/dopesheet-editor/dopesheet-constants'
+export { getPropertyAccordionGroups } from '@/features/keyframes/components/dopesheet-editor/property-groups'
 export { CompactNavigator } from '@/features/keyframes/components/dopesheet-editor/compact-navigator'
+export { getKeyframeNavigatorThumbMetrics } from '@/features/keyframes/components/dopesheet-editor/compact-navigator-utils'
 export { KEYFRAME_EDGE_INSET } from '@/features/keyframes/components/dopesheet-editor/layout'
 export { getAnimatablePropertiesForItem } from '@/features/keyframes/utils/animatable-properties'
 export {
@@ -36,6 +52,7 @@ export {
   type ProceduralPreviewInput,
 } from '@/features/keyframes/utils/procedural-preview'
 export { buildBakeMotionPlan } from '@/features/keyframes/utils/bake-motion'
+export { cloneMotionAnimationLayer } from '@/features/keyframes/utils/motion-layer-eval'
 export { getEffectPropertyBaseValue } from '@/features/keyframes/utils/effect-animatable-properties'
 export {
   captureAnimationFromItem,

@@ -72,11 +72,33 @@ export function useDopesheetViewport({
     return normalizeViewport({ startFrame: 0, endFrame: contentFrameMax })
   }, [contentFrameMax, normalizeViewport])
 
-  const [viewport, setViewport] = useState<Viewport>(() => frameViewport ?? buildDefaultViewport())
+  const [internalViewport, setInternalViewport] = useState<Viewport>(() =>
+    frameViewport ? normalizeViewport(frameViewport) : buildDefaultViewport(),
+  )
+  const controlledViewport = useMemo(
+    () => (frameViewport ? normalizeViewport(frameViewport) : null),
+    [frameViewport, normalizeViewport],
+  )
+  const viewport = controlledViewport ?? internalViewport
+  const viewportRef = useRef(viewport)
+  viewportRef.current = viewport
 
   const updateViewport = useCallback(
     (next: Viewport | ((prev: Viewport) => Viewport)) => {
-      setViewport((prev) => {
+      if (controlledViewport) {
+        const previous = viewportRef.current
+        const resolved = normalizeViewport(typeof next === 'function' ? next(previous) : next)
+        if (
+          resolved.startFrame !== previous.startFrame ||
+          resolved.endFrame !== previous.endFrame
+        ) {
+          viewportRef.current = resolved
+          onFrameViewportChange?.(resolved)
+        }
+        return
+      }
+
+      setInternalViewport((prev) => {
         const resolved = normalizeViewport(typeof next === 'function' ? next(prev) : next)
         if (resolved.startFrame !== prev.startFrame || resolved.endFrame !== prev.endFrame) {
           onFrameViewportChange?.(resolved)
@@ -84,7 +106,7 @@ export function useDopesheetViewport({
         return resolved
       })
     },
-    [normalizeViewport, onFrameViewportChange],
+    [controlledViewport, normalizeViewport, onFrameViewportChange],
   )
 
   // Refit the viewport when the clip changes (a different clip or duration) or
@@ -95,14 +117,9 @@ export function useDopesheetViewport({
   const prevHadBoundsRef = useRef(Boolean(keyframeFrameBounds))
   useEffect(() => {
     if (frameViewport) {
-      // Split mode: the parent owns the viewport. Guard against redundant sets to
-      // avoid feedback loops.
-      setViewport((prev) => {
-        const normalized = normalizeViewport(frameViewport)
-        return prev.startFrame === normalized.startFrame && prev.endFrame === normalized.endFrame
-          ? prev
-          : normalized
-      })
+      // Controlled mode derives the viewport directly during render. Only keep
+      // the refit bookkeeping in sync here; mirroring the prop into state would
+      // cause a second full dopesheet render for every zoom update.
       prevItemIdRef.current = itemId
       prevHadBoundsRef.current = Boolean(keyframeFrameBounds)
       return
@@ -115,14 +132,14 @@ export function useDopesheetViewport({
     prevHadBoundsRef.current = hasBounds
 
     if (clipChanged || keyframesAppeared) {
-      setViewport(buildDefaultViewport())
+      setInternalViewport(buildDefaultViewport())
     }
   }, [itemId, keyframeFrameBounds, frameViewport, normalizeViewport, buildDefaultViewport])
 
   // Keep the viewport clamped if the clip duration shrinks below the current view.
   useEffect(() => {
     if (frameViewport) return
-    setViewport((prev) => {
+    setInternalViewport((prev) => {
       const clamped = normalizeViewport(prev)
       return clamped.startFrame === prev.startFrame && clamped.endFrame === prev.endFrame
         ? prev

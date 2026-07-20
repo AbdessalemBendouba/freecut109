@@ -147,11 +147,7 @@ export function selectPreviewVideoSource(options: {
   if (options.sourceTime !== undefined) {
     for (const src of candidates) {
       if (
-        options.getCachedPredecodedBitmap?.(
-          src,
-          options.sourceTime,
-          options.toleranceSeconds,
-        ) ||
+        options.getCachedPredecodedBitmap?.(src, options.sourceTime, options.toleranceSeconds) ||
         options.getCachedActivePreviewFallbackBitmap?.(
           src,
           options.sourceTime,
@@ -164,11 +160,7 @@ export function selectPreviewVideoSource(options: {
   }
   if (options.sourceTime !== undefined) {
     const activeTarget = candidates.find((src) =>
-      options.isActivePreviewSourceTarget?.(
-        src,
-        options.sourceTime!,
-        options.toleranceSeconds,
-      ),
+      options.isActivePreviewSourceTarget?.(src, options.sourceTime!, options.toleranceSeconds),
     )
     if (activeTarget) return activeTarget
   }
@@ -362,6 +354,7 @@ export async function createCompositionRenderer(
     width: canvas.width,
     height: canvas.height,
     fps,
+    getPreviewTransform: renderMode === 'preview' ? getPreviewTransformOverride : undefined,
   }
   const frameSceneCache = createFrameCompositionSceneCache()
   let frameSceneRevision = 0
@@ -460,6 +453,12 @@ export async function createCompositionRenderer(
     syncVideoItemRegistration(resolvedVideoItem)
     return resolvedVideoItem as TItem
   }
+  const expressionItemsById = new Map(
+    tracks.flatMap((track) => track.items.map((item) => [item.id, item] as const)),
+  )
+  canvasSettings.getExpressionItem = (itemId) =>
+    getLiveItemSnapshot?.(itemId) ?? expressionItemsById.get(itemId)
+  canvasSettings.getExpressionKeyframes = getCurrentKeyframes
   let liveTransitionRenderPlanRevision = -1
   let liveTransitionRenderPlan = renderPlan
   const getCurrentRenderPlan = () => {
@@ -757,8 +756,10 @@ export async function createCompositionRenderer(
     return {
       fps: subComp.fps,
       durationInFrames: subComp.durationInFrames,
+      compositionControls: subComp.compositionControls,
       sortedTracks: sortedWithItems,
       keyframesMap: subKfMap,
+      itemsById: new Map(subComp.items.map((item) => [item.id, item])),
       adjustmentLayers: subAdjustmentLayers,
     }
   }
@@ -817,6 +818,7 @@ export async function createCompositionRenderer(
     getPreviewEffectsOverride,
     getPreviewPathVerticesOverride,
     subCompRenderData,
+    instanceSubCompRenderDataCache: new Map(),
     gpuPipeline: null,
     gpuTransitionPipeline: null,
     gpuMediaPipeline: null,
@@ -1019,8 +1021,7 @@ export async function createCompositionRenderer(
         waitForInflightPredecodedBitmap,
       } = await import('@/features/export/deps/preview-contract')
       itemRenderContext.getCachedPredecodedBitmap = getCachedPredecodedBitmap
-      itemRenderContext.getCachedActivePreviewFallbackBitmap =
-        getCachedActivePreviewFallbackBitmap
+      itemRenderContext.getCachedActivePreviewFallbackBitmap = getCachedActivePreviewFallbackBitmap
       itemRenderContext.isActivePreviewFrameCurrent = isActivePreviewFrameCurrent
       itemRenderContext.isActivePreviewFrameDecodeReady = isActivePreviewFrameDecodeReady
       itemRenderContext.isActivePreviewSourceTarget = isActivePreviewSourceTarget
@@ -1112,8 +1113,7 @@ export async function createCompositionRenderer(
       getLog().info('Video initialization complete', {
         mediabunny: useMediabunny.size,
         deferred: mainVideoPreloadPlan.deferredItemIds.length,
-        fallback:
-          renderMode === 'export' ? videoExtractors.size - useMediabunny.size : undefined,
+        fallback: renderMode === 'export' ? videoExtractors.size - useMediabunny.size : undefined,
         uniqueSources: new Set(videoSourceByItemId.values()).size,
       })
 
@@ -1678,8 +1678,7 @@ export async function createCompositionRenderer(
         fps,
       })
       itemRenderContext.captureDecodedVideoFrames =
-        Boolean(scrubbingCache && scrubbingFrameCacheActive) &&
-        renderedFrameCacheMode !== 'skip'
+        Boolean(scrubbingCache && scrubbingFrameCacheActive) && renderedFrameCacheMode !== 'skip'
       itemRenderContext.workerPredecodeWaitMs =
         renderedFrameCacheMode === 'skip' ? ISOLATED_SEEK_WORKER_WAIT_MS : undefined
 
@@ -1717,6 +1716,7 @@ export async function createCompositionRenderer(
         renderMode === 'preview' ? getPreviewTransformOverride : undefined,
         renderMode === 'preview' ? getPreviewPathVerticesOverride : undefined,
         renderMode === 'preview' ? getLiveMaskItem : undefined,
+        canvasSettings.getExpressionItem,
       )
 
       const frameScene = frameSceneCache.resolve(
@@ -1725,6 +1725,7 @@ export async function createCompositionRenderer(
           frame,
           canvas: canvasSettings,
           getKeyframes: getCurrentKeyframes,
+          getItem: canvasSettings.getExpressionItem,
           getPreviewTransform: renderMode === 'preview' ? getPreviewTransformOverride : undefined,
           getPreviewPathVertices:
             renderMode === 'preview' ? getPreviewPathVerticesOverride : undefined,
@@ -1885,6 +1886,8 @@ export async function createCompositionRenderer(
         if (item.type === 'audio') return false
         // Skip adjustment items (they apply effects, not render content)
         if (item.type === 'adjustment') return false
+        // Null/controller layers drive transforms but never render pixels.
+        if (item.type === 'controller') return false
         // Skip mask shapes (handled by mask system)
         if (item.type === 'shape' && (item as ShapeItem).isMask) return false
         return true
@@ -2126,9 +2129,8 @@ export async function createCompositionRenderer(
 
         const renderTasksWithInteractionLimit = async () => {
           const results: Array<RenderedTaskResult | null> = Array(renderTasks.length).fill(null)
-          const concurrency = renderMode === 'preview'
-            ? Math.min(1, renderTasks.length)
-            : renderTasks.length
+          const concurrency =
+            renderMode === 'preview' ? Math.min(1, renderTasks.length) : renderTasks.length
           let nextTaskIndex = 0
           const worker = async () => {
             while (nextTaskIndex < renderTasks.length) {
@@ -2517,6 +2519,7 @@ export async function createCompositionRenderer(
       gifFramesMap.clear() // Clear GIF frame references (actual frames are managed by gifFrameCache)
       lottieProvider.destroy() // Tear down dotlottie WASM instances
       subCompRenderData.clear() // Release sub-composition render data references
+      itemRenderContext.instanceSubCompRenderDataCache?.clear()
       subCompRenderDataSource.clear()
       prewarmCtx = null
       prewarmCanvas = null

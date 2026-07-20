@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
 import type { Project } from '@/types/project'
+import type { CompositionItem, TextItem } from '@/types/timeline'
 import {
   makeTimelineTrack,
   makeTimelineVideoItem,
@@ -9,7 +10,7 @@ import { useItemsStore } from './items-store'
 import { useCompositionsStore } from './compositions-store'
 import { useCompositionNavigationStore } from './composition-navigation-store'
 import { useKeyframesStore } from './keyframes-store'
-import { hydrateTimelineStoresFromProject } from './timeline-persistence'
+import { buildTimelineFromStores, hydrateTimelineStoresFromProject } from './timeline-persistence'
 
 const rootTrack = makeTimelineTrack({ id: 'root-track', name: 'Root', kind: 'video', order: 0 })
 const motionTrack = makeTimelineTrack({
@@ -121,5 +122,150 @@ describe('timeline project hydration', () => {
     expect(useKeyframesStore.getState().keyframes[0]?.properties[0]?.keyframes[0]?.value).toBe(
       rgbaKeyframeValue,
     )
+  })
+
+  it('serializes and hydrates direct Vector2 property links', async () => {
+    const item = makeTimelineVideoItem({ id: 'target', trackId: rootTrack.id })
+    useItemsStore.getState().setTracks([rootTrack])
+    useItemsStore.getState().setItems([item])
+    useKeyframesStore.getState().setKeyframes([
+      {
+        itemId: item.id,
+        properties: [],
+        separatedVectorProperties: ['scale'],
+        propertyLinks: [
+          {
+            type: 'link',
+            targetProperty: 'position',
+            sourceItemId: 'source',
+            sourceProperty: 'scale',
+            enabled: true,
+            timeOffsetFrames: 4,
+          },
+        ],
+        expressions: [
+          {
+            type: 'expression',
+            targetProperty: 'rotation',
+            source: 'value + sin(time) * 10',
+            enabled: true,
+          },
+        ],
+      },
+    ])
+
+    const timeline = buildTimelineFromStores()
+    expect(timeline.keyframes?.[0]?.propertyLinks?.[0]).toMatchObject({
+      sourceItemId: 'source',
+      targetProperty: 'position',
+      sourceProperty: 'scale',
+      timeOffsetFrames: 4,
+    })
+    expect(timeline.keyframes?.[0]?.expressions?.[0]).toMatchObject({
+      type: 'expression',
+      targetProperty: 'rotation',
+      source: 'value + sin(time) * 10',
+    })
+    expect(timeline.keyframes?.[0]?.separatedVectorProperties).toEqual(['scale'])
+
+    const project: Project = {
+      id: 'linked-project',
+      name: 'Linked project',
+      description: '',
+      createdAt: 1,
+      updatedAt: 1,
+      duration: 10,
+      metadata: { width: 1920, height: 1080, fps: 30 },
+      timeline,
+    }
+    await hydrateTimelineStoresFromProject(project)
+
+    expect(useKeyframesStore.getState().keyframesByItemId.target?.propertyLinks).toEqual(
+      timeline.keyframes?.[0]?.propertyLinks,
+    )
+    expect(useKeyframesStore.getState().keyframesByItemId.target?.expressions).toEqual(
+      timeline.keyframes?.[0]?.expressions,
+    )
+    expect(
+      useKeyframesStore.getState().keyframesByItemId.target?.separatedVectorProperties,
+    ).toEqual(['scale'])
+  })
+
+  it('round-trips composition control definitions and per-instance values', async () => {
+    const title: TextItem = {
+      id: 'title',
+      trackId: motionTrack.id,
+      type: 'text',
+      label: 'Headline',
+      text: 'Original',
+      color: '#ffffff',
+      from: 0,
+      durationInFrames: 30,
+    }
+    const instance: CompositionItem = {
+      id: 'card-instance',
+      trackId: rootTrack.id,
+      type: 'composition',
+      label: 'Card',
+      compositionId: 'card',
+      compositionWidth: 1920,
+      compositionHeight: 1080,
+      compositionControlOverrides: { headline: 'Launch day' },
+      from: 0,
+      durationInFrames: 30,
+    }
+    useItemsStore.getState().setTracks([rootTrack])
+    useItemsStore.getState().setItems([instance])
+    useCompositionsStore.getState().setCompositions([
+      {
+        id: 'card',
+        name: 'Card',
+        editorKind: 'composite-2d',
+        tracks: [motionTrack],
+        items: [title],
+        transitions: [],
+        keyframes: [],
+        fps: 30,
+        width: 1920,
+        height: 1080,
+        durationInFrames: 30,
+        compositionControls: {
+          version: 1,
+          controls: [
+            {
+              id: 'headline',
+              name: 'Headline',
+              targetItemId: title.id,
+              property: 'text.text',
+              kind: 'text',
+              defaultValue: title.text,
+            },
+          ],
+        },
+      },
+    ])
+
+    const timeline = buildTimelineFromStores()
+    expect(timeline.compositions?.[0]?.compositionControls?.version).toBe(1)
+    expect(timeline.items[0]?.compositionControlOverrides).toEqual({ headline: 'Launch day' })
+
+    await hydrateTimelineStoresFromProject({
+      id: 'template-project',
+      name: 'Template project',
+      description: '',
+      createdAt: 1,
+      updatedAt: 1,
+      duration: 1,
+      metadata: { width: 1920, height: 1080, fps: 30 },
+      timeline,
+    })
+
+    expect(
+      useCompositionsStore.getState().compositionById.card?.compositionControls?.controls[0],
+    ).toMatchObject({ id: 'headline', targetItemId: 'title' })
+    expect(
+      (useItemsStore.getState().itemById['card-instance'] as CompositionItem)
+        .compositionControlOverrides,
+    ).toEqual({ headline: 'Launch day' })
   })
 })

@@ -3,9 +3,13 @@ import type {
   TransformAnimatableProperty,
   ItemKeyframes,
   EasingType,
+  Vector2,
+  VectorAnimatableProperty,
 } from '@/types/keyframe'
 import type { TimelineItem } from '@/types/timeline'
 import { isAutoKeyframeEnabled } from '../stores/auto-keyframe-store'
+import { useTransitionsStore } from '../deps/timeline-contract'
+import { isFrameInTransitionRegion } from './transition-region'
 
 export interface AutoKeyframeAddOperation {
   type: 'add'
@@ -24,7 +28,28 @@ export interface AutoKeyframeUpdateOperation {
   updates: { value?: number }
 }
 
-export type AutoKeyframeOperation = AutoKeyframeAddOperation | AutoKeyframeUpdateOperation
+export interface VectorAutoKeyframeAddOperation {
+  type: 'vector-add'
+  itemId: string
+  property: VectorAnimatableProperty
+  frame: number
+  value: Vector2
+  easing?: EasingType
+}
+
+export interface VectorAutoKeyframeUpdateOperation {
+  type: 'vector-update'
+  itemId: string
+  property: VectorAnimatableProperty
+  keyframeId: string
+  updates: { value: Vector2 }
+}
+
+export type AutoKeyframeOperation =
+  | AutoKeyframeAddOperation
+  | AutoKeyframeUpdateOperation
+  | VectorAutoKeyframeAddOperation
+  | VectorAutoKeyframeUpdateOperation
 
 /**
  * Result of auto-keyframing a property
@@ -41,17 +66,17 @@ interface AutoKeyframeResult {
 /**
  * Check if a property should be auto-keyframed and get the action to perform.
  * Existing keyframes at the current frame are always updated.
- * New keyframes are only created when the explicit dopesheet auto-key toggle is enabled.
+ * Once a property has an animated lane, edits at another frame extend that lane.
+ * The explicit dopesheet auto-key toggle is only needed to start a new lane.
  */
 function shouldAutoKeyframe(
-  itemId: string,
+  item: TimelineItem,
   itemKeyframes: ItemKeyframes | undefined,
   property: AnimatableProperty,
   relativeFrame: number,
-  itemDurationInFrames: number,
 ): AutoKeyframeResult {
   // Frame is outside item bounds
-  if (relativeFrame < 0 || relativeFrame >= itemDurationInFrames) {
+  if (relativeFrame < 0 || relativeFrame >= item.durationInFrames) {
     return { handled: false }
   }
 
@@ -63,9 +88,86 @@ function shouldAutoKeyframe(
     return { handled: true, action: 'update', existingKeyframeId: existingKeyframe.id }
   }
 
-  return isAutoKeyframeEnabled(itemId, property)
+  if (
+    isFrameInTransitionRegion(
+      relativeFrame,
+      item.id,
+      item,
+      useTransitionsStore.getState().transitions,
+    )
+  ) {
+    return { handled: false }
+  }
+
+  if (propKeyframes && propKeyframes.keyframes.length > 0) {
+    return { handled: true, action: 'add' }
+  }
+
+  return isAutoKeyframeEnabled(item.id, property)
     ? { handled: true, action: 'add' }
     : { handled: false }
+}
+
+const VECTOR_AUTO_KEY_ALIASES: Record<
+  VectorAnimatableProperty,
+  readonly TransformAnimatableProperty[]
+> = {
+  position: ['x', 'y'],
+  scale: ['width', 'height'],
+  anchor: ['anchorX', 'anchorY'],
+}
+
+/** Coupled equivalent of getAutoKeyframeOperation for Position/Scale/Anchor. */
+export function getVectorAutoKeyframeOperation(
+  item: TimelineItem,
+  itemKeyframes: ItemKeyframes | undefined,
+  property: VectorAnimatableProperty,
+  value: Vector2,
+  currentFrame: number,
+): AutoKeyframeOperation | null {
+  const relativeFrame = currentFrame - item.from
+  if (relativeFrame < 0 || relativeFrame >= item.durationInFrames) return null
+
+  const lane = itemKeyframes?.vectorProperties?.find(
+    (candidate) => candidate.property === property,
+  )
+  const existing = lane?.keyframes.find((keyframe) => keyframe.frame === relativeFrame)
+  if (existing) {
+    return {
+      type: 'vector-update',
+      itemId: item.id,
+      property,
+      keyframeId: existing.id,
+      updates: { value },
+    }
+  }
+
+  if (
+    isFrameInTransitionRegion(
+      relativeFrame,
+      item.id,
+      item,
+      useTransitionsStore.getState().transitions,
+    )
+  ) {
+    return null
+  }
+
+  const shouldAdd =
+    Boolean(lane?.keyframes.length) ||
+    VECTOR_AUTO_KEY_ALIASES[property].some((alias) =>
+      isAutoKeyframeEnabled(item.id, alias),
+    )
+  if (!shouldAdd) return null
+
+  return {
+    type: 'vector-add',
+    itemId: item.id,
+    property,
+    frame: relativeFrame,
+    value,
+    easing: 'linear',
+  }
 }
 
 /**
@@ -81,11 +183,10 @@ export function getAutoKeyframeOperation(
 ): AutoKeyframeOperation | null {
   const relativeFrame = currentFrame - item.from
   const result = shouldAutoKeyframe(
-    item.id,
+    item,
     itemKeyframes,
     property,
     relativeFrame,
-    item.durationInFrames,
   )
 
   if (!result.handled) {

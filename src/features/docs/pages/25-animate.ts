@@ -1,29 +1,29 @@
 import type { DocPageContent } from '../docs-content'
 
-// order 15.5 places this right after Keyframe Animation in the Creative Tools group.
+// Keep the legacy slug so old documentation links continue to resolve.
 const page = {
   order: 15.5,
   slug: 'animate',
-  title: 'Animate Workspace',
-  description: 'Apply motion presets, add live procedural motion, and bake it into keyframes.',
+  title: 'Motion Presets and Procedural Animation',
+  description: 'Apply reusable motion, tune live generators, and bake them into keyframes.',
   category: 'Creative Tools',
-  related: ['keyframes', 'properties', 'text-captions-subtitles', 'motion'],
+  related: ['motion', 'keyframes', 'properties', 'text-captions-subtitles'],
   sections: [
     {
-      title: 'Open the Animate workspace',
+      title: 'Open the Motion library',
       blocks: [
         {
           kind: 'list',
           items: [
-            'Switch to the **Animate** workspace from the tab next to Edit and Color in the toolbar.',
-            'It replaces the normal layout with a small preview, a mini **animate timeline** for picking the clip to animate, and the keyframe graph beside a **Presets** panel.',
-            'The animate timeline marks clips that already carry motion with an **Animated** badge; an empty project shows **No clips to animate**.',
+            'Switch to **Motion** from the workspace tabs next to Edit and Color.',
+            'Select a layer in the composition timeline, then open **Motion** in the layer inspector.',
+            'The same workspace keeps the preview, layer stack, property rows, graph, presets, generators, and saved animations in context.',
           ],
         },
         {
           kind: 'note',
           tone: 'info',
-          text: 'Animate has no keyboard shortcut — reach it from the tab. Switching workspaces only changes the layout, never your project.',
+          text: 'Use `Alt+3` to open Motion. Switching workspaces only changes the editing layout, never your project.',
         },
       ],
     },
@@ -33,7 +33,7 @@ const page = {
         {
           kind: 'steps',
           items: [
-            'Select a clip in the animate timeline.',
+            'Select one or more layers in the Motion timeline.',
             'Pick a preset from **Entrance**, **Exit**, or **Emphasis** — for example Fade In, Slide In, Pop In, Zoom In, Pulse, or Shake.',
             'Refine the result in the keyframe graph; presets drop **editable keyframes**.',
           ],

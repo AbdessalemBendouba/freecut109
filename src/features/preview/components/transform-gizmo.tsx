@@ -299,6 +299,13 @@ export function TransformGizmo({
       onMouseDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >
+      {item.type === 'controller' && (
+        <div className="pointer-events-none absolute inset-0" data-testid="null-controller-gizmo">
+          <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-primary/70" />
+          <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-primary/70" />
+          <div className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rotate-45 border border-primary bg-background/80" />
+        </div>
+      )}
       <GizmoHandles
         bounds={screenBounds}
         rotation={currentTransform.rotation}

@@ -217,11 +217,42 @@ async function importProjectFromSnapshot(
       const newKeyframes = project.timeline.keyframes?.map((itemKeyframes) => ({
         ...itemKeyframes,
         itemId: itemIdMap.get(itemKeyframes.itemId) || itemKeyframes.itemId,
+        expressions: itemKeyframes.expressions?.map((expression) => ({
+          ...expression,
+          ...(expression.type === 'link' && {
+            sourceItemId: itemIdMap.get(expression.sourceItemId) || expression.sourceItemId,
+          }),
+        })),
+        propertyLinks: itemKeyframes.propertyLinks?.map((link) => ({
+          ...link,
+          sourceItemId: itemIdMap.get(link.sourceItemId) || link.sourceItemId,
+        })),
         properties: itemKeyframes.properties.map((prop) => ({
           ...prop,
           keyframes: prop.keyframes.map((kf) => ({
             ...kf,
             id: crypto.randomUUID(),
+          })),
+        })),
+        vectorProperties: itemKeyframes.vectorProperties?.map((property) => ({
+          ...property,
+          keyframes: property.keyframes.map((keyframe) => ({
+            ...keyframe,
+            id: crypto.randomUUID(),
+            value: { ...keyframe.value },
+            temporalEase: keyframe.temporalEase
+              ? {
+                  ...(keyframe.temporalEase.in && { in: { ...keyframe.temporalEase.in } }),
+                  ...(keyframe.temporalEase.out && { out: { ...keyframe.temporalEase.out } }),
+                }
+              : undefined,
+            spatial: keyframe.spatial
+              ? {
+                  ...keyframe.spatial,
+                  inTangent: { ...keyframe.spatial.inTangent },
+                  outTangent: { ...keyframe.spatial.outTangent },
+                }
+              : undefined,
           })),
         })),
       }))

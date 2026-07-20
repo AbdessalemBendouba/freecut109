@@ -4,13 +4,25 @@
 
 export {
   DopesheetEditor,
+  PickWhipIcon,
+  PropertyLinkPickWhipOverlay,
   CompactNavigator,
+  getKeyframeNavigatorThumbMetrics,
+  GROUP_HEADER_HEIGHT,
   KEYFRAME_EDGE_INSET,
+  ROW_HEIGHT,
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,
   getProceduralBands,
+  getPropertyAccordionGroups,
+  buildVectorPromotionPlan,
+  resolveAnimatedTransform,
+  getShapeAnimatableBaseValue,
+  resolveAnimatedShapeItem,
+  resolveExpressionReferenceValue,
   captureAnimationFromItem,
   getPresetCompatibility,
   buildBakeMotionPlan,
+  cloneMotionAnimationLayer,
 } from './keyframes-contract'
 export type { PresetIncompatibilityReason, ProceduralPreviewInput } from './keyframes-contract'

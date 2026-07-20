@@ -2,6 +2,7 @@ import type { TimelineItem, TimelineTrack } from '@/types/timeline'
 import type { SubComposition } from '../stores/compositions-store'
 import { hasLinkedAudioCompanion } from '@/shared/utils/linked-media'
 import { mapSourceWindowOverlap, timelineToSourceFrames } from './source-calculations'
+import { resolveEffectiveTrackStates } from './group-utils'
 
 export interface CompositionOwnedAudioSource {
   itemId: string
@@ -56,12 +57,11 @@ export interface CompositionClipSummary {
 
 type CompositionLookup = Record<string, SubComposition | undefined>
 
-function getVisibleTrackIds(tracks: TimelineTrack[]): Set<string> {
-  const hasSoloTracks = tracks.some((track) => track.solo)
-  return new Set(
-    tracks
-      .filter((track) => (hasSoloTracks ? track.solo === true : track.visible !== false))
-      .map((track) => track.id),
+function getActiveTracks(tracks: TimelineTrack[]): TimelineTrack[] {
+  const effectiveTracks = resolveEffectiveTrackStates(tracks)
+  const hasSoloTracks = effectiveTracks.some((track) => track.solo)
+  return effectiveTracks.filter((track) =>
+    hasSoloTracks ? track.solo === true : track.visible !== false,
   )
 }
 
@@ -69,8 +69,9 @@ function getOrderedActiveCompositionItems(params: {
   items: TimelineItem[]
   tracks: TimelineTrack[]
 }): TimelineItem[] {
-  const visibleTrackIds = getVisibleTrackIds(params.tracks)
-  const trackOrderMap = new Map(params.tracks.map((track) => [track.id, track.order ?? 0]))
+  const activeTracks = getActiveTracks(params.tracks)
+  const visibleTrackIds = new Set(activeTracks.map((track) => track.id))
+  const trackOrderMap = new Map(activeTracks.map((track) => [track.id, track.order ?? 0]))
   return params.items
     .filter((item) => visibleTrackIds.has(item.trackId))
     .toSorted((left, right) => {
@@ -263,7 +264,9 @@ export function getCompositionOwnedAudioSources(params: {
   activeCompositionPath?: ReadonlySet<string>
 }): CompositionOwnedAudioSource[] {
   const orderedItems = getOrderedActiveCompositionItems(params)
-  const trackById = new Map(params.tracks.map((track) => [track.id, track]))
+  const trackById = new Map(
+    resolveEffectiveTrackStates(params.tracks).map((track) => [track.id, track]),
+  )
   const activeCompositionPath = params.activeCompositionPath ?? new Set<string>()
 
   return orderedItems.flatMap((item) => {
@@ -362,8 +365,9 @@ export function getCompositionVisualSegments(params: {
   const subComp = compositionById[wrapper.compositionId]
   if (!subComp) return []
 
-  const visibleTrackIds = getVisibleTrackIds(subComp.tracks)
-  const trackOrderMap = new Map(subComp.tracks.map((track) => [track.id, track.order ?? 0]))
+  const activeTracks = getActiveTracks(subComp.tracks)
+  const visibleTrackIds = new Set(activeTracks.map((track) => track.id))
+  const trackOrderMap = new Map(activeTracks.map((track) => [track.id, track.order ?? 0]))
   const nextPath = new Set(activeCompositionPath)
   nextPath.add(wrapper.compositionId)
 

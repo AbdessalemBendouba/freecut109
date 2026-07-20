@@ -106,24 +106,39 @@ export const motionBlur: GpuEffectDefinition = {
   name: 'Motion Blur',
   category: 'blur',
   entryPoint: 'motionBlurFragment',
-  uniformSize: 16,
+  // Two vec4-aligned rows. The second row carries the hard radius bound so
+  // corrupted/legacy project values cannot turn one layer into an unbounded
+  // full-frame texture walk.
+  uniformSize: 32,
   shader: /* wgsl */ `
-struct MotionBlurParams { amount: f32, angle: f32, samples: f32, _pad: f32 };
+struct MotionBlurParams {
+  amount: f32,
+  angle: f32,
+  shutterAngle: f32,
+  samples: f32,
+  maxRadius: f32,
+  _pad0: f32,
+  _pad1: f32,
+  _pad2: f32,
+};
 @group(0) @binding(0) var texSampler: sampler;
 @group(0) @binding(1) var inputTex: texture_2d<f32>;
 @group(0) @binding(2) var<uniform> params: MotionBlurParams;
 @fragment
 fn motionBlurFragment(input: VertexOutput) -> @location(0) vec4f {
-  if (params.amount < 0.001) {
+  let exposure = clamp(params.shutterAngle / 360.0, 0.0, 1.0);
+  let radius = min(max(params.amount, 0.0) * exposure, params.maxRadius);
+  if (radius < 0.001 || exposure < 0.001) {
     return textureSample(inputTex, texSampler, input.uv);
   }
   let direction = vec2f(cos(params.angle), sin(params.angle));
-  let samples = i32(clamp(params.samples, 4.0, 128.0));
+  // Quality is deliberately bounded: shutter blur is on a per-layer hot path.
+  let samples = i32(clamp(params.samples, 4.0, 32.0));
   var color = vec4f(0.0);
   var totalWeight = 0.0;
   for (var i = 0; i < samples; i++) {
     let t = (f32(i) / f32(samples - 1) - 0.5) * 2.0;
-    let offset = direction * t * params.amount;
+    let offset = direction * t * radius;
     let weight = exp(-t * t * 2.0);
     color += textureSample(inputTex, texSampler, input.uv + offset) * weight;
     totalWeight += weight;
@@ -152,19 +167,35 @@ fn motionBlurFragment(input: VertexOutput) -> @location(0) vec4f {
     samples: {
       type: 'number',
       label: 'Samples',
-      default: 24,
+      default: 16,
       min: 4,
-      max: 128,
+      max: 32,
       step: 1,
       animatable: false,
       quality: true,
+    },
+    shutterAngle: {
+      type: 'number',
+      label: 'Shutter Angle',
+      default: 180,
+      min: 0,
+      max: 360,
+      step: 1,
+      animatable: true,
     },
   },
   packUniforms: (p) =>
     new Float32Array([
       (p.amount as number) ?? 0.05,
       (p.angle as number) ?? 0,
-      (p.samples as number) ?? 24,
+      // Existing effect instances have legacy params but no shutterAngle;
+      // a truly empty params object is the registry's "use defaults" probe.
+      (p.shutterAngle as number | undefined) ??
+        (Object.keys(p).length > 0 ? 360 : 180),
+      (p.samples as number) ?? 16,
+      0.2,
+      0,
+      0,
       0,
     ]),
 }

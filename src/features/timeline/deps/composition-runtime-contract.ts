@@ -7,6 +7,10 @@ export {
   resolveTransform,
   getSourceDimensions,
 } from '@/runtime/composition-runtime/utils/transform-resolver'
+export {
+  resolveItemTransformAtFrame,
+  resolveItemTransformAtRelativeFrame,
+} from '@/runtime/composition-runtime/utils/frame-scene'
 export { resolveCornerPinTargetRect } from '@/runtime/composition-runtime/utils/corner-pin'
 export { needsCustomAudioDecoder } from '@/runtime/composition-runtime/utils/audio-codec-detection'
 export {

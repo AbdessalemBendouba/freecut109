@@ -41,6 +41,27 @@ export type EffectAnimatableProperty = `effect:${string}:${string}:${string}`
 
 export type AnimatableProperty = BuiltInAnimatableProperty | EffectAnimatableProperty
 
+/** Current persisted animation-domain version. Missing means the legacy scalar-only model. */
+export const ANIMATION_CORE_VERSION = 2 as const
+
+/** Coupled transform channels that must share timing and spatial interpolation. */
+export type VectorAnimatableProperty = 'position' | 'scale' | 'anchor'
+
+const VECTOR_ANIMATABLE_PROPERTIES = new Set<VectorAnimatableProperty>([
+  'position',
+  'scale',
+  'anchor',
+])
+
+export function isVectorAnimatableProperty(property: string): property is VectorAnimatableProperty {
+  return VECTOR_ANIMATABLE_PROPERTIES.has(property as VectorAnimatableProperty)
+}
+
+export interface Vector2 {
+  x: number
+  y: number
+}
+
 /** Transform/visual properties animatable via gizmo (excludes non-spatial props like volume) */
 export type TransformAnimatableProperty =
   | 'x'
@@ -53,12 +74,152 @@ export type TransformAnimatableProperty =
   | 'opacity'
   | 'cornerRadius'
 
+const TRANSFORM_ANIMATABLE_PROPERTIES = new Set<TransformAnimatableProperty>([
+  'x',
+  'y',
+  'width',
+  'height',
+  'anchorX',
+  'anchorY',
+  'rotation',
+  'opacity',
+  'cornerRadius',
+])
+
+export function isTransformAnimatableProperty(
+  property: AnimatableProperty | string,
+): property is TransformAnimatableProperty {
+  return TRANSFORM_ANIMATABLE_PROPERTIES.has(property as TransformAnimatableProperty)
+}
+
+export type ShapeAnimatableProperty =
+  | 'trimPathStart'
+  | 'trimPathEnd'
+  | 'trimPathOffset'
+  | 'taperStartWidth'
+  | 'taperEndWidth'
+  | 'taperStartLength'
+  | 'taperEndLength'
+
+const SHAPE_ANIMATABLE_PROPERTIES = new Set<ShapeAnimatableProperty>([
+  'trimPathStart',
+  'trimPathEnd',
+  'trimPathOffset',
+  'taperStartWidth',
+  'taperEndWidth',
+  'taperStartLength',
+  'taperEndLength',
+])
+
+export function isShapeAnimatableProperty(
+  property: AnimatableProperty | string,
+): property is ShapeAnimatableProperty {
+  return SHAPE_ANIMATABLE_PROPERTIES.has(property as ShapeAnimatableProperty)
+}
+
+/** Scalar properties whose post-keyframe values can participate in direct links. */
+export type LinkableAnimatableProperty = TransformAnimatableProperty | ShapeAnimatableProperty
+
+export function isLinkableAnimatableProperty(
+  property: AnimatableProperty | string,
+): property is LinkableAnimatableProperty {
+  return isTransformAnimatableProperty(property) || isShapeAnimatableProperty(property)
+}
+
+/** Direct links are deliberately limited to equal-shaped numeric values. */
+export type DirectLinkableProperty = LinkableAnimatableProperty | VectorAnimatableProperty
+
+export function isDirectLinkableProperty(property: string): property is DirectLinkableProperty {
+  return isLinkableAnimatableProperty(property) || isVectorAnimatableProperty(property)
+}
+
+export function areDirectLinkPropertiesCompatible(
+  target: DirectLinkableProperty,
+  source: DirectLinkableProperty,
+): boolean {
+  return isVectorAnimatableProperty(target) === isVectorAnimatableProperty(source)
+}
+
+const VECTOR_LINK_COMPONENTS: Record<
+  VectorAnimatableProperty,
+  readonly [TransformAnimatableProperty, TransformAnimatableProperty]
+> = {
+  position: ['x', 'y'],
+  scale: ['width', 'height'],
+  anchor: ['anchorX', 'anchorY'],
+}
+
+export function getVectorAnimatablePropertyComponents(
+  property: VectorAnimatableProperty,
+): readonly [TransformAnimatableProperty, TransformAnimatableProperty] {
+  return VECTOR_LINK_COMPONENTS[property]
+}
+
+/** Scalar component and vector links are mutually exclusive on the same channels. */
+export function doDirectLinkTargetsConflict(
+  left: DirectLinkableProperty,
+  right: DirectLinkableProperty,
+): boolean {
+  if (left === right) return true
+  if (isVectorAnimatableProperty(left)) {
+    return VECTOR_LINK_COMPONENTS[left].includes(right as TransformAnimatableProperty)
+  }
+  if (isVectorAnimatableProperty(right)) {
+    return VECTOR_LINK_COMPONENTS[right].includes(left as TransformAnimatableProperty)
+  }
+  return false
+}
+
 export type CropAnimatableProperty =
   | 'cropLeft'
   | 'cropRight'
   | 'cropTop'
   | 'cropBottom'
   | 'cropSoftness'
+
+/**
+ * A deterministic, typed direct link that makes one scalar property follow
+ * another scalar property in the same composition. Item IDs keep links stable when a
+ * layer is renamed; composition-time evaluation is handled by the resolver.
+ */
+export interface DirectPropertyLink {
+  type: 'link'
+  targetProperty: DirectLinkableProperty
+  sourceItemId: string
+  sourceProperty: DirectLinkableProperty
+  enabled: boolean
+  /** Reserved for AE-style delayed followers; zero is a direct pick-whip link. */
+  timeOffsetFrames: number
+}
+
+/** Deterministic expression source evaluated by FreeCut's sandboxed DSL. */
+export interface PropertyExpression {
+  type: 'expression'
+  targetProperty: DirectLinkableProperty
+  source: string
+  enabled: boolean
+}
+
+/** Legacy projects may still contain direct links in the expressions collection. */
+export type StoredPropertyExpression = PropertyExpression | DirectPropertyLink
+
+export function getDirectPropertyLinks(
+  itemKeyframes: Pick<ItemKeyframes, 'propertyLinks' | 'expressions'> | undefined,
+): readonly DirectPropertyLink[] {
+  if (!itemKeyframes) return []
+  const legacyLinks = (itemKeyframes.expressions ?? []).filter(
+    (entry): entry is DirectPropertyLink => entry.type === 'link',
+  )
+  return [...(itemKeyframes.propertyLinks ?? []), ...legacyLinks]
+}
+
+export function getPropertyExpressions(
+  itemKeyframes: Pick<ItemKeyframes, 'expressions'> | undefined,
+): readonly PropertyExpression[] {
+  return (itemKeyframes?.expressions ?? []).filter(
+    (entry): entry is PropertyExpression => entry.type === 'expression',
+  )
+}
 
 /**
  * Basic easing functions for interpolation between keyframes.
@@ -100,6 +261,14 @@ export interface SpringParameters {
   mass: number
 }
 
+/** Identifies keyframes generated by one preset application. */
+export interface AnimationKeyframeSource {
+  applicationId: string
+  kind: 'built-in-preset' | 'saved-preset'
+  presetId: string
+  presetName: string
+}
+
 /**
  * Configuration for advanced easing types.
  * Required when easing is 'cubic-bezier' or 'spring'.
@@ -128,6 +297,79 @@ export interface Keyframe {
   easing: EasingType
   /** Advanced easing configuration (required for cubic-bezier and spring types) */
   easingConfig?: EasingConfig
+  /** Optional provenance used by Applied Motion for targeted removal. */
+  source?: AnimationKeyframeSource
+}
+
+/**
+ * AE-style temporal handle. Speed uses property units per second; influence is
+ * the percentage of the adjacent segment duration controlled by the handle.
+ */
+export interface TemporalEaseHandle {
+  speed: number
+  influence: number
+}
+
+export interface TemporalEase {
+  /** Incoming velocity handle for the segment ending at this keyframe. */
+  in?: TemporalEaseHandle
+  /** Outgoing velocity handle for the segment starting at this keyframe. */
+  out?: TemporalEaseHandle
+}
+
+/** Spatial tangents are offsets from the keyframe value, in property units. */
+export interface SpatialBezierTangents {
+  inTangent: Vector2
+  outTangent: Vector2
+  /** UI constraint: editing one tangent mirrors the other around the vertex. */
+  continuous?: boolean
+}
+
+/** A coupled two-dimensional keyframe used by Animation Core v2. */
+export interface VectorKeyframe {
+  id: string
+  /** Frame number relative to item start (0 = first frame of item). */
+  frame: number
+  value: Vector2
+  /** Fallback timing curve when explicit temporal velocity handles are absent. */
+  easing: EasingType
+  easingConfig?: EasingConfig
+  /** Incoming/outgoing velocity and influence used by value and speed graphs. */
+  temporalEase?: TemporalEase
+  /** Position-path Bezier handles. Ignored for Scale and Anchor. */
+  spatial?: SpatialBezierTangents
+  /** Optional provenance used by Applied Motion for targeted removal. */
+  source?: AnimationKeyframeSource
+}
+
+/** Clone a vector keyframe without retaining mutable nested handle references. */
+export function cloneVectorKeyframe(
+  keyframe: VectorKeyframe,
+  updates: Partial<Pick<VectorKeyframe, 'id' | 'frame'>> = {},
+): VectorKeyframe {
+  return {
+    ...keyframe,
+    ...updates,
+    value: { ...keyframe.value },
+    ...(keyframe.temporalEase && {
+      temporalEase: {
+        ...(keyframe.temporalEase.in && { in: { ...keyframe.temporalEase.in } }),
+        ...(keyframe.temporalEase.out && { out: { ...keyframe.temporalEase.out } }),
+      },
+    }),
+    ...(keyframe.spatial && {
+      spatial: {
+        ...keyframe.spatial,
+        inTangent: { ...keyframe.spatial.inTangent },
+        outTangent: { ...keyframe.spatial.outTangent },
+      },
+    }),
+  }
+}
+
+export interface VectorPropertyKeyframes {
+  property: VectorAnimatableProperty
+  keyframes: VectorKeyframe[]
 }
 
 /**
@@ -185,8 +427,18 @@ export interface PropertyKeyframes {
 export interface ItemKeyframes {
   /** The timeline item ID these keyframes belong to */
   itemId: string
+  /** Animation Core v2 marker. Missing records remain valid legacy animation data. */
+  animationVersion?: typeof ANIMATION_CORE_VERSION
   /** Array of property keyframe groups */
   properties: PropertyKeyframes[]
+  /** Coupled Position, Scale, and Anchor lanes introduced by Animation Core v2. */
+  vectorProperties?: VectorPropertyKeyframes[]
+  /** Vector properties intentionally authored as independent scalar component lanes. */
+  separatedVectorProperties?: VectorAnimatableProperty[]
+  /** Typed direct property links, keyed by their target property. */
+  propertyLinks?: DirectPropertyLink[]
+  /** Sandboxed expressions. Legacy imports may temporarily include type=link records. */
+  expressions?: StoredPropertyExpression[]
 }
 
 /**

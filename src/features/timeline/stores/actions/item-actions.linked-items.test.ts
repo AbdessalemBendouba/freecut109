@@ -273,6 +273,51 @@ describe('linked timeline items', () => {
     expect(useKeyframesStore.getState().getKeyframesForItem('audio-1')).toBeUndefined()
   })
 
+  it('plain delete prunes empty Layer Group child tracks and the final empty group', () => {
+    const group = makeTrack({
+      id: 'layer-group',
+      name: 'Layer Group',
+      order: 0,
+      kind: 'video',
+      isGroup: true,
+    })
+    const firstChild = makeTrack({
+      id: 'child-1',
+      name: 'Child 1',
+      order: 1,
+      kind: 'video',
+      parentTrackId: group.id,
+    })
+    const secondChild = makeTrack({
+      id: 'child-2',
+      name: 'Child 2',
+      order: 2,
+      kind: 'video',
+      parentTrackId: group.id,
+    })
+    useItemsStore.getState().setTracks([group, firstChild, secondChild])
+    useItemsStore.getState().setItems([
+      makeVideoItem({ id: 'child-item-1', trackId: firstChild.id, linkedGroupId: undefined }),
+      makeVideoItem({ id: 'child-item-2', trackId: secondChild.id, linkedGroupId: undefined }),
+    ])
+
+    removeItems(['child-item-1'])
+    expect(useItemsStore.getState().tracks.map((track) => track.id)).toEqual([
+      group.id,
+      secondChild.id,
+    ])
+
+    removeItems(['child-item-2'])
+    expect(useItemsStore.getState().tracks).toEqual([])
+
+    useTimelineCommandStore.getState().undo()
+    expect(useItemsStore.getState().itemById['child-item-2']).toBeDefined()
+    expect(useItemsStore.getState().tracks.map((track) => track.id)).toEqual([
+      group.id,
+      secondChild.id,
+    ])
+  })
+
   it('ripple deletes a linked pair when only one member is targeted', () => {
     useItemsStore.getState().setItems([
       makeVideoItem(),

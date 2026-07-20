@@ -19,7 +19,7 @@ function fakeCanvas(tag: string): OffscreenCanvas {
 }
 
 function fakeMask(trackOrder: number): PreparedMask {
-  return { inverted: false, feather: 0, maskType: 'clip', trackOrder }
+  return { inverted: false, feather: 0, opacity: 1, maskType: 'clip', trackOrder }
 }
 
 // A canvas pool whose acquire() hands back a tagged fake canvas + stub ctx.

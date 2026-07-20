@@ -37,6 +37,22 @@ function isContained(root, candidate) {
   )
 }
 
+const MISSING_PATH_ERROR_CODES = new Set(['ENOENT', 'ENOTDIR'])
+
+function resolveThroughNearestExistingAncestor(target, missingSegments = []) {
+  try {
+    return path.resolve(fs.realpathSync.native(target), ...missingSegments)
+  } catch (error) {
+    if (!MISSING_PATH_ERROR_CODES.has(Reflect.get(Object(error), 'code'))) throw error
+    const parent = path.dirname(target)
+    if (parent === target) throw error
+    return resolveThroughNearestExistingAncestor(parent, [
+      path.basename(target),
+      ...missingSegments,
+    ])
+  }
+}
+
 /** Resolve a path under root. Existing symlinks are allowed only when their canonical target remains under root. */
 export function resolveContained(root, relativePath) {
   if (typeof relativePath !== 'string' || path.isAbsolute(relativePath)) {
@@ -47,18 +63,12 @@ export function resolveContained(root, relativePath) {
   if (!isContained(resolvedRoot, candidate)) {
     throw new HttpError(403, 'PATH_OUTSIDE_ROOT', 'Path is outside the allowed root')
   }
-  try {
-    const canonicalRoot = fs.realpathSync.native(resolvedRoot)
-    const canonicalCandidate = fs.realpathSync.native(candidate)
-    if (!isContained(canonicalRoot, canonicalCandidate)) {
-      throw new HttpError(403, 'PATH_OUTSIDE_ROOT', 'Symlink target is outside the allowed root')
-    }
-    return canonicalCandidate
-  } catch (error) {
-    if (error instanceof HttpError) throw error
-    if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error
-    return candidate
+  const canonicalRoot = resolveThroughNearestExistingAncestor(resolvedRoot)
+  const canonicalCandidate = resolveThroughNearestExistingAncestor(candidate)
+  if (!isContained(canonicalRoot, canonicalCandidate)) {
+    throw new HttpError(403, 'PATH_OUTSIDE_ROOT', 'Symlink target is outside the allowed root')
   }
+  return canonicalCandidate
 }
 
 export function decodeRequestPath(req) {

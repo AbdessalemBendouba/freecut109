@@ -43,6 +43,7 @@ export interface DragState {
   pointerId: number
   started: boolean
   duplicateOnCommit: boolean
+  appliedDeltaFrames: number
 }
 
 export type MarqueeMode = 'replace' | 'add' | 'toggle'

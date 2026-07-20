@@ -14,6 +14,7 @@ const GRADE_TYPE_PRIORITY: Record<TimelineItem['type'], number> = {
   shape: 4,
   text: 5,
   subtitle: 6,
+  controller: Number.POSITIVE_INFINITY,
   audio: Number.POSITIVE_INFINITY,
 }
 

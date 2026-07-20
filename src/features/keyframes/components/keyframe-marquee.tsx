@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { forwardRef, type CSSProperties } from 'react'
 import { cn } from '@/shared/ui/cn'
 
 export interface KeyframeMarqueeRect {
@@ -15,26 +15,32 @@ const KEYFRAME_MARQUEE_CLASSNAME =
 
 interface KeyframeMarqueeOverlayProps {
   rect: KeyframeMarqueeRect | null
+  /** Keep the node mounted so pointer hot paths can update it without React renders. */
+  persistent?: boolean
   className?: string
   style?: CSSProperties
 }
 
-export function KeyframeMarqueeOverlay({ rect, className, style }: KeyframeMarqueeOverlayProps) {
-  if (!rect) return null
+export const KeyframeMarqueeOverlay = forwardRef<HTMLDivElement, KeyframeMarqueeOverlayProps>(
+  function KeyframeMarqueeOverlay({ rect, persistent = false, className, style }, ref) {
+    if (!rect && !persistent) return null
 
-  return (
-    <div
-      className={cn(KEYFRAME_MARQUEE_CLASSNAME, className)}
-      style={{
-        left: rect.x,
-        top: rect.y,
-        width: rect.width,
-        height: rect.height,
-        ...style,
-      }}
-    />
-  )
-}
+    return (
+      <div
+        ref={ref}
+        aria-hidden
+        hidden={!rect}
+        className={cn(KEYFRAME_MARQUEE_CLASSNAME, 'left-0 top-0 will-change-transform', className)}
+        style={{
+          transform: rect ? `translate3d(${rect.x}px, ${rect.y}px, 0)` : undefined,
+          width: rect?.width ?? 0,
+          height: rect?.height ?? 0,
+          ...style,
+        }}
+      />
+    )
+  },
+)
 
 interface KeyframeSvgMarqueeProps {
   rect: KeyframeMarqueeRect | null

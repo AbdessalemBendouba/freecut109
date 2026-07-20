@@ -2,6 +2,7 @@ import type {
   AdjustmentItem,
   AudioItem,
   CompositionItem,
+  ControllerItem,
   ImageItem,
   ShapeItem,
   TextItem,
@@ -379,8 +380,18 @@ export function buildStableDomTracks({
     ...track,
     trackVisible: visibleTrackIds.has(track.id),
     items: track.items.filter(
-      (item): item is Exclude<TimelineItem, VideoItem | AudioItem | AdjustmentItem> => {
-        if (item.type === 'video' || item.type === 'audio' || item.type === 'adjustment') {
+      (
+        item,
+      ): item is Exclude<
+        TimelineItem,
+        VideoItem | AudioItem | AdjustmentItem | ControllerItem
+      > => {
+        if (
+          item.type === 'video' ||
+          item.type === 'audio' ||
+          item.type === 'adjustment' ||
+          item.type === 'controller'
+        ) {
           return false
         }
         if (item.type === 'shape' && item.isMask) {

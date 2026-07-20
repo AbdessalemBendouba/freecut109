@@ -2,12 +2,24 @@
 
 export {
   CompactNavigator,
+  getKeyframeNavigatorThumbMetrics,
   DopesheetEditor,
+  PickWhipIcon,
+  PropertyLinkPickWhipOverlay,
+  GROUP_HEADER_HEIGHT,
   KEYFRAME_EDGE_INSET,
+  ROW_HEIGHT,
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,
   getProceduralBands,
+  getPropertyAccordionGroups,
+  buildVectorPromotionPlan,
+  resolveAnimatedTransform,
+  getShapeAnimatableBaseValue,
+  resolveAnimatedShapeItem,
+  resolveExpressionReferenceValue,
 } from '@/features/timeline/deps/keyframe-editors'
+export { usePropertyLinkPickWhip } from '@/features/timeline/hooks/use-property-link-pick-whip'
 export { interpolatePropertyValue } from '@/features/timeline/deps/keyframes'
 export { captureSnapshot } from '@/features/timeline/stores/commands/snapshot'
 export { useItemsStore } from '@/features/timeline/stores/items-store'
@@ -20,18 +32,27 @@ export { useTimelineSettingsStore } from '@/features/timeline/stores/timeline-se
 export {
   addItemOnNewTrack,
   addItemsOnNewTracks,
+  createNullParentForItems,
   duplicateItemsWithTrackChanges,
   moveItems,
   removeItems,
+  setTransformParents,
   trimItemEnd,
   trimItemStart,
   updateItem,
 } from '@/features/timeline/stores/actions/item-actions'
 export {
   addKeyframe,
+  promoteTransformToVector,
+  setVectorDimensionsSeparated,
+  removeVectorKeyframe,
+  removePropertyExpression,
   removeKeyframes,
+  setPropertyExpression,
   updateKeyframe,
   updateKeyframes,
+  updateVectorKeyframe,
+  upsertVectorKeyframe,
 } from '@/features/timeline/stores/actions/keyframe-actions'
 export { setTracks } from '@/features/timeline/stores/actions/track-actions'
 export {
@@ -46,6 +67,7 @@ export {
 } from '@/features/timeline/utils/dropped-media'
 export { resolveDroppedMediaEntriesFromPayload } from '@/features/timeline/utils/drop-execution'
 export {
+  createDefaultControllerItem,
   createDefaultShapeItem,
   createTimelineTemplateItem,
   createTextTemplateItem,

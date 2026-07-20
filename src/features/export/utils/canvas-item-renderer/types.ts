@@ -33,6 +33,10 @@ import type { MaskCombinePipeline } from '@/infrastructure/gpu-masks'
 import type { AdjustmentLayerWithTrackOrder, EffectSourceMask } from '../canvas-effects'
 import type { RenderTimelineSpan } from '../render-span'
 import type { calculateMediaCropLayout } from '@/shared/utils/media-crop'
+import type {
+  CompositionControlOverrides,
+  CompositionControlSchema,
+} from '@/types/composition-controls'
 
 // Re-exported helper-type used internally by shared transforms.
 export type { ResolvedTransform }
@@ -44,6 +48,11 @@ export interface CanvasSettings {
   width: number
   height: number
   fps: number
+  /** Same-composition sources for deterministic scalar property expressions. */
+  getExpressionItem?: (itemId: string) => TimelineItem | undefined
+  getExpressionKeyframes?: (itemId: string) => ItemKeyframes | undefined
+  /** Live transform overrides used by the interactive preview renderer. */
+  getPreviewTransform?: (itemId: string) => Partial<ResolvedTransform> | undefined
 }
 
 /**
@@ -163,6 +172,15 @@ export interface ItemRenderContext {
 
   // Pre-computed sub-composition render data (built once during preload)
   subCompRenderData: Map<string, SubCompRenderData>
+  /** Per-wrapper resolved sub-composition data for reusable control overrides. */
+  instanceSubCompRenderDataCache?: Map<
+    string,
+    {
+      source: SubCompRenderData
+      overrides: CompositionControlOverrides
+      resolved: SubCompRenderData
+    }
+  >
 
   // GPU effects pipeline (lazily initialized)
   gpuPipeline?: import('@/infrastructure/gpu-effects').EffectsPipeline | null
@@ -227,6 +245,7 @@ export interface ItemRenderContext {
 export interface SubCompRenderData {
   fps: number
   durationInFrames: number
+  compositionControls?: CompositionControlSchema
   /** Tracks sorted bottom-to-top (highest order first), with items pre-assigned */
   sortedTracks: Array<{
     order: number
@@ -235,6 +254,8 @@ export interface SubCompRenderData {
   }>
   /** O(1) keyframe lookup by item ID */
   keyframesMap: Map<string, ItemKeyframes>
+  /** O(1) expression-source lookup inside this composition. */
+  itemsById?: Map<string, TimelineItem>
   /** Adjustment layers from visible tracks, with their track orders */
   adjustmentLayers?: AdjustmentLayerWithTrackOrder[]
 }

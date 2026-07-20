@@ -7,7 +7,7 @@ const page = {
   description:
     'Animate transform, crop, text, effect, and audio values with keyframes, easing, and the curve editor.',
   category: 'Creative Tools',
-  related: ['animate', 'properties', 'effects-color'],
+  related: ['motion', 'animate', 'properties', 'effects-color'],
   sections: [
     {
       title: 'Open the keyframe editor',
@@ -15,9 +15,9 @@ const page = {
         {
           kind: 'list',
           items: [
-            'Select an item, then open the keyframe editor from the sidebar button or with `Ctrl+Shift+A`.',
-            'It opens in a **Split** view: the dopesheet on top for timing and the value graph below.',
-            'Switch views with **Graph** for value curves and easing, or **Sheet** to move every keyframe on one grid — the `1` and `2` keys jump between them.',
+            'Open **Motion**, select a layer, and expand its property rows in the layer timeline.',
+            'Use **Sheet** for keyframe timing, **Value** for property curves, or **Speed** for velocity and influence.',
+            'The shared playhead, selection, snapping, and graph stay aligned across every layer.',
           ],
         },
       ],

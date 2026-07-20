@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { ResolvedTransform } from '@/types/transform'
-import type { MotionModifier } from '@/types/motion'
+import type { MotionAnimationLayer, MotionModifier } from '@/types/motion'
 import { getProceduralBands, sampleProceduralCurve } from './procedural-preview'
 
 const base: ResolvedTransform = {
@@ -56,6 +56,14 @@ describe('getProceduralBands', () => {
     expect(getProceduralBands([drift({ enabled: false })], 90).size).toBe(0)
     expect(getProceduralBands([drift({ amplitude: 0 })], 90).size).toBe(0)
   })
+
+  it('shows bands only for channels that are actually enabled', () => {
+    const bands = getProceduralBands(
+      [drift({ version: 2, channelGains: { x: 0, y: 1, rotation: 0 } })],
+      90,
+    )
+    expect([...bands.keys()]).toEqual(['y'])
+  })
 })
 
 describe('sampleProceduralCurve', () => {
@@ -92,5 +100,56 @@ describe('sampleProceduralCurve', () => {
       frameHeight: 1080,
     })
     expect(points).toEqual([])
+  })
+
+  it('combines authored keyframes and additive layers in one graph curve', () => {
+    const layers: MotionAnimationLayer[] = [
+      {
+        id: 'layer-1',
+        name: 'Offset',
+        enabled: true,
+        source: 'built-in-preset',
+        sourcePresetId: 'offset',
+        tracks: [
+          {
+            property: 'x',
+            blend: 'add',
+            keyframes: [
+              { id: 'l0', frame: 0, value: 0, easing: 'linear' },
+              { id: 'l1', frame: 10, value: 50, easing: 'linear' },
+            ],
+          },
+        ],
+      },
+    ]
+    const points = sampleProceduralCurve({
+      property: 'x',
+      base,
+      keyframes: {
+        itemId: 'item-1',
+        properties: [
+          {
+            property: 'x',
+            keyframes: [
+              { id: 'b0', frame: 0, value: 100, easing: 'linear' },
+              { id: 'b1', frame: 10, value: 120, easing: 'linear' },
+            ],
+          },
+        ],
+      },
+      modifiers: [],
+      layers,
+      fromFrame: 0,
+      toFrame: 10,
+      step: 10,
+      fps: 30,
+      frameWidth: 1920,
+      frameHeight: 1080,
+    })
+
+    expect(points).toEqual([
+      { frame: 0, value: 100 },
+      { frame: 10, value: 170 },
+    ])
   })
 })

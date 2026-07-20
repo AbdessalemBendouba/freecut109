@@ -158,6 +158,7 @@ describe('timeline duplicate item actions', () => {
     useKeyframesStore.getState().setKeyframes([
       {
         itemId: 'clip-1',
+        separatedVectorProperties: ['position'],
         properties: [
           {
             property: 'x',
@@ -205,6 +206,7 @@ describe('timeline duplicate item actions', () => {
 
     expect(copy).toEqual({
       itemId: duplicatedItem!.id,
+      separatedVectorProperties: ['position'],
       properties: [
         {
           property: 'x',
@@ -228,5 +230,77 @@ describe('timeline duplicate item actions', () => {
     expect(copy.properties[0]!.keyframes[0]!.easingConfig?.bezier).not.toBe(
       source.properties[0]!.keyframes[0]!.easingConfig?.bezier,
     )
+  })
+
+  it('copies links and remaps their source when linked items are duplicated together', () => {
+    useItemsStore
+      .getState()
+      .setItems([makeVideoItem({ id: 'source' }), makeVideoItem({ id: 'target', from: 40 })])
+    useKeyframesStore.getState().setKeyframes([
+      {
+        itemId: 'source',
+        properties: [{ property: 'x', keyframes: [] }],
+      },
+      {
+        itemId: 'target',
+        properties: [],
+        expressions: [
+          {
+            type: 'link',
+            targetProperty: 'x',
+            sourceItemId: 'source',
+            sourceProperty: 'x',
+            enabled: true,
+            timeOffsetFrames: 0,
+          },
+        ],
+      },
+    ])
+
+    const copies = duplicateItems(
+      ['source', 'target'],
+      [
+        { from: 100, trackId: 'track-1' },
+        { from: 140, trackId: 'track-1' },
+      ],
+    )
+    const copiedTargetExpression =
+      useKeyframesStore.getState().keyframesByItemId[copies[1]!.id]?.expressions?.[0]
+
+    expect(copiedTargetExpression).toMatchObject({
+      sourceItemId: copies[0]!.id,
+      targetProperty: 'x',
+      sourceProperty: 'x',
+    })
+  })
+
+  it('remaps a duplicated child to its duplicated transform parent', () => {
+    useItemsStore.getState().setItems([
+      makeVideoItem({ id: 'parent' }),
+      makeVideoItem({
+        id: 'child',
+        from: 40,
+        transformParent: {
+          parentItemId: 'parent',
+          parentReference: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+          childLocalReference: { x: 20, y: 0, width: 50, height: 50, rotation: 0 },
+          childWorldReference: { x: 20, y: 0, width: 50, height: 50, rotation: 0 },
+        },
+      }),
+    ])
+
+    const copies = duplicateItems(
+      ['parent', 'child'],
+      [
+        { from: 100, trackId: 'track-1' },
+        { from: 140, trackId: 'track-1' },
+      ],
+    )
+
+    expect(copies[1]?.transformParent?.parentItemId).toBe(copies[0]?.id)
+    expect(useItemsStore.getState().itemById[copies[1]!.id]?.transformParent?.parentItemId).toBe(
+      copies[0]?.id,
+    )
+    expect(useItemsStore.getState().itemById.child?.transformParent?.parentItemId).toBe('parent')
   })
 })

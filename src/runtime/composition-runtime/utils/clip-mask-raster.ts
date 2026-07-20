@@ -106,6 +106,7 @@ export function renderSvgMaskPathsToDataUrl(
   height: number,
   feather: number,
   invert: boolean,
+  opacity = 1,
 ): string | null {
   const { width: maskWidth, height: maskHeight, scale } = getMaskRasterSize(feather, width, height)
 
@@ -125,6 +126,7 @@ export function renderSvgMaskPathsToDataUrl(
     scale: roundCacheFloat(scale),
     feather: roundCacheFloat(feather),
     invert,
+    opacity: roundCacheFloat(opacity),
     pathHash: hashSvgMaskPaths(paths),
   })
   const cached = getCachedMaskUrl(cacheKey)
@@ -165,6 +167,13 @@ export function renderSvgMaskPathsToDataUrl(
   ctx.restore()
   ctx.filter = 'none'
   ctx.globalCompositeOperation = 'source-over'
+  if (opacity < 1) {
+    ctx.globalCompositeOperation = 'destination-in'
+    ctx.globalAlpha = Math.max(0, Math.min(1, opacity))
+    ctx.fillRect(0, 0, maskWidth, maskHeight)
+    ctx.globalAlpha = 1
+    ctx.globalCompositeOperation = 'source-over'
+  }
 
   const dataUrl = ctx.canvas.toDataURL('image/png')
   setCachedMaskUrl(cacheKey, dataUrl)

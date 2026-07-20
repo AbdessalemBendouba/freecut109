@@ -1,0 +1,101 @@
+import { act, cleanup, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vite-plus/test'
+import type { ControllerItem, ShapeItem, TimelineItem } from '@/types/timeline'
+import type { ResolvedTransform } from '@/types/transform'
+import { createTransformParentBinding } from '@/shared/utils/transform-parenting'
+import { VideoConfigProvider, SequenceContext } from '@/runtime/composition-runtime/deps/player'
+import { useGizmoStore } from '@/runtime/composition-runtime/deps/stores'
+import { KeyframesProvider } from '../../contexts/keyframes-context'
+import { useItemVisualState } from './use-item-visual-state'
+
+const canvas = { width: 1920, height: 1080, fps: 30 }
+
+function resolvedTransform(overrides: Partial<ResolvedTransform> = {}): ResolvedTransform {
+  return {
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+    anchorX: 50,
+    anchorY: 50,
+    rotation: 0,
+    opacity: 1,
+    cornerRadius: 0,
+    ...overrides,
+  }
+}
+
+const nullObject: ControllerItem = {
+  id: 'null-1',
+  type: 'controller',
+  controllerKind: 'null',
+  trackId: 'null-track',
+  from: 0,
+  durationInFrames: 120,
+  label: 'Null Object',
+  transform: resolvedTransform(),
+}
+
+const child: ShapeItem = {
+  id: 'child-1',
+  type: 'shape',
+  shapeType: 'rectangle',
+  trackId: 'child-track',
+  from: 0,
+  durationInFrames: 120,
+  label: 'Child',
+  fillColor: '#3b82f6',
+  strokeWidth: 0,
+  transform: resolvedTransform(),
+  transformParent: createTransformParentBinding({
+    childLocal: resolvedTransform(),
+    childWorld: resolvedTransform(),
+    parentItemId: nullObject.id,
+    parentWorld: resolvedTransform(),
+  }),
+}
+
+function TransformXProbe({ item }: { item: TimelineItem }) {
+  const { transform } = useItemVisualState(item)
+  return <output data-testid="transform-x">{transform.x}</output>
+}
+
+describe('useItemVisualState parenting', () => {
+  afterEach(() => {
+    cleanup()
+    useGizmoStore.getState().cancelInteraction()
+    useGizmoStore.getState().clearPreview()
+    useGizmoStore.getState().setSnappingEnabled(true)
+  })
+
+  it('moves a child during its parent Null pointer drag before mouseup', () => {
+    render(
+      <VideoConfigProvider
+        id="parenting-preview"
+        width={canvas.width}
+        height={canvas.height}
+        fps={canvas.fps}
+        durationInFrames={120}
+      >
+        <SequenceContext.Provider
+          value={{ from: 0, parentFrom: 0, localFrame: 0, durationInFrames: 120 }}
+        >
+          <KeyframesProvider keyframes={[]} items={[nullObject, child]} canvas={canvas}>
+            <TransformXProbe item={child} />
+          </KeyframesProvider>
+        </SequenceContext.Provider>
+      </VideoConfigProvider>,
+    )
+
+    expect(screen.getByTestId('transform-x')).toHaveTextContent('0')
+
+    act(() => {
+      const gizmo = useGizmoStore.getState()
+      gizmo.setSnappingEnabled(false)
+      gizmo.startTranslate(nullObject.id, { x: 0, y: 0 }, resolvedTransform())
+      gizmo.updateInteraction({ x: 120, y: 0 }, false)
+    })
+
+    expect(screen.getByTestId('transform-x')).toHaveTextContent('120')
+  })
+})

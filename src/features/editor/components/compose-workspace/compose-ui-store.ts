@@ -9,6 +9,7 @@ interface ComposeUiState {
   captureMotionReturnTab: (tabId: string | null) => void
   clearMotionReturnTab: () => void
   toggleLayerExpanded: (compositionId: string, itemId: string) => void
+  setAllLayersExpanded: (compositionId: string, itemIds: Iterable<string>, expanded: boolean) => void
   pruneCompositionLayers: (compositionId: string, validItemIds: Iterable<string>) => void
 }
 
@@ -39,6 +40,13 @@ export const useComposeUiStore = create<ComposeUiState>((set) => ({
         },
       }
     }),
+  setAllLayersExpanded: (compositionId, itemIds, expanded) =>
+    set((state) => ({
+      expandedLayerIdsByComposition: {
+        ...state.expandedLayerIdsByComposition,
+        [compositionId]: expanded ? [...new Set(itemIds)] : [],
+      },
+    })),
   pruneCompositionLayers: (compositionId, validItemIds) =>
     set((state) => {
       const current = state.expandedLayerIdsByComposition[compositionId]

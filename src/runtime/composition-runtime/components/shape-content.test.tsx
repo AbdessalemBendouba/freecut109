@@ -70,6 +70,42 @@ describe('ShapeContent', () => {
     expect(path).toHaveAttribute('stroke-dashoffset', '-50')
   })
 
+  it('renders a Shape property linked to another layer scalar', () => {
+    const source: ShapeItem = {
+      ...shape,
+      id: 'source-shape',
+      label: 'Source shape',
+      transform: { ...shape.transform, x: 50 },
+    }
+    const target = { ...shape, strokeColor: '#ffffff', strokeWidth: 4 }
+    const { container } = render(
+      <KeyframesProvider
+        keyframes={[
+          {
+            itemId: target.id,
+            properties: [],
+            expressions: [
+              {
+                type: 'link',
+                targetProperty: 'trimPathEnd',
+                sourceItemId: source.id,
+                sourceProperty: 'x',
+                enabled: true,
+                timeOffsetFrames: 0,
+              },
+            ],
+          },
+        ]}
+        items={[target, source]}
+        canvas={{ width: 1920, height: 1080, fps: 30 }}
+      >
+        <ShapeContent item={target} />
+      </KeyframesProvider>,
+    )
+
+    expect(container.querySelector('path')).toHaveAttribute('stroke-dasharray', '50 50')
+  })
+
   it('updates trim offset immediately from the live properties preview', () => {
     const { container } = render(
       <ShapeContent

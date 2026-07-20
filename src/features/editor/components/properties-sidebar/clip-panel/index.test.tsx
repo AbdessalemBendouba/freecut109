@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { useEditorStore } from '@/shared/state/editor'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useTimelineStore } from '@/features/editor/deps/timeline-store'
-import type { AudioItem, VideoItem } from '@/types/timeline'
+import type { AudioItem, ControllerItem, TimelineItem, VideoItem } from '@/types/timeline'
 import { ClipPanel } from './index'
 
 vi.mock('./layout-section', () => ({
@@ -40,6 +40,12 @@ vi.mock('./shape-section', () => ({
   ShapeSection: () => <div>Shape Body</div>,
 }))
 
+vi.mock('../../animate-workspace/animation-preset-library', () => ({
+  AnimationPresetLibrary: ({ embedded }: { embedded?: boolean }) => (
+    <div data-testid="motion-library-mock" data-embedded={String(embedded)} />
+  ),
+}))
+
 vi.mock('@/features/editor/deps/effects-contract', () => ({
   EffectsSection: () => <div>Effects Body</div>,
 }))
@@ -66,14 +72,28 @@ const AUDIO_ITEM: AudioItem = {
   mediaId: 'media-audio-1',
 }
 
-function activateTab(name: 'Audio' | 'Effects' | 'Video') {
+const NULL_OBJECT: ControllerItem = {
+  id: 'null-1',
+  type: 'controller',
+  controllerKind: 'null',
+  trackId: 'null-track',
+  from: 0,
+  durationInFrames: 90,
+  label: 'Null Object',
+  transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+}
+
+const TRANSFORM_REFERENCE = { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }
+
+function activateTab(name: 'Audio' | 'Effects' | 'Motion' | 'Video') {
   const tab = screen.getByRole('tab', { name })
   fireEvent.mouseDown(tab, { button: 0, ctrlKey: false })
   fireEvent.focus(tab)
 }
 
-function resetStores(items: Array<VideoItem | AudioItem>, selectedItemIds: string[]) {
+function resetStores(items: TimelineItem[], selectedItemIds: string[]) {
   useEditorStore.setState({
+    workspace: 'edit',
     clipInspectorTab: 'video',
     linkedSelectionEnabled: true,
   })
@@ -139,5 +159,67 @@ describe('ClipPanel inspector tabs', () => {
     })
     expect(screen.getByRole('tab', { name: 'Audio' })).toHaveAttribute('data-state', 'active')
     expect(useEditorStore.getState().clipInspectorTab).toBe('audio')
+  })
+
+  it('embeds the complete motion library as a selected-layer tab in Motion', async () => {
+    useEditorStore.setState({ workspace: 'motion' })
+
+    render(<ClipPanel />)
+
+    activateTab('Motion')
+
+    expect(await screen.findByTestId('motion-library-mock')).toHaveAttribute(
+      'data-embedded',
+      'true',
+    )
+    expect(useEditorStore.getState().clipInspectorTab).toBe('motion')
+    expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
+  })
+
+  it('hides parenting from an ordinary unparented clip in Edit', () => {
+    render(<ClipPanel />)
+
+    expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
+  })
+
+  it('does not duplicate an existing parent relationship in the Edit inspector', () => {
+    const parentedVideo: VideoItem = {
+      ...VIDEO_ITEM,
+      transformParent: {
+        parentItemId: NULL_OBJECT.id,
+        parentReference: TRANSFORM_REFERENCE,
+        childLocalReference: TRANSFORM_REFERENCE,
+        childWorldReference: TRANSFORM_REFERENCE,
+      },
+    }
+    resetStores([NULL_OBJECT, parentedVideo], [parentedVideo.id])
+
+    render(<ClipPanel />)
+
+    expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
+  })
+
+  it('names the invisible rig layer as a Null Object', () => {
+    resetStores([NULL_OBJECT], [NULL_OBJECT.id])
+
+    render(<ClipPanel />)
+
+    expect(screen.getByRole('tab', { name: 'Null Object' })).toBeInTheDocument()
+  })
+
+  it('does not duplicate parenting for a multi-layer Motion selection', () => {
+    const secondVideo: VideoItem = {
+      ...VIDEO_ITEM,
+      id: 'clip-video-2',
+      trackId: 'track-2',
+      label: 'second.mp4',
+    }
+    resetStores([VIDEO_ITEM, secondVideo], [VIDEO_ITEM.id, secondVideo.id])
+    useEditorStore.setState({ workspace: 'motion' })
+
+    render(<ClipPanel />)
+    activateTab('Motion')
+
+    expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
   })
 })

@@ -11,6 +11,11 @@ import {
 } from '@/features/keyframes/deps/composition-runtime-contract'
 import { resolveAnimatedTransform } from '../utils/animated-transform-resolver'
 import { resolveAnimatedTextItem } from '../utils/animated-text-item'
+import { applyMotionModifiers } from '../utils/motion-modifier-eval'
+import { applyMotionAnimationLayers } from '../utils/motion-layer-eval'
+import { resolveTransformHierarchy } from '@/shared/utils/transform-parenting'
+import type { CanvasSettings } from '@/types/transform'
+import type { ItemKeyframes } from '@/types/keyframe'
 
 interface AnimatedTransformResult {
   /** The fully resolved transform with keyframe animation applied */
@@ -24,6 +29,39 @@ interface AnimatedTransformResult {
 interface ProjectSize {
   width: number
   height: number
+}
+
+function resolveLocalAnimatedTransform(params: {
+  item: TimelineItem
+  canvas: CanvasSettings
+  animationFrame: number
+  itemKeyframes?: ItemKeyframes
+  itemsById: ReadonlyMap<string, TimelineItem>
+  keyframesByItemId: ReadonlyMap<string, ItemKeyframes>
+}): ResolvedTransform {
+  const { item, canvas, animationFrame, itemKeyframes, itemsById, keyframesByItemId } = params
+  const relativeFrame = animationFrame - item.from
+  const baseResolved = resolveTransform(item, canvas, getSourceDimensions(item))
+  const resolved = itemKeyframes
+    ? resolveAnimatedTransform(baseResolved, itemKeyframes, relativeFrame, {
+        globalFrame: animationFrame,
+        canvas,
+        getItem: (itemId) => itemsById.get(itemId),
+        getKeyframes: (itemId) => keyframesByItemId.get(itemId),
+      })
+    : baseResolved
+  const layered = applyMotionAnimationLayers(resolved, item.motionLayers, relativeFrame)
+  const modulated = applyMotionModifiers(layered, item.motionModifiers, {
+    frame: relativeFrame,
+    fps: canvas.fps,
+    frameWidth: canvas.width,
+    frameHeight: canvas.height,
+  })
+  if (item.type !== 'text' || hasCornerPin(item.cornerPin)) return modulated
+  return expandTextTransformToFitContent(
+    resolveAnimatedTextItem(item, itemKeyframes, relativeFrame, canvas),
+    modulated,
+  )
 }
 
 /**
@@ -42,6 +80,7 @@ export function useAnimatedTransform(
   // The timeline facade memoizes by snapshot reference, so changing item.id due
   // to a different store (selection) can otherwise return stale keyframes.
   const allKeyframes = useTimelineStore((s) => s.keyframes)
+  const allItems = useTimelineStore((s) => s.items)
   const itemKeyframes = useMemo(
     () => allKeyframes.find((k) => k.itemId === item.id),
     [allKeyframes, item.id],
@@ -55,24 +94,23 @@ export function useAnimatedTransform(
   // Resolve the animated transform
   const transform = useMemo(() => {
     const canvas = { width: projectSize.width, height: projectSize.height, fps: 30 }
-    const sourceDimensions = getSourceDimensions(item)
-    const baseResolved = resolveTransform(item, canvas, sourceDimensions)
-    const animatedTextItem =
-      item.type === 'text'
-        ? resolveAnimatedTextItem(item, itemKeyframes, relativeFrame, canvas)
-        : undefined
-
-    // Apply keyframe animation if item has keyframes
-    const resolvedTransform = itemKeyframes
-      ? resolveAnimatedTransform(baseResolved, itemKeyframes, relativeFrame)
-      : baseResolved
-
-    if (animatedTextItem && !hasCornerPin(item.cornerPin)) {
-      return expandTextTransformToFitContent(animatedTextItem, resolvedTransform)
-    }
-
-    return resolvedTransform
-  }, [item, projectSize, itemKeyframes, relativeFrame])
+    const itemsById = new Map(allItems.map((candidate) => [candidate.id, candidate]))
+    const keyframesByItemId = new Map(
+      allKeyframes.map((candidate) => [candidate.itemId, candidate]),
+    )
+    return resolveTransformHierarchy(item, {
+      getItem: (itemId) => itemsById.get(itemId),
+      resolveLocal: (candidate) =>
+        resolveLocalAnimatedTransform({
+          item: candidate,
+          canvas,
+          animationFrame,
+          itemKeyframes: keyframesByItemId.get(candidate.id),
+          itemsById,
+          keyframesByItemId,
+        }),
+    })
+  }, [allItems, allKeyframes, animationFrame, item, projectSize])
 
   return {
     transform,
@@ -92,6 +130,7 @@ export function useAnimatedTransforms(
 ): Map<string, ResolvedTransform> {
   // Get all keyframes
   const allKeyframes = useTimelineStore((s) => s.keyframes)
+  const allItems = useTimelineStore((s) => s.items)
 
   const animationFrame = useResolvedPlaybackFrame()
 
@@ -99,37 +138,29 @@ export function useAnimatedTransforms(
   return useMemo(() => {
     const transforms = new Map<string, ResolvedTransform>()
     const canvas = { width: projectSize.width, height: projectSize.height, fps: 30 }
+    const itemsById = new Map(allItems.map((candidate) => [candidate.id, candidate]))
+    const keyframesByItemId = new Map(
+      allKeyframes.map((candidate) => [candidate.itemId, candidate]),
+    )
 
     for (const item of items) {
-      const sourceDimensions = getSourceDimensions(item)
-      const baseResolved = resolveTransform(item, canvas, sourceDimensions)
-
-      // Apply keyframe animation if item has keyframes
-      const itemKeyframes = allKeyframes.find((k) => k.itemId === item.id)
-      const relativeFrame = animationFrame - item.from
-      const animatedTextItem =
-        item.type === 'text'
-          ? resolveAnimatedTextItem(item, itemKeyframes, relativeFrame, canvas)
-          : undefined
-      const resolvedTransform = itemKeyframes
-        ? resolveAnimatedTransform(baseResolved, itemKeyframes, relativeFrame)
-        : baseResolved
-
-      if (animatedTextItem && !hasCornerPin(item.cornerPin)) {
-        transforms.set(
-          item.id,
-          expandTextTransformToFitContent(animatedTextItem, resolvedTransform),
-        )
-        continue
-      }
-
-      if (itemKeyframes) {
-        transforms.set(item.id, resolvedTransform)
-      } else {
-        transforms.set(item.id, baseResolved)
-      }
+      transforms.set(
+        item.id,
+        resolveTransformHierarchy(item, {
+          getItem: (itemId) => itemsById.get(itemId),
+          resolveLocal: (candidate) =>
+            resolveLocalAnimatedTransform({
+              item: candidate,
+              canvas,
+              animationFrame,
+              itemKeyframes: keyframesByItemId.get(candidate.id),
+              itemsById,
+              keyframesByItemId,
+            }),
+        }),
+      )
     }
 
     return transforms
-  }, [items, projectSize, allKeyframes, animationFrame])
+  }, [items, projectSize, allItems, allKeyframes, animationFrame])
 }

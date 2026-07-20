@@ -1,7 +1,16 @@
 import { useMemo, useCallback, useEffect, memo, lazy, Suspense } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
-import { Film, Sparkles, Volume2, Type, WandSparkles, Shapes, type LucideIcon } from 'lucide-react'
+import {
+  Crosshair,
+  Film,
+  Sparkles,
+  Volume2,
+  Type,
+  WandSparkles,
+  Shapes,
+  type LucideIcon,
+} from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { cn } from '@/shared/ui/cn'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -29,6 +38,7 @@ import { GifSection } from './gif-section'
 import { LottieSection } from './lottie-section'
 import { ShapeSection } from './shape-section'
 import { CornerPinSection } from './corner-pin-section'
+import { CompositionControlsSection } from './composition-controls-section'
 
 const LazyAudioSection = lazy(() =>
   import('./audio-section').then((module) => ({ default: module.AudioSection })),
@@ -47,6 +57,11 @@ const LazyTextStyleSection = lazy(() =>
 )
 const LazyTextAnimationSection = lazy(() =>
   import('./text-section').then((module) => ({ default: module.TextAnimationSection })),
+)
+const LazyAnimationPresetLibrary = lazy(() =>
+  import('../../animate-workspace/animation-preset-library').then((module) => ({
+    default: module.AnimationPresetLibrary,
+  })),
 )
 
 /**
@@ -73,7 +88,8 @@ function computeItemTypeInfo(items: TimelineItem[]) {
       types.has('adjustment') ||
       types.has('composition') ||
       types.has('subtitle') ||
-      types.has('lottie'),
+      types.has('lottie') ||
+      types.has('controller'),
     hasVideoItems: types.has('video'),
     hasLottieItems: types.has('lottie'),
     hasGifItems,
@@ -95,6 +111,7 @@ function computeItemTypeInfo(items: TimelineItem[]) {
     isOnlyText: items.length > 0 && items.every((item) => item.type === 'text'),
     // Pure shape selection gets a Shape tab (no audio) instead of Video.
     isOnlyShape: items.length > 0 && items.every((item) => item.type === 'shape'),
+    isOnlyController: items.length > 0 && items.every((item) => item.type === 'controller'),
   }
 }
 
@@ -107,6 +124,7 @@ export const ClipPanel = memo(function ClipPanel() {
   const { t } = useTranslation()
   // Granular selectors with explicit types
   const clipInspectorTab = useEditorStore((s) => s.clipInspectorTab)
+  const workspace = useEditorStore((s) => s.workspace)
   const setClipInspectorTab = useEditorStore((s) => s.setClipInspectorTab)
   const setWorkspace = useEditorStore((s) => s.setWorkspace)
   const handleEditInColor = useCallback(() => setWorkspace('color'), [setWorkspace])
@@ -142,7 +160,6 @@ export const ClipPanel = memo(function ClipPanel() {
       ),
     ),
   )
-
   // Canvas settings
   const canvas = useMemo(
     () => ({
@@ -171,6 +188,7 @@ export const ClipPanel = memo(function ClipPanel() {
     isOnlyTextOrShape,
     isOnlyText,
     isOnlyShape,
+    isOnlyController,
   } = itemTypeInfo
 
   // Memoized filtered arrays for child components - prevents new array creation each render
@@ -192,8 +210,15 @@ export const ClipPanel = memo(function ClipPanel() {
   )
 
   const visualItems = useMemo(
-    () => selectedItems.filter((item: TimelineItem) => item.type !== 'audio'),
+    () =>
+      selectedItems.filter(
+        (item: TimelineItem) => item.type !== 'audio' && item.type !== 'controller',
+      ),
     [selectedItems],
+  )
+  const paintableLayoutItems = useMemo(
+    () => layoutFillItems.filter((item) => item.type !== 'controller'),
+    [layoutFillItems],
   )
 
   // Compute aspectLocked from items' transforms
@@ -233,16 +258,20 @@ export const ClipPanel = memo(function ClipPanel() {
   // Effects — so the middle slot is available even though text has no audio.
   const showVideoTab = layoutFillItems.length > 0
   const showAudioTab = hasAudioItems
-  const showSecondTab = showAudioTab || isOnlyText
-  const showEffectsTab = hasVisualItems
+  const showMotionTab = workspace === 'motion' && hasVisualItems
+  // Motion's library already includes the text-motion stage, so a text layer
+  // gets one purposeful Motion surface instead of adjacent Animation/Motion tabs.
+  const showSecondTab = showAudioTab || (isOnlyText && !showMotionTab)
+  const showEffectsTab = visualItems.length > 0
 
   const availableTabs = useMemo(() => {
     const tabs: ClipInspectorTab[] = []
     if (showVideoTab) tabs.push('video')
+    if (showMotionTab) tabs.push('motion')
     if (showSecondTab) tabs.push('audio')
     if (showEffectsTab) tabs.push('effects')
     return tabs
-  }, [showSecondTab, showEffectsTab, showVideoTab])
+  }, [showMotionTab, showSecondTab, showEffectsTab, showVideoTab])
 
   const fallbackTab = availableTabs[0] ?? 'video'
   const activeTab = availableTabs.includes(clipInspectorTab) ? clipInspectorTab : fallbackTab
@@ -274,11 +303,20 @@ export const ClipPanel = memo(function ClipPanel() {
     if (value === 'video') {
       if (isOnlyText) return { label: t('editor.clipPanel.tabText'), icon: Type }
       if (isOnlyShape) return { label: t('editor.clipPanel.tabShape'), icon: Shapes }
+      if (isOnlyController) {
+        return {
+          label: t('editor.clipPanel.tabController', { defaultValue: 'Null Object' }),
+          icon: Crosshair,
+        }
+      }
       return { label: t('editor.clipPanel.tabVideo'), icon: Film }
     }
     if (value === 'audio') {
       if (isOnlyText) return { label: t('editor.clipPanel.tabAnimation'), icon: WandSparkles }
       return { label: t('editor.clipPanel.tabAudio'), icon: Volume2 }
+    }
+    if (value === 'motion') {
+      return { label: t('toolbar.workspaces.motion'), icon: WandSparkles }
     }
     return { label: t('editor.clipPanel.tabEffects'), icon: Sparkles }
   }
@@ -287,17 +325,23 @@ export const ClipPanel = memo(function ClipPanel() {
       ? 'grid-cols-1'
       : availableTabs.length === 2
         ? 'grid-cols-2'
-        : 'grid-cols-3'
+        : availableTabs.length === 3
+          ? 'grid-cols-3'
+          : 'grid-cols-4'
 
   if (selectedItems.length === 0) {
     return null
   }
 
   return (
-    <div className="space-y-3">
+    <div className={cn(activeTab === 'motion' ? 'h-full min-h-0' : 'space-y-3')}>
       {/* Tabbed sections */}
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        <TabsList className={cn('grid w-full h-8', tabGridColsClass)}>
+      <Tabs
+        value={activeTab}
+        onValueChange={handleTabChange}
+        className={cn('w-full', activeTab === 'motion' && 'flex h-full min-h-0 flex-col')}
+      >
+        <TabsList className={cn('grid h-8 w-full shrink-0', tabGridColsClass)}>
           {availableTabs.map((value) => {
             const { label, icon: Icon } = getTabMeta(value)
             return (
@@ -323,15 +367,16 @@ export const ClipPanel = memo(function ClipPanel() {
                   onAspectLockToggle={handleAspectLockToggle}
                 />
               )}
+              <CompositionControlsSection items={selectedItems} />
               {hasVideoItems && <VideoSection items={selectedItems} />}
-              {showVideoTab && (
+              {paintableLayoutItems.length > 0 && (
                 <FillSection
-                  items={layoutFillItems}
+                  items={paintableLayoutItems}
                   canvas={canvas}
                   onTransformChange={handleTransformChange}
                 />
               )}
-              {showVideoTab && <CornerPinSection items={layoutFillItems} />}
+              {paintableLayoutItems.length > 0 && <CornerPinSection items={paintableLayoutItems} />}
               {hasTextItems && (
                 <Suspense fallback={null}>
                   <LazyTextContentSection items={selectedItems} canvas={canvas} />
@@ -354,6 +399,20 @@ export const ClipPanel = memo(function ClipPanel() {
               {hasLottieItems && <LottieSection items={selectedItems} />}
             </div>
           )}
+        </TabsContent>
+
+        {/* Motion Tab — the composition's single preset, procedural, text
+            motion, bake, and saved-animation surface. */}
+        <TabsContent value="motion" className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden">
+          {showMotionTab && activeTab === 'motion' ? (
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="min-h-0 flex-1">
+                <Suspense fallback={<div className="h-full rounded-md bg-muted/20" />}>
+                  <LazyAnimationPresetLibrary canvas={canvas} embedded />
+                </Suspense>
+              </div>
+            </div>
+          ) : null}
         </TabsContent>
 
         {/* Second slot: Audio (gain/fades) normally; Animation (motion text)

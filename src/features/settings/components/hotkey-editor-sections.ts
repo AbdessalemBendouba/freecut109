@@ -240,7 +240,7 @@ export const HOTKEY_EDITOR_SECTIONS: readonly HotkeyEditorSection[] = [
         keys: ["WORKSPACE_COLOR"],
       },
       {
-        labelKey: "projects.settings.hotkeys.items.animateWorkspace",
+        labelKey: "toolbar.workspaces.motion",
         keys: ["WORKSPACE_ANIMATE"],
       },
     ],

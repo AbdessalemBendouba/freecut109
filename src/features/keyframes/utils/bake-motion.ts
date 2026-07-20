@@ -11,7 +11,7 @@
 import type { ResolvedTransform } from '@/types/transform'
 import type { AudioPulseModulation } from '@/types/effects'
 import type { TimelineItem } from '@/types/timeline'
-import type { MotionModifier, MotionModifierType } from '@/types/motion'
+import type { MotionAnimationLayer, MotionModifier } from '@/types/motion'
 import {
   buildEffectAnimatableProperty,
   type AnimatableProperty,
@@ -20,7 +20,8 @@ import {
   type TransformAnimatableProperty,
 } from '@/types/keyframe'
 import { resolveAnimatedTransform } from './animated-transform-resolver'
-import { applyMotionModifiers } from './motion-modifier-eval'
+import { applyMotionModifiers, getActiveMotionModifierChannels } from './motion-modifier-eval'
+import { applyMotionAnimationLayers, getActiveMotionLayerChannels } from './motion-layer-eval'
 import { evaluateAudioPulseParams } from './trigger-wave-motion-layer'
 import { clamp } from '@/shared/utils/math'
 
@@ -29,14 +30,6 @@ export interface BakedKeyframe {
   frame: number
   value: number
   easing: EasingType
-}
-
-const MODIFIER_PROPERTIES: Record<MotionModifierType, TransformAnimatableProperty[]> = {
-  'float-drift': ['x', 'y', 'rotation'],
-  'breath-pulse': ['width', 'height', 'opacity'],
-  'micro-shake': ['x', 'y', 'rotation'],
-  sway: ['rotation'],
-  spin: ['rotation'],
 }
 
 /**
@@ -58,12 +51,16 @@ function sampleStep(modifiers: readonly MotionModifier[], fps: number): number {
   return Number.isFinite(step) ? step : 0
 }
 
-function activeProperties(modifiers: readonly MotionModifier[]): TransformAnimatableProperty[] {
+function activeProperties(
+  modifiers: readonly MotionModifier[],
+  layers: readonly MotionAnimationLayer[],
+): TransformAnimatableProperty[] {
   const set = new Set<TransformAnimatableProperty>()
   for (const modifier of modifiers) {
     if (!modifier.enabled || modifier.amplitude <= 0) continue
-    for (const property of MODIFIER_PROPERTIES[modifier.type]) set.add(property)
+    for (const property of getActiveMotionModifierChannels(modifier)) set.add(property)
   }
+  for (const property of getActiveMotionLayerChannels(layers)) set.add(property)
   return [...set]
 }
 
@@ -71,22 +68,34 @@ export function bakeMotionModifiersToKeyframes(params: {
   baseTransform: ResolvedTransform
   keyframes: ItemKeyframes | undefined
   modifiers: readonly MotionModifier[]
+  layers?: readonly MotionAnimationLayer[]
   durationInFrames: number
   fps: number
   frameWidth: number
   frameHeight: number
 }): { keyframes: BakedKeyframe[]; properties: TransformAnimatableProperty[] } {
-  const { baseTransform, keyframes, modifiers, durationInFrames, fps, frameWidth, frameHeight } =
-    params
+  const {
+    baseTransform,
+    keyframes,
+    modifiers,
+    layers = [],
+    durationInFrames,
+    fps,
+    frameWidth,
+    frameHeight,
+  } = params
 
-  const properties = activeProperties(modifiers)
+  const properties = activeProperties(modifiers, layers)
   const last = Math.max(0, durationInFrames - 1)
   if (properties.length === 0 || last <= 0) {
     return { keyframes: [], properties: [] }
   }
 
   const frameSet = new Set<number>([0, last])
-  const step = sampleStep(modifiers, fps)
+  // Animation layers can combine with already-keyframed base values, including
+  // multiplicative scale. Sampling every frame is the only generally lossless
+  // conversion to ordinary scalar keyframes (matching AE expression baking).
+  const step = layers.some((layer) => layer.enabled) ? 1 : sampleStep(modifiers, fps)
   if (step > 0) {
     for (let frame = 0; frame <= last; frame += step) frameSet.add(frame)
   }
@@ -95,7 +104,8 @@ export function bakeMotionModifiersToKeyframes(params: {
   const baked: BakedKeyframe[] = []
   for (const frame of frames) {
     const animated = resolveAnimatedTransform(baseTransform, keyframes, frame)
-    const resolved = applyMotionModifiers(animated, modifiers, {
+    const layered = applyMotionAnimationLayers(animated, layers, frame)
+    const resolved = applyMotionModifiers(layered, modifiers, {
       frame,
       fps,
       frameWidth,
@@ -161,6 +171,7 @@ export interface BakeMotionPlanEntry {
   }>
   clearProperties: AnimatableProperty[]
   clearMotionModifiers: boolean
+  clearMotionLayers: boolean
   clearAudioPulseEffectIds: string[]
 }
 
@@ -182,18 +193,22 @@ export function buildBakeMotionPlan(params: {
 
   return items.flatMap((item) => {
     const enabledModifiers = item.motionModifiers?.filter((modifier) => modifier.enabled) ?? []
+    const enabledLayers = item.motionLayers?.filter((layer) => layer.enabled) ?? []
     const audioEffects = item.effects?.filter((effect) => effect.audioPulse?.enabled) ?? []
-    if (enabledModifiers.length === 0 && audioEffects.length === 0) return []
+    if (enabledModifiers.length === 0 && enabledLayers.length === 0 && audioEffects.length === 0) {
+      return []
+    }
 
     const itemKeyframes = keyframesByItemId[item.id]
     const keyframes: BakeMotionPlanEntry['keyframes'] = []
     const clearProperties = new Set<AnimatableProperty>()
 
-    if (enabledModifiers.length > 0) {
+    if (enabledModifiers.length > 0 || enabledLayers.length > 0) {
       const baked = bakeMotionModifiersToKeyframes({
         baseTransform: resolveBase(item),
         keyframes: itemKeyframes,
         modifiers: enabledModifiers,
+        layers: enabledLayers,
         durationInFrames: item.durationInFrames,
         fps,
         frameWidth,
@@ -223,6 +238,7 @@ export function buildBakeMotionPlan(params: {
         keyframes,
         clearProperties: [...clearProperties],
         clearMotionModifiers: enabledModifiers.length > 0,
+        clearMotionLayers: enabledLayers.length > 0,
         clearAudioPulseEffectIds: audioEffects.map((effect) => effect.id),
       },
     ]

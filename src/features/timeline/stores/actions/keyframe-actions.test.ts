@@ -16,6 +16,10 @@ import {
   removeKeyframes,
   removeKeyframesForItem,
   removeKeyframesForProperty,
+  removeDirectPropertyLink,
+  removePropertyExpression,
+  setDirectPropertyLink,
+  setPropertyExpression,
   updateKeyframe,
 } from './keyframe-actions'
 
@@ -54,6 +58,91 @@ describe('keyframe actions', () => {
       .setItems([makeTimelineVideoItem({ id: 'a' }), makeTimelineVideoItem({ id: 'b', from: 60 })])
     useTransitionsStore.getState().setTransitions([])
     useKeyframesStore.getState().setKeyframes([])
+  })
+
+  describe('direct property links', () => {
+    it('creates and removes links through undo and redo', () => {
+      const expression = {
+        type: 'link' as const,
+        targetProperty: 'x' as const,
+        sourceItemId: 'b',
+        sourceProperty: 'x' as const,
+        enabled: true,
+        timeOffsetFrames: 0,
+      }
+
+      setDirectPropertyLink('a', expression)
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.propertyLinks).toEqual([
+        expression,
+      ])
+
+      useTimelineCommandStore.getState().undo()
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')).toBeUndefined()
+
+      useTimelineCommandStore.getState().redo()
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.propertyLinks).toEqual([
+        expression,
+      ])
+
+      removeDirectPropertyLink('a', 'x')
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')).toBeUndefined()
+
+      useTimelineCommandStore.getState().undo()
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.propertyLinks).toEqual([
+        expression,
+      ])
+    })
+
+    it('replaces scalar component links when a Vector2 link owns the channel pair', () => {
+      setDirectPropertyLink('a', {
+        type: 'link',
+        targetProperty: 'x',
+        sourceItemId: 'b',
+        sourceProperty: 'x',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+      setDirectPropertyLink('a', {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'b',
+        sourceProperty: 'position',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.propertyLinks).toEqual([
+        expect.objectContaining({ targetProperty: 'position' }),
+      ])
+    })
+  })
+
+  describe('property expressions', () => {
+    it('creates, disables, removes, and restores expressions through history', () => {
+      setPropertyExpression('a', {
+        type: 'expression',
+        targetProperty: 'x',
+        source: 'value * 2',
+        enabled: true,
+      })
+      setPropertyExpression('a', {
+        type: 'expression',
+        targetProperty: 'x',
+        source: 'value * 2',
+        enabled: false,
+      })
+
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.expressions).toEqual([
+        expect.objectContaining({ targetProperty: 'x', enabled: false }),
+      ])
+
+      removePropertyExpression('a', 'x')
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')).toBeUndefined()
+      useTimelineCommandStore.getState().undo()
+      expect(useKeyframesStore.getState().getKeyframesForItem('a')?.expressions).toEqual([
+        expect.objectContaining({ source: 'value * 2', enabled: false }),
+      ])
+    })
   })
 
   describe('addKeyframe', () => {
@@ -251,6 +340,86 @@ describe('keyframe actions', () => {
       )
 
       expect(getKeyframes('a', 'opacity').map((kf) => kf.frame)).toEqual([0])
+    })
+
+    it('replaces a region of an existing coupled Position lane', () => {
+      useKeyframesStore.getState()._upsertVectorKeyframe('a', 'position', {
+        frame: 0,
+        value: { x: 0, y: 0 },
+      })
+      useKeyframesStore.getState()._upsertVectorKeyframe('a', 'position', {
+        frame: 30,
+        value: { x: 30, y: 30 },
+      })
+
+      const ids = applyMotionPresetKeyframes(
+        [],
+        [],
+        [
+          {
+            itemId: 'a',
+            property: 'position',
+            keyframes: [
+              {
+                frame: 5,
+                value: { x: 100, y: 200 },
+                easing: 'ease-out',
+                source: {
+                  applicationId: 'app-1',
+                  kind: 'built-in-preset',
+                  presetId: 'slide',
+                  presetName: 'Slide',
+                },
+              },
+            ],
+            replaceRange: { fromFrame: 0, toFrame: 10 },
+          },
+        ],
+      )
+
+      expect(ids).toHaveLength(1)
+      expect(
+        useKeyframesStore
+          .getState()
+          .getKeyframesForItem('a')
+          ?.vectorProperties?.find((property) => property.property === 'position')?.keyframes,
+      ).toMatchObject([
+        { frame: 5, value: { x: 100, y: 200 }, source: { applicationId: 'app-1' } },
+        { frame: 30, value: { x: 30, y: 30 } },
+      ])
+    })
+
+    it('keeps an existing coupled key on Merge collisions', () => {
+      useKeyframesStore.getState()._upsertVectorKeyframe('a', 'position', {
+        frame: 5,
+        value: { x: 7, y: 8 },
+        easing: 'hold',
+      })
+
+      const ids = applyMotionPresetKeyframes(
+        [],
+        [],
+        [
+          {
+            itemId: 'a',
+            property: 'position',
+            keyframes: [
+              { frame: 5, value: { x: 99, y: 99 } },
+              { frame: 10, value: { x: 10, y: 20 } },
+            ],
+          },
+        ],
+      )
+
+      expect(ids).toHaveLength(1)
+      const position = useKeyframesStore
+        .getState()
+        .getKeyframesForItem('a')
+        ?.vectorProperties?.find((property) => property.property === 'position')?.keyframes
+      expect(position).toMatchObject([
+        { frame: 5, value: { x: 7, y: 8 }, easing: 'hold' },
+        { frame: 10, value: { x: 10, y: 20 } },
+      ])
     })
 
     it('aborts without clearing when any payload is blocked (all-or-nothing)', () => {

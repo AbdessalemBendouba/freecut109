@@ -184,4 +184,153 @@ describe('validateSnapshotData', () => {
     expect(result.valid).toBe(true)
     expect(result.errors).toEqual([])
   })
+
+  it('accepts Animation Core v2 vector lanes and scalar links', async () => {
+    const result = await validateSnapshotData({
+      version: '1.0',
+      exportedAt: '2026-07-17T00:00:00.000Z',
+      editorVersion: '1.0.0',
+      project: {
+        id: 'motion-project',
+        name: 'Motion Project',
+        description: '',
+        createdAt: 0,
+        updatedAt: 0,
+        duration: 1,
+        schemaVersion: 15,
+        metadata: { width: 1920, height: 1080, fps: 30 },
+        timeline: {
+          tracks: [
+            {
+              id: 'track-1',
+              name: 'V1',
+              kind: 'video',
+              height: 80,
+              locked: false,
+              visible: true,
+              muted: false,
+              solo: false,
+              order: 0,
+            },
+          ],
+          items: [
+            {
+              id: 'shape-1',
+              type: 'shape',
+              trackId: 'track-1',
+              from: 0,
+              durationInFrames: 30,
+              label: 'Shape',
+              shapeType: 'rectangle',
+            },
+          ],
+          keyframes: [
+            {
+              itemId: 'shape-1',
+              animationVersion: 2,
+              properties: [],
+              expressions: [
+                {
+                  type: 'link',
+                  targetProperty: 'rotation',
+                  sourceItemId: 'shape-1',
+                  sourceProperty: 'x',
+                  enabled: false,
+                  timeOffsetFrames: 0,
+                },
+              ],
+              vectorProperties: [
+                {
+                  property: 'position',
+                  keyframes: [
+                    {
+                      id: 'p1',
+                      frame: 0,
+                      value: { x: 0, y: 0 },
+                      easing: 'hold',
+                      temporalEase: { out: { speed: 0, influence: 33.333 } },
+                      spatial: {
+                        inTangent: { x: 0, y: 0 },
+                        outTangent: { x: 100, y: 0 },
+                        continuous: true,
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      mediaReferences: [],
+    })
+
+    expect(result.valid).toBe(true)
+    expect(result.errors).toEqual([])
+  })
+
+  it('accepts null controllers and pose-preserving transform parent bindings', async () => {
+    const reference = { x: 0, y: 0, width: 100, height: 100, rotation: 0 }
+    const result = await validateSnapshotData({
+      version: '1.0',
+      exportedAt: '2026-07-18T00:00:00.000Z',
+      editorVersion: '1.0.0',
+      project: {
+        id: 'hierarchy-project',
+        name: 'Hierarchy Project',
+        description: '',
+        createdAt: 0,
+        updatedAt: 0,
+        duration: 1,
+        schemaVersion: 15,
+        metadata: { width: 1920, height: 1080, fps: 30 },
+        timeline: {
+          tracks: [
+            {
+              id: 'track-1',
+              name: 'V1',
+              kind: 'video',
+              height: 80,
+              locked: false,
+              visible: true,
+              muted: false,
+              solo: false,
+              order: 0,
+            },
+          ],
+          items: [
+            {
+              id: 'controller-1',
+              type: 'controller',
+              controllerKind: 'null',
+              trackId: 'track-1',
+              from: 0,
+              durationInFrames: 30,
+              label: 'Controller',
+              transform: reference,
+            },
+            {
+              id: 'shape-1',
+              type: 'shape',
+              shapeType: 'rectangle',
+              trackId: 'track-1',
+              from: 0,
+              durationInFrames: 30,
+              label: 'Child',
+              transformParent: {
+                parentItemId: 'controller-1',
+                parentReference: reference,
+                childLocalReference: { ...reference, x: 20 },
+                childWorldReference: { ...reference, x: 20 },
+              },
+            },
+          ],
+        },
+      },
+      mediaReferences: [],
+    })
+
+    expect(result.valid).toBe(true)
+    expect(result.errors).toEqual([])
+  })
 })

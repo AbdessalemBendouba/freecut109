@@ -1,7 +1,14 @@
 import { create } from 'zustand'
-import type { KeyframeRef, KeyframeClipboard, AnimatableProperty, Keyframe } from '@/types/keyframe'
+import type {
+  KeyframeRef,
+  KeyframeClipboard,
+  AnimatableProperty,
+  Keyframe,
+  VectorAnimatableProperty,
+  ItemKeyframes,
+} from '@/types/keyframe'
 import { useKeyframesStore } from './keyframes-store'
-import { removeKeyframes } from './actions/keyframe-actions'
+import { removeKeyframes, removeVectorKeyframe } from './actions/keyframe-actions'
 
 /**
  * Keyframe selection state - tracks selected keyframes and clipboard.
@@ -54,6 +61,47 @@ function refsEqual(a: KeyframeRef, b: KeyframeRef): boolean {
  */
 function refInArray(ref: KeyframeRef, arr: KeyframeRef[]): boolean {
   return arr.some((r) => refsEqual(r, ref))
+}
+
+function getVectorSelectionMapping(property: AnimatableProperty): {
+  property: VectorAnimatableProperty
+  axis: 'x' | 'y'
+} | null {
+  if (property === 'x') return { property: 'position', axis: 'x' }
+  if (property === 'y') return { property: 'position', axis: 'y' }
+  if (property === 'width') return { property: 'scale', axis: 'x' }
+  if (property === 'height') return { property: 'scale', axis: 'y' }
+  if (property === 'anchorX') return { property: 'anchor', axis: 'x' }
+  if (property === 'anchorY') return { property: 'anchor', axis: 'y' }
+  return null
+}
+
+function getStoredVectorId(keyframeId: string, axis: 'x' | 'y'): string {
+  return axis === 'y' && keyframeId.endsWith(':y') ? keyframeId.slice(0, -2) : keyframeId
+}
+
+function resolveSelectedKeyframe(
+  itemKeyframes: ItemKeyframes,
+  ref: KeyframeRef,
+): Keyframe | undefined {
+  const scalarKeyframe = itemKeyframes.properties
+    .find((property) => property.property === ref.property)
+    ?.keyframes.find((keyframe) => keyframe.id === ref.keyframeId)
+  if (scalarKeyframe) return scalarKeyframe
+
+  const vector = getVectorSelectionMapping(ref.property)
+  if (!vector) return undefined
+  const vectorKeyframe = itemKeyframes.vectorProperties
+    ?.find((candidate) => candidate.property === vector.property)
+    ?.keyframes.find((candidate) => candidate.id === getStoredVectorId(ref.keyframeId, vector.axis))
+  if (!vectorKeyframe) return undefined
+  return {
+    id: ref.keyframeId,
+    frame: vectorKeyframe.frame,
+    value: vectorKeyframe.value[vector.axis],
+    easing: vectorKeyframe.easing,
+    easingConfig: vectorKeyframe.easingConfig,
+  }
 }
 
 export const useKeyframeSelectionStore = create<
@@ -130,7 +178,23 @@ export const useKeyframeSelectionStore = create<
     if (!itemKeyframes) return
 
     const propKeyframes = itemKeyframes.properties.find((p) => p.property === property)
-    if (!propKeyframes) return
+    if (!propKeyframes) {
+      const vector = getVectorSelectionMapping(property)
+      const vectorProperty = vector
+        ? itemKeyframes.vectorProperties?.find(
+            (candidate) => candidate.property === vector.property,
+          )
+        : undefined
+      if (!vector || !vectorProperty) return
+      set({
+        selectedKeyframes: vectorProperty.keyframes.map((keyframe) => ({
+          itemId,
+          property,
+          keyframeId: vector.axis === 'y' ? `${keyframe.id}:y` : keyframe.id,
+        })),
+      })
+      return
+    }
 
     const refs: KeyframeRef[] = propKeyframes.keyframes.map((kf) => ({
       itemId,
@@ -157,6 +221,17 @@ export const useKeyframeSelectionStore = create<
         })
       }
     }
+    for (const vectorProperty of itemKeyframes.vectorProperties ?? []) {
+      const property =
+        vectorProperty.property === 'position'
+          ? 'x'
+          : vectorProperty.property === 'scale'
+            ? 'width'
+            : 'anchorX'
+      for (const keyframe of vectorProperty.keyframes) {
+        refs.push({ itemId, property, keyframeId: keyframe.id })
+      }
+    }
 
     set({ selectedKeyframes: refs })
   },
@@ -179,10 +254,7 @@ export const useKeyframeSelectionStore = create<
       const itemKeyframes = keyframesState.getKeyframesForItem(ref.itemId)
       if (!itemKeyframes) continue
 
-      const propKeyframes = itemKeyframes.properties.find((p) => p.property === ref.property)
-      if (!propKeyframes) continue
-
-      const keyframe = propKeyframes.keyframes.find((k) => k.id === ref.keyframeId)
+      const keyframe = resolveSelectedKeyframe(itemKeyframes, ref)
       if (!keyframe) continue
 
       keyframeData.push({ ref, keyframe })
@@ -214,7 +286,29 @@ export const useKeyframeSelectionStore = create<
     if (state.selectedKeyframes.length === 0) return
 
     state.copySelectedKeyframes()
-    removeKeyframes(state.selectedKeyframes)
+    const scalarRefs: KeyframeRef[] = []
+    const removedVectorKeys = new Set<string>()
+    const keyframesState = useKeyframesStore.getState()
+    for (const ref of state.selectedKeyframes) {
+      const vector = getVectorSelectionMapping(ref.property)
+      const storedId = vector ? getStoredVectorId(ref.keyframeId, vector.axis) : ''
+      const hasVectorKeyframe = vector
+        ? keyframesState
+            .getKeyframesForItem(ref.itemId)
+            ?.vectorProperties?.find((candidate) => candidate.property === vector.property)
+            ?.keyframes.some((candidate) => candidate.id === storedId)
+        : false
+      if (vector && hasVectorKeyframe) {
+        const key = `${ref.itemId}:${vector.property}:${storedId}`
+        if (!removedVectorKeys.has(key)) {
+          removeVectorKeyframe(ref.itemId, vector.property, storedId)
+          removedVectorKeys.add(key)
+        }
+      } else {
+        scalarRefs.push(ref)
+      }
+    }
+    if (scalarRefs.length > 0) removeKeyframes(scalarRefs)
     set({ selectedKeyframes: [], isCut: true })
   },
 

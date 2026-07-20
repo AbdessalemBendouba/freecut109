@@ -96,6 +96,10 @@ test('canonical containment rejects traversal and sibling-prefix paths', () => {
         () => resolveContained(dist, 'outside-link/secret.txt'),
         (error) => error.code === 'PATH_OUTSIDE_ROOT',
       )
+      assert.throws(
+        () => resolveContained(dist, 'outside-link/missing.txt'),
+        (error) => error.code === 'PATH_OUTSIDE_ROOT',
+      )
     } catch (error) {
       if (!['EPERM', 'EACCES'].includes(error.code)) throw error
     }

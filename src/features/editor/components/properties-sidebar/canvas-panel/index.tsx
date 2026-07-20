@@ -13,6 +13,7 @@ import { PropertySection, PropertyRow, LinkedDimensions } from '../components'
 import { MarkerList } from '../marker-panel/marker-list'
 import { formatTimecodeDotFrames } from '@/shared/utils/time-utils'
 import { commitProjectMetadataChange } from '@/features/editor/utils/project-metadata-history'
+import { CompositionControlsAuthoringSection } from './composition-controls-authoring-section'
 
 /**
  * Isolated color picker using react-colorful.
@@ -281,6 +282,8 @@ export const CanvasPanel = memo(function CanvasPanel() {
           </div>
         </PropertyRow>
       </PropertySection>
+
+      <CompositionControlsAuthoringSection />
 
       <Separator />
 

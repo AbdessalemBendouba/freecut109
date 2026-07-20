@@ -1,5 +1,11 @@
 import type { VisualEffect } from '@/types/effects'
-import type { AdjustmentItem, ShapeItem, ShapeType, TextItem } from '@/types/timeline'
+import type {
+  AdjustmentItem,
+  ControllerItem,
+  ShapeItem,
+  ShapeType,
+  TextItem,
+} from '@/types/timeline'
 import {
   TEXT_STYLE_PRESETS,
   buildTextStylePresetTemplate,
@@ -200,6 +206,29 @@ export function createDefaultAdjustmentItem(
         enabled: true,
       })) ?? [],
     effectOpacity: 1,
+  }
+}
+
+export function createDefaultControllerItem(params: VisualLayerPlacement): ControllerItem {
+  const { trackId, from, durationInFrames, canvasWidth, canvasHeight } = params
+  const size = Math.max(48, Math.min(canvasWidth, canvasHeight) * 0.08)
+  return {
+    id: crypto.randomUUID(),
+    type: 'controller',
+    controllerKind: 'null',
+    trackId,
+    from,
+    durationInFrames,
+    label: 'Null Object',
+    transform: {
+      x: 0,
+      y: 0,
+      width: size,
+      height: size,
+      rotation: 0,
+      opacity: 1,
+      aspectRatioLocked: true,
+    },
   }
 }
 

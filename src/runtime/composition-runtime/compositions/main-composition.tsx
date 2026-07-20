@@ -91,6 +91,7 @@ const FrameActiveMasksProvider: React.FC<{
         canvas: { width: canvasWidth, height: canvasHeight, fps },
         frame,
         getKeyframes: keyframesCtx?.getItemKeyframes,
+        getItem: keyframesCtx?.getItem,
       }),
     )
     const stableMasks = reuseStableMaskInfos(previousMasksRef.current, nextMasks)
@@ -174,6 +175,10 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
 
   const projectWidth = compositionWidth ?? renderWidth
   const projectHeight = compositionHeight ?? renderHeight
+  const expressionCanvas = useMemo(
+    () => ({ width: projectWidth, height: projectHeight, fps }),
+    [fps, projectHeight, projectWidth],
+  )
   const canvasWidth = renderWidth
   const canvasHeight = renderHeight
   // NOTE: useCurrentFrame() removed from here to prevent per-frame re-renders.
@@ -188,6 +193,7 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
     () => resolveCompositionRenderPlan({ tracks, transitions }),
     [tracks, transitions],
   )
+  const expressionItems = useMemo(() => tracks.flatMap((track) => track.items), [tracks])
   const { trackRenderState } = renderPlan
   const { maxOrder } = trackRenderState
 
@@ -384,7 +390,7 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
 
   return (
     <NestedMediaResolutionProvider value={useProxyMedia ? 'proxy' : 'source'}>
-      <KeyframesProvider keyframes={keyframes}>
+      <KeyframesProvider keyframes={keyframes} items={expressionItems} canvas={expressionCanvas}>
         <CompositionSpaceProvider
           projectWidth={projectWidth}
           projectHeight={projectHeight}

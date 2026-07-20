@@ -10,6 +10,7 @@ const mockFns = vi.hoisted(() => ({
     path: {} as Path2D,
     inverted: mask.maskInvert ?? false,
     feather: mask.maskType === 'alpha' ? (mask.maskFeather ?? 0) : 0,
+    opacity: (mask.maskOpacity ?? 100) / 100,
     maskType: mask.maskType ?? 'clip',
     trackOrder: 0,
   })),

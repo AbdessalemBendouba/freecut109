@@ -39,7 +39,13 @@ export function DopesheetRulerHeader({
         onPointerUp={onRulerPointerUp}
         onPointerCancel={onRulerPointerUp}
       >
-        {rulerTickElements}
+        <div
+          data-motion-viewport-surface
+          data-motion-ruler-surface
+          className="absolute inset-0"
+        >
+          {rulerTickElements}
+        </div>
       </div>
     </div>
   )

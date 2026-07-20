@@ -71,6 +71,65 @@ function inferTransformOperationFromMap(
   return inferTransformOperation(unionKeys)
 }
 
+function applyAutoKeyframeOperationsInCommand(
+  operations: readonly AutoKeyframeOperation[],
+): boolean {
+  if (operations.length === 0) return false
+  const keyframesStore = useKeyframesStore.getState()
+  let changed = false
+
+  for (const autoOperation of operations) {
+    if (autoOperation.type === 'vector-update') {
+      keyframesStore._updateVectorKeyframe(
+        autoOperation.itemId,
+        autoOperation.property,
+        autoOperation.keyframeId,
+        autoOperation.updates,
+      )
+      changed = true
+      continue
+    }
+    if (autoOperation.type === 'update') {
+      keyframesStore._updateKeyframe(
+        autoOperation.itemId,
+        autoOperation.property,
+        autoOperation.keyframeId,
+        autoOperation.updates,
+      )
+      changed = true
+      continue
+    }
+
+    if (!canAddKeyframeAtFrame(autoOperation.itemId, autoOperation.frame)) {
+      getLogger().warn('Cannot add auto keyframe in transition region', {
+        itemId: autoOperation.itemId,
+        property: autoOperation.property,
+        frame: autoOperation.frame,
+      })
+      continue
+    }
+
+    if (autoOperation.type === 'vector-add') {
+      keyframesStore._upsertVectorKeyframe(autoOperation.itemId, autoOperation.property, {
+        frame: autoOperation.frame,
+        value: autoOperation.value,
+        easing: autoOperation.easing,
+      })
+    } else {
+      keyframesStore._addKeyframe(
+        autoOperation.itemId,
+        autoOperation.property,
+        autoOperation.frame,
+        autoOperation.value,
+        autoOperation.easing,
+      )
+    }
+    changed = true
+  }
+
+  return changed
+}
+
 interface MaskEditCommit {
   pathVertices?: MaskVertex[]
   transform?: Partial<TransformProperties>
@@ -83,16 +142,19 @@ export function updateItemTransform(
   options?: TransformCommandOptions,
 ): void {
   const operation = options?.operation ?? inferTransformOperation(getTransformKeys(transform))
+  const autoKeyframeOperations = options?.autoKeyframeOperations ?? []
   execute(
     'UPDATE_TRANSFORM',
     () => {
       useItemsStore.getState()._updateItemTransform(id, transform)
+      applyAutoKeyframeOperationsInCommand(autoKeyframeOperations)
       useTimelineSettingsStore.getState().markDirty()
     },
     {
       id,
       operation,
       properties: [...getTransformKeys(transform)],
+      autoKeyframeOperationCount: autoKeyframeOperations.length,
     },
   )
 }
@@ -129,40 +191,7 @@ export function commitMaskEdit(
         changed = true
       }
 
-      if (autoKeyframeOperations.length > 0) {
-        const keyframesStore = useKeyframesStore.getState()
-
-        for (const autoOperation of autoKeyframeOperations) {
-          if (autoOperation.type === 'update') {
-            keyframesStore._updateKeyframe(
-              autoOperation.itemId,
-              autoOperation.property,
-              autoOperation.keyframeId,
-              autoOperation.updates,
-            )
-            changed = true
-            continue
-          }
-
-          if (!canAddKeyframeAtFrame(autoOperation.itemId, autoOperation.frame)) {
-            getLogger().warn('Cannot add auto keyframe in transition region', {
-              itemId: autoOperation.itemId,
-              property: autoOperation.property,
-              frame: autoOperation.frame,
-            })
-            continue
-          }
-
-          keyframesStore._addKeyframe(
-            autoOperation.itemId,
-            autoOperation.property,
-            autoOperation.frame,
-            autoOperation.value,
-            autoOperation.easing,
-          )
-          changed = true
-        }
-      }
+      changed = applyAutoKeyframeOperationsInCommand(autoKeyframeOperations) || changed
 
       if (changed) {
         useTimelineSettingsStore.getState().markDirty()
@@ -211,15 +240,18 @@ export function updateItemsTransformMap(
   options?: TransformCommandOptions,
 ): void {
   const operation = options?.operation ?? inferTransformOperationFromMap(transformsMap)
+  const autoKeyframeOperations = options?.autoKeyframeOperations ?? []
   execute(
     'UPDATE_TRANSFORMS',
     () => {
       useItemsStore.getState()._updateItemsTransformMap(transformsMap)
+      applyAutoKeyframeOperationsInCommand(autoKeyframeOperations)
       useTimelineSettingsStore.getState().markDirty()
     },
     {
       count: transformsMap.size,
       operation,
+      autoKeyframeOperationCount: autoKeyframeOperations.length,
     },
   )
 }

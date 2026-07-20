@@ -1,7 +1,7 @@
 import type { TimelineItem } from '@/types/timeline'
 
 export function canApplyDroppedEffectsToItem(item: Pick<TimelineItem, 'type'>): boolean {
-  return item.type !== 'audio'
+  return item.type !== 'audio' && item.type !== 'controller'
 }
 
 export function resolveEffectDropTargetIds(params: {

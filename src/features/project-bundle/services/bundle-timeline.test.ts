@@ -234,4 +234,45 @@ describe('bundle-timeline', () => {
     expect(restored?.items[1]?.textMotion).toEqual(makeTextItem().textMotion)
     expect(restored?.compositions?.[0]?.items[0]).toMatchObject({ mediaId: 'imported-media-2' })
   })
+
+  it('round-trips null controllers and transform hierarchy bindings', () => {
+    const reference = { x: 0, y: 0, width: 100, height: 100, rotation: 0 }
+    const timeline: ProjectTimeline = {
+      tracks: [makeTrack()],
+      items: [
+        {
+          id: 'controller-1',
+          type: 'controller',
+          controllerKind: 'null',
+          trackId: 'track-1',
+          from: 0,
+          durationInFrames: 90,
+          label: 'Controller',
+          transform: { ...reference, opacity: 1 },
+        },
+        {
+          id: 'child-1',
+          type: 'shape',
+          shapeType: 'rectangle',
+          fillColor: '#ffffff',
+          trackId: 'track-1',
+          from: 0,
+          durationInFrames: 90,
+          label: 'Child',
+          transformParent: {
+            parentItemId: 'controller-1',
+            parentReference: reference,
+            childLocalReference: { ...reference, x: 20 },
+            childWorldReference: { ...reference, x: 20 },
+          },
+        },
+      ],
+    }
+
+    const bundled = convertTimelineForBundle(timeline)
+    const restored = restoreTimelineFromBundle(bundled, new Map())
+
+    expect(restored?.items[0]).toMatchObject({ type: 'controller', controllerKind: 'null' })
+    expect(restored?.items[1]?.transformParent).toEqual(timeline.items[1]?.transformParent)
+  })
 })

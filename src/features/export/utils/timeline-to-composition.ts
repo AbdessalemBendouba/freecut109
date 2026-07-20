@@ -2,8 +2,17 @@ import type { TimelineTrack, TimelineItem } from '@/types/timeline'
 import type { Transition } from '@/types/transition'
 import type { AudioEqSettings } from '@/types/audio'
 import type { CompositionInputProps } from '@/types/export'
-import type { ItemKeyframes, Keyframe, PropertyKeyframes } from '@/types/keyframe'
-import { interpolatePropertyValue } from '@/features/export/deps/keyframes'
+import type {
+  ItemKeyframes,
+  Keyframe,
+  PropertyKeyframes,
+  VectorKeyframe,
+  VectorPropertyKeyframes,
+} from '@/types/keyframe'
+import {
+  interpolatePropertyValue,
+  interpolateVectorPropertyValue,
+} from '@/features/export/deps/keyframes'
 import {
   resolveEffectiveTrackStates,
   timelineToSourceFrames,
@@ -46,8 +55,8 @@ export function convertTimelineToComposition(
     item.type === 'video' ? resolveReverseConformedVideoItem(item, fps, { mode: 'export' }) : item,
   )
 
-  // Resolve group gate behavior: parent group mute/hide propagates to children.
-  // Also filters out group container tracks (which hold no items).
+  // Resolve layer-group state: parent mute/hide/lock/solo propagates to children.
+  // Also filters out Layer Group containers (which hold no items).
   tracks = resolveEffectiveTrackStates(tracks)
 
   // Determine if we're exporting a specific in/out range
@@ -217,6 +226,7 @@ export function convertTimelineToComposition(
     items, // Original items for calculating split offsets
     itemKeyframeOffsets,
     processedItemIds,
+    fps,
   )
 
   // Debug logging
@@ -268,6 +278,7 @@ function processKeyframesForExport(
   originalItems: TimelineItem[],
   ioMarkerOffsets: Map<string, number>,
   processedItemIds: Set<string>,
+  fps: number,
 ): ItemKeyframes[] {
   // Simple case: just filter keyframes for items in export
   // Only do advanced processing if needed (IO markers or split clips)
@@ -324,7 +335,12 @@ function processKeyframesForExport(
     // Opacity is a visual property that shouldn't transfer to split clips
     if (isInherited) {
       const filteredProperties = itemKeyframes.properties.filter((p) => p.property !== 'opacity')
-      if (filteredProperties.length === 0) continue // No keyframes left after filtering
+      if (
+        filteredProperties.length === 0 &&
+        !itemKeyframes.vectorProperties?.some((property) => property.keyframes.length > 0)
+      ) {
+        continue
+      }
       itemKeyframes = { ...itemKeyframes, properties: filteredProperties }
     }
 
@@ -350,10 +366,14 @@ function processKeyframesForExport(
       const adjustedKeyframes = adjustKeyframesForIOMarkers(
         { ...itemKeyframes, itemId: item.id }, // Use the current item's ID
         totalOffset,
+        fps,
       )
 
       // Only add if there are actual keyframes
-      if (adjustedKeyframes.properties.some((p: PropertyKeyframes) => p.keyframes.length > 0)) {
+      if (
+        adjustedKeyframes.properties.some((p: PropertyKeyframes) => p.keyframes.length > 0) ||
+        adjustedKeyframes.vectorProperties?.some((property) => property.keyframes.length > 0)
+      ) {
         result.push(adjustedKeyframes)
       }
     } else {
@@ -440,6 +460,7 @@ function calculateSplitKeyframeOffset(item: TimelineItem, originalItems: Timelin
 function adjustKeyframesForIOMarkers(
   itemKeyframes: ItemKeyframes,
   frameOffset: number,
+  fps: number,
 ): ItemKeyframes {
   // No offset needed - return as-is
   if (frameOffset === 0) {
@@ -519,8 +540,51 @@ function adjustKeyframesForIOMarkers(
     }
   })
 
+  const adjustedVectorProperties: VectorPropertyKeyframes[] | undefined =
+    itemKeyframes.vectorProperties?.map((property) => {
+      const originalKeyframes = property.keyframes
+      if (originalKeyframes.length === 0) return property
+
+      const offsetKeyframes = originalKeyframes.map((keyframe) => ({
+        ...keyframe,
+        frame: keyframe.frame - frameOffset,
+      }))
+      const keyframesBeforeZero = offsetKeyframes.filter((keyframe) => keyframe.frame < 0)
+      const keyframesAtOrAfterZero = offsetKeyframes.filter((keyframe) => keyframe.frame >= 0)
+
+      if (keyframesAtOrAfterZero.length === 0 && keyframesBeforeZero.length > 0) {
+        const lastKeyframe = keyframesBeforeZero[keyframesBeforeZero.length - 1]!
+        return { ...property, keyframes: [{ ...lastKeyframe, frame: 0 }] }
+      }
+
+      if (
+        keyframesBeforeZero.length > 0 &&
+        keyframesAtOrAfterZero.length > 0 &&
+        !keyframesAtOrAfterZero.some((keyframe) => keyframe.frame === 0)
+      ) {
+        const lastBeforeZero = keyframesBeforeZero[keyframesBeforeZero.length - 1]!
+        const valueAtZero = interpolateVectorPropertyValue(
+          property.property,
+          originalKeyframes,
+          frameOffset,
+          originalKeyframes[0]!.value,
+          fps,
+        )
+        const keyframeAtZero: VectorKeyframe = {
+          ...lastBeforeZero,
+          id: `${lastBeforeZero.id}-interpolated-0`,
+          frame: 0,
+          value: valueAtZero,
+        }
+        return { ...property, keyframes: [keyframeAtZero, ...keyframesAtOrAfterZero] }
+      }
+
+      return { ...property, keyframes: keyframesAtOrAfterZero }
+    })
+
   return {
     ...itemKeyframes,
     properties: adjustedProperties,
+    vectorProperties: adjustedVectorProperties,
   }
 }

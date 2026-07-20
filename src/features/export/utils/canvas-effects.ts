@@ -81,6 +81,7 @@ export interface EffectSourceMask {
   bitmapMask?: OffscreenCanvas
   inverted: boolean
   feather: number
+  opacity: number
   maskType: 'clip' | 'alpha'
   trackOrder?: number
 }

@@ -142,6 +142,7 @@ describe('renderEffectsFromMaskedSource', () => {
         path: {} as Path2D,
         inverted: false,
         feather: 0,
+        opacity: 1,
         maskType: 'clip' as const,
       },
     ]

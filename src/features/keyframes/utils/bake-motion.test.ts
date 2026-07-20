@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ResolvedTransform } from '@/types/transform'
 import type { AudioPulseModulation } from '@/types/effects'
-import type { MotionModifier } from '@/types/motion'
+import type { MotionAnimationLayer, MotionModifier } from '@/types/motion'
 import type { TimelineItem } from '@/types/timeline'
 import { applyMotionModifiers } from './motion-modifier-eval'
 import {
@@ -50,6 +50,25 @@ describe('bake motion modifiers to keyframes', () => {
     })
 
     expect(new Set(properties)).toEqual(new Set(['x', 'y', 'rotation']))
+  })
+
+  it('does not bake muted procedural channels into redundant keyframes', () => {
+    const { properties } = bakeMotionModifiersToKeyframes({
+      baseTransform,
+      keyframes: undefined,
+      modifiers: [
+        modifier({
+          version: 2,
+          channelGains: { x: 1, y: 0, rotation: 0 },
+        }),
+      ],
+      durationInFrames: 120,
+      fps: 30,
+      frameWidth: 1920,
+      frameHeight: 1080,
+    })
+
+    expect(properties).toEqual(['x'])
   })
 
   it('baked keyframe values match the evaluated modifier at the sampled frame', () => {
@@ -107,6 +126,56 @@ describe('bake motion modifiers to keyframes', () => {
     expect(result.keyframes).toEqual([])
     expect(result.properties).toEqual([])
   })
+
+  it('bakes the composed base keyframes and additive layer on every frame', () => {
+    const layers: MotionAnimationLayer[] = [
+      {
+        id: 'layer-1',
+        name: 'Slide',
+        enabled: true,
+        source: 'built-in-preset',
+        sourcePresetId: 'slide',
+        tracks: [
+          {
+            property: 'x',
+            blend: 'add',
+            keyframes: [
+              { id: 'l0', frame: 0, value: 0, easing: 'linear' },
+              { id: 'l1', frame: 2, value: 20, easing: 'linear' },
+            ],
+          },
+        ],
+      },
+    ]
+    const result = bakeMotionModifiersToKeyframes({
+      baseTransform,
+      keyframes: {
+        itemId: 'a',
+        properties: [
+          {
+            property: 'x',
+            keyframes: [
+              { id: 'b0', frame: 0, value: 100, easing: 'linear' },
+              { id: 'b1', frame: 2, value: 120, easing: 'linear' },
+            ],
+          },
+        ],
+      },
+      modifiers: [],
+      layers,
+      durationInFrames: 3,
+      fps: 30,
+      frameWidth: 1920,
+      frameHeight: 1080,
+    })
+
+    expect(result.properties).toEqual(['x'])
+    expect(result.keyframes.filter((keyframe) => keyframe.property === 'x')).toMatchObject([
+      { frame: 0, value: 100 },
+      { frame: 1, value: 120 },
+      { frame: 2, value: 140 },
+    ])
+  })
 })
 
 describe('buildBakeMotionPlan', () => {
@@ -137,6 +206,7 @@ describe('buildBakeMotionPlan', () => {
     const entry = plan[0]!
     expect(entry.itemId).toBe('a')
     expect(entry.clearMotionModifiers).toBe(true)
+    expect(entry.clearMotionLayers).toBe(false)
     expect(new Set(entry.clearProperties)).toEqual(new Set(['x', 'y', 'rotation']))
     expect(entry.keyframes.length).toBeGreaterThan(0)
     expect(entry.keyframes.every((kf) => kf.itemId === 'a' && kf.easing === 'linear')).toBe(true)

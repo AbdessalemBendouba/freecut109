@@ -15,6 +15,10 @@ import type {
   Keyframe,
   EasingType,
   EasingConfig,
+  VectorAnimatableProperty,
+  VectorKeyframe,
+  VectorPropertyKeyframes,
+  TransformAnimatableProperty,
 } from '@/types/keyframe'
 import type { MaskVertex } from '@/types/masks'
 import type { AutoKeyframeOperation } from '@/features/timeline/deps/keyframes'
@@ -29,6 +33,8 @@ export type TransformHistoryOperation =
 
 export interface TransformCommandOptions {
   operation?: TransformHistoryOperation
+  /** Optional keyframe writes committed in the same undoable transform gesture. */
+  autoKeyframeOperations?: AutoKeyframeOperation[]
 }
 
 export interface LoadTimelineOptions {
@@ -223,6 +229,34 @@ export interface TimelineActions {
     property: AnimatableProperty,
     keyframeId: string,
     updates: Partial<Omit<Keyframe, 'id'>>,
+  ) => void
+  upsertVectorKeyframe: (
+    itemId: string,
+    property: VectorAnimatableProperty,
+    input: {
+      frame: number
+      value: { x: number; y: number }
+      easing?: EasingType
+      easingConfig?: EasingConfig
+      temporalEase?: VectorKeyframe['temporalEase']
+      spatial?: VectorKeyframe['spatial']
+    },
+  ) => string
+  updateVectorKeyframe: (
+    itemId: string,
+    property: VectorAnimatableProperty,
+    keyframeId: string,
+    updates: Partial<Omit<VectorKeyframe, 'id'>>,
+  ) => void
+  removeVectorKeyframe: (
+    itemId: string,
+    property: VectorAnimatableProperty,
+    keyframeId: string,
+  ) => void
+  promoteTransformToVector: (
+    itemId: string,
+    vectorProperty: VectorPropertyKeyframes,
+    removeScalarProperties: readonly TransformAnimatableProperty[],
   ) => void
   applyAutoKeyframeOperations: (operations: AutoKeyframeOperation[]) => void
   removeKeyframe: (itemId: string, property: AnimatableProperty, keyframeId: string) => void

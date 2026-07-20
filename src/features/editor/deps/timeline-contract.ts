@@ -47,7 +47,6 @@ export {
   executeTimelineCommand,
   findCompatibleTrackForItemType,
   findNearestAvailableSpace,
-  getDefaultActiveTrackId,
   getActiveTabId,
   getAnimatablePropertiesForItem,
   getEffectPropertyBaseValue,

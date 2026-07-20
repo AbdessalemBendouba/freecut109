@@ -1,5 +1,5 @@
 /**
- * Built-in motion presets for the Animate workspace.
+ * Built-in motion presets for the unified Motion workspace.
  *
  * Pure, store-free catalog of After-Effects-style quick-apply animations. Each
  * preset's `build()` emits frame-relative keyframe payloads against a clip's

@@ -72,6 +72,16 @@ describe('getAnimatablePropertiesForItem', () => {
     ])
   })
 
+  it('exposes only hierarchy-driving transforms for null controllers', () => {
+    expect(
+      getAnimatablePropertiesForItem({
+        ...createItem('controller'),
+        controllerKind: 'null',
+        transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1 },
+      }),
+    ).toEqual(['x', 'y', 'width', 'height', 'rotation'])
+  })
+
   it('includes text-specific properties for text items', () => {
     expect(
       getAnimatablePropertiesForItem({

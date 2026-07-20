@@ -428,7 +428,12 @@ const ValueGraphEditorBase = memo(function ValueGraphEditorBase({
     d: string
     primary: boolean
   }> => {
-    if (!proceduralPreview || proceduralPreview.modifiers.length === 0) return []
+    if (
+      !proceduralPreview ||
+      (proceduralPreview.modifiers.length === 0 &&
+        (proceduralPreview.layers?.length ?? 0) === 0)
+    )
+      return []
     const { graphLeft, graphTop, graphWidth, graphHeight, frameRange } = getGraphDimensions(
       viewport,
       padding,
@@ -450,8 +455,9 @@ const ValueGraphEditorBase = memo(function ValueGraphEditorBase({
       const samples = sampleProceduralCurve({
         property: property as TransformAnimatableProperty,
         base: proceduralPreview.base,
-        keyframes: undefined,
+        keyframes: proceduralPreview.keyframes,
         modifiers: proceduralPreview.modifiers,
+        layers: proceduralPreview.layers,
         fromFrame,
         toFrame,
         step,

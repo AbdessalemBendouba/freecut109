@@ -57,6 +57,7 @@ interface TextMotionSlotRowProps {
   onRemove: (slot: TextMotionSlot) => void
   onLiveEdit: (slot: TextMotionSlot, partial: Partial<TextMotionEffectBase>) => void
   onCommitEdit: (slot: TextMotionSlot, partial: Partial<TextMotionEffectBase>) => void
+  showHeading: boolean
   t: TranslateFn
 }
 
@@ -76,11 +77,14 @@ const TextMotionSlotRow = memo(function TextMotionSlotRow({
   onRemove,
   onLiveEdit,
   onCommitEdit,
+  showHeading,
   t,
 }: TextMotionSlotRowProps) {
   return (
     <div className="flex flex-col gap-1.5">
-      <PropertyGroupHeader>{t(`textMotion.slots.${slot}`)}</PropertyGroupHeader>
+      {showHeading ? (
+        <PropertyGroupHeader>{t(`textMotion.slots.${slot}`)}</PropertyGroupHeader>
+      ) : null}
       <div className="grid grid-cols-4 gap-1">
         {presets.map((preset) => {
           const label = t(preset.labelKey)
@@ -186,8 +190,14 @@ const TextMotionSlotRow = memo(function TextMotionSlotRow({
 export interface TextMotionSlotRowsProps {
   /** Selected text items (callers filter the selection to `type === 'text'`). */
   items: TextItem[]
-  /** Optional preset-browser query used by the Animate workspace. */
+  /** Optional preset-browser query used by the Motion library. */
   query?: string
+  /** Limit the shared catalog to specific intent slots. */
+  slots?: readonly TextMotionSlot[]
+  /** Hide the repeated In/Out/Loop label when the parent stage already names it. */
+  showSlotHeading?: boolean
+  /** Let embedded intent stages defer the no-results message to the library. */
+  showEmptyState?: boolean
 }
 
 /**
@@ -200,6 +210,9 @@ export interface TextMotionSlotRowsProps {
 export const TextMotionSlotRows = memo(function TextMotionSlotRows({
   items,
   query = '',
+  slots = SLOTS,
+  showSlotHeading = true,
+  showEmptyState = true,
 }: TextMotionSlotRowsProps) {
   const { t } = useTranslation()
   const itemIds = useMemo(() => items.map((item) => item.id), [items])
@@ -218,7 +231,7 @@ export const TextMotionSlotRows = memo(function TextMotionSlotRows({
       loop: filterSlot('loop'),
     }
   }, [firstSpec, query, t])
-  const visiblePresetCount = SLOTS.reduce(
+  const visiblePresetCount = slots.reduce(
     (count, slot) => count + filteredPresetsBySlot[slot].length,
     0,
   )
@@ -262,17 +275,18 @@ export const TextMotionSlotRows = memo(function TextMotionSlotRows({
 
   if (items.length === 0) return null
 
-  if (visiblePresetCount === 0) {
+  if (visiblePresetCount === 0 && showEmptyState) {
     return (
       <p className="py-3 text-center text-xs text-muted-foreground" role="status">
         {t('editor.animatePresets.noMatches')}
       </p>
     )
   }
+  if (visiblePresetCount === 0) return null
 
   return (
     <div className="flex flex-col gap-3">
-      {SLOTS.map((slot) =>
+      {slots.map((slot) =>
         filteredPresetsBySlot[slot].length > 0 ? (
           <TextMotionSlotRow
             key={slot}
@@ -283,6 +297,7 @@ export const TextMotionSlotRows = memo(function TextMotionSlotRows({
             onRemove={handleRemove}
             onLiveEdit={handleLiveEdit}
             onCommitEdit={handleCommitEdit}
+            showHeading={showSlotHeading}
             t={t}
           />
         ) : null,

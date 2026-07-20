@@ -57,7 +57,7 @@ async function addAnimationPresetsToBundle(
 
   // Write the same `{ version, presets }` envelope the storage layer uses so
   // the import sanitizer accepts the file unchanged.
-  const contents = new TextEncoder().encode(JSON.stringify({ version: 1, presets }, null, 2))
+  const contents = new TextEncoder().encode(JSON.stringify({ version: 4, presets }, null, 2))
   addFile(BUNDLE_ANIMATION_PRESETS_PATH, contents)
 
   manifest.animationPresets = {

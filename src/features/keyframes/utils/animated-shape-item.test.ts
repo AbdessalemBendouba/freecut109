@@ -63,4 +63,57 @@ describe('resolveAnimatedShapeItem', () => {
     expect(resolved.taperStartWidth).toBe(50)
     expect(resolved.taperStartLength).toBe(40)
   })
+
+  it('resolves a shape property linked to a transform property at composition time', () => {
+    const source: ShapeItem = {
+      ...shape,
+      id: 'source-shape',
+      from: 10,
+      transform: { x: 25 },
+    }
+    const target: ShapeItem = { ...shape, id: 'target-shape', from: 20 }
+    const sourceKeyframes: ItemKeyframes = {
+      itemId: source.id,
+      properties: [
+        {
+          property: 'x',
+          keyframes: [
+            { id: 'source-a', frame: 0, value: 20, easing: 'linear' },
+            { id: 'source-b', frame: 20, value: 60, easing: 'linear' },
+          ],
+        },
+      ],
+    }
+    const targetKeyframes: ItemKeyframes = {
+      itemId: target.id,
+      properties: [],
+      expressions: [
+        {
+          type: 'link',
+          targetProperty: 'trimPathEnd',
+          sourceItemId: source.id,
+          sourceProperty: 'x',
+          enabled: true,
+          timeOffsetFrames: 0,
+        },
+      ],
+    }
+    const items = new Map([
+      [source.id, source],
+      [target.id, target],
+    ])
+    const keyframes = new Map([
+      [source.id, sourceKeyframes],
+      [target.id, targetKeyframes],
+    ])
+
+    const resolved = resolveAnimatedShapeItem(target, targetKeyframes, 5, {
+      globalFrame: 25,
+      canvas: { width: 1920, height: 1080, fps: 30 },
+      getItem: (itemId) => items.get(itemId),
+      getKeyframes: (itemId) => keyframes.get(itemId),
+    })
+
+    expect(resolved.trimPathEnd).toBe(50)
+  })
 })

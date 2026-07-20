@@ -26,4 +26,18 @@ describe('TextMotionSlotRows preset search', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('No matching animations.')
   })
+
+  it('can render one intent slot without a repeated slot heading', () => {
+    render(
+      <TextMotionSlotRows
+        items={[TEXT_ITEM]}
+        slots={['loop']}
+        showSlotHeading={false}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Pulse' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Typewriter' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Loop')).not.toBeInTheDocument()
+  })
 })

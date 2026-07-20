@@ -50,6 +50,86 @@ describe('captureAnimationFromItem', () => {
     ).toBeNull()
   })
 
+  it('captures a procedural-only layer animation without manufacturing keyframes', () => {
+    const captured = captureAnimationFromItem(
+      videoItem({
+        motionModifiers: [
+          {
+            id: 'drift-1',
+            type: 'float-drift',
+            enabled: true,
+            amplitude: 0.8,
+            frequency: 0.5,
+            phaseFrames: 3,
+            seed: 7,
+            channelGains: { x: 1, y: 0.5 },
+          },
+        ],
+      }),
+      undefined,
+    )
+
+    expect(captured).toMatchObject({
+      properties: [],
+      motionModifiers: [
+        {
+          id: 'drift-1',
+          type: 'float-drift',
+          amplitude: 0.8,
+          channelGains: { x: 1, y: 0.5 },
+        },
+      ],
+    })
+  })
+
+  it('captures v2 Position motion without flattening temporal or spatial handles', () => {
+    const keyframes: ItemKeyframes = {
+      itemId: 'v1',
+      animationVersion: 2,
+      properties: [],
+      vectorProperties: [
+        {
+          property: 'position',
+          keyframes: [
+            {
+              id: 'p1',
+              frame: 20,
+              value: { x: 0, y: 10 },
+              easing: 'linear',
+              temporalEase: { out: { speed: 180, influence: 55 } },
+              spatial: {
+                inTangent: { x: -10, y: 0 },
+                outTangent: { x: 40, y: -20 },
+                continuous: true,
+              },
+            },
+            {
+              id: 'p2',
+              frame: 50,
+              value: { x: 200, y: 40 },
+              easing: 'ease-out',
+            },
+          ],
+        },
+      ],
+    }
+
+    const captured = captureAnimationFromItem(videoItem(), keyframes)
+
+    expect(captured?.properties).toEqual([])
+    expect(captured?.vectorProperties?.[0]?.keyframes.map((keyframe) => keyframe.frame)).toEqual([
+      0, 30,
+    ])
+    expect(captured?.vectorProperties?.[0]?.keyframes[0]).toMatchObject({
+      temporalEase: { out: { speed: 180, influence: 55 } },
+      spatial: {
+        inTangent: { x: -10, y: 0 },
+        outTangent: { x: 40, y: -20 },
+        continuous: true,
+      },
+    })
+  })
+
   it('carries the effect definition for animated effect-param keyframes', () => {
     const property = buildEffectAnimatableProperty('gpu-gaussian-blur', 'fx1', 'radius')
     const item = videoItem({
@@ -97,6 +177,22 @@ describe('getPresetCompatibility', () => {
       videoItem({ effects: [] }),
     )
     // The effect is auto-added on apply, so it must not block compatibility.
+    expect(result.compatible).toBe(true)
+  })
+
+  it('accepts coupled Position, Scale, and Anchor lanes on visual targets', () => {
+    const result = getPresetCompatibility(
+      {
+        sourceItemType: 'video',
+        properties: [],
+        vectorProperties: [
+          { property: 'position', keyframes: [] },
+          { property: 'scale', keyframes: [] },
+          { property: 'anchor', keyframes: [] },
+        ],
+      },
+      videoItem(),
+    )
     expect(result.compatible).toBe(true)
   })
 })
