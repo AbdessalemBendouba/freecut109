@@ -46,4 +46,19 @@ describe('useDopesheetViewport', () => {
     expect(renderCount).toBe(1)
     expect(result.current.viewport).toEqual({ startFrame: 12, endFrame: 108 })
   })
+
+  it('preserves a shared timeline viewport outside the clip bounds', () => {
+    const { result } = renderHook(() =>
+      useDopesheetViewport({
+        itemId: 'item-1',
+        totalFrames: 120,
+        keyframeFrameBounds: null,
+        frameViewport: { startFrame: -240, endFrame: 360 },
+        onFrameViewportChange: undefined,
+        clampToContent: false,
+      }),
+    )
+
+    expect(result.current.viewport).toEqual({ startFrame: -240, endFrame: 360 })
+  })
 })

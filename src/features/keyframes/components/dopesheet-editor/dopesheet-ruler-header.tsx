@@ -8,6 +8,7 @@ interface DopesheetRulerHeaderProps {
   onRulerPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
   onRulerPointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void
   onRulerPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void
+  onRulerPointerLeave: (event: ReactPointerEvent<HTMLDivElement>) => void
   rulerTickElements: ReactNode
 }
 
@@ -17,6 +18,7 @@ export function DopesheetRulerHeader({
   onRulerPointerDown,
   onRulerPointerMove,
   onRulerPointerUp,
+  onRulerPointerLeave,
   rulerTickElements,
 }: DopesheetRulerHeaderProps) {
   const { t } = useTranslation()
@@ -38,6 +40,7 @@ export function DopesheetRulerHeader({
         onPointerMove={onRulerPointerMove}
         onPointerUp={onRulerPointerUp}
         onPointerCancel={onRulerPointerUp}
+        onPointerLeave={onRulerPointerLeave}
       >
         <div
           data-motion-viewport-surface

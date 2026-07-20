@@ -7,6 +7,8 @@ import { EDITOR_LAYOUT_CSS_VALUES } from '@/config/editor-layout'
 interface ClipIndicatorsProps {
   /** Whether the item has keyframe animations */
   hasKeyframes: boolean
+  /** Whether this clip is targeted by the Edit keyframe panel. */
+  keyframesExpanded: boolean
   /** Whether the item has procedural motion (modulators / audio pulse) */
   hasMotion: boolean
   /** Current playback speed (1 = normal) */
@@ -26,6 +28,8 @@ interface ClipIndicatorsProps {
   isMask: boolean
   /** Whether the item is a shape */
   isShape: boolean
+  /** Opens or closes the selected clip's Edit keyframe panel. */
+  onKeyframesToggle?: () => void
 }
 
 /**
@@ -37,6 +41,7 @@ interface ClipIndicatorsProps {
  */
 export const ClipIndicators = memo(function ClipIndicators({
   hasKeyframes,
+  keyframesExpanded,
   hasMotion,
   currentSpeed,
   isReversed,
@@ -47,6 +52,7 @@ export const ClipIndicators = memo(function ClipIndicators({
   hasMediaId,
   isMask,
   isShape,
+  onKeyframesToggle,
 }: ClipIndicatorsProps) {
   const { t } = useTranslation()
   const showSpeedBadge = Math.abs(currentSpeed - 1) > 0.005 && !isStretching
@@ -62,13 +68,44 @@ export const ClipIndicators = memo(function ClipIndicators({
         reverseConformStatus === 'pending' ||
         reverseConformStatus === 'error') && (
         <div
-          className="absolute right-1 z-10 pointer-events-none flex items-center gap-1"
+          className="absolute right-6 z-40 pointer-events-none flex items-center gap-1"
           style={{ top: 0, height: EDITOR_LAYOUT_CSS_VALUES.timelineClipLabelRowHeight }}
         >
           {hasKeyframes && (
-            <span title={t('timeline.clipIndicators.hasKeyframes')}>
+            <button
+              type="button"
+              className={cn(
+                'pointer-events-auto rounded-sm p-0.5 hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400',
+                keyframesExpanded && 'bg-amber-500/20',
+              )}
+              title={t('timeline.clipIndicators.hasKeyframes')}
+              aria-label={t(
+                keyframesExpanded
+                  ? 'timeline.keyframeEditor.editLane.hide'
+                  : 'timeline.keyframeEditor.editLane.show',
+                {
+                  defaultValue: keyframesExpanded
+                    ? 'Hide keyframe panel'
+                    : 'Show keyframe panel',
+                },
+              )}
+              aria-pressed={keyframesExpanded}
+              onPointerDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+              }}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onKeyframesToggle?.()
+              }}
+            >
               <Diamond className="w-3 h-3 text-amber-500 fill-amber-500/50" />
-            </span>
+            </button>
           )}
           {hasMotion && (
             <span title={t('timeline.clipIndicators.hasMotion')}>

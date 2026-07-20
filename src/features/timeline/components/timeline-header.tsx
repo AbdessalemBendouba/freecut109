@@ -27,6 +27,7 @@ import {
   FlagOff,
   Link2,
   Volume2,
+  Diamond,
 } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import { formatHotkeyBinding } from '@/config/hotkeys'
@@ -290,6 +291,8 @@ export const TimelineHeader = memo(function TimelineHeader({
   const activeTool = useSelectionStore((s) => s.activeTool)
   const setActiveTool = useSelectionStore((s) => s.setActiveTool)
   const selectedMarkerId = useSelectionStore((s) => s.selectedMarkerId)
+  const inlineKeyframesOpen = useSelectionStore((s) => s.editKeyframePanelOpen)
+  const toggleEditKeyframePanel = useSelectionStore((s) => s.toggleEditKeyframePanel)
   const clearSelection = useSelectionStore((s) => s.clearSelection)
   const linkedSelectionEnabled = useEditorStore((s) => s.linkedSelectionEnabled)
   const setLinkedSelectionEnabled = useEditorStore((s) => s.setLinkedSelectionEnabled)
@@ -297,7 +300,6 @@ export const TimelineHeader = memo(function TimelineHeader({
   const canRedo = useTimelineCommandStore((s) => s.canRedo)
   const undoLabel = useTimelineCommandStore((s) => s.getUndoLabel())
   const redoLabel = useTimelineCommandStore((s) => s.getRedoLabel())
-
   const SlipSlideFlyoutIcon = activeTool === 'slide' ? BetweenHorizontalEnd : ArrowRightLeft
 
   const btnSize = {
@@ -628,6 +630,35 @@ export const TimelineHeader = memo(function TimelineHeader({
           </Button>
 
           <Separator orientation="vertical" className="h-5 mx-1.5" />
+
+          <Button
+            variant="ghost"
+            size="icon"
+            style={btnSize}
+            className={
+              inlineKeyframesOpen ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''
+            }
+            onClick={toggleEditKeyframePanel}
+            aria-label={t(
+              inlineKeyframesOpen
+                ? 'timeline.keyframeEditor.editLane.hide'
+                : 'timeline.keyframeEditor.editLane.show',
+              {
+                defaultValue: inlineKeyframesOpen ? 'Hide keyframe panel' : 'Show keyframe panel',
+              },
+            )}
+            aria-pressed={inlineKeyframesOpen}
+            data-tooltip={t(
+              inlineKeyframesOpen
+                ? 'timeline.keyframeEditor.editLane.hide'
+                : 'timeline.keyframeEditor.editLane.show',
+              {
+                defaultValue: inlineKeyframesOpen ? 'Hide keyframe panel' : 'Show keyframe panel',
+              },
+            )}
+          >
+            <Diamond className="h-3.5 w-3.5" />
+          </Button>
 
           <Button
             variant="ghost"

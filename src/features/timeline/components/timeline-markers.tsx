@@ -14,6 +14,7 @@ import { TimelineInOutMarkers } from './timeline-in-out-markers'
 import { TimelineProjectMarkers } from './timeline-project-markers'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
 import { beginIoPointerDrag, IoRangeStrip } from '@/shared/timeline/io-range'
+import { mainTimelineScrubActiveRef } from '@/shared/timeline/main-timeline-scrub'
 import { useSettingsStore } from '@/features/timeline/deps/settings'
 
 // Utilities and hooks
@@ -902,6 +903,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       scrubMouseClientXRef.current = e.clientX
       scrubAnimationTimeRef.current = null
       isScrubActiveRef.current = true
+      mainTimelineScrubActiveRef.current = true
 
       pauseRef.current()
 
@@ -966,6 +968,9 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       scrubPlayheadElementsRef.current = []
       setIsDragging(false)
       setPreviewFrameRef.current(null)
+      // Clear after the preview notification so linked playheads retain the
+      // final frame while their slower React props catch up.
+      mainTimelineScrubActiveRef.current = false
     }
 
     document.addEventListener('mousemove', handleMouseMove)
@@ -977,6 +982,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       document.body.style.cursor = originalCursor
       // Ensure cleanup
       isScrubActiveRef.current = false
+      mainTimelineScrubActiveRef.current = false
       if (scrubRAFIdRef.current !== null) {
         cancelAnimationFrame(scrubRAFIdRef.current)
         scrubRAFIdRef.current = null

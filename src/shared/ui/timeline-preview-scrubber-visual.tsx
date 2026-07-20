@@ -1,0 +1,159 @@
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type MutableRefObject,
+  type RefObject,
+} from 'react'
+import { usePlaybackStore } from '@/shared/state/playback'
+import { useSelectionStore } from '@/shared/state/selection'
+import { formatTimecode } from '@/shared/utils/time-utils'
+
+const FLAG_HEIGHT = 12
+
+interface TimelinePreviewScrubberVisualProps {
+  frameToPixels: (frame: number) => number
+  fps: number
+  inRuler?: boolean
+  maxFrame?: number
+  rulerOffset?: number
+  showTooltip?: boolean
+  suppressed?: boolean
+  suppressRef?: MutableRefObject<boolean>
+  /** Reposition from the live mapper whenever an external timeline scrolls. */
+  positionSyncTargetRef?: RefObject<HTMLElement | null>
+}
+
+/** Shared ghost playhead visual used by every Edit timeline surface. */
+export function TimelinePreviewScrubberVisual({
+  frameToPixels,
+  fps,
+  inRuler = false,
+  maxFrame,
+  rulerOffset = 0,
+  showTooltip = true,
+  suppressed = false,
+  suppressRef,
+  positionSyncTargetRef,
+}: TimelinePreviewScrubberVisualProps) {
+  const scrubberRef = useRef<HTMLDivElement>(null)
+  const tooltipRef = useRef<HTMLDivElement>(null)
+  const lineRef = useRef<HTMLDivElement>(null)
+  const handleRef = useRef<HTMLDivElement>(null)
+  const frameToPixelsRef = useRef(frameToPixels)
+  const fpsRef = useRef(fps)
+  const maxFrameRef = useRef(maxFrame)
+  const suppressedRef = useRef(suppressed)
+  const suppressStateRef = useRef(suppressRef)
+  // Positioning runs in a layout effect below, so these refs must already hold
+  // this render's mapper. Updating them in a passive effect leaves the skim line
+  // one zoom render behind.
+  frameToPixelsRef.current = frameToPixels
+  fpsRef.current = fps
+  maxFrameRef.current = maxFrame
+  suppressedRef.current = suppressed
+  suppressStateRef.current = suppressRef
+
+  const updatePosition = (previewFrame: number | null) => {
+    const node = scrubberRef.current
+    if (!node) return
+    if (previewFrame === null || suppressedRef.current || suppressStateRef.current?.current) {
+      node.style.display = 'none'
+      return
+    }
+
+    let clampedFrame = Math.max(0, previewFrame)
+    if (maxFrameRef.current !== undefined) {
+      clampedFrame = Math.min(clampedFrame, maxFrameRef.current)
+    }
+
+    // Preserve the exact mapped coordinate. The main timeline is a scrolled
+    // content surface while the keyframe timeline is a fixed viewport surface;
+    // rounding on different sides of scrollLeft makes their skim lines disagree
+    // by a pixel during wheel zoom.
+    const leftPosition = frameToPixelsRef.current(clampedFrame)
+    node.style.display = ''
+    node.style.transform = `translate3d(${leftPosition}px, 0, 0)`
+    if (tooltipRef.current) {
+      tooltipRef.current.textContent = formatTimecode(clampedFrame, fpsRef.current)
+    }
+  }
+
+  useEffect(() => {
+    updatePosition(usePlaybackStore.getState().previewFrame)
+    return usePlaybackStore.subscribe((state) => updatePosition(state.previewFrame))
+  }, [])
+
+  useEffect(() => {
+    const target = positionSyncTargetRef?.current
+    if (!target) return
+    const reposition = () => updatePosition(usePlaybackStore.getState().previewFrame)
+    target.addEventListener('scroll', reposition, { passive: true })
+    return () => target.removeEventListener('scroll', reposition)
+  }, [positionSyncTargetRef])
+
+  useLayoutEffect(() => {
+    updatePosition(usePlaybackStore.getState().previewFrame)
+  }, [frameToPixels, maxFrame, suppressed])
+
+  useEffect(() => {
+    const updateColor = (tool: string) => {
+      const isRazor = tool === 'razor'
+      const isRateStretch = tool === 'rate-stretch'
+      const isTrimEdit = tool === 'trim-edit'
+      const lineColor = isRazor
+        ? 'rgba(239, 68, 68, 0.7)'
+        : isRateStretch
+          ? 'rgba(168, 85, 247, 0.7)'
+          : isTrimEdit
+            ? 'rgba(234, 179, 8, 0.7)'
+            : 'rgba(255, 255, 255, 0.3)'
+      const handleColor = isRazor
+        ? 'rgba(239, 68, 68, 0.8)'
+        : isRateStretch
+          ? 'rgba(168, 85, 247, 0.8)'
+          : isTrimEdit
+            ? 'rgba(234, 179, 8, 0.8)'
+            : 'rgba(255, 255, 255, 0.4)'
+
+      if (lineRef.current) lineRef.current.style.backgroundColor = lineColor
+      if (handleRef.current) handleRef.current.style.backgroundColor = handleColor
+    }
+
+    updateColor(useSelectionStore.getState().activeTool)
+    return useSelectionStore.subscribe((state, previousState) => {
+      if (state.activeTool !== previousState.activeTool) updateColor(state.activeTool)
+    })
+  }, [])
+
+  return (
+    <div
+      ref={scrubberRef}
+      data-testid="timeline-preview-scrubber"
+      className="absolute bottom-0 top-0 w-px"
+      style={{ display: 'none', pointerEvents: 'none', zIndex: 20 }}
+    >
+      <div
+        ref={lineRef}
+        className="absolute bg-white/30"
+        style={{ top: inRuler ? rulerOffset + FLAG_HEIGHT : 0, bottom: 0, left: 0, right: 0 }}
+      />
+
+      {inRuler ? (
+        <>
+          <div
+            ref={handleRef}
+            className="absolute left-1/2 h-3 w-2 -translate-x-1/2 rounded-b-[2px] bg-white/40"
+            style={{ top: rulerOffset }}
+          />
+          {showTooltip ? (
+            <div
+              ref={tooltipRef}
+              className="absolute left-1/2 -top-[22px] -translate-x-1/2 whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 font-mono text-[10px] leading-3 text-white"
+            />
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  )
+}

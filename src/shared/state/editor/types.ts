@@ -3,7 +3,6 @@ import type {
   EditorSidebarTab,
   EditorWorkspaceId,
 } from '@/config/editor-workspaces'
-
 export type ClipInspectorTab = EditorClipInspectorTab
 
 /** Persisted timeline track-height preset chosen from the track-size flyout. */
@@ -13,7 +12,6 @@ export interface EditorState {
   activePanel: 'media' | 'effects' | 'properties' | null
   leftSidebarOpen: boolean
   rightSidebarOpen: boolean
-  keyframeEditorOpen: boolean
   keyframeEditorShortcutScopeActive: boolean
   /** True while the transcript editor owns Delete/Backspace (pointer or focus within). */
   transcriptEditorShortcutScopeActive: boolean
@@ -45,12 +43,10 @@ export interface EditorActions {
   setActivePanel: (panel: 'media' | 'effects' | 'properties' | null) => void
   setLeftSidebarOpen: (open: boolean) => void
   setRightSidebarOpen: (open: boolean) => void
-  setKeyframeEditorOpen: (open: boolean) => void
   setKeyframeEditorShortcutScopeActive: (active: boolean) => void
   setTranscriptEditorShortcutScopeActive: (active: boolean) => void
   toggleLeftSidebar: () => void
   toggleRightSidebar: () => void
-  toggleKeyframeEditorOpen: () => void
   setWorkspace: (workspace: EditorWorkspaceId) => void
   setActiveTab: (tab: EditorSidebarTab) => void
   setClipInspectorTab: (tab: ClipInspectorTab) => void

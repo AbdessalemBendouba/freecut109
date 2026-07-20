@@ -34,8 +34,10 @@ export interface SelectionState {
   activeLinkedDropTarget: SelectionLinkedDropTarget
   // Drag state for visual feedback
   dragState: SelectionDragState
-  // Keyframe lanes expansion state
-  expandedKeyframeLanes: Set<string> // Set of item IDs with expanded keyframe lanes
+  /** Whether Edit's bottom keyframe panel is visible, independently of clip selection. */
+  editKeyframePanelOpen: boolean
+  /** Current Edit keyframe panel target. Kept as a set for compatibility; at most one ID is stored. */
+  expandedKeyframeLanes: Set<string>
 }
 
 export interface SelectionActions {
@@ -52,7 +54,9 @@ export interface SelectionActions {
   setActiveSnapTarget: (target: SelectionSnapTarget) => void
   setActiveLinkedDropTarget: (target: SelectionLinkedDropTarget) => void
   setActiveTool: (tool: SelectionState['activeTool']) => void
-  // Keyframe lanes expansion
+  // Edit keyframe panel visibility
+  toggleEditKeyframePanel: () => void
+  setEditKeyframePanelOpen: (open: boolean) => void
   toggleKeyframeLanes: (itemId: string) => void
   setKeyframeLanesExpanded: (itemId: string, expanded: boolean) => void
 }

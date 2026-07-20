@@ -65,6 +65,7 @@ import {
 } from '../utils/zoom-anchor'
 import { frameToPixelsNow, pixelsToFrameNow } from '../utils/zoom-conversions'
 import { applyTimelineLiveGeometry } from '../utils/timeline-live-geometry'
+import { notifyTimelineLiveScroll } from '@/shared/timeline/live-scroll-sync'
 
 const ACTIVE_TIMELINE_GESTURE_CURSOR_CLASSES = [
   'timeline-cursor-trim-left',
@@ -1264,7 +1265,9 @@ export const TimelineContent = memo(function TimelineContent({
     if (e.button !== 0) return
 
     const target = e.target as HTMLElement
-    if (!target.closest('[data-track-id]') || target.closest('[data-item-id]')) return
+    if (!target.closest('[data-track-id]') || target.closest('[data-item-id]')) {
+      return
+    }
 
     // A press on track background is a potential marquee gesture. Freeze the
     // skim target immediately so the few pixels before marquee activation do
@@ -1389,7 +1392,7 @@ export const TimelineContent = memo(function TimelineContent({
       // Detect hovered item
       const target = e.target as HTMLElement
       const itemEl = target.closest('[data-item-id]') as HTMLElement | null
-      const itemId = itemEl?.getAttribute('data-item-id') ?? undefined
+      const itemId = itemEl?.dataset.itemId
 
       if (marqueePointerDownRef.current) {
         marqueeReleasePreviewRef.current = { frame, itemId }
@@ -1506,12 +1509,17 @@ export const TimelineContent = memo(function TimelineContent({
           if (container) {
             container.scrollLeft = queuedScrollLeft
             scrollLeftRef.current = queuedScrollLeft
-            scheduleViewportSync()
+            // Edit's lower keyframe timeline derives its axis from this shared
+            // viewport plus the live zoom store. Publish the matching scroll
+            // immediately in the same RAF as the zoom update; the normal
+            // throttled scroll path would briefly combine the new scale with an
+            // old offset and put its playhead at a different screen position.
+            syncViewportFromContainer(queuedScrollLeft, true)
           }
         })
       })
     },
-    [scheduleViewportSync],
+    [syncViewportFromContainer],
   )
 
   const clearQueuedZoomApply = useCallback(() => {
@@ -1741,6 +1749,9 @@ export const TimelineContent = memo(function TimelineContent({
       // Apply velocity to scroll position
       if (Math.abs(velocityXRef.current) > SCROLL_MIN_VELOCITY) {
         container.scrollLeft += velocityXRef.current * frames
+        // Linked panels live outside this native scroller. Notify them inside
+        // the same RAF so their ruler/playhead update before this frame paints.
+        notifyTimelineLiveScroll(container)
         velocityXRef.current *= scrollDecay
         hasScrollMomentum = true
       } else {

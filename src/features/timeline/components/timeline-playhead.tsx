@@ -11,6 +11,7 @@ import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
 import { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub-throttle'
 import { withPerfMeasure, perfMarkRender } from '@/shared/logging/perf-marks'
 import { PlayheadMarks } from '@/shared/ui/playhead-marks'
+import { mainTimelineScrubActiveRef } from '@/shared/timeline/main-timeline-scrub'
 import {
   getEdgeScrollDelta,
   getPlayheadEdgeScrollVelocity,
@@ -181,6 +182,7 @@ export function TimelinePlayhead({
         nowMs: performance.now(),
       })
       isDraggingRef.current = true
+      mainTimelineScrubActiveRef.current = true
       setIsDragging(true)
     },
     [inRuler],
@@ -289,6 +291,9 @@ export function TimelinePlayhead({
       scrubScrollContainerRef.current = null
       scrubPlayheadElementsRef.current = []
       setPreviewFrameRef.current(null)
+      // Keep the shared flag set through the preview-clear notification so the
+      // keyframe playhead retains the final scrub position until props settle.
+      mainTimelineScrubActiveRef.current = false
       setIsDragging(false)
     }
 
@@ -307,6 +312,7 @@ export function TimelinePlayhead({
         rafIdRef.current = null
       }
       scrubAnimationTimeRef.current = null
+      mainTimelineScrubActiveRef.current = false
     }
   }, [isDragging, inRuler]) // Stable dependencies - no stale closures
 

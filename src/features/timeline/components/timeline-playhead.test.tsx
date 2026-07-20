@@ -5,6 +5,10 @@ import { usePlaybackStore } from '@/shared/state/playback'
 import { TimelinePlayhead } from './timeline-playhead'
 import { useZoomStore, _resetZoomStoreForTest } from '../stores/zoom-store'
 import { useTimelineStore } from '../stores/timeline-store'
+import {
+  mainTimelineScrubActiveRef,
+  mainTimelineScrubHandoffFrameRef,
+} from '@/shared/timeline/main-timeline-scrub'
 
 describe('TimelinePlayhead', () => {
   beforeEach(() => {
@@ -27,6 +31,8 @@ describe('TimelinePlayhead', () => {
     useTimelineStore.setState({ fps: 30 })
     _resetZoomStoreForTest()
     useZoomStore.getState().setZoomLevelSynchronized(1)
+    mainTimelineScrubActiveRef.current = false
+    mainTimelineScrubHandoffFrameRef.current = null
   })
 
   it('uses atomic scrub updates while dragging and clears preview on release', async () => {
@@ -55,6 +61,7 @@ describe('TimelinePlayhead', () => {
     expect(hitArea).toBeTruthy()
 
     fireEvent.mouseDown(hitArea!, { clientX: 24, clientY: 8, button: 0 })
+    expect(mainTimelineScrubActiveRef.current).toBe(true)
     fireEvent.mouseMove(document, { clientX: 120, clientY: 8 })
 
     await waitFor(() => {
@@ -63,6 +70,7 @@ describe('TimelinePlayhead', () => {
     })
 
     fireEvent.mouseUp(document, { clientX: 120, clientY: 8 })
+    expect(mainTimelineScrubActiveRef.current).toBe(false)
 
     await waitFor(() => {
       expect(usePlaybackStore.getState().currentFrame).toBe(36)

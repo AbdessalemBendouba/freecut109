@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { ZOOM_MAX, ZOOM_MIN } from '../constants'
 import { useZoomStore } from '../stores/zoom-store'
+import { useSelectionStore } from '@/shared/state/selection'
 import { TimelineHeader } from './timeline-header'
 
 const { micRenderSpy } = vi.hoisted(() => ({ micRenderSpy: vi.fn() }))
@@ -50,6 +51,12 @@ describe('TimelineHeader zoom slider', () => {
   beforeEach(() => {
     micRenderSpy.mockClear()
     useZoomStore.getState().setZoomLevelSynchronized(1)
+    useSelectionStore.setState({
+      selectedItemIds: [],
+      selectedItemIdSet: new Set<string>(),
+      editKeyframePanelOpen: false,
+      expandedKeyframeLanes: new Set<string>(),
+    })
   })
 
   it('previews pointer input immediately and commits without slider-only momentum', () => {
@@ -81,5 +88,21 @@ describe('TimelineHeader zoom slider', () => {
     expect(micRenderSpy).toHaveBeenCalledTimes(1)
 
     animationFrameSpy.mockRestore()
+  })
+
+  it('toggles the keyframe panel without a selected clip', () => {
+    render(<TimelineHeader />)
+
+    const toggle = screen.getByRole('button', { name: 'Show keyframe panel' })
+    expect(toggle).toBeEnabled()
+
+    fireEvent.click(toggle)
+
+    expect(useSelectionStore.getState().editKeyframePanelOpen).toBe(true)
+    expect(useSelectionStore.getState().expandedKeyframeLanes.size).toBe(0)
+    expect(screen.getByRole('button', { name: 'Hide keyframe panel' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 })

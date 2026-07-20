@@ -7,11 +7,13 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
+  type RefObject,
 } from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
@@ -22,10 +24,12 @@ import {
   ChevronRight,
   Braces,
   LineChart,
+  Link2,
   Lock,
   Sparkles,
   Timer,
   Unlink,
+  Unlink2,
   X,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -67,6 +71,9 @@ import { useElementSize } from './use-element-size'
 import { addWindowPointerListeners } from './dopesheet-pointer-listeners'
 import { DopesheetHeaderFrameInputs } from './dopesheet-header-frame-inputs'
 import { DopesheetRulerHeader } from './dopesheet-ruler-header'
+import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
+import { perfMarkRender } from '@/shared/logging/perf-marks'
+import { TIMELINE_LIVE_SCROLL_EVENT } from '@/shared/timeline/live-scroll-sync'
 import { DopesheetSheetBody } from './dopesheet-sheet-body'
 import { DopesheetInterpolationButtons } from './dopesheet-interpolation-buttons'
 import { DopesheetParameterMenu } from './dopesheet-parameter-menu'
@@ -102,6 +109,10 @@ import type { DopesheetPropertyGroupStructure } from './dopesheet-helpers'
 import { GroupTimelineCell, PropertyTimelineCell } from './dopesheet-timeline-cells'
 import type { SegmentEasingChange } from './segment-easing-popover'
 import { DopesheetPlayheadLine } from './dopesheet-playhead-line'
+import {
+  getEdgeScrollDelta,
+  getPlayheadEdgeScrollVelocity,
+} from '@/features/keyframes/deps/timeline'
 import {
   DRAG_THRESHOLD,
   EMPTY_AUTO_KEY_ENABLED_BY_PROPERTY,
@@ -165,6 +176,10 @@ interface DopesheetEditorProps {
   frameViewport?: Viewport
   /** Callback when the shared time viewport changes */
   onFrameViewportChange?: (viewport: Viewport) => void
+  /** Keep an external viewport outside clip bounds when sharing the Edit timeline axis. */
+  clampViewportToContent?: boolean
+  /** Allow this editor to change its viewport with wheel/zoom controls. */
+  viewportInteractionEnabled?: boolean
   /** Item ID to show keyframes for */
   itemId: string
   /** Keyframes organized by property */
@@ -175,6 +190,10 @@ interface DopesheetEditorProps {
   selectedKeyframeIds?: Set<string>
   /** Current playhead frame */
   currentFrame?: number
+  /** Display-only playhead frame when it may sit outside the edited clip. */
+  playheadFrame?: number
+  /** Clamp live playhead movement to the edited clip. */
+  playheadClampToItemBounds?: boolean
   /** Global timeline frame for the same playhead position */
   globalFrame?: number | null
   /** Absolute timeline frame where the edited item starts (for live playhead) */
@@ -218,6 +237,18 @@ interface DopesheetEditorProps {
   onActivePropertyChange?: (property: AnimatableProperty) => void
   /** Callback when playhead is scrubbed (frame is clip-relative) */
   onScrub?: (frame: number) => void
+  /** Callback when the ruler's skim frame changes (frame is clip-relative). */
+  onSkim?: (frame: number | null) => void
+  /** Exact shared-axis mapper for an absolute timeline frame. */
+  globalFrameToPixels?: (globalFrame: number) => number
+  /** Main Edit timeline scroll surface used for same-frame playhead positioning. */
+  timelineScrollContainerRef?: RefObject<HTMLDivElement | null>
+  /** Scroll position used to render the current keyframe geometry snapshot. */
+  timelinePanBaseScrollLeft?: number
+  /** Pan a linked timeline during stationary-pointer ruler edge scrubbing. */
+  onRulerEdgeScroll?: (deltaPixels: number) => number
+  /** Clamp ruler scrubbing to the edited item's local frame range. */
+  scrubClampToItemBounds?: boolean
   /** Callback when scrubbing starts */
   onScrubStart?: () => void
   /** Callback when scrubbing ends */
@@ -344,8 +375,21 @@ interface DopesheetEditorProps {
   spacious?: boolean
   /** Render selected property groups as direct rows in the graph property column. */
   inlinePropertyGroupIds?: readonly string[]
-  /** Render only property/keyframe rows for embedding beneath another surface's header. */
-  presentation?: 'editor' | 'lanes'
+  /** Workspace-specific row labels used by compact/classic presentations. */
+  propertyLabels?: Partial<Record<AnimatableProperty, string>>
+  /** Optional axis constraint shown on a primary scalar row (for example Scale X). */
+  axisConstraintByProperty?: Partial<
+    Record<
+      AnimatableProperty,
+      { label: string; constrained: boolean; onChange: (constrained: boolean) => void }
+    >
+  >
+  /**
+   * `classic` is the compact Edit-workspace sheet: plain property rows, ruler,
+   * playhead, and timing controls without Motion's grouping/link/curve chrome.
+   * `lanes` embeds only rows beneath the Motion layer header.
+   */
+  presentation?: 'editor' | 'classic' | 'lanes'
   /** Override the property column width when embedding lane rows. */
   propertyColumnWidth?: number
   /** Show one selected property curve at a time instead of layered graph curves. */
@@ -632,11 +676,15 @@ const TimelineViewportCuller = memo(function TimelineViewportCuller({
 export const DopesheetEditor = memo(function DopesheetEditor({
   frameViewport,
   onFrameViewportChange,
+  clampViewportToContent = true,
+  viewportInteractionEnabled = true,
   itemId,
   keyframesByProperty,
   selectedProperty = null,
   selectedKeyframeIds = new Set(),
   currentFrame = 0,
+  playheadFrame,
+  playheadClampToItemBounds = true,
   globalFrame = null,
   itemFrom = 0,
   totalFrames = 300,
@@ -653,6 +701,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   onCurveVisibilityChange,
   onActivePropertyChange,
   onScrub,
+  onSkim,
+  globalFrameToPixels,
+  timelineScrollContainerRef,
+  timelinePanBaseScrollLeft,
+  onRulerEdgeScroll,
+  scrubClampToItemBounds = true,
   onScrubStart,
   onScrubEnd,
   onDragStart,
@@ -704,6 +758,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   speedGraphContent,
   spacious = false,
   inlinePropertyGroupIds = EMPTY_PROPERTY_GROUP_IDS,
+  propertyLabels = {},
+  axisConstraintByProperty = {},
   presentation = 'editor',
   propertyColumnWidth,
   singleCurveMode = false,
@@ -717,6 +773,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   shortcuts,
   className,
 }: DopesheetEditorProps) {
+  perfMarkRender('DopesheetEditor')
   const { t } = useTranslation()
   const resolvedPropertyLinks = propertyLinks ?? linkedTransformExpressions
   const resolvedPropertyLinkSourceLabels = propertyLinkSourceLabels ?? linkedTransformSourceLabels
@@ -816,6 +873,38 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     })
   }, [])
   const pickWhipRootRef = useRef<HTMLDivElement>(null)
+  const livePanSurfacesRef = useRef<HTMLElement[]>([])
+  const livePanXRef = useRef(0)
+  useLayoutEffect(() => {
+    const root = pickWhipRootRef.current
+    if (!root) return
+    const surfaces = Array.from(
+      root.querySelectorAll<HTMLElement>('[data-motion-viewport-surface]'),
+    )
+    livePanSurfacesRef.current = surfaces
+    const transform = `translate3d(${livePanXRef.current}px, 0, 0)`
+    for (const surface of surfaces) surface.style.transform = transform
+  })
+  useLayoutEffect(() => {
+    const scrollContainer = timelineScrollContainerRef?.current
+    if (!scrollContainer || timelinePanBaseScrollLeft === undefined) return
+
+    const syncLivePan = () => {
+      const nextPanX = timelinePanBaseScrollLeft - scrollContainer.scrollLeft
+      livePanXRef.current = nextPanX
+      const transform = `translate3d(${nextPanX}px, 0, 0)`
+      for (const surface of livePanSurfacesRef.current) surface.style.transform = transform
+    }
+    syncLivePan()
+    scrollContainer.addEventListener('scroll', syncLivePan, { passive: true })
+    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLivePan)
+    return () => {
+      scrollContainer.removeEventListener('scroll', syncLivePan)
+      scrollContainer.removeEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLivePan)
+      livePanXRef.current = 0
+      for (const surface of livePanSurfacesRef.current) surface.style.removeProperty('transform')
+    }
+  }, [timelinePanBaseScrollLeft, timelineScrollContainerRef])
   const insertExpressionReference = useCallback(
     (origin: ExpressionReferenceDragOrigin, candidate: ExpressionReferenceCandidate) => {
       const reference = `prop(${JSON.stringify(candidate.itemId)}, ${JSON.stringify(candidate.property)})`
@@ -966,6 +1055,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       keyframeFrameBounds,
       frameViewport,
       onFrameViewportChange,
+      clampToContent: clampViewportToContent,
     })
 
   const { width: timelineWidth } = useElementSize(timelineRef, {
@@ -1354,18 +1444,20 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   )
   const fallbackTimelineWidth = Math.max(width - columnWidth, 1)
   const effectiveTimelineWidth = Math.max(timelineWidth || fallbackTimelineWidth, 1)
+  const timelineEdgeInset = presentation === 'classic' ? 0 : undefined
   const timelinePixelsPerSecond = useMemo(
     () => (effectiveTimelineWidth / frameRange) * fps,
     [effectiveTimelineWidth, frameRange, fps],
   )
 
   const frameToX = useCallback(
-    (frame: number) => getFrameAxisX(frame, viewport, effectiveTimelineWidth),
-    [viewport, effectiveTimelineWidth],
+    (frame: number) => getFrameAxisX(frame, viewport, effectiveTimelineWidth, timelineEdgeInset),
+    [effectiveTimelineWidth, timelineEdgeInset, viewport],
   )
   const getRenderedKeyframeX = useCallback(
-    (frame: number) => getVisibleKeyframeX(frame, viewport, effectiveTimelineWidth),
-    [viewport, effectiveTimelineWidth],
+    (frame: number) =>
+      getVisibleKeyframeX(frame, viewport, effectiveTimelineWidth, timelineEdgeInset),
+    [effectiveTimelineWidth, timelineEdgeInset, viewport],
   )
   const setKeyframeButtonRef = useCallback((keyframeId: string, node: HTMLButtonElement | null) => {
     if (node) {
@@ -1483,7 +1575,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     let top = 0
 
     for (const group of groupedSheetRows) {
-      const inline = inlinePropertyGroupIdSet.has(group.id)
+      const inline = presentation === 'classic' || inlinePropertyGroupIdSet.has(group.id)
       if (!inline) {
         entries.push({ type: 'group', group, top })
         top += GROUP_HEADER_HEIGHT
@@ -1503,7 +1595,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       entries,
       contentHeight: top,
     }
-  }, [expandedGroups, groupedSheetRows, inlinePropertyGroupIdSet])
+  }, [expandedGroups, groupedSheetRows, inlinePropertyGroupIdSet, presentation])
   // Marquee points are only needed while a selection marquee is moving.
   // Building them eagerly duplicated the viewport-sensitive keyframe position
   // pass on every zoom frame, even when no marquee interaction was active.
@@ -1545,8 +1637,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   )
 
   const xToFrame = useCallback(
-    (x: number) => getFrameFromAxisX(x, viewport, effectiveTimelineWidth),
-    [viewport, effectiveTimelineWidth],
+    (x: number) => getFrameFromAxisX(x, viewport, effectiveTimelineWidth, timelineEdgeInset),
+    [effectiveTimelineWidth, timelineEdgeInset, viewport],
   )
 
   const getFrameFromClientX = useCallback(
@@ -1554,9 +1646,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       const node = timelineRef.current
       if (!node) return currentFrame
       const rect = node.getBoundingClientRect()
-      return clampFrame(xToFrame(clientX - rect.left), totalFrames)
+      const frame = xToFrame(clientX - rect.left)
+      return scrubClampToItemBounds ? clampFrame(frame, totalFrames) : frame
     },
-    [xToFrame, totalFrames, currentFrame],
+    [currentFrame, scrubClampToItemBounds, totalFrames, xToFrame],
   )
 
   const getTimelineXFromClientX = useCallback(
@@ -1583,15 +1676,20 @@ export const DopesheetEditor = memo(function DopesheetEditor({
 
   const ticks = useMemo(() => {
     const step = getNiceTickStep(frameRange)
-    const first = Math.floor(viewport.startFrame / step) * step
+    // Edit pans the already-rendered sheet on the compositor while expensive
+    // keyframe rows settle less frequently. Keep a generous ruler-only buffer
+    // on both sides so incoming tick marks are already present and move with
+    // the main ruler instead of appearing at the next settled React update.
+    const rulerOverscanFrames = timelineScrollContainerRef ? frameRange * 2 : 0
+    const first =
+      Math.floor((viewport.startFrame - rulerOverscanFrames) / step) * step
+    const last = viewport.endFrame + rulerOverscanFrames
     const result: number[] = []
-    for (let frame = first; frame <= viewport.endFrame; frame += step) {
-      if (frame >= viewport.startFrame) {
-        result.push(frame)
-      }
+    for (let frame = first; frame <= last; frame += step) {
+      result.push(frame)
     }
     return result
-  }, [viewport.startFrame, viewport.endFrame, frameRange])
+  }, [viewport.startFrame, viewport.endFrame, frameRange, timelineScrollContainerRef])
 
   const propertyGridStyle = useMemo(() => {
     return { gridTemplateColumns: `${columnWidth}px 1fr` }
@@ -2592,17 +2690,90 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   ])
 
   const scrubPointerIdRef = useRef<number | null>(null)
+  const [isRulerScrubbing, setIsRulerScrubbing] = useState(false)
   const lastScrubbedFrameRef = useRef<number | null>(null)
+  const rulerScrubClientXRef = useRef<number | null>(null)
+  const rulerScrubViewportRef = useRef(viewport)
+  const rulerEdgeScrollRafRef = useRef<number | null>(null)
+  const rulerEdgeScrollTimestampRef = useRef<number | null>(null)
+  const rulerEdgeScrollLoopRef = useRef<(timestamp: number) => void>(() => {})
+  if (scrubPointerIdRef.current === null) rulerScrubViewportRef.current = viewport
   const {
     startScrub: startRulerScrub,
     queueScrub: queueRulerScrub,
     flushPendingScrub: flushPendingRulerScrub,
   } = useCoalescedScrub(onScrub)
+  const getRulerScrubFrameFromClientX = useCallback(
+    (clientX: number) => {
+      const node = timelineRef.current
+      if (!node) return currentFrame
+      const rect = node.getBoundingClientRect()
+      const frame = getFrameFromAxisX(
+        clientX - rect.left,
+        rulerScrubViewportRef.current,
+        effectiveTimelineWidth,
+        timelineEdgeInset,
+      )
+      return scrubClampToItemBounds ? clampFrame(frame, totalFrames) : frame
+    },
+    [currentFrame, effectiveTimelineWidth, scrubClampToItemBounds, timelineEdgeInset, totalFrames],
+  )
+  rulerEdgeScrollLoopRef.current = (timestamp: number) => {
+    rulerEdgeScrollRafRef.current = null
+    const clientX = rulerScrubClientXRef.current
+    const node = timelineRef.current
+    if (scrubPointerIdRef.current === null || clientX === null || !node || !onRulerEdgeScroll) {
+      return
+    }
+
+    const bounds = node.getBoundingClientRect()
+    const velocity = getPlayheadEdgeScrollVelocity(clientX, bounds)
+    if (velocity !== 0) {
+      const previousTimestamp = rulerEdgeScrollTimestampRef.current ?? timestamp - 1000 / 60
+      const appliedPixels = onRulerEdgeScroll(
+        getEdgeScrollDelta(velocity, timestamp, previousTimestamp),
+      )
+      if (appliedPixels !== 0 && effectiveTimelineWidth > 0) {
+        const liveViewport = rulerScrubViewportRef.current
+        const visibleFrames = liveViewport.endFrame - liveViewport.startFrame
+        const frameDelta = (appliedPixels / effectiveTimelineWidth) * visibleFrames
+        rulerScrubViewportRef.current = {
+          startFrame: liveViewport.startFrame + frameDelta,
+          endFrame: liveViewport.endFrame + frameDelta,
+        }
+        const frame = getRulerScrubFrameFromClientX(clientX)
+        lastScrubbedFrameRef.current = frame
+        queueRulerScrub({
+          frame,
+          pointerX: getTimelineXFromClientX(clientX),
+          pixelsPerSecond: timelinePixelsPerSecond,
+        })
+      }
+      rulerEdgeScrollTimestampRef.current = timestamp
+    } else {
+      rulerEdgeScrollTimestampRef.current = null
+    }
+
+    rulerEdgeScrollRafRef.current = requestAnimationFrame((nextTimestamp) =>
+      rulerEdgeScrollLoopRef.current(nextTimestamp),
+    )
+  }
+  useEffect(() => {
+    return () => {
+      if (rulerEdgeScrollRafRef.current !== null) {
+        cancelAnimationFrame(rulerEdgeScrollRafRef.current)
+      }
+    }
+  }, [])
   const handleRulerPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (disabled) return
       event.preventDefault()
+      setIsRulerScrubbing(true)
       scrubPointerIdRef.current = event.pointerId
+      rulerScrubClientXRef.current = event.clientX
+      rulerScrubViewportRef.current = viewport
+      rulerEdgeScrollTimestampRef.current = null
       setPointerCaptureSafely(event.currentTarget, event.pointerId)
       const frame = getFrameFromClientX(event.clientX)
       lastScrubbedFrameRef.current = frame
@@ -2612,26 +2783,36 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         pointerX: getTimelineXFromClientX(event.clientX),
         pixelsPerSecond: timelinePixelsPerSecond,
       })
+      if (onRulerEdgeScroll && rulerEdgeScrollRafRef.current === null) {
+        rulerEdgeScrollRafRef.current = requestAnimationFrame((timestamp) =>
+          rulerEdgeScrollLoopRef.current(timestamp),
+        )
+      }
     },
     [
       disabled,
       getFrameFromClientX,
       getTimelineXFromClientX,
+      onRulerEdgeScroll,
       onScrubStart,
       startRulerScrub,
       timelinePixelsPerSecond,
+      viewport,
     ],
   )
 
   const handleRulerPointerMove = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       if (disabled) return
-      if (scrubPointerIdRef.current !== event.pointerId) return
       const frame = getFrameFromClientX(event.clientX)
-      if (frame === lastScrubbedFrameRef.current) return
-      lastScrubbedFrameRef.current = frame
+      onSkim?.(frame)
+      if (scrubPointerIdRef.current !== event.pointerId) return
+      rulerScrubClientXRef.current = event.clientX
+      const scrubFrame = getRulerScrubFrameFromClientX(event.clientX)
+      if (scrubFrame === lastScrubbedFrameRef.current) return
+      lastScrubbedFrameRef.current = scrubFrame
       queueRulerScrub({
-        frame,
+        frame: scrubFrame,
         pointerX: getTimelineXFromClientX(event.clientX),
         pixelsPerSecond: timelinePixelsPerSecond,
       })
@@ -2639,11 +2820,17 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     [
       disabled,
       getFrameFromClientX,
+      getRulerScrubFrameFromClientX,
       getTimelineXFromClientX,
+      onSkim,
       queueRulerScrub,
       timelinePixelsPerSecond,
     ],
   )
+
+  const handleRulerPointerLeave = useCallback(() => {
+    if (scrubPointerIdRef.current === null) onSkim?.(null)
+  }, [onSkim])
 
   const handleRulerPointerUp = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
@@ -2653,12 +2840,34 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       } catch {
         // ignore pointer capture errors
       }
+      const finalFrame = getRulerScrubFrameFromClientX(event.clientX)
+      if (finalFrame !== lastScrubbedFrameRef.current) {
+        queueRulerScrub({
+          frame: finalFrame,
+          pointerX: getTimelineXFromClientX(event.clientX),
+          pixelsPerSecond: timelinePixelsPerSecond,
+        })
+      }
+      if (rulerEdgeScrollRafRef.current !== null) {
+        cancelAnimationFrame(rulerEdgeScrollRafRef.current)
+        rulerEdgeScrollRafRef.current = null
+      }
+      setIsRulerScrubbing(false)
       scrubPointerIdRef.current = null
+      rulerScrubClientXRef.current = null
+      rulerEdgeScrollTimestampRef.current = null
       lastScrubbedFrameRef.current = null
       flushPendingRulerScrub(true)
       onScrubEnd?.()
     },
-    [flushPendingRulerScrub, onScrubEnd],
+    [
+      flushPendingRulerScrub,
+      getRulerScrubFrameFromClientX,
+      getTimelineXFromClientX,
+      onScrubEnd,
+      queueRulerScrub,
+      timelinePixelsPerSecond,
+    ],
   )
 
   // Standard scroll model, shared by the sheet-only and split-sheet panes:
@@ -2852,14 +3061,22 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     [ticks, frameToX, formatRulerTick],
   )
   const renderPropertyRowContent = useCallback(
-    (row: DopesheetPropertyRow, options?: { indented?: boolean }) => {
+    (row: DopesheetPropertyRow, options?: { classic?: boolean; indented?: boolean }) => {
+      const classic = options?.classic ?? false
       const rowLocked = isPropertyLocked(row.property)
+      const axisConstraint = axisConstraintByProperty[row.property]
       const compoundRow = compoundPropertyRows[row.property]
       const curveVisible = singleCurveMode
         ? (showGraphPane || selectedCurveVisibleExternally) && selectedProperty === row.property
         : graphVisibleProperties.has(row.property)
-      const rowLabel = compoundRow?.label ?? getKeyframePropertyLabel(t, row.property)
-      const rowDisplayLabel = compoundRow?.label ?? getKeyframePropertyShortLabel(t, row.property)
+      const rowLabel =
+        propertyLabels[row.property] ??
+        compoundRow?.label ??
+        getKeyframePropertyLabel(t, row.property)
+      const rowDisplayLabel =
+        propertyLabels[row.property] ??
+        compoundRow?.label ??
+        getKeyframePropertyShortLabel(t, row.property)
       const linkableProperty: DirectLinkableProperty | null =
         compoundRow?.linkProperty ??
         (isLinkableAnimatableProperty(row.property) ? row.property : null)
@@ -2941,80 +3158,84 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           onClick={showGraphPane && !rowLocked ? () => activateProperty(row.property) : undefined}
         >
           <div className="flex items-center gap-px self-stretch">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className={cn(
-                MINI_ICON_BUTTON_CLASS,
-                'self-center text-muted-foreground hover:text-foreground',
-                curveVisible
-                  ? 'text-orange-500 hover:text-orange-400'
-                  : 'opacity-30 hover:opacity-60',
-              )}
-              onClick={(event) => {
-                event.stopPropagation()
-                if (singleCurveMode) {
-                  if (curveVisible) {
-                    onCurveVisibilityChange?.(row.property, false)
-                  } else {
-                    showSinglePropertyCurve(row.property)
+            {!classic && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  MINI_ICON_BUTTON_CLASS,
+                  'self-center text-muted-foreground hover:text-foreground',
+                  curveVisible
+                    ? 'text-orange-500 hover:text-orange-400'
+                    : 'opacity-30 hover:opacity-60',
+                )}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  if (singleCurveMode) {
+                    if (curveVisible) {
+                      onCurveVisibilityChange?.(row.property, false)
+                    } else {
+                      showSinglePropertyCurve(row.property)
+                    }
+                    return
                   }
-                  return
+                  togglePropertyCurve(row.property)
+                }}
+                title={t('timeline.keyframeEditor.showPropertyCurve', {
+                  property: rowLabel,
+                  defaultValue: `Show ${rowLabel} curve`,
+                })}
+                aria-label={t('timeline.keyframeEditor.showPropertyCurve', {
+                  property: rowLabel,
+                  defaultValue: `Show ${rowLabel} curve`,
+                })}
+                aria-pressed={curveVisible}
+              >
+                <LineChart className={MINI_ICON_CLASS} />
+              </Button>
+            )}
+            {!classic && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  MINI_ICON_BUTTON_CLASS,
+                  'self-center text-muted-foreground hover:text-foreground',
+                  rowLocked ? 'text-red-400 hover:text-red-300' : 'opacity-30 hover:opacity-60',
+                )}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  toggleLockedProperty(row.property)
+                }}
+                title={
+                  rowLocked
+                    ? t('timeline.keyframeEditor.unlockPropertyRow', {
+                        property: rowLabel,
+                        defaultValue: `Unlock ${rowLabel} row`,
+                      })
+                    : t('timeline.keyframeEditor.lockPropertyRow', {
+                        property: rowLabel,
+                        defaultValue: `Lock ${rowLabel} row`,
+                      })
                 }
-                togglePropertyCurve(row.property)
-              }}
-              title={t('timeline.keyframeEditor.showPropertyCurve', {
-                property: rowLabel,
-                defaultValue: `Show ${rowLabel} curve`,
-              })}
-              aria-label={t('timeline.keyframeEditor.showPropertyCurve', {
-                property: rowLabel,
-                defaultValue: `Show ${rowLabel} curve`,
-              })}
-              aria-pressed={curveVisible}
-            >
-              <LineChart className={MINI_ICON_CLASS} />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className={cn(
-                MINI_ICON_BUTTON_CLASS,
-                'self-center text-muted-foreground hover:text-foreground',
-                rowLocked ? 'text-red-400 hover:text-red-300' : 'opacity-30 hover:opacity-60',
-              )}
-              onClick={(event) => {
-                event.stopPropagation()
-                toggleLockedProperty(row.property)
-              }}
-              title={
-                rowLocked
-                  ? t('timeline.keyframeEditor.unlockPropertyRow', {
-                      property: rowLabel,
-                      defaultValue: `Unlock ${rowLabel} row`,
-                    })
-                  : t('timeline.keyframeEditor.lockPropertyRow', {
-                      property: rowLabel,
-                      defaultValue: `Lock ${rowLabel} row`,
-                    })
-              }
-              aria-label={
-                rowLocked
-                  ? t('timeline.keyframeEditor.unlockPropertyRow', {
-                      property: rowLabel,
-                      defaultValue: `Unlock ${rowLabel} row`,
-                    })
-                  : t('timeline.keyframeEditor.lockPropertyRow', {
-                      property: rowLabel,
-                      defaultValue: `Lock ${rowLabel} row`,
-                    })
-              }
-              aria-pressed={rowLocked}
-            >
-              <Lock className={MINI_ICON_CLASS} />
-            </Button>
+                aria-label={
+                  rowLocked
+                    ? t('timeline.keyframeEditor.unlockPropertyRow', {
+                        property: rowLabel,
+                        defaultValue: `Unlock ${rowLabel} row`,
+                      })
+                    : t('timeline.keyframeEditor.lockPropertyRow', {
+                        property: rowLabel,
+                        defaultValue: `Lock ${rowLabel} row`,
+                      })
+                }
+                aria-pressed={rowLocked}
+              >
+                <Lock className={MINI_ICON_CLASS} />
+              </Button>
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -3053,7 +3274,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             >
               <Timer className={MINI_ICON_CLASS} />
             </Button>
-            {linkableProperty && beginPropertyLink ? (
+            {!classic && linkableProperty && beginPropertyLink ? (
               propertyLink ? (
                 <Popover>
                   <PopoverTrigger asChild>
@@ -3135,7 +3356,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 </Button>
               )
             ) : null}
-            {linkableProperty && onSetPropertyExpression ? (
+            {!classic && linkableProperty && onSetPropertyExpression ? (
               <Button
                 type="button"
                 variant="ghost"
@@ -3172,12 +3393,46 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           </div>
           <div
             className={cn(
-              'flex h-full min-w-0 items-center truncate pr-1 text-[9px] font-medium leading-none text-foreground/90',
-              compoundRow ? 'w-[54px] shrink-0 pl-1' : 'flex-1 pl-[10px]',
+              'flex h-full min-w-0 items-center overflow-hidden pr-1 text-[9px] font-medium leading-none text-foreground/90',
+              compoundRow ? 'w-[54px] shrink-0 pl-1' : classic ? 'flex-1 pl-1' : 'flex-1 pl-[10px]',
             )}
             title={rowLabel}
           >
-            {rowDisplayLabel}
+            <span className="min-w-0 truncate">{rowDisplayLabel}</span>
+            {classic && axisConstraint ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className={cn(
+                  MINI_ICON_BUTTON_CLASS,
+                  'ml-0.5 self-center text-muted-foreground hover:text-foreground',
+                  axisConstraint.constrained && 'text-orange-400 hover:text-orange-300',
+                )}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  axisConstraint.onChange(!axisConstraint.constrained)
+                }}
+                disabled={disabled || rowLocked}
+                title={
+                  axisConstraint.constrained
+                    ? `Unconstrain ${axisConstraint.label} axes`
+                    : `Constrain ${axisConstraint.label} axes`
+                }
+                aria-label={
+                  axisConstraint.constrained
+                    ? `Unconstrain ${axisConstraint.label} axes`
+                    : `Constrain ${axisConstraint.label} axes`
+                }
+                aria-pressed={axisConstraint.constrained}
+              >
+                {axisConstraint.constrained ? (
+                  <Link2 className={MINI_ICON_CLASS} />
+                ) : (
+                  <Unlink2 className={MINI_ICON_CLASS} />
+                )}
+              </Button>
+            ) : null}
           </div>
           <div className="ml-auto flex items-center gap-0">
             {compoundRow ? (
@@ -3387,7 +3642,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 <ChevronRight className="h-[9px] w-[9px]" />
               </Button>
             </div>
-            {canResetRow ? (
+            {!classic && canResetRow ? (
               <DopesheetResetButton
                 label={resetRowLabel}
                 onReset={() => {
@@ -3398,19 +3653,20 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                   }
                 }}
               />
-            ) : (
+            ) : !classic ? (
               <span
                 aria-hidden="true"
                 className={MINI_ICON_BUTTON_CLASS}
                 data-testid={`dopesheet-row-reset-spacer-${row.property}`}
               />
-            )}
+            ) : null}
           </div>
         </div>
       )
     },
     [
       activateProperty,
+      axisConstraintByProperty,
       canClearRow,
       compoundPropertyRows,
       autoKeyEnabledByProperty,
@@ -3438,6 +3694,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       beginPropertyLink,
       removePropertyLink,
       propertyExpressions,
+      propertyLabels,
       preExpressionPropertyValues,
       expressionEditor,
       resolveExpressionReference,
@@ -3829,11 +4086,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       if (entry.type !== 'row') continue
       content.set(
         entry.row.property,
-        renderPropertyRowContent(entry.row, { indented: entry.indented }),
+        renderPropertyRowContent(entry.row, {
+          classic: presentation === 'classic',
+          indented: entry.indented,
+        }),
       )
     }
     return content
-  }, [renderPropertyRowContent, renderedSheetEntries.entries])
+  }, [presentation, renderPropertyRowContent, renderedSheetEntries.entries])
   const sheetGroupContentById = useMemo(() => {
     const content = new Map<string, React.ReactNode>()
     for (const entry of renderedSheetEntries.entries) {
@@ -4038,6 +4298,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onRulerPointerDown={handleRulerPointerDown}
       onRulerPointerMove={handleRulerPointerMove}
       onRulerPointerUp={handleRulerPointerUp}
+      onRulerPointerLeave={handleRulerPointerLeave}
       rulerTickElements={rulerTickElements}
     />
   )
@@ -4053,11 +4314,16 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       style={{ left: timelineContentLeft }}
     >
       <DopesheetPlayheadLine
-        relativeFrame={currentFrame}
+        relativeFrame={playheadFrame ?? currentFrame}
         itemFrom={itemFrom}
         totalFrames={totalFrames}
+        clampToItemBounds={playheadClampToItemBounds}
+        followPreviewFrame={!onSkim}
         frameToX={frameToX}
+        globalFrameToX={globalFrameToPixels}
+        positionSyncTargetRef={timelineScrollContainerRef}
         maxLeft={effectiveTimelineWidth - 1}
+        clampToViewport={playheadClampToItemBounds}
         className="absolute top-0 bottom-0"
       />
     </div>
@@ -4071,12 +4337,33 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       style={{ left: timelineContentLeft }}
     >
       <DopesheetPlayheadLine
-        relativeFrame={currentFrame}
+        relativeFrame={playheadFrame ?? currentFrame}
         itemFrom={itemFrom}
         totalFrames={totalFrames}
+        clampToItemBounds={playheadClampToItemBounds}
+        followPreviewFrame={!onSkim}
         frameToX={frameToX}
+        globalFrameToX={globalFrameToPixels}
+        positionSyncTargetRef={timelineScrollContainerRef}
         maxLeft={effectiveTimelineWidth - 1}
+        clampToViewport={playheadClampToItemBounds}
         className="absolute top-0 bottom-0"
+      />
+    </div>
+  ) : null
+  const skimPlayheadOverlayElement = onSkim ? (
+    <div
+      className="pointer-events-none absolute bottom-0 right-0 top-0 z-[19] overflow-hidden"
+      style={{ left: timelineContentLeft }}
+    >
+      <TimelinePreviewScrubberVisual
+        frameToPixels={globalFrameToPixels ?? ((globalFrame) => frameToX(globalFrame - itemFrom))}
+        fps={fps}
+        inRuler
+        rulerOffset={0}
+        showTooltip={false}
+        suppressed={isRulerScrubbing}
+        positionSyncTargetRef={timelineScrollContainerRef}
       />
     </div>
   ) : null
@@ -4175,6 +4462,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             style={{ left: columnWidth }}
           />
           {showGraphPane ? graphPaneElement : sheetBodyElement}
+          {showSheetPane ? skimPlayheadOverlayElement : null}
           {showSheetPane ? playheadOverlayElement : null}
         </div>
         {expressionDockElement}
@@ -4184,6 +4472,57 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             testId="expression-reference-pick-whip"
           />
         ) : null}
+      </div>
+    )
+  }
+
+  if (presentation === 'classic') {
+    return (
+      <div
+        ref={pickWhipRootRef}
+        className={cn('flex h-full flex-col gap-0.5 overflow-hidden', className)}
+        style={{ height, width }}
+      >
+        <div className="flex min-h-7 flex-shrink-0 items-center justify-between gap-2 px-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="whitespace-nowrap text-xs text-muted-foreground">
+              {t('timeline.keyframeEditor.keyframes', {
+                count: visibleKeyframes.length,
+              })}
+            </span>
+            <DopesheetHeaderFrameInputs
+              disabled={disabled}
+              inputsEnabled={
+                Boolean(onKeyframeMove) &&
+                selectedFrameSummary.hasSelection &&
+                !selectedFrameSummary.hasMixedFrames
+              }
+              totalFrames={totalFrames}
+              globalFrame={globalFrame}
+              localFrameInputValue={localFrameInputValue}
+              globalFrameInputValue={globalFrameInputValue}
+              setLocalFrameInputValue={setLocalFrameInputValue}
+              setGlobalFrameInputValue={setGlobalFrameInputValue}
+              skipNextHeaderFrameBlurRef={skipNextHeaderFrameBlurRef}
+              commitLocalFrameInput={commitLocalFrameInput}
+              commitGlobalFrameInput={commitGlobalFrameInput}
+              handleHeaderFrameInputKeyDown={handleHeaderFrameInputKeyDown}
+            />
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            'relative min-h-0 flex-1 overflow-hidden border border-border',
+            disabled && 'pointer-events-none opacity-60',
+          )}
+          onWheel={viewportInteractionEnabled ? handleWheel : undefined}
+        >
+          {skimPlayheadOverlayElement}
+          {playheadOverlayElement}
+          {rulerHeaderElement}
+          {sheetBodyElement}
+        </div>
       </div>
     )
   }
@@ -4379,12 +4718,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             >
               {graphPaneElement}
             </div>
+            {skimPlayheadOverlayElement}
             {splitPlayheadOverlayElement}
           </>
         ) : (
           <>
             {/* Sheet mode only: the graph renders its own aligned playhead
                 (GraphPlayhead) using the graph's coordinate space. */}
+            {showSheetPane && skimPlayheadOverlayElement}
             {showSheetPane && playheadOverlayElement}
             {rulerHeaderElement}
             {showGraphPane ? graphPaneElement : sheetBodyElement}

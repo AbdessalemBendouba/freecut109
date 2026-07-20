@@ -48,6 +48,7 @@ import {
   isExternalTimelineDragEvent,
 } from '../utils/timeline-external-drag'
 import { getDefaultActiveTrackId } from '../utils/default-active-track'
+import { KeyframeGraphPanel } from './keyframe-graph-panel'
 
 const logger = createLogger('Timeline')
 
@@ -124,6 +125,8 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
     () => visibleTracks.filter((track) => getTrackKind(track) === 'audio'),
     [visibleTracks],
   )
+  const keyframePanelOpen = useSelectionStore((s) => s.editKeyframePanelOpen)
+  const setKeyframePanelOpen = useSelectionStore((s) => s.setEditKeyframePanelOpen)
   const hasTrackSections = videoTracks.length > 0 && audioTracks.length > 0
 
   // Refs for syncing scroll between track headers and timeline content
@@ -232,21 +235,23 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
       visibleTracks,
     ],
   )
-  const {
-    clampedSectionDividerPosition,
-    videoPaneHeight,
-    audioPaneHeight,
-    videoSectionHeight,
-    audioSectionHeight,
-  } = trackSectionLayout
+  const { clampedSectionDividerPosition, videoPaneHeight, audioPaneHeight } = trackSectionLayout
   const { handleTrackResizeStart, handleTrackResizeReset } = useTrackHeightResize()
+  const videoDisplayHeight = useMemo(
+    () => videoTracks.reduce((sum, track) => sum + track.height, 0),
+    [videoTracks],
+  )
+  const audioDisplayHeight = useMemo(
+    () => audioTracks.reduce((sum, track) => sum + track.height, 0),
+    [audioTracks],
+  )
   const videoZoneHeight = useMemo(
-    () => Math.max(24, videoPaneHeight - videoSectionHeight),
-    [videoPaneHeight, videoSectionHeight],
+    () => Math.max(24, videoPaneHeight - videoDisplayHeight),
+    [videoDisplayHeight, videoPaneHeight],
   )
   const audioZoneHeight = useMemo(
-    () => Math.max(24, audioPaneHeight - audioSectionHeight),
-    [audioPaneHeight, audioSectionHeight],
+    () => Math.max(24, audioPaneHeight - audioDisplayHeight),
+    [audioDisplayHeight, audioPaneHeight],
   )
   const getTrackStackOffset = useCallback(
     (sectionTracks: typeof visibleTracks, dropIndex: number, leadingOffset = 0) => {
@@ -467,7 +472,7 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
     allTrackHeadersScrollRef,
     hasTrackSections,
     videoPaneHeight,
-    videoSectionHeight,
+    videoDisplayHeight,
     videoTracks.length,
   ])
 
@@ -1019,6 +1024,14 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
           />
         </div>
       </div>
+      <KeyframeGraphPanel
+        isOpen={keyframePanelOpen}
+        placement="bottom"
+        surface="edit"
+        propertyColumnWidth={editorLayout.timelineSidebarWidth - 1}
+        timelineScrollContainerRef={timelineContentRef}
+        onClose={() => setKeyframePanelOpen(false)}
+      />
       <TransitionDragTooltip />
     </div>
   )

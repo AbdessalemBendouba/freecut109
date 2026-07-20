@@ -11,6 +11,8 @@ interface UseDopesheetViewportOptions {
   keyframeFrameBounds: { min: number; max: number } | null
   frameViewport: Viewport | undefined
   onFrameViewportChange: ((viewport: Viewport) => void) | undefined
+  /** Preserve an externally supplied viewport beyond clip bounds for global timeline alignment. */
+  clampToContent?: boolean
 }
 
 interface UseDopesheetViewportResult {
@@ -33,6 +35,7 @@ export function useDopesheetViewport({
   keyframeFrameBounds,
   frameViewport,
   onFrameViewportChange,
+  clampToContent = true,
 }: UseDopesheetViewportOptions): UseDopesheetViewportResult {
   const contentFrameMax = useMemo(() => Math.max(totalFrames, 1), [totalFrames])
   const minViewportFrames = useMemo(
@@ -46,9 +49,17 @@ export function useDopesheetViewport({
   boundsRef.current = keyframeFrameBounds
 
   const normalizeViewport = useCallback(
-    (nextViewport: Viewport) =>
-      normalizeKeyframeNavigatorViewport(nextViewport, contentFrameMax, minViewportFrames),
-    [contentFrameMax, minViewportFrames],
+    (nextViewport: Viewport) => {
+      if (clampToContent) {
+        return normalizeKeyframeNavigatorViewport(nextViewport, contentFrameMax, minViewportFrames)
+      }
+      const startFrame = Number.isFinite(nextViewport.startFrame) ? nextViewport.startFrame : 0
+      const endFrame = Number.isFinite(nextViewport.endFrame)
+        ? nextViewport.endFrame
+        : startFrame + 1
+      return { startFrame, endFrame: Math.max(startFrame + 1, endFrame) }
+    },
+    [clampToContent, contentFrameMax, minViewportFrames],
   )
 
   // Fit the viewport to the keyframes (with padding) so a short animation on a

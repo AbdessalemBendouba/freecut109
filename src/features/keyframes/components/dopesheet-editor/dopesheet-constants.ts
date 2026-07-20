@@ -1,6 +1,7 @@
+import { EDIT_DOPESHEET_COLUMN_WIDTH } from '@/config/editor-layout'
 import type { AnimatableProperty } from '@/types/keyframe'
 
-export const PROPERTY_COLUMN_WIDTH = 248
+export const PROPERTY_COLUMN_WIDTH = EDIT_DOPESHEET_COLUMN_WIDTH
 /** Wider property column for the Motion surface (`spacious`), where coupled
  *  Vector2 fields need enough room for both values, units, and key controls. */
 export const SPACIOUS_PROPERTY_COLUMN_WIDTH = 348

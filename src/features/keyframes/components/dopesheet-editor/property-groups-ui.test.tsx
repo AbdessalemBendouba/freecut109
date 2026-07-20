@@ -61,6 +61,47 @@ describe('DopesheetEditor property groups', () => {
     ).toBeTruthy()
   })
 
+  it('renders the classic Edit presentation without Motion property chrome', () => {
+    renderEditor({ presentation: 'classic' })
+
+    expect(screen.getByTestId('dopesheet-ruler')).toBeTruthy()
+    expect(screen.getByText('Property')).toBeTruthy()
+    expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeTruthy()
+    expect(
+      screen.getByRole('spinbutton', { name: /volume \(db\) value at playhead/i }),
+    ).toBeTruthy()
+
+    expect(screen.queryByText('Parameters')).toBeNull()
+    expect(screen.queryByRole('button', { name: /collapse transform/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /show .* curve/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /lock .* row/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /add .* expression/i })).toBeNull()
+    expect(screen.queryByTestId('keyframe-navigator-thumb')).toBeNull()
+    expect(screen.queryByRole('slider', { name: /horizontal zoom/i })).toBeNull()
+  })
+
+  it('shows a functional axis constraint on the classic primary scale row', () => {
+    const onConstraintChange = vi.fn()
+    renderEditor({
+      presentation: 'classic',
+      keyframesByProperty: { width: [], height: [] },
+      propertyValues: { width: 100, height: 100 },
+      propertyLabels: { width: 'Scale X', height: 'Scale Y' },
+      axisConstraintByProperty: {
+        width: { label: 'Scale', constrained: true, onChange: onConstraintChange },
+      },
+    })
+
+    expect(screen.getByText('Scale X')).toBeTruthy()
+    expect(screen.getByText('Scale Y')).toBeTruthy()
+    const constraint = screen.getByRole('button', { name: 'Unconstrain Scale axes' })
+    expect(constraint).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Scale X').nextElementSibling).toBe(constraint)
+
+    fireEvent.click(constraint)
+    expect(onConstraintChange).toHaveBeenCalledWith(false)
+  })
+
   it('expands and collapses sibling property groups with Shift-click', () => {
     renderEditor()
 
