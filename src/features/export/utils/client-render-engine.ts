@@ -324,12 +324,20 @@ export async function createCompositionRenderer(
     getLiveKeyframes?: (itemId: string) => ItemKeyframes | undefined
     domVideoElementProvider?: (itemId: string) => HTMLVideoElement | null
     useProxyMedia?: boolean
+    renderText?: boolean
   } = {},
 ) {
   const { fps, transitions = [], backgroundColor = '#000000', keyframes = [] } = composition
   const renderMode = options.mode ?? 'export'
+  const compositionTracks =
+    options.renderText === false
+      ? composition.tracks?.map((track) => ({
+          ...track,
+          items: (track.items ?? []).filter((item) => item.type !== 'text'),
+        }))
+      : composition.tracks
   const tracks =
-    composition.tracks?.map((track) => ({
+    compositionTracks?.map((track) => ({
       ...track,
       items: (track.items ?? []).map((item) =>
         item.type === 'video'

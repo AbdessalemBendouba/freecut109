@@ -2,10 +2,7 @@ import { useCallback, type PointerEvent as ReactPointerEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import type { DirectLinkableProperty } from '@/types/keyframe'
-import {
-  areDirectLinkPropertiesCompatible,
-  isDirectLinkableProperty,
-} from '@/types/keyframe'
+import { areDirectLinkPropertiesCompatible, isDirectLinkableProperty } from '@/types/keyframe'
 import {
   removeDirectPropertyLink,
   setDirectPropertyLink,
@@ -19,8 +16,7 @@ interface PropertyEndpoint {
   property: DirectLinkableProperty
 }
 
-function resolvePropertyCandidate(clientX: number, clientY: number, origin: PropertyEndpoint) {
-  const element = document.elementFromPoint(clientX, clientY)
+function resolvePropertyCandidateElement(element: Element | null, origin: PropertyEndpoint) {
   const row = element?.closest<HTMLElement>('[data-expression-item-id][data-expression-property]')
   const itemId = row?.dataset.expressionItemId
   const property = row?.dataset.expressionProperty
@@ -28,6 +24,16 @@ function resolvePropertyCandidate(clientX: number, clientY: number, origin: Prop
   if (itemId === origin.itemId && property === origin.property) return null
   if (!areDirectLinkPropertiesCompatible(origin.property, property)) return null
   return { row, value: { itemId, property } }
+}
+
+function resolvePropertyCandidate(clientX: number, clientY: number, origin: PropertyEndpoint) {
+  return resolvePropertyCandidateElement(document.elementFromPoint(clientX, clientY), origin)
+}
+
+function resolveEligiblePropertyRows(origin: PropertyEndpoint): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('[data-expression-item-id][data-expression-property]'),
+  ).filter((row) => resolvePropertyCandidateElement(row, origin) !== null)
 }
 
 export function usePropertyLinkPickWhip() {
@@ -60,6 +66,8 @@ export function usePropertyLinkPickWhip() {
   )
   const { drag: genericDrag, begin: beginDrag } = useMotionPickWhipDrag({
     hoverAttribute: 'data-expression-link-hover',
+    eligibleAttribute: 'data-expression-link-eligible',
+    resolveEligibleRows: resolveEligiblePropertyRows,
     resolveCandidate: resolvePropertyCandidate,
     onCommit: commit,
   })

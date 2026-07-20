@@ -57,17 +57,15 @@ interface MotionPickWhipDragState<TOrigin, TCandidate> {
 
 interface UseMotionPickWhipDragOptions<TOrigin, TCandidate> {
   hoverAttribute: string
+  eligibleAttribute?: string
+  resolveEligibleRows?: (origin: TOrigin) => Iterable<HTMLElement>
   getClipRoot?: (originElement: HTMLElement) => HTMLElement | null
   resolveCandidate: (
     clientX: number,
     clientY: number,
     origin: TOrigin,
   ) => MotionPickWhipCandidate<TCandidate> | null
-  onCommit: (
-    origin: TOrigin,
-    candidate: TCandidate,
-    modifiers: MotionPickWhipModifiers,
-  ) => void
+  onCommit: (origin: TOrigin, candidate: TCandidate, modifiers: MotionPickWhipModifiers) => void
 }
 
 const AUTO_SCROLL_EDGE_PX = 48
@@ -153,6 +151,7 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
   const [drag, setDrag] = useState<MotionPickWhipDragState<TOrigin, TCandidate> | null>(null)
   const dragRef = useRef<MotionPickWhipDragState<TOrigin, TCandidate> | null>(null)
   const hoverRef = useRef<HTMLElement | null>(null)
+  const eligibleRowsRef = useRef<Set<HTMLElement>>(new Set())
   const originElementRef = useRef<HTMLElement | null>(null)
   const clipRootRef = useRef<HTMLElement | null>(null)
   const presentationFrameRef = useRef<number | null>(null)
@@ -193,13 +192,26 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
     }
     originElementRef.current = event.currentTarget
     clipRootRef.current = clipRoot
+    const eligibleAttribute = optionsRef.current.eligibleAttribute
+    if (eligibleAttribute) {
+      for (const row of optionsRef.current.resolveEligibleRows?.(origin) ?? []) {
+        row.setAttribute(eligibleAttribute, 'true')
+        eligibleRowsRef.current.add(row)
+      }
+    }
     dragRef.current = next
     setDrag(next)
   }, [])
 
   useEffect(() => {
-    const clearHover = () =>
-      updateHover(hoverRef, null, optionsRef.current.hoverAttribute)
+    const clearHover = () => updateHover(hoverRef, null, optionsRef.current.hoverAttribute)
+    const clearEligibleRows = () => {
+      const eligibleAttribute = optionsRef.current.eligibleAttribute
+      if (eligibleAttribute) {
+        for (const row of eligibleRowsRef.current) row.removeAttribute(eligibleAttribute)
+      }
+      eligibleRowsRef.current.clear()
+    }
     const cancelPresentation = () => {
       if (presentationFrameRef.current !== null) {
         window.cancelAnimationFrame(presentationFrameRef.current)
@@ -259,11 +271,7 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
         autoScrollTimeRef.current = null
         return
       }
-      const velocity = getAutoScrollVelocity(
-        current.currentX,
-        current.currentY,
-        current.clipBounds,
-      )
+      const velocity = getAutoScrollVelocity(current.currentX, current.currentY, current.clipBounds)
       if (velocity === 0) {
         autoScrollTimeRef.current = null
         return
@@ -316,13 +324,10 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
       if (!current || current.pointerId !== event.pointerId) return
       const candidate =
         commit && current.moved
-          ? optionsRef.current.resolveCandidate(
-              event.clientX,
-              event.clientY,
-              current.origin,
-            )
+          ? optionsRef.current.resolveCandidate(event.clientX, event.clientY, current.origin)
           : null
       clearHover()
+      clearEligibleRows()
       cancelPresentation()
       cancelAutoScroll()
       dragRef.current = null
@@ -342,6 +347,7 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
     const keyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !dragRef.current) return
       clearHover()
+      clearEligibleRows()
       cancelPresentation()
       cancelAutoScroll()
       dragRef.current = null
@@ -358,6 +364,7 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
     window.addEventListener('resize', scheduleLayoutRefresh)
     return () => {
       clearHover()
+      clearEligibleRows()
       cancelPresentation()
       cancelAutoScroll()
       window.removeEventListener('pointermove', move)

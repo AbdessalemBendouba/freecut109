@@ -132,9 +132,7 @@ export const MotionTimelineDock = memo(function MotionTimelineDock({
     [compositions],
   )
   const lastOpenedCompositionId = useComposeUiStore((state) => state.lastOpenedCompositionId)
-  const setLastOpenedCompositionId = useComposeUiStore(
-    (state) => state.setLastOpenedCompositionId,
-  )
+  const setLastOpenedCompositionId = useComposeUiStore((state) => state.setLastOpenedCompositionId)
 
   useLayoutEffect(() => {
     useComposeUiStore.getState().captureMotionReturnTab(returnTabIdRef.current)
@@ -161,9 +159,7 @@ export const MotionTimelineDock = memo(function MotionTimelineDock({
   useEffect(() => {
     if (activeComposition?.editorKind !== 'composite-2d' || !activeCompositionId) return
     if (mainHolder) {
-      const wrapper = mainHolder.items.find(
-        (item) => item.compositionId === activeCompositionId,
-      )
+      const wrapper = mainHolder.items.find((item) => item.compositionId === activeCompositionId)
       repairCompositeCompositionEditorialLeak({
         compositionId: activeCompositionId,
         editorialItemIds: mainHolder.items.map((item) => item.id),
@@ -182,14 +178,20 @@ export const MotionTimelineDock = memo(function MotionTimelineDock({
     // Wait until hydration is fully complete before restoring the last comp.
     if (isTimelineLoading) return
     if (useEditorStore.getState().workspace !== 'motion') return
-    if (activeComposition?.editorKind === 'composite-2d') return
+    if (activeComposition?.editorKind === 'composite-2d' && mainHolder) return
     const target =
       motionCompositions.find((composition) => composition.id === lastOpenedCompositionId) ??
       motionCompositions[0]
     if (target) {
       useCompositionNavigationStore.getState().switchToSequence(target.id)
     }
-  }, [activeComposition, isTimelineLoading, lastOpenedCompositionId, motionCompositions])
+  }, [
+    activeComposition,
+    isTimelineLoading,
+    lastOpenedCompositionId,
+    mainHolder,
+    motionCompositions,
+  ])
 
   // Never mount the Motion timeline against root/editorial stores. During an
   // F5 it intentionally stays empty for a frame, then mounts only after the

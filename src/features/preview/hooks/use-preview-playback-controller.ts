@@ -21,6 +21,7 @@ interface UsePreviewPlaybackControllerParams {
   activeGizmoItemType: TimelineItem['type'] | null
   isGizmoInteracting: boolean
   forceFastScrubOverlay: boolean
+  domTextScrubOverlayEnabled: boolean
   previewPerfRef: MutableRefObject<PreviewPerfStats>
   isGizmoInteractingRef: MutableRefObject<boolean>
   preferPlayerForTextGizmoRef: MutableRefObject<boolean>
@@ -38,6 +39,7 @@ export function usePreviewPlaybackController({
   activeGizmoItemType,
   isGizmoInteracting,
   forceFastScrubOverlay,
+  domTextScrubOverlayEnabled,
   previewPerfRef,
   isGizmoInteractingRef,
   preferPlayerForTextGizmoRef,
@@ -58,7 +60,9 @@ export function usePreviewPlaybackController({
   })
 
   const preferPlayerForStyledTextScrub =
-    !forceFastScrubOverlay && shouldPreferPlayerForStyledTextScrubGuard(combinedTracks, keyframes)
+    !domTextScrubOverlayEnabled &&
+    !forceFastScrubOverlay &&
+    shouldPreferPlayerForStyledTextScrubGuard(combinedTracks, keyframes)
   const preferPlayerForTextGizmo =
     !forceFastScrubOverlay && isGizmoInteracting && activeGizmoItemType === 'text'
   preferPlayerForTextGizmoRef.current = preferPlayerForTextGizmo

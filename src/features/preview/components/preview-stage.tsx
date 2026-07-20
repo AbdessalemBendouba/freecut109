@@ -25,6 +25,7 @@ import {
   markPlaybackColdStart,
   resolvePlaybackColdStartVisibleFrame,
 } from '../utils/playback-cold-start-event'
+import { DomTextScrubOverlay } from './dom-text-scrub-overlay'
 
 interface PreviewStageProps {
   backgroundRef: RefObject<HTMLDivElement | null>
@@ -45,6 +46,7 @@ interface PreviewStageProps {
   colorGradeSplitPosition?: number
   onColorGradeSplitPositionChange?: (position: number) => void
   inputProps: CompositionInputProps
+  domTextScrubInputProps?: CompositionInputProps
   onBackgroundClick: MouseEventHandler<HTMLDivElement>
   onFrameChange: (frame: number) => void
   onPlayStateChange: (playing: boolean) => void
@@ -84,6 +86,7 @@ export const PreviewStage = memo(function PreviewStage({
   colorGradeSplitPosition = 0.5,
   onColorGradeSplitPositionChange,
   inputProps,
+  domTextScrubInputProps,
   onBackgroundClick,
   onFrameChange,
   onPlayStateChange,
@@ -97,6 +100,7 @@ export const PreviewStage = memo(function PreviewStage({
   const pixelSnapAnchorRef = useRef<HTMLDivElement | null>(null)
   const pixelSnappedPlayerRef = useRef<HTMLDivElement | null>(null)
   const playerSurfaceRef = useRef<HTMLDivElement | null>(null)
+  const textOverlayPlayerRef = useRef<PlayerRef | null>(null)
   const renderedOverlayVisibleRef = useRef(isRenderedOverlayVisible)
   renderedOverlayVisibleRef.current = isRenderedOverlayVisible
 
@@ -450,6 +454,18 @@ export const PreviewStage = memo(function PreviewStage({
                   visibility: isSplitGradeAfterVisible ? 'visible' : 'hidden',
                 }}
               />
+
+              {domTextScrubInputProps && (
+                <DomTextScrubOverlay
+                  playerRef={textOverlayPlayerRef}
+                  visible={isRenderedOverlayVisible}
+                  durationInFrames={totalFrames}
+                  fps={fps}
+                  renderSize={playerRenderSize}
+                  layoutSize={playerSize}
+                  inputProps={domTextScrubInputProps}
+                />
+              )}
 
               {perfPanel}
               {comparisonOverlay}

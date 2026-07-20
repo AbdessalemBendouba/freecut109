@@ -41,6 +41,7 @@ import {
   drawSourceToPreviewDisplayCanvas,
   getPreviewDisplayCanvasBackingSize,
 } from '../utils/preview-display-canvas'
+import { buildDomTextScrubOverlayPlan } from '../utils/dom-text-scrub-overlay'
 import { importCompositionRenderer, type CompositionRendererInstance } from '../deps/export'
 
 interface VideoPreviewProps {
@@ -302,6 +303,22 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     blobUrlVersion,
     project,
   })
+  const domTextScrubOverlayPlan = useMemo(
+    () => buildDomTextScrubOverlayPlan(fastScrubScaledTracks, fastScrubScaledKeyframes),
+    [fastScrubScaledKeyframes, fastScrubScaledTracks],
+  )
+  const domTextScrubInputProps = useMemo(
+    () =>
+      domTextScrubOverlayPlan.enabled
+        ? {
+            ...inputProps,
+            tracks: domTextScrubOverlayPlan.textTracks,
+            backgroundColor: 'transparent',
+            keyframes: domTextScrubOverlayPlan.textKeyframes,
+          }
+        : undefined,
+    [domTextScrubOverlayPlan, inputProps],
+  )
 
   usePreviewSourceWarm({
     resolvedUrlCount: resolvedUrls.size,
@@ -350,10 +367,12 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
         project.height,
         project.backgroundColor ?? '',
         fastScrubTracksTopologyFingerprint,
+        domTextScrubOverlayPlan.enabled ? 'dom-text-overlay' : 'composited-text',
         playbackTransitionFingerprint,
       ].join('::'),
     [
       fastScrubTracksTopologyFingerprint,
+      domTextScrubOverlayPlan.enabled,
       fps,
       playbackTransitionFingerprint,
       project.backgroundColor,
@@ -425,6 +444,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
             getPreviewPathVerticesOverride,
             getLiveItemSnapshot,
             getLiveKeyframes,
+            renderText: !domTextScrubOverlayPlan.enabled,
           })
 
           splitAfterCanvasRef.current = canvas
@@ -449,6 +469,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
       disposeSplitAfterRenderer,
       fastScrubInputProps,
       fastScrubRendererStructureKey,
+      domTextScrubOverlayPlan.enabled,
       getLiveItemSnapshot,
       getLiveKeyframes,
       getPreviewCornerPinOverride,
@@ -526,6 +547,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     activeGizmoItemType,
     isGizmoInteracting,
     forceFastScrubOverlay,
+    domTextScrubOverlayEnabled: domTextScrubOverlayPlan.enabled,
     previewPerfRef,
     isGizmoInteractingRef,
     preferPlayerForTextGizmoRef: previewRuntimeRefs.preferPlayerForTextGizmoRef,
@@ -561,6 +583,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
       fps,
       isResolving,
       forceFastScrubOverlay,
+      domTextScrubOverlayEnabled: domTextScrubOverlayPlan.enabled,
       items,
       playerSize,
       playerRenderSize,
@@ -826,6 +849,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
       colorGradeSplitPosition={colorGradeSplitPosition}
       onColorGradeSplitPositionChange={setColorGradeSplitPosition}
       inputProps={inputProps}
+      domTextScrubInputProps={domTextScrubInputProps}
       onBackgroundClick={handleBackgroundClick}
       onFrameChange={handleStageFrameChange}
       onPlayStateChange={handlePlayStateChange}
