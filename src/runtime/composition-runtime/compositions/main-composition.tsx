@@ -149,6 +149,7 @@ const MaskedItem: React.FC<{
  */
 type MainCompositionProps = CompositionInputProps & {
   useProxyMedia?: boolean
+  transparentBackground?: boolean
 }
 
 export const MainComposition: React.FC<MainCompositionProps> = ({
@@ -160,6 +161,7 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
   width: compositionWidth,
   height: compositionHeight,
   useProxyMedia = false,
+  transparentBackground = false,
 }) => {
   const { fps, width: renderWidth, height: renderHeight } = useVideoConfig()
 
@@ -187,7 +189,9 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
   // Read preview color directly from store to avoid inputProps changes during color picker drag
   // This prevents Player from seeking/refreshing when user scrubs the color picker
   const canvasBackgroundPreview = useGizmoStore((s) => s.canvasBackgroundPreview)
-  const effectiveBackgroundColor = canvasBackgroundPreview ?? backgroundColor
+  const effectiveBackgroundColor = transparentBackground
+    ? 'transparent'
+    : (canvasBackgroundPreview ?? backgroundColor)
 
   const renderPlan = useMemo(
     () => resolveCompositionRenderPlan({ tracks, transitions }),

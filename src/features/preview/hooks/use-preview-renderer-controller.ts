@@ -42,10 +42,7 @@ import {
 } from '../utils/preview-display-canvas'
 import { setActivePreviewScrubbingCache } from '../utils/preview-scrubbing-cache-bridge'
 import { warmDecoderPrewarmWorkerPool } from '../utils/decoder-prewarm'
-import {
-  disposeScrubProxyFallback,
-  warmScrubProxyFallback,
-} from '../utils/scrub-proxy-fallback'
+import { disposeScrubProxyFallback, warmScrubProxyFallback } from '../utils/scrub-proxy-fallback'
 import { collectVisualInvalidationRanges } from '../utils/preview-frame-invalidation'
 import { resolvePreviewCaptureFrame } from '../utils/preview-capture-frame'
 import {
@@ -74,6 +71,7 @@ interface UsePreviewRendererControllerParams {
   fps: number
   isResolving: boolean
   forceFastScrubOverlay: boolean
+  domTextScrubOverlayEnabled: boolean
   items: TimelineItem[]
   playerSize: { width: number; height: number }
   playerRenderSize: { width: number; height: number }
@@ -149,6 +147,7 @@ export function usePreviewRendererController({
   fps,
   isResolving,
   forceFastScrubOverlay,
+  domTextScrubOverlayEnabled,
   items,
   playerSize,
   playerRenderSize,
@@ -454,6 +453,7 @@ export function usePreviewRendererController({
             getPreviewPathVerticesOverride,
             getLiveItemSnapshot,
             getLiveKeyframes,
+            renderText: !domTextScrubOverlayEnabled,
           })
           if ('warmGpuPipeline' in renderer) {
             void renderer.warmGpuPipeline()
@@ -475,6 +475,7 @@ export function usePreviewRendererController({
       disposeFastScrubRenderer,
       fastScrubInputProps,
       fastScrubRendererStructureKey,
+      domTextScrubOverlayEnabled,
       getLiveItemSnapshot,
       getLiveKeyframes,
       getPreviewCornerPinOverride,
@@ -482,9 +483,9 @@ export function usePreviewRendererController({
       getPreviewPathVerticesOverride,
       getPreviewTransformOverride,
       isResolving,
-        renderSize.height,
-        renderSize.width,
-      ])
+      renderSize.height,
+      renderSize.width,
+    ])
 
   const ensureFastScrubRenderer =
     useCallback(async (): Promise<PreviewCompositionRenderer | null> => {
@@ -531,6 +532,7 @@ export function usePreviewRendererController({
               getPreviewPathVerticesOverride,
               getLiveItemSnapshot,
               getLiveKeyframes,
+              renderText: !domTextScrubOverlayEnabled,
             },
           )
           scrubOffscreenCanvasRef.current = offscreen
@@ -618,6 +620,7 @@ export function usePreviewRendererController({
       return scrubInitPromiseRef.current
     }, [
       disposeFastScrubRenderer,
+      domTextScrubOverlayEnabled,
       fastScrubInputProps,
       fastScrubRendererStructureKey,
       fps,
@@ -637,10 +640,10 @@ export function usePreviewRendererController({
       scrubOffscreenCtxRef,
       scrubOffscreenRenderedFrameRef,
       scrubPreloadPromiseRef,
-        scrubRendererRef,
-        scrubRendererStructureKeyRef,
-        scrubRequestedFrameRef,
-      ])
+      scrubRendererRef,
+      scrubRendererStructureKeyRef,
+      scrubRequestedFrameRef,
+    ])
   ensureFastScrubRendererRef.current = ensureFastScrubRenderer
 
   // Captures share the offscreen canvas (and renderer) with the render pump.
@@ -682,6 +685,22 @@ export function usePreviewRendererController({
       targetFrame: number,
       options: { useLiveDomProvider?: boolean } = {},
     ): Promise<OffscreenCanvas | null> => {
+      if (domTextScrubOverlayEnabled) {
+        const renderer = await ensureLiveScopeCaptureRenderer()
+        const offscreen = liveScopeCaptureCanvasRef.current
+        if (!renderer || !offscreen) return null
+        const useLiveDomProvider = options.useLiveDomProvider ?? true
+        if ('setDomVideoElementProvider' in renderer) {
+          renderer.setDomVideoElementProvider?.(
+            useLiveDomProvider && usePlaybackStore.getState().isPlaying
+              ? getBestDomVideoElementForItem
+              : undefined,
+          )
+        }
+        await renderer.renderFrame(targetFrame)
+        return offscreen
+      }
+
       // Renderer init is slow — make sure it exists before taking the lock.
       if (
         scrubOffscreenRenderedFrameRef.current !== targetFrame ||
@@ -712,6 +731,9 @@ export function usePreviewRendererController({
     },
     [
       ensureFastScrubRenderer,
+      ensureLiveScopeCaptureRenderer,
+      domTextScrubOverlayEnabled,
+      liveScopeCaptureCanvasRef,
       scrubOffscreenCanvasRef,
       scrubOffscreenRenderedFrameRef,
       scrubRendererRef,
@@ -1183,6 +1205,7 @@ export function usePreviewRendererController({
 
   const captureRenderedDisplaySnapshot = useCallback(
     (options?: CaptureOptions): OffscreenCanvas | null => {
+      if (domTextScrubOverlayEnabled) return null
       if (!options?.preferRenderedFrame || !usePlaybackStore.getState().isPlaying) {
         return null
       }
@@ -1207,7 +1230,7 @@ export function usePreviewRendererController({
       copyPreviewDisplayCanvasContent(displayCanvas, snapshotCtx)
       return snapshot
     },
-    [playerRenderSize.height, playerRenderSize.width, scrubCanvasRef],
+    [domTextScrubOverlayEnabled, playerRenderSize.height, playerRenderSize.width, scrubCanvasRef],
   )
 
   const captureLiveScopeRenderedSnapshot = useCallback(
@@ -1436,6 +1459,24 @@ export function usePreviewRendererController({
           const targetFrame = resolveCaptureTargetFrame(options)
           const useLiveDomProvider =
             !options?.preferRenderedFrame || usePlaybackStore.getState().isPlaying
+          if (domTextScrubOverlayEnabled) {
+            const offscreen = await renderOffscreenFrame(targetFrame, { useLiveDomProvider })
+            if (!offscreen) return null
+            let snapshot = captureSnapshotCanvasRef.current
+            if (
+              !snapshot ||
+              snapshot.width !== offscreen.width ||
+              snapshot.height !== offscreen.height
+            ) {
+              snapshot = new OffscreenCanvas(offscreen.width, offscreen.height)
+              captureSnapshotCanvasRef.current = snapshot
+            }
+            const snapshotCtx = snapshot.getContext('2d')
+            if (!snapshotCtx) return null
+            snapshotCtx.clearRect(0, 0, snapshot.width, snapshot.height)
+            snapshotCtx.drawImage(offscreen, 0, 0)
+            return snapshot
+          }
           const isPlayingForCapture = useLiveDomProvider && usePlaybackStore.getState().isPlaying
 
           if (
@@ -1506,7 +1547,9 @@ export function usePreviewRendererController({
       captureCanvasSourceInFlightRef,
       captureLiveScopeRenderedSnapshot,
       captureRenderedDisplaySnapshot,
+      domTextScrubOverlayEnabled,
       ensureFastScrubRenderer,
+      renderOffscreenFrame,
       resolveCaptureTargetFrame,
       scrubOffscreenCanvasRef,
       scrubOffscreenRenderedFrameRef,

@@ -3330,7 +3330,7 @@ describe('VideoPreview sync behavior', () => {
     await waitForLatestRendererFrame(47, scrubCanvas, { expectedDisplayedFrame: 47 })
   })
 
-  it('prefers the Player path for glowing animated text scrubs', async () => {
+  it('keeps glowing animated text on the DOM overlay while fast-scrubbing media', async () => {
     useItemsStore.getState().setTracks([
       {
         id: 'track-text',
@@ -3385,15 +3385,12 @@ describe('VideoPreview sync behavior', () => {
       usePlaybackStore.getState().setScrubFrame(48)
     })
 
-    await waitFor(() => {
-      expect(seekToMock).toHaveBeenCalledWith(48)
-    })
-
-    expect(scrubCanvas.style.visibility).toBe('hidden')
-    expect(getDisplayedFrame()).toBeNull()
+    await waitForLatestRendererFrame(48, scrubCanvas, { expectedDisplayedFrame: 48 })
+    expect(seekToMock).toHaveBeenCalledWith(48)
+    expect(document.querySelector('[data-dom-text-scrub-overlay]')).not.toBeNull()
   })
 
-  it('prefers the Player path for generated caption scrubs', async () => {
+  it('keeps generated captions on the DOM overlay while fast-scrubbing media', async () => {
     useItemsStore.getState().setTracks([
       {
         id: 'track-caption',
@@ -3432,12 +3429,9 @@ describe('VideoPreview sync behavior', () => {
       usePlaybackStore.getState().setScrubFrame(48)
     })
 
-    await waitFor(() => {
-      expect(seekToMock).toHaveBeenCalledWith(48)
-    })
-
-    expect(scrubCanvas.style.visibility).toBe('hidden')
-    expect(getDisplayedFrame()).toBeNull()
+    await waitForLatestRendererFrame(48, scrubCanvas, { expectedDisplayedFrame: 48 })
+    expect(seekToMock).toHaveBeenCalledWith(48)
+    expect(document.querySelector('[data-dom-text-scrub-overlay]')).not.toBeNull()
   })
 
   it('keeps fast-scrub overlay visible until Player confirms the exact scrub release frame', async () => {
@@ -3867,7 +3861,10 @@ describe('VideoPreview sync behavior', () => {
 
     await waitFor(() => {
       expect(seekToMock).toHaveBeenCalledWith(48)
-      expect(screen.getByTestId('mock-player-frame')).toHaveTextContent('48')
+      expect(screen.getAllByTestId('mock-player-frame')).toHaveLength(2)
+      for (const frame of screen.getAllByTestId('mock-player-frame')) {
+        expect(frame).toHaveTextContent('48')
+      }
     })
     seekToMock.mockClear()
 
@@ -3879,7 +3876,9 @@ describe('VideoPreview sync behavior', () => {
 
     await waitFor(() => {
       expect(seekToMock).toHaveBeenCalledWith(72)
-      expect(screen.getByTestId('mock-player-frame')).toHaveTextContent('72')
+      for (const frame of screen.getAllByTestId('mock-player-frame')) {
+        expect(frame).toHaveTextContent('72')
+      }
       const keyframesForItem = lastCompositionKeyframes.find((entry) => entry.itemId === 'item-1')
       const xProperty = keyframesForItem?.properties.find((property) => property.property === 'x')
       expect(
