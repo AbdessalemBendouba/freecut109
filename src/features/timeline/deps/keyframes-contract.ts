@@ -6,10 +6,7 @@
 export type { AutoKeyframeOperation } from '@/features/keyframes/utils/auto-keyframe'
 export { getCropPropertyValue } from '@/features/keyframes/utils/animated-crop-resolver'
 export { interpolatePropertyValue } from '@/features/keyframes/utils/interpolation'
-export {
-  interpolateVectorPropertyValue,
-  sampleVectorSpeedGraph,
-} from '@/features/keyframes/utils/vector-interpolation'
+export { sampleVectorSpeedGraph } from '@/features/keyframes/utils/vector-interpolation'
 export { buildVectorPromotionPlan } from '@/features/keyframes/utils/vector-promotion'
 export {
   resolveAnimatedTransform,
@@ -39,8 +36,6 @@ export {
   isFrameInTransitionRegion,
 } from '@/features/keyframes/utils/transition-region'
 export { DopesheetEditor } from '@/features/keyframes/components/dopesheet-editor'
-export { KeyframeTimingStrip } from '@/features/keyframes/components/dopesheet-editor/keyframe-timing-strip'
-export { buildSelectionFramePreview } from '@/features/keyframes/components/dopesheet-editor/selection-frame-actions'
 export { PickWhipIcon } from '@/features/keyframes/components/dopesheet-editor/pick-whip-icon'
 export { PropertyLinkPickWhipOverlay } from '@/features/keyframes/components/property-link-pick-whip-overlay'
 export {
@@ -52,7 +47,6 @@ export { CompactNavigator } from '@/features/keyframes/components/dopesheet-edit
 export { getKeyframeNavigatorThumbMetrics } from '@/features/keyframes/components/dopesheet-editor/compact-navigator-utils'
 export { KEYFRAME_EDGE_INSET } from '@/features/keyframes/components/dopesheet-editor/layout'
 export { getAnimatablePropertiesForItem } from '@/features/keyframes/utils/animatable-properties'
-export { getKeyframePropertyShortLabel } from '@/features/keyframes/utils/property-i18n'
 export {
   getProceduralBands,
   type ProceduralPreviewInput,

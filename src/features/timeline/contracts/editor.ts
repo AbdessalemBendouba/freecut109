@@ -66,7 +66,6 @@ export {
   upsertVectorKeyframe,
   removeKeyframe,
   removeVectorKeyframe,
-  removeVectorKeyframesForProperty,
   removePresetKeyframeApplication,
   removeManualKeyframes,
   promoteTransformToVector,
@@ -80,10 +79,7 @@ export { createCompositeComposition, openComposition } from '../stores/actions/c
 export type { CreateCompositeCompositionOptions } from '../stores/actions/composition-actions'
 export { applyAnimationPreset } from '../stores/actions/preset-actions'
 export { applyMotionPresetKeyframes } from '../stores/actions/keyframe-actions'
-export type {
-  MotionPresetClear,
-  MotionPresetVectorApply,
-} from '../stores/actions/keyframe-actions'
+export type { MotionPresetClear, MotionPresetVectorApply } from '../stores/actions/keyframe-actions'
 export {
   applyMotionLayersToItems,
   removeMotionLayerFromItems,

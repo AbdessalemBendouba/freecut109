@@ -59,6 +59,38 @@ function TrimEditIcon({ className }: { className?: string }) {
   )
 }
 
+const InlineKeyframesToggle = memo(function InlineKeyframesToggle({
+  isOpen,
+  onToggle,
+}: {
+  isOpen: boolean
+  onToggle: () => void
+}) {
+  const { t } = useTranslation()
+  const label = t(
+    isOpen ? 'timeline.keyframeEditor.editLane.hide' : 'timeline.keyframeEditor.editLane.show',
+    { defaultValue: isOpen ? 'Hide keyframe panel' : 'Show keyframe panel' },
+  )
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      style={{
+        width: EDITOR_LAYOUT_CSS_VALUES.toolbarButtonSize,
+        height: EDITOR_LAYOUT_CSS_VALUES.toolbarButtonSize,
+      }}
+      className={isOpen ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}
+      onClick={onToggle}
+      aria-label={label}
+      aria-pressed={isOpen}
+      data-tooltip={label}
+    >
+      <Diamond className="h-3.5 w-3.5" />
+    </Button>
+  )
+})
+
 function isDifferentSliderValue(previousValue: number | null, nextValue: number): boolean {
   return previousValue === null || Math.abs(previousValue - nextValue) > 0.000001
 }
@@ -631,34 +663,7 @@ export const TimelineHeader = memo(function TimelineHeader({
 
           <Separator orientation="vertical" className="h-5 mx-1.5" />
 
-          <Button
-            variant="ghost"
-            size="icon"
-            style={btnSize}
-            className={
-              inlineKeyframesOpen ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''
-            }
-            onClick={toggleEditKeyframePanel}
-            aria-label={t(
-              inlineKeyframesOpen
-                ? 'timeline.keyframeEditor.editLane.hide'
-                : 'timeline.keyframeEditor.editLane.show',
-              {
-                defaultValue: inlineKeyframesOpen ? 'Hide keyframe panel' : 'Show keyframe panel',
-              },
-            )}
-            aria-pressed={inlineKeyframesOpen}
-            data-tooltip={t(
-              inlineKeyframesOpen
-                ? 'timeline.keyframeEditor.editLane.hide'
-                : 'timeline.keyframeEditor.editLane.show',
-              {
-                defaultValue: inlineKeyframesOpen ? 'Hide keyframe panel' : 'Show keyframe panel',
-              },
-            )}
-          >
-            <Diamond className="h-3.5 w-3.5" />
-          </Button>
+          <InlineKeyframesToggle isOpen={inlineKeyframesOpen} onToggle={toggleEditKeyframePanel} />
 
           <Button
             variant="ghost"

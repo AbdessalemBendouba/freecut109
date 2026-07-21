@@ -648,6 +648,50 @@ function getBaseKeyframeValue(
 
 type SelectedEditorKeyframe = { ref: KeyframeRef; keyframe: Keyframe }
 
+function commitScalarPropertyValue({
+  itemId,
+  property,
+  value,
+  relativeFrame,
+  allowCreate,
+  selectedKeyframes,
+  propertyKeyframes,
+  selectKeyframe,
+}: {
+  itemId: string
+  property: AnimatableProperty
+  value: number
+  relativeFrame: number
+  allowCreate: boolean
+  selectedKeyframes: SelectedEditorKeyframe[]
+  propertyKeyframes: Keyframe[] | undefined
+  selectKeyframe: (ref: KeyframeRef) => void
+}): void {
+  const selectedPropertyKeyframes = selectedKeyframes.filter(({ ref }) => ref.property === property)
+  if (selectedPropertyKeyframes.length > 0) {
+    timelineActions.updateKeyframes(
+      selectedPropertyKeyframes.map(({ ref }) => ({
+        itemId: ref.itemId,
+        property: ref.property,
+        keyframeId: ref.keyframeId,
+        updates: { value },
+      })),
+    )
+    return
+  }
+
+  const existingKeyframe = propertyKeyframes?.find((keyframe) => keyframe.frame === relativeFrame)
+  if (existingKeyframe) {
+    timelineActions.updateKeyframe(itemId, property, existingKeyframe.id, { value })
+    selectKeyframe({ itemId, property, keyframeId: existingKeyframe.id })
+    return
+  }
+
+  if (!allowCreate) return
+  const keyframeId = timelineActions.addKeyframe(itemId, property, relativeFrame, value)
+  if (keyframeId) selectKeyframe({ itemId, property, keyframeId })
+}
+
 function findSelectedPropertyValue(
   selectedKeyframes: SelectedEditorKeyframe[],
   property: AnimatableProperty,
@@ -2532,55 +2576,16 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
         return
       }
 
-      const selectedPropertyKeyframes = selectedEditorKeyframes.filter(
-        ({ ref }) => ref.property === property,
-      )
-      if (selectedPropertyKeyframes.length > 0) {
-        timelineActions.updateKeyframes(
-          selectedPropertyKeyframes.map(({ ref }) => ({
-            itemId: ref.itemId,
-            property: ref.property,
-            keyframeId: ref.keyframeId,
-            updates: { value },
-          })),
-        )
-        return
-      }
-
-      const existingKeyframe = keyframesByProperty[property]?.find(
-        (keyframe) => keyframe.frame === relativeFrame,
-      )
-
-      if (existingKeyframe) {
-        timelineActions.updateKeyframe(selectedItemForEditor.id, property, existingKeyframe.id, {
-          value,
-        })
-        selectKeyframe({
-          itemId: selectedItemForEditor.id,
-          property,
-          keyframeId: existingKeyframe.id,
-        })
-        return
-      }
-
-      if (options?.allowCreate === false) {
-        return
-      }
-
-      const keyframeId = timelineActions.addKeyframe(
-        selectedItemForEditor.id,
+      commitScalarPropertyValue({
+        itemId: selectedItemForEditor.id,
         property,
-        relativeFrame,
         value,
-      )
-
-      if (keyframeId) {
-        selectKeyframe({
-          itemId: selectedItemForEditor.id,
-          property,
-          keyframeId,
-        })
-      }
+        relativeFrame,
+        allowCreate: options?.allowCreate !== false,
+        selectedKeyframes: selectedEditorKeyframes,
+        propertyKeyframes: keyframesByProperty[property],
+        selectKeyframe,
+      })
     },
     [
       keyframesByProperty,

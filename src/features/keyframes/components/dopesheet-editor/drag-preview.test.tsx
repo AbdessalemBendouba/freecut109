@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test'
 import { DopesheetEditor } from './index'
+import { PROPERTY_COLUMN_WIDTH } from './dopesheet-constants'
 
 describe('DopesheetEditor drag preview', () => {
   const originalClientWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
@@ -19,6 +20,9 @@ describe('DopesheetEditor drag preview', () => {
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
       configurable: true,
       get() {
+        if (this.hasAttribute('data-dopesheet-scroll-viewport')) {
+          return 600 + PROPERTY_COLUMN_WIDTH
+        }
         return 600
       },
     })

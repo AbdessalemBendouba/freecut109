@@ -1,8 +1,10 @@
-import { memo } from 'react'
+import { memo, type SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link2Off, Diamond, Waves } from 'lucide-react'
 import { cn } from '@/shared/ui/cn'
 import { EDITOR_LAYOUT_CSS_VALUES } from '@/config/editor-layout'
+
+type ReverseConformStatus = 'pending' | 'ready' | 'error'
 
 interface ClipIndicatorsProps {
   /** Whether the item has keyframe animations */
@@ -15,7 +17,7 @@ interface ClipIndicatorsProps {
   currentSpeed: number
   /** Whether media playback is reversed */
   isReversed: boolean
-  reverseConformStatus?: 'pending' | 'ready' | 'error'
+  reverseConformStatus?: ReverseConformStatus
   /** Whether the item is currently being rate stretched */
   isStretching: boolean
   /** Visual feedback during stretch (speed preview) */
@@ -32,13 +34,162 @@ interface ClipIndicatorsProps {
   onKeyframesToggle?: () => void
 }
 
-/**
- * Renders status indicators/badges on timeline clips:
- * - Keyframe diamond icon (amber)
- * - Speed badge when not 1x (shows current or preview speed)
- * - Broken media indicator (red link-off icon)
- * - Mask badge for shape items
- */
+function stopClipIndicatorEvent(event: SyntheticEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+const KeyframeIndicator = memo(function KeyframeIndicator({
+  expanded,
+  onToggle,
+}: {
+  expanded: boolean
+  onToggle?: () => void
+}) {
+  const { t } = useTranslation()
+  const label = t(
+    expanded ? 'timeline.keyframeEditor.editLane.hide' : 'timeline.keyframeEditor.editLane.show',
+    { defaultValue: expanded ? 'Hide keyframe panel' : 'Show keyframe panel' },
+  )
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        'pointer-events-auto rounded-sm p-0.5 hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400',
+        expanded && 'bg-amber-500/20',
+      )}
+      title={t('timeline.clipIndicators.hasKeyframes')}
+      aria-label={label}
+      aria-pressed={expanded}
+      onPointerDown={stopClipIndicatorEvent}
+      onMouseDown={stopClipIndicatorEvent}
+      onClick={(event) => {
+        stopClipIndicatorEvent(event)
+        onToggle?.()
+      }}
+    >
+      <Diamond className="w-3 h-3 text-amber-500 fill-amber-500/50" />
+    </button>
+  )
+})
+
+const ReverseIndicator = memo(function ReverseIndicator({
+  status,
+}: {
+  status?: ReverseConformStatus
+}) {
+  const { t } = useTranslation()
+  let title = t('timeline.clipIndicators.reversedPlayback')
+  if (status === 'ready') title = t('timeline.clipIndicators.reversedPrepared')
+  if (status === 'pending') title = t('timeline.clipIndicators.preparingReversed')
+  if (status === 'error') title = t('timeline.clipIndicators.reversedPrepFailed')
+
+  return (
+    <span
+      className="px-1 py-0.5 text-[10px] font-bold bg-black/60 text-white rounded font-mono"
+      title={title}
+    >
+      REV
+    </span>
+  )
+})
+
+interface ClipLabelIndicatorsProps {
+  hasKeyframes: boolean
+  keyframesExpanded: boolean
+  hasMotion: boolean
+  isShapeMask: boolean
+  showSpeedBadge: boolean
+  currentSpeed: number
+  isReversed: boolean
+  reverseConformStatus?: ReverseConformStatus
+  onKeyframesToggle?: () => void
+}
+
+function hasClipLabelIndicators({
+  hasKeyframes,
+  hasMotion,
+  isShapeMask,
+  showSpeedBadge,
+  isReversed,
+  reverseConformStatus,
+}: ClipLabelIndicatorsProps): boolean {
+  return (
+    hasKeyframes ||
+    hasMotion ||
+    isShapeMask ||
+    showSpeedBadge ||
+    isReversed ||
+    reverseConformStatus === 'pending' ||
+    reverseConformStatus === 'error'
+  )
+}
+
+const ClipLabelIndicators = memo(function ClipLabelIndicators({
+  hasKeyframes,
+  keyframesExpanded,
+  hasMotion,
+  isShapeMask,
+  showSpeedBadge,
+  currentSpeed,
+  isReversed,
+  reverseConformStatus,
+  onKeyframesToggle,
+}: ClipLabelIndicatorsProps) {
+  const { t } = useTranslation()
+
+  return (
+    <div
+      className="absolute right-6 z-40 pointer-events-none flex items-center gap-1"
+      style={{ top: 0, height: EDITOR_LAYOUT_CSS_VALUES.timelineClipLabelRowHeight }}
+    >
+      {hasKeyframes && (
+        <KeyframeIndicator expanded={keyframesExpanded} onToggle={onKeyframesToggle} />
+      )}
+      {hasMotion && (
+        <span title={t('timeline.clipIndicators.hasMotion')}>
+          <Waves className="w-3 h-3 text-sky-400" />
+        </span>
+      )}
+      {isShapeMask && (
+        <span
+          className="px-1 py-0.5 text-[10px] font-bold bg-cyan-500/80 text-white rounded"
+          title={t('timeline.clipIndicators.mask')}
+        >
+          M
+        </span>
+      )}
+      {showSpeedBadge && (
+        <span
+          className="px-1 py-0.5 text-[10px] font-bold bg-black/60 text-white rounded font-mono"
+          title={t('timeline.clipIndicators.speed', { speed: currentSpeed.toFixed(2) })}
+        >
+          {currentSpeed.toFixed(2)}x
+        </span>
+      )}
+      {isReversed && <ReverseIndicator status={reverseConformStatus} />}
+      {reverseConformStatus === 'pending' && (
+        <span
+          className="px-1 py-0.5 text-[10px] font-bold bg-sky-600/80 text-white rounded font-mono"
+          title={t('timeline.clipIndicators.preparingReversed')}
+        >
+          PREP
+        </span>
+      )}
+      {reverseConformStatus === 'error' && (
+        <span
+          className="px-1 py-0.5 text-[10px] font-bold bg-red-600/80 text-white rounded font-mono"
+          title={t('timeline.clipIndicators.reversePrepFailedShort')}
+        >
+          ERR
+        </span>
+      )}
+    </div>
+  )
+})
+
+/** Renders status indicators and badges on timeline clips. */
 export const ClipIndicators = memo(function ClipIndicators({
   hasKeyframes,
   keyframesExpanded,
@@ -56,114 +207,24 @@ export const ClipIndicators = memo(function ClipIndicators({
 }: ClipIndicatorsProps) {
   const { t } = useTranslation()
   const showSpeedBadge = Math.abs(currentSpeed - 1) > 0.005 && !isStretching
+  const labelIndicatorProps: ClipLabelIndicatorsProps = {
+    hasKeyframes,
+    keyframesExpanded,
+    hasMotion,
+    isShapeMask: isShape && isMask,
+    showSpeedBadge,
+    currentSpeed,
+    isReversed,
+    reverseConformStatus,
+    onKeyframesToggle,
+  }
 
   return (
     <>
-      {/* Label-row badges ââ‚¬” single container to prevent overlap */}
-      {(hasKeyframes ||
-        hasMotion ||
-        (isShape && isMask) ||
-        showSpeedBadge ||
-        isReversed ||
-        reverseConformStatus === 'pending' ||
-        reverseConformStatus === 'error') && (
-        <div
-          className="absolute right-6 z-40 pointer-events-none flex items-center gap-1"
-          style={{ top: 0, height: EDITOR_LAYOUT_CSS_VALUES.timelineClipLabelRowHeight }}
-        >
-          {hasKeyframes && (
-            <button
-              type="button"
-              className={cn(
-                'pointer-events-auto rounded-sm p-0.5 hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400',
-                keyframesExpanded && 'bg-amber-500/20',
-              )}
-              title={t('timeline.clipIndicators.hasKeyframes')}
-              aria-label={t(
-                keyframesExpanded
-                  ? 'timeline.keyframeEditor.editLane.hide'
-                  : 'timeline.keyframeEditor.editLane.show',
-                {
-                  defaultValue: keyframesExpanded
-                    ? 'Hide keyframe panel'
-                    : 'Show keyframe panel',
-                },
-              )}
-              aria-pressed={keyframesExpanded}
-              onPointerDown={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-              }}
-              onMouseDown={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-              }}
-              onClick={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                onKeyframesToggle?.()
-              }}
-            >
-              <Diamond className="w-3 h-3 text-amber-500 fill-amber-500/50" />
-            </button>
-          )}
-          {hasMotion && (
-            <span title={t('timeline.clipIndicators.hasMotion')}>
-              <Waves className="w-3 h-3 text-sky-400" />
-            </span>
-          )}
-          {isShape && isMask && (
-            <span
-              className="px-1 py-0.5 text-[10px] font-bold bg-cyan-500/80 text-white rounded"
-              title={t('timeline.clipIndicators.mask')}
-            >
-              M
-            </span>
-          )}
-          {showSpeedBadge && (
-            <span
-              className="px-1 py-0.5 text-[10px] font-bold bg-black/60 text-white rounded font-mono"
-              title={t('timeline.clipIndicators.speed', { speed: currentSpeed.toFixed(2) })}
-            >
-              {currentSpeed.toFixed(2)}x
-            </span>
-          )}
-          {isReversed && (
-            <span
-              className="px-1 py-0.5 text-[10px] font-bold bg-black/60 text-white rounded font-mono"
-              title={
-                reverseConformStatus === 'ready'
-                  ? t('timeline.clipIndicators.reversedPrepared')
-                  : reverseConformStatus === 'pending'
-                    ? t('timeline.clipIndicators.preparingReversed')
-                    : reverseConformStatus === 'error'
-                      ? t('timeline.clipIndicators.reversedPrepFailed')
-                      : t('timeline.clipIndicators.reversedPlayback')
-              }
-            >
-              REV
-            </span>
-          )}
-          {reverseConformStatus === 'pending' && (
-            <span
-              className="px-1 py-0.5 text-[10px] font-bold bg-sky-600/80 text-white rounded font-mono"
-              title={t('timeline.clipIndicators.preparingReversed')}
-            >
-              PREP
-            </span>
-          )}
-          {reverseConformStatus === 'error' && (
-            <span
-              className="px-1 py-0.5 text-[10px] font-bold bg-red-600/80 text-white rounded font-mono"
-              title={t('timeline.clipIndicators.reversePrepFailedShort')}
-            >
-              ERR
-            </span>
-          )}
-        </div>
+      {hasClipLabelIndicators(labelIndicatorProps) && (
+        <ClipLabelIndicators {...labelIndicatorProps} />
       )}
 
-      {/* Missing media indicator */}
       {isBroken && hasMediaId && (
         <div
           className="absolute bottom-1 right-1 p-0.5 rounded bg-destructive/90 text-destructive-foreground"
@@ -173,7 +234,6 @@ export const ClipIndicators = memo(function ClipIndicators({
         </div>
       )}
 
-      {/* Preview speed overlay during stretch */}
       <div
         className={cn(
           'absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none z-10 transition-opacity duration-75',

@@ -32,7 +32,6 @@ export { useTimelineSettingsStore } from '@/features/timeline/stores/timeline-se
 export {
   addItemOnNewTrack,
   addItemsOnNewTracks,
-  createNullParentForItems,
   duplicateItemsWithTrackChanges,
   moveItems,
   removeItems,

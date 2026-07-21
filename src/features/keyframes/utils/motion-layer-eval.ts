@@ -134,7 +134,7 @@ export function getActiveMotionLayerChannels(
   return [...channels]
 }
 
-export function evaluateMotionAnimationLayers(
+function evaluateMotionAnimationLayers(
   layers: readonly MotionAnimationLayer[] | undefined,
   frame: number,
 ): MotionContribution {
@@ -144,11 +144,7 @@ export function evaluateMotionAnimationLayers(
     if (!layer.enabled) continue
     for (const track of layer.tracks) {
       if (track.keyframes.length === 0) continue
-      const value = interpolatePropertyValue(
-        track.keyframes,
-        frame,
-        identityForBlend(track.blend),
-      )
+      const value = interpolatePropertyValue(track.keyframes, frame, identityForBlend(track.blend))
       switch (track.property) {
         case 'x':
           out.dx += value
@@ -218,9 +214,7 @@ export function removeMotionAnimationLayers(
     width:
       contribution.scaleWidth === 0 ? resolved.width : resolved.width / contribution.scaleWidth,
     height:
-      contribution.scaleHeight === 0
-        ? resolved.height
-        : resolved.height / contribution.scaleHeight,
+      contribution.scaleHeight === 0 ? resolved.height : resolved.height / contribution.scaleHeight,
     opacity: clamp(resolved.opacity - contribution.dOpacity, 0, 1),
   }
 }

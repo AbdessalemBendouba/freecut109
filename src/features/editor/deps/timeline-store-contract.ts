@@ -4,9 +4,7 @@
  */
 
 export type { TimelineState, TimelineActions } from '@/features/timeline/types'
-export {
-  useTimelineStore,
-} from '@/features/timeline/stores/timeline-store'
+export { useTimelineStore } from '@/features/timeline/stores/timeline-store'
 export { useTimelineSettingsStore } from '@/features/timeline/stores/timeline-settings-store'
 export { useItemsStore } from '@/features/timeline/stores/items-store'
 export { useKeyframesStore } from '@/features/timeline/stores/keyframes-store'
@@ -31,7 +29,6 @@ export {
   applyMotionPresetKeyframes,
   removePresetKeyframeApplication,
   removeManualKeyframes,
-  removeVectorKeyframesForProperty,
 } from '@/features/timeline/stores/actions/keyframe-actions'
 export type {
   MotionPresetClear,
