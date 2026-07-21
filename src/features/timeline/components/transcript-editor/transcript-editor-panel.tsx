@@ -11,6 +11,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import {
   Captions,
+  CircleCheck,
   ChevronDown,
   ChevronUp,
   Copy,
@@ -25,8 +26,17 @@ import {
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  TranscribeDialog,
+  type TranscribeDialogValues,
+} from '@/features/timeline/deps/transcribe-dialog'
 import { cn } from '@/shared/ui/cn'
 import { createLogger } from '@/shared/logging/logger'
+import { needsTranscriptWordSeparator } from '@/shared/utils/transcript-text'
+import {
+  isTranscriptionOutOfMemoryError,
+  TRANSCRIPTION_OOM_HINT,
+} from '@/shared/utils/transcription-cancellation'
 import { useSelectionStore } from '@/shared/state/selection'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useClipboardStore } from '@/shared/state/clipboard'
@@ -43,6 +53,7 @@ import {
 import { buildTranscriptClipboardItems } from '../../utils/transcript-clipboard'
 import { registerTranscriptCopyHandler } from '../../utils/transcript-copy-bridge'
 import {
+  cancelMediaTranscriptionJob,
   mediaTranscriptionService,
   runMediaTranscriptionJob,
 } from '../../deps/media-transcription-service'
@@ -65,8 +76,8 @@ type TranscriptScope = 'selection' | 'project'
 /** Pause (seconds) that starts a new transcript paragraph. */
 const PARAGRAPH_GAP_SECONDS = 0.6
 /** Soft/hard word caps so pause-less speech still breaks into readable blocks. */
-const SEGMENT_SOFT_MAX_WORDS = 38
-const SEGMENT_HARD_MAX_WORDS = 60
+const SEGMENT_SOFT_MAX_WORDS = 28
+const SEGMENT_HARD_MAX_WORDS = 40
 
 /** Timeline seconds → compact `m:ss` (or `h:mm:ss`) timecode. */
 function formatTimecode(totalSeconds: number): string {
@@ -82,6 +93,7 @@ function formatTimecode(totalSeconds: number): string {
 interface MediaEntry {
   status: MediaStatus
   transcript?: MediaTranscript
+  errorMessage?: string
 }
 
 function hasWordTimings(
@@ -189,7 +201,7 @@ const TranscriptSegmentRow = memo(function TranscriptSegmentRow({
           <span className="h-px flex-1 bg-border" />
         </div>
       )}
-      <div className="group grid grid-cols-[3rem_1fr] gap-x-3 py-1.5">
+      <div className="group grid grid-cols-[3rem_minmax(0,1fr)] gap-x-3 py-1.5">
         <button
           type="button"
           onPointerDown={(event) => event.stopPropagation()}
@@ -202,10 +214,11 @@ const TranscriptSegmentRow = memo(function TranscriptSegmentRow({
         >
           {formatTimecode(segment.startSeconds)}
         </button>
-        <p className="text-[13px] leading-7">
+        <p className="min-w-0 break-words text-[13px] leading-7">
           {segment.indices.map((index) => {
             const token = tokens[index]
             if (!token) return null
+            const nextToken = index < segment.lastIndex ? tokens[index + 1] : undefined
             const isActive = index === activeIndex
             const isSelected = selectedKeys.has(token.key)
             const isMatch = matchKeys.has(token.key)
@@ -230,7 +243,8 @@ const TranscriptSegmentRow = memo(function TranscriptSegmentRow({
                   isIgnored && 'line-through decoration-from-font opacity-45',
                 )}
               >
-                {token.text}{' '}
+                {token.text}
+                {nextToken && needsTranscriptWordSeparator(token.text, nextToken.text) ? ' ' : ''}
               </span>
             )
           })}
@@ -266,6 +280,7 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
   const [anchorIndex, setAnchorIndex] = useState(-1)
   const [focusIndex, setFocusIndex] = useState(-1)
   const [query, setQuery] = useState('')
+  const [transcribeDialogOpen, setTranscribeDialogOpen] = useState(false)
   // -1 means "no match shown yet", so the first Next/Enter lands on match 0.
   const [matchCursor, setMatchCursor] = useState(-1)
   // Bumped when a stored transcript changes externally (e.g. deleted from the media
@@ -325,6 +340,17 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
   )
 
   const segments = useMemo(() => buildSegments(tokens, timelineFps), [tokens, timelineFps])
+
+  const sourceCoverage = useMemo(() => {
+    if (scope !== 'selection' || uniqueMediaIds.length !== 1 || tokens.length === 0) return null
+    return tokens.reduce(
+      (coverage, token) => ({
+        start: Math.min(coverage.start, token.sourceStart),
+        end: Math.max(coverage.end, token.sourceEnd),
+      }),
+      { start: Number.POSITIVE_INFINITY, end: 0 },
+    )
+  }, [scope, uniqueMediaIds, tokens])
 
   const selectedSlice = useMemo(
     () => getSelectedTokenSlice(tokens, anchorIndex, focusIndex),
@@ -424,6 +450,9 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
         try {
           const transcript = await mediaTranscriptionService.getTranscript(mediaId)
           if (!mountedRef.current) return
+          if (transcript) {
+            mediaTranscriptionService.syncExistingTranscriptCaptions(mediaId, transcript)
+          }
           setMediaState((prev) => ({
             ...prev,
             [mediaId]: hasWordTimings(transcript)
@@ -433,11 +462,18 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
         } catch (error) {
           if (!mountedRef.current) return
           logger.warn('Failed to load transcript', { mediaId, error })
-          setMediaState((prev) => ({ ...prev, [mediaId]: { status: 'error' } }))
+          const errorMessage =
+            error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : t('transcript.toastTranscribeFailed')
+          setMediaState((prev) => ({
+            ...prev,
+            [mediaId]: { status: 'error', errorMessage },
+          }))
         }
       }),
     )
-  }, [active, uniqueMediaIds, refreshNonce])
+  }, [active, uniqueMediaIds, refreshNonce, t])
 
   // Keep the active word in view during playback. Skip entirely when hidden — a
   // querySelector + scrollIntoView every frame on an off-screen panel is pure waste.
@@ -676,12 +712,14 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
     return status === 'loading' || status === 'transcribing'
   })
 
-  const handleTranscribe = useCallback(() => {
+  const handleTranscribe = useCallback((values: TranscribeDialogValues) => {
     const targets = uniqueMediaIds.filter((id) => {
       const status = mediaState[id]?.status
       return status === 'needs' || status === 'error'
     })
     if (targets.length === 0) return
+
+    setTranscribeDialogOpen(false)
 
     for (const id of targets) requestedRef.current.add(id)
     setMediaState((prev) => {
@@ -693,7 +731,12 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
     void Promise.all(
       targets.map(async (mediaId) => {
         try {
-          const result = await runMediaTranscriptionJob(mediaId)
+          const result = await runMediaTranscriptionJob(mediaId, {
+            ...values,
+            onModelFallback: () => {
+              toast.info(t('transcript.largeTurboFallback'))
+            },
+          })
           if (!mountedRef.current) return
           if (result.status === 'cancelled') {
             setMediaState((prev) => ({ ...prev, [mediaId]: { status: 'needs' } }))
@@ -708,14 +751,44 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
           }))
         } catch (error) {
           logger.warn('Transcription failed', { mediaId, error })
+          const errorMessage = isTranscriptionOutOfMemoryError(error)
+            ? TRANSCRIPTION_OOM_HINT
+            : error instanceof Error && error.message.trim().length > 0
+              ? error.message
+              : t('transcript.toastTranscribeFailed')
           if (mountedRef.current) {
-            setMediaState((prev) => ({ ...prev, [mediaId]: { status: 'error' } }))
+            setMediaState((prev) => ({
+              ...prev,
+              [mediaId]: { status: 'error', errorMessage },
+            }))
           }
-          toast.error(t('transcript.toastTranscribeFailed'))
+          toast.error(errorMessage)
         }
       }),
     )
   }, [uniqueMediaIds, mediaState, t])
+
+  const transcriptionError = useMemo(
+    () =>
+      needsTranscription
+        .map((mediaId) => mediaState[mediaId])
+        .find((entry) => entry?.status === 'error')?.errorMessage,
+    [mediaState, needsTranscription],
+  )
+
+  const transcriptionFileName = useMemo(() => {
+    if (needsTranscription.length !== 1) {
+      return t('transcript.selectedClips', {
+        defaultValue: '{{count}} selected clips',
+        count: needsTranscription.length,
+      })
+    }
+    const mediaId = needsTranscription[0]
+    return (
+      transcriptableItems.find((item) => item.mediaId === mediaId)?.label ??
+      t('transcript.selectedClip', { defaultValue: 'Selected clip' })
+    )
+  }, [needsTranscription, transcriptableItems, t])
 
   const selectionCount = selectedKeys.size
 
@@ -817,7 +890,7 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
       <div
         ref={scrollRef}
         onPointerMove={handlePointerMove}
-        className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-2"
       >
         {transcriptableItems.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -833,10 +906,25 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
         ) : needsTranscription.length > 0 && tokens.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
             <Captions className="h-8 w-8 text-muted-foreground/60" />
-            <p className="text-sm text-muted-foreground">{t('transcript.noTranscript')}</p>
-            <Button size="sm" onClick={handleTranscribe} disabled={isBusy}>
+            <div className="max-w-[34ch] space-y-1">
+              <p className="text-sm text-muted-foreground">
+                {transcriptionError
+                  ? t('transcript.transcriptionFailed')
+                  : t('transcript.noTranscript')}
+              </p>
+              {transcriptionError && (
+                <p className="break-words text-xs leading-5 text-destructive">
+                  {transcriptionError}
+                </p>
+              )}
+            </div>
+            <Button size="sm" onClick={() => setTranscribeDialogOpen(true)} disabled={isBusy}>
               {isBusy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-              {isBusy ? t('transcript.transcribing') : t('transcript.generate')}
+              {isBusy
+                ? t('transcript.transcribing')
+                : transcriptionError
+                  ? t('transcript.tryAgain')
+                  : t('transcript.generate')}
             </Button>
           </div>
         ) : tokens.length === 0 && isBusy ? (
@@ -846,6 +934,26 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
           </div>
         ) : (
           <div className="mx-auto max-w-[62ch] select-none">
+            {sourceCoverage && (
+              <div className="mb-2 flex items-start gap-2 rounded-md border border-border/70 bg-secondary/30 px-2.5 py-2">
+                <CircleCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-foreground">
+                    {t('transcript.sourceAnalyzed', {
+                      defaultValue: 'Full source analyzed',
+                    })}
+                  </p>
+                  <p className="text-[11px] leading-4 text-muted-foreground">
+                    {t('transcript.detectedRange', {
+                      defaultValue:
+                        'Voice detected from {{start}} to {{end}}. Silent and music-only sections are omitted.',
+                      start: formatTimecode(sourceCoverage.start),
+                      end: formatTimecode(sourceCoverage.end),
+                    })}
+                  </p>
+                </div>
+              </div>
+            )}
             {segments.map((segment) => (
               <TranscriptSegmentRow
                 key={segment.key}
@@ -978,6 +1086,20 @@ export function TranscriptEditorPanel({ active }: TranscriptEditorPanelProps) {
           </Button>
         </div>
       </div>
+
+      <TranscribeDialog
+        open={transcribeDialogOpen}
+        onOpenChange={setTranscribeDialogOpen}
+        fileName={transcriptionFileName}
+        hasTranscript={false}
+        isRunning={isBusy}
+        progressPercent={null}
+        progressLabel={t('transcript.transcribing')}
+        onStart={handleTranscribe}
+        onCancel={() => {
+          for (const mediaId of uniqueMediaIds) cancelMediaTranscriptionJob(mediaId)
+        }}
+      />
     </div>
   )
 }

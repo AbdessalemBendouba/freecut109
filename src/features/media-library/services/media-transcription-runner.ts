@@ -3,7 +3,10 @@ import type {
   MediaTranscriptModel,
   MediaTranscriptQuantization,
 } from '@/types/storage'
-import { isTranscriptionCancellationError } from '@/shared/utils/transcription-cancellation'
+import {
+  isTranscriptionCancellationError,
+  isTranscriptionOutOfMemoryError,
+} from '@/shared/utils/transcription-cancellation'
 import type { TranscribeOptions } from '../transcription/types'
 import type { MediaTranscriptStatus } from '../types'
 import { useMediaLibraryStore } from '../stores/media-library-store'
@@ -22,6 +25,7 @@ export interface RunMediaTranscriptionJobOptions {
   updateProgress?: boolean
   onProgress?: TranscribeOptions['onProgress']
   onQueueStatusChange?: (state: QueueState) => void
+  onModelFallback?: (from: MediaTranscriptModel, to: MediaTranscriptModel) => void
 }
 
 export type MediaTranscriptionJobResult =
@@ -90,13 +94,28 @@ export async function runMediaTranscriptionJob(
   setInitialTranscriptionState(mediaId)
 
   try {
-    const transcript = await mediaTranscriptionService.transcribeMedia(mediaId, {
-      model: options.model,
-      quantization: options.quantization,
-      language: options.language || undefined,
-      onQueueStatusChange: createQueueStatusHandler(mediaId, options.onQueueStatusChange),
-      onProgress: createProgressHandler(mediaId, updateProgress, options.onProgress),
-    })
+    const transcribeWithModel = (model: MediaTranscriptModel | undefined) =>
+      mediaTranscriptionService.transcribeMedia(mediaId, {
+        model,
+        quantization: options.quantization,
+        language: options.language || undefined,
+        onQueueStatusChange: createQueueStatusHandler(mediaId, options.onQueueStatusChange),
+        onProgress: createProgressHandler(mediaId, updateProgress, options.onProgress),
+      })
+
+    let transcript: MediaTranscript
+    try {
+      transcript = await transcribeWithModel(options.model)
+    } catch (error) {
+      if (options.model !== 'whisper-large' || !isTranscriptionOutOfMemoryError(error)) {
+        throw error
+      }
+
+      const fallbackModel: MediaTranscriptModel = 'whisper-small'
+      options.onModelFallback?.(options.model, fallbackModel)
+      setInitialTranscriptionState(mediaId)
+      transcript = await transcribeWithModel(fallbackModel)
+    }
 
     useMediaLibraryStore.getState().setTranscriptStatus(mediaId, 'ready')
     useMediaLibraryStore.getState().clearTranscriptProgress(mediaId)

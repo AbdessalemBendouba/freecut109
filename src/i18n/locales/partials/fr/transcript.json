@@ -1,5 +1,7 @@
 {
   "transcript": {
+    "sourceAnalyzed": "Source entière analysée",
+    "detectedRange": "Voix détectée de {{start}} à {{end}}. Les passages silencieux ou uniquement musicaux sont omis.",
     "title": "Transcription",
     "tabLabel": "Transcription",
     "emptySelection": "Sélectionnez un clip vidéo ou audio pour modifier sa transcription.",
@@ -8,6 +10,9 @@
     "previousMatch": "Résultat précédent",
     "clearSearch": "Effacer la recherche",
     "noTranscript": "Ce clip n’a pas encore de transcription.",
+    "transcriptionFailed": "Échec de la transcription.",
+    "tryAgain": "Réessayer",
+    "largeTurboFallback": "Large Turbo a manqué de mémoire. Nouvelle tentative avec Whisper Small…",
     "generate": "Générer la transcription",
     "transcribing": "Transcription…",
     "loading": "Chargement de la transcription…",

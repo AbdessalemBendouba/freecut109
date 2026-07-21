@@ -1,5 +1,7 @@
 {
   "transcript": {
+    "sourceAnalyzed": "ソース全体を解析済み",
+    "detectedRange": "音声を{{start}}〜{{end}}で検出しました。無音または音楽のみの区間は表示されません。",
     "title": "文字起こし",
     "tabLabel": "文字起こし",
     "emptySelection": "文字起こしを編集するには、動画または音声クリップを選択してください。",
@@ -8,6 +10,9 @@
     "previousMatch": "前の一致",
     "clearSearch": "検索をクリア",
     "noTranscript": "このクリップにはまだ文字起こしがありません。",
+    "transcriptionFailed": "文字起こしに失敗しました。",
+    "tryAgain": "再試行",
+    "largeTurboFallback": "Large Turbo のメモリが不足しました。Whisper Small で再試行しています…",
     "generate": "文字起こしを生成",
     "transcribing": "文字起こし中…",
     "loading": "文字起こしを読み込み中…",

@@ -9,10 +9,10 @@ export const DEFAULT_BROWSER_WHISPER_MODEL: MediaTranscriptModel = 'parakeet-tdt
 
 export const BROWSER_WHISPER_MODEL_LABELS: Record<MediaTranscriptModel, string> = {
   'parakeet-tdt-v3': 'Parakeet (fast)',
-  'whisper-tiny': 'Tiny',
-  'whisper-base': 'Base',
-  'whisper-small': 'Small',
-  'whisper-large': 'Large v3 Turbo',
+  'whisper-tiny': 'Whisper Tiny',
+  'whisper-base': 'Whisper Base',
+  'whisper-small': 'Whisper Small',
+  'whisper-large': 'Whisper Large v3 Turbo',
 }
 
 export const BROWSER_WHISPER_MODEL_OPTIONS = [

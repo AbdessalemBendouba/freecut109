@@ -75,6 +75,7 @@ import {
 import { doesMaskAffectTrack } from '@/shared/utils/mask-scope'
 import type { FrameInvalidationRequest } from '@/shared/utils/frame-invalidation'
 import { collectReachableCompositionIdsFromTracks } from '@/features/export/deps/timeline-compositions'
+import { appendVirtualTranscriptCaptionTrack } from '@/features/export/deps/caption-items'
 
 // Item renderer
 import {
@@ -112,6 +113,30 @@ import {
 
 function getLog() {
   return createLogger('ClientRenderEngine')
+}
+
+export function buildSubCompositionRenderTracks(
+  subComp: Pick<SubComposition, 'items' | 'tracks' | 'fps' | 'width' | 'height'>,
+): SubCompRenderData['sortedTracks'] {
+  const tracksWithItems = subComp.tracks.map((track) => ({
+    ...track,
+    items: subComp.items.filter((item) => item.trackId === track.id),
+  }))
+
+  return appendVirtualTranscriptCaptionTrack(
+    tracksWithItems,
+    subComp.fps,
+    subComp.width,
+    subComp.height,
+  )
+    .sort((left, right) => (right.order ?? 0) - (left.order ?? 0))
+    .map((track) => ({
+      order: track.order ?? 0,
+      visible: track.visible !== false,
+      items: (track.items ?? []).filter(
+        (item) => item.type !== 'audio' && item.type !== 'adjustment',
+      ),
+    }))
 }
 
 function getPrewarmVideoSourceTimeSeconds(item: VideoItem, frame: number, fps: number): number {
@@ -1136,14 +1161,7 @@ export async function createCompositionRenderer(
   const subCompRenderData = new Map<string, SubCompRenderData>()
 
   const buildSubCompRenderDataEntry = (subComp: SubComposition): SubCompRenderData => {
-    const sorted = [...subComp.tracks].sort((a, b) => (b.order ?? 0) - (a.order ?? 0))
-    const sortedWithItems = sorted.map((t) => ({
-      order: t.order ?? 0,
-      visible: t.visible !== false,
-      items: subComp.items.filter(
-        (i) => i.trackId === t.id && i.type !== 'audio' && i.type !== 'adjustment',
-      ),
-    }))
+    const sortedWithItems = buildSubCompositionRenderTracks(subComp)
     const subKfMap = new Map<string, ItemKeyframes>()
     for (const kf of subComp.keyframes ?? []) {
       subKfMap.set(kf.itemId, kf)

@@ -91,6 +91,38 @@ describe('runMediaTranscriptionJob', () => {
     expect(storeState.clearTranscriptProgress).toHaveBeenCalledWith('media-1')
   })
 
+  it('retries Large Turbo with Whisper Small after an out-of-memory failure', async () => {
+    const transcript = { ...makeTranscript(), model: 'whisper-small' as const }
+    const onModelFallback = vi.fn()
+    mediaTranscriptionServiceMocks.transcribeMedia
+      .mockRejectedValueOnce(new Error('WebGPU device lost: out of memory'))
+      .mockResolvedValueOnce(transcript)
+
+    const result = await runMediaTranscriptionJob('media-1', {
+      model: 'whisper-large',
+      quantization: 'hybrid',
+      onModelFallback,
+    })
+
+    expect(result).toEqual({ status: 'completed', transcript })
+    expect(onModelFallback).toHaveBeenCalledWith('whisper-large', 'whisper-small')
+    expect(mediaTranscriptionServiceMocks.transcribeMedia).toHaveBeenNthCalledWith(
+      2,
+      'media-1',
+      expect.objectContaining({ model: 'whisper-small' }),
+    )
+    expect(storeState.setTranscriptStatus).toHaveBeenLastCalledWith('media-1', 'ready')
+  })
+
+  it('does not hide unrelated Large Turbo failures behind the fallback', async () => {
+    mediaTranscriptionServiceMocks.transcribeMedia.mockRejectedValue(new Error('Network failed'))
+
+    await expect(
+      runMediaTranscriptionJob('media-1', { model: 'whisper-large' }),
+    ).rejects.toThrow('Network failed')
+    expect(mediaTranscriptionServiceMocks.transcribeMedia).toHaveBeenCalledTimes(1)
+  })
+
   it('uses the shared cancel wrapper', () => {
     expect(cancelMediaTranscriptionJob('media-1')).toBe(true)
     expect(mediaTranscriptionServiceMocks.cancelTranscription).toHaveBeenCalledWith('media-1')

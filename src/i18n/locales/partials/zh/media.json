@@ -277,12 +277,15 @@
       "language": "语言",
       "model": "模型",
       "noLanguages": "暂无可用语言。",
+      "parakeetAutoDetects": "自动检测 {{count}} 种欧洲语言。",
+      "parakeetChooseWhisper": "如需转录中文、日语、韩语或其他语言，请选择 Whisper 模型。",
       "progressAria": "字幕进度",
       "quantization": "量化",
       "refreshTitle": "刷新字幕",
       "searchLanguages": "搜索语言",
       "start": "开始",
-      "stop": "停止"
+      "stop": "停止",
+      "whisperLanguageHint": "选择实际语种可提高准确度，也可以使用自动检测。"
     },
     "type": {
       "audio": "音频",
