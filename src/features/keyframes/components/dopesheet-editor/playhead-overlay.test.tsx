@@ -6,7 +6,10 @@ import {
   mainTimelineScrubActiveRef,
   mainTimelineScrubHandoffFrameRef,
 } from '@/shared/timeline/main-timeline-scrub'
-import { TIMELINE_LIVE_SCROLL_EVENT } from '@/shared/timeline/live-scroll-sync'
+import {
+  TIMELINE_LIVE_SCROLL_EVENT,
+  notifyTimelineScrubVisualFrame,
+} from '@/shared/timeline/live-scroll-sync'
 
 describe('DopesheetEditor playhead overlay', () => {
   beforeAll(() => {
@@ -560,6 +563,44 @@ describe('DopesheetEditor playhead overlay', () => {
     fireEvent.scroll(scrollContainer)
 
     expect(committed).toHaveStyle({ transform: 'translate3d(0px, 0, 0)' })
+  })
+
+  it('keeps the keyframe playhead stable during main-timeline edge scrolling', () => {
+    const scrollContainer = document.createElement('div')
+    scrollContainer.scrollLeft = 20
+    const timelineScrollContainerRef = { current: scrollContainer }
+    const globalFrameToPixels = (globalFrame: number) => globalFrame - scrollContainer.scrollLeft
+
+    act(() => usePlaybackStore.getState().setCurrentFrame(150))
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={50}
+        playheadFrame={50}
+        playheadClampToItemBounds={false}
+        itemFrom={100}
+        totalFrames={100}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        width={640}
+        height={240}
+        onSkim={() => {}}
+        globalFrameToPixels={globalFrameToPixels}
+        timelineScrollContainerRef={timelineScrollContainerRef}
+      />,
+    )
+
+    const playhead = screen.getByTestId('dopesheet-playhead-line')
+    const cursorLockedTransform = playhead.style.transform
+    mainTimelineScrubActiveRef.current = true
+    scrollContainer.scrollLeft = 60
+    scrollContainer.dispatchEvent(new Event(TIMELINE_LIVE_SCROLL_EVENT))
+
+    expect(playhead.style.transform).toBe(cursorLockedTransform)
+
+    notifyTimelineScrubVisualFrame(scrollContainer, { frame: 190, source: 'main' })
+    expect(playhead.style.transform).toBe(cursorLockedTransform)
+    mainTimelineScrubActiveRef.current = false
   })
 
   it('compositor-pans keyframe geometry between settled React viewport updates', () => {

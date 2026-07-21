@@ -73,7 +73,10 @@ import { DopesheetHeaderFrameInputs } from './dopesheet-header-frame-inputs'
 import { DopesheetRulerHeader } from './dopesheet-ruler-header'
 import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
 import { perfMarkRender } from '@/shared/logging/perf-marks'
-import { TIMELINE_LIVE_SCROLL_EVENT } from '@/shared/timeline/live-scroll-sync'
+import {
+  TIMELINE_LIVE_SCROLL_EVENT,
+  notifyTimelineScrubVisualFrame,
+} from '@/shared/timeline/live-scroll-sync'
 import { DopesheetSheetBody } from './dopesheet-sheet-body'
 import { DopesheetInterpolationButtons } from './dopesheet-interpolation-buttons'
 import { DopesheetParameterMenu } from './dopesheet-parameter-menu'
@@ -2770,6 +2773,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const rulerEdgeScrollRafRef = useRef<number | null>(null)
   const rulerEdgeScrollTimestampRef = useRef<number | null>(null)
   const rulerEdgeScrollLoopRef = useRef<(timestamp: number) => void>(() => {})
+  const notifyLinkedTimelineScrubFrame = useCallback(
+    (frame: number) =>
+      notifyTimelineScrubVisualFrame(timelineScrollContainerRef?.current, {
+        frame: itemFrom + frame,
+        source: 'keyframe',
+      }),
+    [itemFrom, timelineScrollContainerRef],
+  )
   if (scrubPointerIdRef.current === null) rulerScrubViewportRef.current = viewport
   const {
     startScrub: startRulerScrub,
@@ -2826,6 +2837,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         }
         const frame = getRulerScrubFrameFromClientX(clientX)
         lastScrubbedFrameRef.current = frame
+        notifyLinkedTimelineScrubFrame(frame)
         queueRulerScrub({
           frame,
           pointerX: getTimelineXFromClientX(clientX),

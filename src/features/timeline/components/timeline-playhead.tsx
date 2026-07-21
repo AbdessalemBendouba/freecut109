@@ -13,6 +13,11 @@ import { withPerfMeasure, perfMarkRender } from '@/shared/logging/perf-marks'
 import { PlayheadMarks } from '@/shared/ui/playhead-marks'
 import { mainTimelineScrubActiveRef } from '@/shared/timeline/main-timeline-scrub'
 import {
+  TIMELINE_SCRUB_VISUAL_FRAME_EVENT,
+  notifyTimelineScrubVisualFrame,
+  type TimelineScrubVisualFrameDetail,
+} from '@/shared/timeline/live-scroll-sync'
+import {
   getEdgeScrollDelta,
   getPlayheadEdgeScrollVelocity,
   getVisiblePlayheadClientX,
@@ -177,6 +182,25 @@ export function TimelinePlayhead({
     playheadRef.current.style.transform = `translate3d(${leftPosition}px, 0, 0)`
   }, [frameToPixels, isDragging])
 
+  useEffect(() => {
+    const scrollContainer = playheadRef.current?.closest<HTMLDivElement>('.timeline-container')
+    if (!scrollContainer) return
+
+    const updateFromLinkedScrub = (event: Event) => {
+      const { frame, source } = (event as CustomEvent<TimelineScrubVisualFrameDetail>).detail
+      if (source !== 'keyframe' || !playheadRef.current) return
+      const clampedFrame = Math.max(0, Math.min(frame, maxFrameRef.current ?? frame))
+      playheadRef.current.style.transform = `translate3d(${Math.round(
+        frameToPixelsRef.current(clampedFrame),
+      )}px, 0, 0)`
+    }
+
+    scrollContainer.addEventListener(TIMELINE_SCRUB_VISUAL_FRAME_EVENT, updateFromLinkedScrub)
+    return () => {
+      scrollContainer.removeEventListener(TIMELINE_SCRUB_VISUAL_FRAME_EVENT, updateFromLinkedScrub)
+    }
+  }, [])
+
   // Track external drag operations to disable pointer events on hit areas
   useEffect(() => {
     const handleDragStart = () => setIsExternalDrag(true)
@@ -303,6 +327,10 @@ export function TimelinePlayhead({
         for (const element of scrubPlayheadElementsRef.current) {
           element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
         }
+        notifyTimelineScrubVisualFrame(scrollContainer, {
+          frame: targetFrame,
+          source: 'main',
+        })
       })
 
       if (isDraggingRef.current) rafIdRef.current = requestAnimationFrame(runScrubLoop)

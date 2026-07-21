@@ -15,6 +15,7 @@ import { TimelineProjectMarkers } from './timeline-project-markers'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
 import { beginIoPointerDrag, IoRangeStrip } from '@/shared/timeline/io-range'
 import { mainTimelineScrubActiveRef } from '@/shared/timeline/main-timeline-scrub'
+import { notifyTimelineScrubVisualFrame } from '@/shared/timeline/live-scroll-sync'
 import { useSettingsStore } from '@/features/timeline/deps/settings'
 
 // Utilities and hooks
@@ -763,6 +764,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       for (const element of scrubPlayheadElementsRef.current) {
         element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
       }
+      notifyTimelineScrubVisualFrame(scrollContainer, { frame, source: 'main' })
     }
 
     // --- STEP 3: Continue loop while scrubbing ---

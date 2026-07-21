@@ -10,6 +10,7 @@ import {
   mainTimelineScrubActiveRef,
   mainTimelineScrubHandoffFrameRef,
 } from '@/shared/timeline/main-timeline-scrub'
+import { notifyTimelineScrubVisualFrame } from '@/shared/timeline/live-scroll-sync'
 
 describe('TimelinePlayhead', () => {
   beforeEach(() => {
@@ -124,6 +125,21 @@ describe('TimelinePlayhead', () => {
     fireEvent.mouseUp(document, { clientX: 130, clientY: 8 })
 
     expect(usePlaybackStore.getState().currentFrame).toBe(60)
+  })
+
+  it('follows a keyframe scrub visual frame before its throttled store update', () => {
+    const { container } = render(
+      <div className="timeline-container">
+        <TimelinePlayhead inRuler maxFrame={300} />
+      </div>,
+    )
+    const scrollContainer = container.querySelector('.timeline-container') as HTMLDivElement
+    const playhead = container.querySelector('[data-timeline-playhead="ruler"]') as HTMLDivElement
+
+    notifyTimelineScrubVisualFrame(scrollContainer, { frame: 90, source: 'keyframe' })
+
+    expect(playhead).toHaveStyle({ transform: 'translate3d(300px, 0, 0)' })
+    expect(usePlaybackStore.getState().currentFrame).toBe(12)
   })
 
   it('auto-scrolls at the viewport edge while keeping both playheads cursor-locked', () => {
