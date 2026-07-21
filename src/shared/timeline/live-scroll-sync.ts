@@ -8,4 +8,3 @@ export const TIMELINE_LIVE_SCROLL_EVENT = 'freecut:timeline-live-scroll'
 export function notifyTimelineLiveScroll(container: HTMLElement): void {
   container.dispatchEvent(new Event(TIMELINE_LIVE_SCROLL_EVENT))
 }
-
