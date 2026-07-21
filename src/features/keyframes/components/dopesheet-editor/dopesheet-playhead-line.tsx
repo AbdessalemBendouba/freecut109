@@ -15,6 +15,7 @@ import {
 import {
   TIMELINE_LIVE_SCROLL_EVENT,
   TIMELINE_SCRUB_VISUAL_FRAME_EVENT,
+  getTimelineScrubViewportX,
   type TimelineScrubVisualFrameDetail,
 } from '@/shared/timeline/live-scroll-sync'
 
@@ -226,10 +227,10 @@ export function DopesheetPlayheadLine({
       update()
     }
     const updateFromScrubVisualFrame = (event: Event) => {
-      const { frame } = (event as CustomEvent<TimelineScrubVisualFrameDetail>).detail
+      const { viewportProgress } = (event as CustomEvent<TimelineScrubVisualFrameDetail>).detail
       if (!ref.current) return
-      const relativeFrame = clampRelativeFrame(frame - posRef.current.itemFrom, posRef.current)
-      ref.current.style.transform = `translate3d(${clampLeft(relativeFrame)}px, 0, 0)`
+      const viewportX = getTimelineScrubViewportX(viewportProgress, posRef.current.maxLeft)
+      ref.current.style.transform = `translate3d(${viewportX}px, 0, 0)`
     }
     const unsubscribe = usePlaybackStore.subscribe(update)
     const target = positionSyncTargetRef?.current

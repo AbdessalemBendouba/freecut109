@@ -11,9 +11,14 @@ import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
 import { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub-throttle'
 import { withPerfMeasure, perfMarkRender } from '@/shared/logging/perf-marks'
 import { PlayheadMarks } from '@/shared/ui/playhead-marks'
-import { mainTimelineScrubActiveRef } from '@/shared/timeline/main-timeline-scrub'
+import {
+  mainTimelineScrubActiveRef,
+  timelineSkimmerScrubActiveRef,
+} from '@/shared/timeline/main-timeline-scrub'
 import {
   TIMELINE_SCRUB_VISUAL_FRAME_EVENT,
+  getTimelineScrubViewportProgress,
+  getTimelineScrubViewportX,
   notifyTimelineScrubVisualFrame,
   type TimelineScrubVisualFrameDetail,
 } from '@/shared/timeline/live-scroll-sync'
@@ -44,7 +49,10 @@ function getPlayheadDragSurfaces({
   coordinateSurface: HTMLDivElement | null
 } {
   if (!playhead) {
-    return { scrollContainer: null, coordinateSurface: explicitCoordinateSurface }
+    return {
+      scrollContainer: null,
+      coordinateSurface: explicitCoordinateSurface,
+    }
   }
 
   const scrollContainer = playhead.closest<HTMLDivElement>('.timeline-container')
@@ -187,12 +195,11 @@ export function TimelinePlayhead({
     if (!scrollContainer) return
 
     const updateFromLinkedScrub = (event: Event) => {
-      const { frame, source } = (event as CustomEvent<TimelineScrubVisualFrameDetail>).detail
+      const { source, viewportProgress } = (event as CustomEvent<TimelineScrubVisualFrameDetail>)
+        .detail
       if (source !== 'keyframe' || !playheadRef.current) return
-      const clampedFrame = Math.max(0, Math.min(frame, maxFrameRef.current ?? frame))
-      playheadRef.current.style.transform = `translate3d(${Math.round(
-        frameToPixelsRef.current(clampedFrame),
-      )}px, 0, 0)`
+      const viewportX = getTimelineScrubViewportX(viewportProgress, scrollContainer.clientWidth - 1)
+      playheadRef.current.style.transform = `translate3d(${scrollContainer.scrollLeft + viewportX}px, 0, 0)`
     }
 
     scrollContainer.addEventListener(TIMELINE_SCRUB_VISUAL_FRAME_EVENT, updateFromLinkedScrub)
@@ -251,6 +258,8 @@ export function TimelinePlayhead({
       })
       isDraggingRef.current = true
       mainTimelineScrubActiveRef.current = true
+      timelineSkimmerScrubActiveRef.current = true
+      setPreviewFrameRef.current(null)
       setIsDragging(true)
     },
     [coordinateSurfaceRef, inRuler],
@@ -330,6 +339,10 @@ export function TimelinePlayhead({
         notifyTimelineScrubVisualFrame(scrollContainer, {
           frame: targetFrame,
           source: 'main',
+          viewportProgress: getTimelineScrubViewportProgress(
+            visualTimelineX - scrollLeft,
+            viewportBounds.width - 1,
+          ),
         })
       })
 
@@ -370,6 +383,7 @@ export function TimelinePlayhead({
       // Keep the shared flag set through the preview-clear notification so the
       // keyframe playhead retains the final scrub position until props settle.
       mainTimelineScrubActiveRef.current = false
+      timelineSkimmerScrubActiveRef.current = false
       setIsDragging(false)
     }
 
@@ -389,6 +403,7 @@ export function TimelinePlayhead({
       }
       scrubAnimationTimeRef.current = null
       mainTimelineScrubActiveRef.current = false
+      timelineSkimmerScrubActiveRef.current = false
     }
   }, [isDragging]) // Stable dependencies - no stale closures
 

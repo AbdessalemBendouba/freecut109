@@ -5,9 +5,11 @@ import { DopesheetEditor } from './index'
 import {
   mainTimelineScrubActiveRef,
   mainTimelineScrubHandoffFrameRef,
+  timelineSkimmerScrubActiveRef,
 } from '@/shared/timeline/main-timeline-scrub'
 import {
   TIMELINE_LIVE_SCROLL_EVENT,
+  TIMELINE_SCRUB_VISUAL_FRAME_EVENT,
   notifyTimelineScrubVisualFrame,
 } from '@/shared/timeline/live-scroll-sync'
 
@@ -23,9 +25,14 @@ describe('DopesheetEditor playhead overlay', () => {
   })
 
   beforeEach(() => {
-    usePlaybackStore.setState({ currentFrame: 0, previewFrame: null, isPlaying: false })
+    usePlaybackStore.setState({
+      currentFrame: 0,
+      previewFrame: null,
+      isPlaying: false,
+    })
     mainTimelineScrubActiveRef.current = false
     mainTimelineScrubHandoffFrameRef.current = null
+    timelineSkimmerScrubActiveRef.current = false
   })
 
   it('clamps the playhead to the left edge when the current frame is before the viewport', () => {
@@ -112,13 +119,17 @@ describe('DopesheetEditor playhead overlay', () => {
       />,
     )
 
-    expect(screen.getByTestId('dopesheet-scroll-area')).toHaveStyle({ right: '12px' })
+    expect(screen.getByTestId('dopesheet-scroll-area')).toHaveStyle({
+      right: '12px',
+    })
     expect(screen.getByTestId('dopesheet-scrollbar')).toHaveClass(
       'right-0',
       'w-3',
       'bg-background/80',
     )
-    expect(screen.getByTestId('dopesheet-ruler-scrollbar-gutter')).toHaveStyle({ width: '12px' })
+    expect(screen.getByTestId('dopesheet-ruler-scrollbar-gutter')).toHaveStyle({
+      width: '12px',
+    })
     expect(screen.getByTestId('dopesheet-playhead-line')).toHaveStyle({
       transform: 'translate3d(378px, 0, 0)',
     })
@@ -394,7 +405,10 @@ describe('DopesheetEditor playhead overlay', () => {
 
     const ruler = screen.getByTestId('dopesheet-ruler')
     fireEvent.wheel(ruler, { deltaY: 120 })
-    expect(onFrameViewportChange).toHaveBeenLastCalledWith({ startFrame: 31, endFrame: 131 })
+    expect(onFrameViewportChange).toHaveBeenLastCalledWith({
+      startFrame: 31,
+      endFrame: 131,
+    })
 
     onFrameViewportChange.mockClear()
     fireEvent.wheel(ruler, { deltaY: 120, shiftKey: true })
@@ -441,7 +455,11 @@ describe('DopesheetEditor playhead overlay', () => {
     act(() => ruler.dispatchEvent(panEvent))
     expect(panEvent.defaultPrevented).toBe(true)
     expect(forwardedEvents).toHaveLength(1)
-    expect(forwardedEvents[0]).toMatchObject({ clientX: 320, deltaY: 120, ctrlKey: false })
+    expect(forwardedEvents[0]).toMatchObject({
+      clientX: 320,
+      deltaY: 120,
+      ctrlKey: false,
+    })
 
     const zoomEvent = new WheelEvent('wheel', {
       bubbles: true,
@@ -452,7 +470,11 @@ describe('DopesheetEditor playhead overlay', () => {
     })
     act(() => ruler.dispatchEvent(zoomEvent))
     expect(forwardedEvents).toHaveLength(2)
-    expect(forwardedEvents[1]).toMatchObject({ clientX: 400, deltaY: -120, ctrlKey: true })
+    expect(forwardedEvents[1]).toMatchObject({
+      clientX: 400,
+      deltaY: -120,
+      ctrlKey: true,
+    })
 
     fireEvent.wheel(ruler, { deltaY: 120, shiftKey: true })
     expect(forwardedEvents).toHaveLength(2)
@@ -598,9 +620,89 @@ describe('DopesheetEditor playhead overlay', () => {
 
     expect(playhead.style.transform).toBe(cursorLockedTransform)
 
-    notifyTimelineScrubVisualFrame(scrollContainer, { frame: 190, source: 'main' })
+    notifyTimelineScrubVisualFrame(scrollContainer, {
+      frame: 190,
+      source: 'main',
+      viewportProgress: 130 / 391,
+    })
     expect(playhead.style.transform).toBe(cursorLockedTransform)
+
+    notifyTimelineScrubVisualFrame(scrollContainer, {
+      frame: 300,
+      source: 'main',
+      viewportProgress: 1,
+    })
+    expect(playhead).toHaveStyle({ transform: 'translate3d(391px, 0, 0)' })
     mainTimelineScrubActiveRef.current = false
+  })
+
+  it('derives linked edge-scroll frames from the live main-timeline scale', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const scrollContainer = document.createElement('div')
+    const timelineScrollContainerRef = { current: scrollContainer }
+    const onScrub = vi.fn()
+    const onVisualFrame = vi.fn()
+    scrollContainer.addEventListener(TIMELINE_SCRUB_VISUAL_FRAME_EVENT, (event) => {
+      onVisualFrame((event as CustomEvent).detail)
+    })
+    const onRulerEdgeScroll = vi.fn(() => {
+      scrollContainer.scrollLeft += 12
+      scrollContainer.dispatchEvent(new Event(TIMELINE_LIVE_SCROLL_EVENT))
+      return 12
+    })
+
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        totalFrames={300}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        clampViewportToContent={false}
+        scrubClampToItemBounds={false}
+        presentation="classic"
+        width={640}
+        height={240}
+        fps={30}
+        onScrub={onScrub}
+        onRulerEdgeScroll={onRulerEdgeScroll}
+        timelineScrollContainerRef={timelineScrollContainerRef}
+        getTimelineLivePixelsPerSecond={() => 240}
+      />,
+    )
+
+    const ruler = screen.getByTestId('dopesheet-ruler')
+    vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
+      x: 248,
+      y: 0,
+      left: 248,
+      top: 0,
+      right: 640,
+      bottom: 22,
+      width: 392,
+      height: 22,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.pointerDown(ruler, { button: 0, pointerId: 92, clientX: 640 })
+    expect(onScrub).toHaveBeenLastCalledWith(49)
+    expect(timelineSkimmerScrubActiveRef.current).toBe(true)
+
+    act(() => frameCallbacks.shift()?.(16))
+
+    expect(onVisualFrame).toHaveBeenLastCalledWith(
+      expect.objectContaining({ frame: 50, source: 'keyframe' }),
+    )
+
+    fireEvent.pointerUp(ruler, { pointerId: 92, clientX: 640 })
+    expect(timelineSkimmerScrubActiveRef.current).toBe(false)
+    animationFrameSpy.mockRestore()
   })
 
   it('compositor-pans keyframe geometry between settled React viewport updates', () => {

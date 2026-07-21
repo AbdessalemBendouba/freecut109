@@ -75,8 +75,10 @@ import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scru
 import { perfMarkRender } from '@/shared/logging/perf-marks'
 import {
   TIMELINE_LIVE_SCROLL_EVENT,
+  getTimelineScrubViewportProgress,
   notifyTimelineScrubVisualFrame,
 } from '@/shared/timeline/live-scroll-sync'
+import { timelineSkimmerScrubActiveRef } from '@/shared/timeline/main-timeline-scrub'
 import { DopesheetSheetBody } from './dopesheet-sheet-body'
 import { DopesheetInterpolationButtons } from './dopesheet-interpolation-buttons'
 import { DopesheetParameterMenu } from './dopesheet-parameter-menu'
@@ -664,6 +666,36 @@ function getDopesheetDragPixelsPerFrame(
       ? livePixelsPerSecond
       : fallbackPixelsPerSecond
   return pixelsPerSecond / Math.max(fps, 1)
+}
+
+function getLiveRulerFrame({
+  viewportX,
+  fallbackFrame,
+  scrollContainer,
+  livePixelsPerSecond,
+  fps,
+  itemFrom,
+}: {
+  viewportX: number
+  fallbackFrame: number
+  scrollContainer: HTMLDivElement | null | undefined
+  livePixelsPerSecond: number | undefined
+  fps: number
+  itemFrom: number
+}): number {
+  if (!scrollContainer || !livePixelsPerSecond || livePixelsPerSecond <= 0) return fallbackFrame
+  return Math.round(
+    ((scrollContainer.scrollLeft + viewportX) / livePixelsPerSecond) * fps - itemFrom,
+  )
+}
+
+function getDopesheetTimelineClientBounds(
+  node: HTMLDivElement,
+  borderWidth: number,
+  timelineWidth: number,
+): { left: number; right: number } {
+  const left = node.getBoundingClientRect().left + borderWidth
+  return { left, right: left + timelineWidth }
 }
 
 const TimelineViewportCuller = memo(function TimelineViewportCuller({
@@ -1724,7 +1756,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       const rect = node.getBoundingClientRect()
       return Math.max(
         0,
-        Math.min(effectiveTimelineWidth, clientX - rect.left - timelineCellBorderWidth),
+        Math.min(effectiveTimelineWidth - 1, clientX - rect.left - timelineCellBorderWidth),
       )
     },
     [effectiveTimelineWidth, timelineCellBorderWidth],
@@ -2773,13 +2805,49 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const rulerEdgeScrollRafRef = useRef<number | null>(null)
   const rulerEdgeScrollTimestampRef = useRef<number | null>(null)
   const rulerEdgeScrollLoopRef = useRef<(timestamp: number) => void>(() => {})
+  const getRulerFrameViewportX = useCallback(
+    (frame: number) => {
+      const mappedX = globalFrameToPixels ? globalFrameToPixels(itemFrom + frame) : frameToX(frame)
+      return Math.max(0, Math.min(effectiveTimelineWidth - 1, mappedX))
+    },
+    [effectiveTimelineWidth, frameToX, globalFrameToPixels, itemFrom],
+  )
+  const getRulerScrubVisualX = useCallback(
+    (clientX: number) => {
+      const pointerX = getTimelineXFromClientX(clientX)
+      if (scrubClampToItemBounds) {
+        return Math.max(
+          getRulerFrameViewportX(0),
+          Math.min(getRulerFrameViewportX(Math.max(0, totalFrames - 1)), pointerX),
+        )
+      }
+      if (scrubFrameBounds) {
+        return Math.max(
+          getRulerFrameViewportX(scrubFrameBounds.minFrame),
+          Math.min(getRulerFrameViewportX(scrubFrameBounds.maxFrame), pointerX),
+        )
+      }
+      return pointerX
+    },
+    [
+      getRulerFrameViewportX,
+      getTimelineXFromClientX,
+      scrubClampToItemBounds,
+      scrubFrameBounds,
+      totalFrames,
+    ],
+  )
   const notifyLinkedTimelineScrubFrame = useCallback(
-    (frame: number) =>
+    (frame: number, clientX: number) =>
       notifyTimelineScrubVisualFrame(timelineScrollContainerRef?.current, {
         frame: itemFrom + frame,
         source: 'keyframe',
+        viewportProgress: getTimelineScrubViewportProgress(
+          getRulerScrubVisualX(clientX),
+          effectiveTimelineWidth - 1,
+        ),
       }),
-    [itemFrom, timelineScrollContainerRef],
+    [effectiveTimelineWidth, getRulerScrubVisualX, itemFrom, timelineScrollContainerRef],
   )
   if (scrubPointerIdRef.current === null) rulerScrubViewportRef.current = viewport
   const {
@@ -2789,26 +2857,35 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   } = useCoalescedScrub(onScrub)
   const getRulerScrubFrameFromClientX = useCallback(
     (clientX: number) => {
-      const node = timelineRef.current
-      if (!node) return currentFrame
-      const rect = node.getBoundingClientRect()
-      const frame = getFrameFromAxisX(
-        clientX - rect.left - timelineCellBorderWidth,
+      const viewportX = getTimelineXFromClientX(clientX)
+      const fallbackFrame = getFrameFromAxisX(
+        viewportX,
         rulerScrubViewportRef.current,
         effectiveTimelineWidth,
         timelineEdgeInset,
       )
+      const frame = getLiveRulerFrame({
+        viewportX,
+        fallbackFrame,
+        scrollContainer: timelineScrollContainerRef?.current,
+        livePixelsPerSecond: getTimelineLivePixelsPerSecond?.(),
+        fps,
+        itemFrom,
+      })
       if (scrubClampToItemBounds) return clampFrame(frame, totalFrames)
       if (!scrubFrameBounds) return frame
       return Math.max(scrubFrameBounds.minFrame, Math.min(scrubFrameBounds.maxFrame, frame))
     },
     [
-      currentFrame,
       effectiveTimelineWidth,
+      fps,
+      getTimelineLivePixelsPerSecond,
+      getTimelineXFromClientX,
+      itemFrom,
       scrubClampToItemBounds,
       scrubFrameBounds,
-      timelineCellBorderWidth,
       timelineEdgeInset,
+      timelineScrollContainerRef,
       totalFrames,
     ],
   )
@@ -2820,7 +2897,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       return
     }
 
-    const bounds = node.getBoundingClientRect()
+    const bounds = getDopesheetTimelineClientBounds(
+      node,
+      timelineCellBorderWidth,
+      effectiveTimelineWidth,
+    )
     const velocity = getPlayheadEdgeScrollVelocity(clientX, bounds)
     if (velocity !== 0) {
       const previousTimestamp = rulerEdgeScrollTimestampRef.current ?? timestamp - 1000 / 60
@@ -2829,15 +2910,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       )
       if (appliedPixels !== 0 && effectiveTimelineWidth > 0) {
         const liveViewport = rulerScrubViewportRef.current
-        const visibleFrames = liveViewport.endFrame - liveViewport.startFrame
-        const frameDelta = (appliedPixels / effectiveTimelineWidth) * visibleFrames
+        const frameDelta = appliedPixels / getLiveDragPixelsPerFrame()
         rulerScrubViewportRef.current = {
           startFrame: liveViewport.startFrame + frameDelta,
           endFrame: liveViewport.endFrame + frameDelta,
         }
         const frame = getRulerScrubFrameFromClientX(clientX)
         lastScrubbedFrameRef.current = frame
-        notifyLinkedTimelineScrubFrame(frame)
+        notifyLinkedTimelineScrubFrame(frame, clientX)
         queueRulerScrub({
           frame,
           pointerX: getTimelineXFromClientX(clientX),
@@ -2858,6 +2938,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       if (rulerEdgeScrollRafRef.current !== null) {
         cancelAnimationFrame(rulerEdgeScrollRafRef.current)
       }
+      if (scrubPointerIdRef.current !== null) {
+        rulerScrubActiveRef.current = false
+        timelineSkimmerScrubActiveRef.current = false
+      }
     }
   }, [])
   const handleRulerPointerDown = useCallback(
@@ -2866,14 +2950,16 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       event.preventDefault()
       rulerScrubHandoffFrameRef.current = null
       rulerScrubActiveRef.current = true
+      timelineSkimmerScrubActiveRef.current = true
       setIsRulerScrubbing(true)
       scrubPointerIdRef.current = event.pointerId
       rulerScrubClientXRef.current = event.clientX
       rulerScrubViewportRef.current = viewport
       rulerEdgeScrollTimestampRef.current = null
       setPointerCaptureSafely(event.currentTarget, event.pointerId)
-      const frame = getFrameFromClientX(event.clientX)
+      const frame = getRulerScrubFrameFromClientX(event.clientX)
       lastScrubbedFrameRef.current = frame
+      notifyLinkedTimelineScrubFrame(frame, event.clientX)
       onScrubStart?.()
       startRulerScrub({
         frame,
@@ -2888,8 +2974,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     },
     [
       disabled,
-      getFrameFromClientX,
+      getRulerScrubFrameFromClientX,
       getTimelineXFromClientX,
+      notifyLinkedTimelineScrubFrame,
       onRulerEdgeScroll,
       onScrubStart,
       startRulerScrub,
@@ -2906,6 +2993,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       if (scrubPointerIdRef.current !== event.pointerId) return
       rulerScrubClientXRef.current = event.clientX
       const scrubFrame = getRulerScrubFrameFromClientX(event.clientX)
+      notifyLinkedTimelineScrubFrame(scrubFrame, event.clientX)
       if (scrubFrame === lastScrubbedFrameRef.current) return
       lastScrubbedFrameRef.current = scrubFrame
       queueRulerScrub({
@@ -2919,6 +3007,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       getFrameFromClientX,
       getRulerScrubFrameFromClientX,
       getTimelineXFromClientX,
+      notifyLinkedTimelineScrubFrame,
       onSkim,
       queueRulerScrub,
       timelinePixelsPerSecond,
@@ -2939,6 +3028,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       }
       const finalFrame = getRulerScrubFrameFromClientX(event.clientX)
       rulerScrubHandoffFrameRef.current = finalFrame
+      notifyLinkedTimelineScrubFrame(finalFrame, event.clientX)
       if (finalFrame !== lastScrubbedFrameRef.current) {
         queueRulerScrub({
           frame: finalFrame,
@@ -2958,11 +3048,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       flushPendingRulerScrub(true)
       rulerScrubActiveRef.current = false
       onScrubEnd?.()
+      timelineSkimmerScrubActiveRef.current = false
     },
     [
       flushPendingRulerScrub,
       getRulerScrubFrameFromClientX,
       getTimelineXFromClientX,
+      notifyLinkedTimelineScrubFrame,
       onScrubEnd,
       queueRulerScrub,
       timelinePixelsPerSecond,
@@ -4544,6 +4636,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         rulerOffset={0}
         showTooltip={false}
         suppressed={isRulerScrubbing}
+        suppressRefs={[rulerScrubActiveRef, timelineSkimmerScrubActiveRef]}
         positionSyncTargetRef={timelineScrollContainerRef}
       />
     </div>

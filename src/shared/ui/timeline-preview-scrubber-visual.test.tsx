@@ -46,4 +46,28 @@ describe('TimelinePreviewScrubberVisual', () => {
 
     expect(skim).toHaveStyle({ transform: 'translate3d(45px, 0, 0)' })
   })
+
+  it('stays hidden while any imperative scrub gesture is active', () => {
+    const rangeDragActiveRef = { current: false }
+    const playheadDragActiveRef = { current: false }
+    render(
+      <TimelinePreviewScrubberVisual
+        frameToPixels={(frame) => frame}
+        fps={30}
+        suppressRefs={[rangeDragActiveRef, playheadDragActiveRef]}
+      />,
+    )
+
+    const skim = screen.getByTestId('timeline-preview-scrubber')
+    act(() => usePlaybackStore.getState().setPreviewFrame(10))
+    expect(skim).not.toHaveStyle({ display: 'none' })
+
+    playheadDragActiveRef.current = true
+    act(() => usePlaybackStore.getState().setPreviewFrame(11))
+    expect(skim).toHaveStyle({ display: 'none' })
+
+    playheadDragActiveRef.current = false
+    act(() => usePlaybackStore.getState().setPreviewFrame(12))
+    expect(skim).not.toHaveStyle({ display: 'none' })
+  })
 })

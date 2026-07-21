@@ -32,7 +32,7 @@ interface TimelinePreviewScrubberVisualProps {
   rulerOffset?: number
   showTooltip?: boolean
   suppressed?: boolean
-  suppressRef?: MutableRefObject<boolean>
+  suppressRefs?: ReadonlyArray<MutableRefObject<boolean>>
   /** Reposition from the live mapper whenever an external timeline scrolls. */
   positionSyncTargetRef?: RefObject<HTMLElement | null>
   zIndex?: number
@@ -47,7 +47,7 @@ export function TimelinePreviewScrubberVisual({
   rulerOffset = 0,
   showTooltip = true,
   suppressed = false,
-  suppressRef,
+  suppressRefs,
   positionSyncTargetRef,
   zIndex = 20,
 }: TimelinePreviewScrubberVisualProps) {
@@ -59,7 +59,7 @@ export function TimelinePreviewScrubberVisual({
   const fpsRef = useRef(fps)
   const maxFrameRef = useRef(maxFrame)
   const suppressedRef = useRef(suppressed)
-  const suppressStateRef = useRef(suppressRef)
+  const suppressStateRefsRef = useRef(suppressRefs)
   // Positioning runs in a layout effect below, so these refs must already hold
   // this render's mapper. Updating them in a passive effect leaves the skim line
   // one zoom render behind.
@@ -67,7 +67,7 @@ export function TimelinePreviewScrubberVisual({
   fpsRef.current = fps
   maxFrameRef.current = maxFrame
   suppressedRef.current = suppressed
-  suppressStateRef.current = suppressRef
+  suppressStateRefsRef.current = suppressRefs
 
   const updatePosition = useCallback((previewFrame: number | null) => {
     const node = scrubberRef.current
@@ -76,7 +76,7 @@ export function TimelinePreviewScrubberVisual({
       shouldHidePreviewScrubber({
         previewFrame,
         suppressed: suppressedRef.current,
-        suppressRefActive: suppressStateRef.current?.current ?? false,
+        suppressRefActive: suppressStateRefsRef.current?.some((ref) => ref.current) ?? false,
       })
     ) {
       node.style.display = 'none'
@@ -158,7 +158,12 @@ export function TimelinePreviewScrubberVisual({
       <div
         ref={lineRef}
         className="absolute bg-white/30"
-        style={{ top: inRuler ? rulerOffset + FLAG_HEIGHT : 0, bottom: 0, left: 0, right: 0 }}
+        style={{
+          top: inRuler ? rulerOffset + FLAG_HEIGHT : 0,
+          bottom: 0,
+          left: 0,
+          right: 0,
+        }}
       />
 
       {inRuler ? (

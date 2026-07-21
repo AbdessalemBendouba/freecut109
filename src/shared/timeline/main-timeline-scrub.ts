@@ -7,6 +7,9 @@
  */
 export const mainTimelineScrubActiveRef = { current: false }
 
+/** Any linked ruler/playhead scrub that should own the cursor visual. */
+export const timelineSkimmerScrubActiveRef = { current: false }
+
 /** Final global frame retained until the linked editor's props catch up. */
 export const mainTimelineScrubHandoffFrameRef: { current: number | null } = {
   current: null,

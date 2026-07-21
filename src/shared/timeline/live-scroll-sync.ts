@@ -9,6 +9,17 @@ export const TIMELINE_SCRUB_VISUAL_FRAME_EVENT = 'freecut:timeline-scrub-visual-
 export interface TimelineScrubVisualFrameDetail {
   frame: number
   source: 'main' | 'keyframe'
+  /** Clamped playhead position within the visible axis, normalized to 0..1. */
+  viewportProgress: number
+}
+
+export function getTimelineScrubViewportProgress(viewportX: number, maxViewportX: number): number {
+  if (maxViewportX <= 0) return 0
+  return Math.max(0, Math.min(1, viewportX / maxViewportX))
+}
+
+export function getTimelineScrubViewportX(viewportProgress: number, maxViewportX: number): number {
+  return Math.max(0, Math.min(1, viewportProgress)) * Math.max(0, maxViewportX)
 }
 
 export function notifyTimelineLiveScroll(container: HTMLElement): void {
