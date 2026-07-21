@@ -429,6 +429,7 @@ export function TimelinePlayhead({
       {/* Invisible larger hit area over the flag — draggable to scrub. */}
       {inRuler && (
         <div
+          data-playhead-handle
           className="absolute"
           style={{
             top: `${topOffsetPx}px`,

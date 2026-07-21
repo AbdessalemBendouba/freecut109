@@ -101,6 +101,7 @@ function computeItemTypeInfo(items: TimelineItem[]) {
     hasVirtualSubtitleItems: items.some(
       (item) =>
         (item.type === 'video' || item.type === 'audio') &&
+        item.isReversed !== true &&
         item.transcriptCaptions?.type === 'transcript' &&
         item.transcriptCaptions.cues.length > 0,
     ),

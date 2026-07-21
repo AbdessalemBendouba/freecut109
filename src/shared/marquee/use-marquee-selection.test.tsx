@@ -1,10 +1,11 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, type ReactNode } from 'react'
 import { act, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { useMarqueeSelection, type Rect } from './use-marquee-selection'
 
 interface MarqueeHarnessProps {
+  children?: ReactNode
   onSelectionChange: (ids: string[]) => void
   onPreviewSelectionChange: (ids: string[]) => void
   onGestureEnd: (event: MouseEvent, wasActualDrag: boolean) => void
@@ -22,6 +23,7 @@ function createRect(left: number, top: number, right: number, bottom: number): R
 }
 
 function MarqueeHarness({
+  children,
   onSelectionChange,
   onPreviewSelectionChange,
   onGestureEnd,
@@ -44,7 +46,11 @@ function MarqueeHarness({
     commitSelectionOnMouseUp: true,
   })
 
-  return <div ref={containerRef} data-testid="marquee-container" />
+  return (
+    <div ref={containerRef} data-testid="marquee-container">
+      {children}
+    </div>
+  )
 }
 
 describe('useMarqueeSelection deferred commits', () => {
@@ -123,5 +129,40 @@ describe('useMarqueeSelection deferred commits', () => {
     expect(onPreviewSelectionChange).toHaveBeenLastCalledWith([])
     expect(onSelectionChange).toHaveBeenCalledTimes(1)
     expect(onSelectionChange).toHaveBeenCalledWith(['clip-1', 'clip-2'])
+  })
+
+  it('does not claim a drag that starts on a playhead handle', () => {
+    const onSelectionChange = vi.fn<(ids: string[]) => void>()
+    const onPreviewSelectionChange = vi.fn<(ids: string[]) => void>()
+    const onGestureEnd = vi.fn<(event: MouseEvent, wasActualDrag: boolean) => void>()
+    const { getByTestId } = render(
+      <MarqueeHarness
+        onSelectionChange={onSelectionChange}
+        onPreviewSelectionChange={onPreviewSelectionChange}
+        onGestureEnd={onGestureEnd}
+      >
+        <div data-playhead-handle data-testid="playhead-handle" />
+      </MarqueeHarness>,
+    )
+    const container = getByTestId('marquee-container')
+    const playheadHandle = getByTestId('playhead-handle')
+
+    Object.defineProperties(container, {
+      clientWidth: { configurable: true, value: 200 },
+      clientHeight: { configurable: true, value: 200 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => createRect(0, 0, 200, 200),
+      },
+    })
+
+    fireEvent.mouseDown(playheadHandle, { button: 0, clientX: 5, clientY: 5 })
+    fireEvent.mouseMove(document, { clientX: 100, clientY: 100 })
+    flushAnimationFrames()
+    fireEvent.mouseUp(document, { clientX: 100, clientY: 100 })
+
+    expect(onGestureEnd).not.toHaveBeenCalled()
+    expect(onPreviewSelectionChange).not.toHaveBeenCalled()
+    expect(onSelectionChange).not.toHaveBeenCalled()
   })
 })

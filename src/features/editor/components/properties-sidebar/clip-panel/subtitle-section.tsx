@@ -70,6 +70,7 @@ export const SubtitleSection = memo(function SubtitleSection({
           transcriptCaptions: NonNullable<(AudioItem | VideoItem)['transcriptCaptions']>
         } =>
           (item.type === 'video' || item.type === 'audio') &&
+          item.isReversed !== true &&
           item.transcriptCaptions?.type === 'transcript' &&
           item.transcriptCaptions.cues.length > 0,
       ),

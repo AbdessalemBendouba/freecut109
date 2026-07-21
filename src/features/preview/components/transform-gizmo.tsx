@@ -1,26 +1,35 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react'
 import type { TimelineItem } from '@/types/timeline'
+import type { CropSettings } from '@/types/transform'
 import type { GizmoHandle, Transform, CoordinateParams } from '../types/gizmo'
 import { useGizmoStore } from '../stores/gizmo-store'
 import { useItemGizmoPreview } from '../stores/use-item-gizmo-preview'
-import { useAnimatedTransform } from '@/features/preview/deps/keyframes'
+import { resolveAnimatedCrop, useAnimatedTransform } from '@/features/preview/deps/keyframes'
+import { useKeyframesStore } from '@/features/preview/deps/timeline-store'
 import { useEscapeCancel } from '../hooks/use-drag-interaction'
 import { GizmoHandles } from './gizmo-handles'
 import {
+  getEffectiveScale,
   transformToScreenBounds,
   screenToCanvas,
   getScaleCursor,
   getScreenTransformOrigin,
 } from '../utils/coordinate-transform'
-import { attachWindowTransformInteraction } from '../utils/gizmo-transform-interaction'
-import { hasCornerPin } from '@/features/preview/deps/composition-runtime'
+import {
+  attachWindowTransformInteraction,
+  suppressReleaseClick,
+} from '../utils/gizmo-transform-interaction'
+import { getSourceDimensions, hasCornerPin } from '@/features/preview/deps/composition-runtime'
 import { expandTextTransformForPreview } from '../utils/text-layout'
+import { calculateMediaCropLayout, resolveCropSettings } from '@/shared/utils/media-crop'
+import { calculateCropFromDrag, type CropEdge } from '../utils/crop-gizmo'
 
 interface TransformGizmoProps {
   item: TimelineItem
   coordParams: CoordinateParams
   onTransformStart: () => void
   onTransformEnd: (transform: Transform, operation: 'move' | 'resize' | 'rotate') => void
+  onCropEnd: (edge: CropEdge, ratio: number) => void
   /** Whether video is currently playing - gizmo shows at lower opacity during playback */
   isPlaying?: boolean
 }
@@ -34,6 +43,7 @@ export function TransformGizmo({
   coordParams,
   onTransformStart,
   onTransformEnd,
+  onCropEnd,
   isPlaying = false,
 }: TransformGizmoProps) {
   const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id)
@@ -44,16 +54,25 @@ export function TransformGizmo({
   const endInteraction = useGizmoStore((s) => s.endInteraction)
   const clearInteraction = useGizmoStore((s) => s.clearInteraction)
   const cancelInteraction = useGizmoStore((s) => s.cancelInteraction)
+  const setPropertiesPreviewNew = useGizmoStore((s) => s.setPropertiesPreviewNew)
+  const replaceItemPreview = useGizmoStore((s) => s.replaceItemPreview)
+  const [activeCropEdge, setActiveCropEdge] = useState<CropEdge | null>(null)
+  const cancelCropInteractionRef = useRef<(() => void) | null>(null)
 
-  const isInteracting = activeGizmo?.itemId === item.id
+  const isTransformInteracting = activeGizmo?.itemId === item.id
+  const isInteracting = isTransformInteracting || activeCropEdge !== null
 
   // Get animated transform using centralized hook
-  const { transform: animatedTransform } = useAnimatedTransform(item, coordParams.projectSize)
+  const { transform: animatedTransform, relativeFrame } = useAnimatedTransform(
+    item,
+    coordParams.projectSize,
+  )
+  const itemKeyframes = useKeyframesStore((state) => state.keyframesByItemId[item.id])
 
   // Get current transform (use preview during interaction, or properties panel preview)
   const currentTransform = useMemo((): Transform => {
     // If gizmo is being dragged, use its preview
-    if (isInteracting && previewTransform) {
+    if (isTransformInteracting && previewTransform) {
       return previewTransform
     }
 
@@ -89,7 +108,41 @@ export function TransformGizmo({
     }
 
     return baseTransform
-  }, [animatedTransform, isInteracting, previewTransform, item, itemPreview])
+  }, [animatedTransform, isTransformInteracting, previewTransform, item, itemPreview])
+
+  const sourceDimensions = useMemo(() => {
+    if (item.type !== 'video') return null
+    return (
+      getSourceDimensions(item) ?? {
+        width: Math.max(1, currentTransform.width),
+        height: Math.max(1, currentTransform.height),
+      }
+    )
+  }, [currentTransform.height, currentTransform.width, item])
+
+  const animatedCrop = useMemo(() => {
+    if (!sourceDimensions) return undefined
+    return resolveAnimatedCrop(item.crop, itemKeyframes, relativeFrame, sourceDimensions)
+  }, [item.crop, itemKeyframes, relativeFrame, sourceDimensions])
+
+  const currentCrop = itemPreview?.properties?.crop ?? animatedCrop
+
+  const cropLayout = useMemo(() => {
+    if (!sourceDimensions || hasCornerPin(item.cornerPin)) return null
+    return calculateMediaCropLayout(
+      sourceDimensions.width,
+      sourceDimensions.height,
+      currentTransform.width,
+      currentTransform.height,
+      currentCrop,
+    )
+  }, [
+    currentCrop,
+    currentTransform.height,
+    currentTransform.width,
+    item.cornerPin,
+    sourceDimensions,
+  ])
 
   // Convert to screen bounds, expanding for stroke width on shapes
   const screenBounds = useMemo(() => {
@@ -270,10 +323,134 @@ export function TransformGizmo({
     ],
   )
 
+  const handleCropStart = useCallback(
+    (edge: CropEdge, e: React.MouseEvent) => {
+      if (!cropLayout || !sourceDimensions) return
+      e.stopPropagation()
+      e.preventDefault()
+
+      const startPoint = toCanvasPoint(e)
+      const startCrop = resolveCropSettings(currentCrop)
+      const previousPreview = useGizmoStore.getState().preview?.[item.id] ?? null
+      let latestCrop: CropSettings = startCrop
+      let latestMouseEvent: MouseEvent | null = null
+      let animationFrame: number | null = null
+      let finished = false
+
+      const restorePreview = (deferred: boolean) => {
+        const restore = () => replaceItemPreview(item.id, previousPreview)
+        if (!deferred) {
+          restore()
+          return
+        }
+        requestAnimationFrame(() => requestAnimationFrame(restore))
+      }
+
+      const updateFromEvent = (moveEvent: MouseEvent) => {
+        latestCrop = calculateCropFromDrag({
+          edge,
+          startCrop,
+          startPoint,
+          currentPoint: toCanvasPoint(moveEvent),
+          rotation: currentTransform.rotation,
+          mediaRect: cropLayout.mediaRect,
+          sourceDimension:
+            edge === 'left' || edge === 'right' ? sourceDimensions.width : sourceDimensions.height,
+        })
+        setPropertiesPreviewNew({ [item.id]: { crop: latestCrop } })
+      }
+
+      const flushLatestEvent = () => {
+        if (animationFrame !== null) {
+          cancelAnimationFrame(animationFrame)
+          animationFrame = null
+        }
+        if (latestMouseEvent) {
+          updateFromEvent(latestMouseEvent)
+          latestMouseEvent = null
+        }
+      }
+
+      const removeListeners = () => {
+        window.removeEventListener('mousemove', handleMouseMove)
+        window.removeEventListener('mouseup', handleMouseUp)
+        cancelCropInteractionRef.current = null
+      }
+
+      const finish = (commit: boolean) => {
+        if (finished) return
+        finished = true
+        if (commit) {
+          flushLatestEvent()
+          suppressReleaseClick()
+        } else if (animationFrame !== null) cancelAnimationFrame(animationFrame)
+        removeListeners()
+        document.body.style.cursor = ''
+        setActiveCropEdge(null)
+
+        if (commit && Math.abs(latestCrop[edge]! - startCrop[edge]) > 0.000001) {
+          onCropEnd(edge, latestCrop[edge]!)
+          restorePreview(true)
+        } else {
+          restorePreview(false)
+        }
+      }
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        latestMouseEvent = moveEvent
+        if (animationFrame !== null) return
+        animationFrame = requestAnimationFrame(() => {
+          animationFrame = null
+          if (!latestMouseEvent) return
+          const eventToApply = latestMouseEvent
+          latestMouseEvent = null
+          updateFromEvent(eventToApply)
+        })
+      }
+      const handleMouseUp = (upEvent: MouseEvent) => {
+        latestMouseEvent = upEvent
+        finish(true)
+      }
+
+      cancelCropInteractionRef.current = () => finish(false)
+      setActiveCropEdge(edge)
+      onTransformStart()
+      document.body.style.cursor = getScaleCursor(
+        edge === 'left' ? 'w' : edge === 'right' ? 'e' : edge === 'top' ? 'n' : 's',
+        currentTransform.rotation,
+      )
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+    },
+    [
+      cropLayout,
+      currentCrop,
+      currentTransform.rotation,
+      item.id,
+      onCropEnd,
+      onTransformStart,
+      replaceItemPreview,
+      setPropertiesPreviewNew,
+      sourceDimensions,
+      toCanvasPoint,
+    ],
+  )
+
+  useEffect(
+    () => () => {
+      cancelCropInteractionRef.current?.()
+    },
+    [],
+  )
+
   // Handle escape key to cancel interaction
   useEscapeCancel(
     isInteracting,
     useCallback(() => {
+      if (cancelCropInteractionRef.current) {
+        cancelCropInteractionRef.current()
+        return
+      }
       cancelInteraction()
       document.body.style.cursor = ''
     }, [cancelInteraction]),
@@ -314,6 +491,17 @@ export function TransformGizmo({
         onTranslateStart={handleTranslateStart}
         onScaleStart={handleScaleStart}
         onRotateStart={handleRotateStart}
+        cropRect={
+          cropLayout
+            ? {
+                left: cropLayout.cropViewportRect.x * getEffectiveScale(coordParams),
+                top: cropLayout.cropViewportRect.y * getEffectiveScale(coordParams),
+                width: cropLayout.cropViewportRect.width * getEffectiveScale(coordParams),
+                height: cropLayout.cropViewportRect.height * getEffectiveScale(coordParams),
+              }
+            : undefined
+        }
+        onCropStart={cropLayout ? handleCropStart : undefined}
       />
     </div>
   )
