@@ -154,7 +154,6 @@ const WHISPER_LANGUAGE_NAMES = {
   ba: 'bashkir',
   jw: 'javanese',
   su: 'sundanese',
-  yue: 'cantonese',
 } as const
 
 const WHISPER_LANGUAGE_VALUES = new Set(Object.keys(WHISPER_LANGUAGE_NAMES))

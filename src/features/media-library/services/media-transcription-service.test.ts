@@ -6,6 +6,9 @@ import type { TimelineItem, TimelineTrack, VideoItem } from '@/types/timeline'
 const saveTranscriptMock = vi.fn()
 const getTranscriptMock = vi.fn()
 const useTimelineStoreGetStateMock = vi.fn()
+const useCompositionsStoreGetStateMock = vi.fn()
+const useCompositionNavigationStoreGetStateMock = vi.fn()
+const useCompositionNavigationStoreSetStateMock = vi.fn()
 const useProjectStoreGetStateMock = vi.fn()
 const useSelectionStoreGetStateMock = vi.fn()
 const usePlaybackStoreGetStateMock = vi.fn()
@@ -48,6 +51,13 @@ vi.mock('@/features/media-library/deps/timeline-stores', () => ({
   useTimelineStore: {
     getState: useTimelineStoreGetStateMock,
   },
+  useCompositionsStore: {
+    getState: useCompositionsStoreGetStateMock,
+  },
+  useCompositionNavigationStore: {
+    getState: useCompositionNavigationStoreGetStateMock,
+    setState: useCompositionNavigationStoreSetStateMock,
+  },
 }))
 
 vi.mock('@/features/media-library/deps/settings-contract', () => ({
@@ -84,6 +94,17 @@ vi.mock('@/features/media-library/deps/composition-runtime-contract', () => ({
 }))
 
 const { mediaTranscriptionService } = await import('./media-transcription-service')
+
+beforeEach(() => {
+  useCompositionsStoreGetStateMock.mockReturnValue({
+    compositions: [],
+    updateComposition: vi.fn(),
+  })
+  useCompositionNavigationStoreGetStateMock.mockReturnValue({
+    stashStack: [],
+    mainHolder: null,
+  })
+})
 
 function makeTrack(id: string, order: number): TimelineTrack {
   return {
@@ -241,8 +262,11 @@ describe('mediaTranscriptionService.insertTranscriptAsCaptions', () => {
         mediaId: 'media-1',
         clipId: 'clip-1',
       },
-      cues: [{ text: 'Hello there', startSeconds: 0, endSeconds: 2 }],
+      cues: [{ text: 'Hello there' }],
     })
+    const insertedCue = insertedItems[0]?.type === 'subtitle' ? insertedItems[0].cues[0] : undefined
+    expect(insertedCue?.startSeconds).toBeCloseTo(0)
+    expect(insertedCue?.endSeconds).toBeCloseTo(2)
     expect(removeItems).not.toHaveBeenCalled()
   })
 
@@ -574,8 +598,18 @@ describe('mediaTranscriptionService.enableTranscriptCaptions', () => {
             }),
           }),
           cues: [
-            { id: 'transcript-media-1-0', startSeconds: 0, endSeconds: 1, text: 'Fresh one' },
-            { id: 'transcript-media-1-1', startSeconds: 1, endSeconds: 3, text: 'Fresh two' },
+            {
+              id: 'transcript-media-1-0',
+              startSeconds: 0,
+              endSeconds: 1,
+              text: 'Fresh one',
+            },
+            {
+              id: 'transcript-media-1-1',
+              startSeconds: 1,
+              endSeconds: 3,
+              text: 'Fresh two',
+            },
           ],
         }),
       }),
@@ -648,6 +682,7 @@ describe('mediaTranscriptionService.transcribeMedia', () => {
     transcribeCollectMock.mockResolvedValue([{ text: ' hello ', start: 0, end: 1.2 }])
     startPreviewAudioConformMock.mockResolvedValue(undefined)
     resolvePreviewAudioConformUrlMock.mockResolvedValue(null)
+    useTimelineStoreGetStateMock.mockReturnValue({ items: [], updateItem: vi.fn() })
   })
 
   it('transcribes the original file for browser-decodable codecs', async () => {
@@ -667,6 +702,163 @@ describe('mediaTranscriptionService.transcribeMedia', () => {
     expect(transcribeMock).toHaveBeenCalledTimes(1)
     expect(transcribeMock.mock.calls[0]?.[0]).toBe(sourceFile)
     expect(saveTranscriptMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes existing canvas captions while preserving clip-owned presentation', async () => {
+    const sourceFile = new File(['audio'], 'clip.mp3', { type: 'audio/mpeg' })
+    const updateItem = vi.fn()
+    const clip: VideoItem = {
+      id: 'clip-1',
+      type: 'video',
+      trackId: 'track-video',
+      from: 0,
+      durationInFrames: 90,
+      label: 'Clip',
+      mediaId: 'media-1',
+      src: 'blob:test',
+      transcriptCaptions: {
+        type: 'transcript',
+        mediaId: 'media-1',
+        enabled: false,
+        updatedAt: 10,
+        cues: [{ id: 'old-cue', startSeconds: 0, endSeconds: 1, text: 'Old text' }],
+        style: { color: '#ffcc00', fontSize: 48 },
+      },
+    }
+    useTimelineStoreGetStateMock.mockReturnValue({ items: [clip], updateItem })
+    getMediaMock.mockResolvedValue({
+      id: 'media-1',
+      fileName: 'clip.mp3',
+      mimeType: 'audio/mpeg',
+      codec: 'mp3',
+      fileLastModified: 123,
+    })
+    getMediaFileMock.mockResolvedValue(sourceFile)
+    transcribeCollectMock.mockResolvedValue([{ text: 'Fresh text', start: 0.2, end: 1.4 }])
+
+    const transcript = await mediaTranscriptionService.transcribeMedia('media-1')
+
+    expect(updateItem).toHaveBeenCalledWith('clip-1', {
+      transcriptCaptions: expect.objectContaining({
+        enabled: false,
+        sourceTranscriptUpdatedAt: transcript.updatedAt,
+        style: { color: '#ffcc00', fontSize: 48 },
+        cues: [
+          {
+            id: 'transcript-media-1-0',
+            startSeconds: 0.2,
+            endSeconds: 1.4,
+            text: 'Fresh text',
+          },
+        ],
+      }),
+    })
+  })
+
+  it('refreshes transcript captions inside nested compositions and navigation stashes', async () => {
+    const sourceFile = new File(['audio'], 'clip.mp3', { type: 'audio/mpeg' })
+    const makeCaptionedClip = (id: string): VideoItem => ({
+      id,
+      type: 'video',
+      trackId: 'track-video',
+      from: 0,
+      durationInFrames: 90,
+      label: id,
+      mediaId: 'media-1',
+      src: 'blob:test',
+      transcriptCaptions: {
+        type: 'transcript',
+        mediaId: 'media-1',
+        enabled: true,
+        updatedAt: 10,
+        timingVersion: 3,
+        cues: [{ id: 'old-cue', startSeconds: 0, endSeconds: 1, text: 'Old text' }],
+      },
+    })
+    const nestedClip = makeCaptionedClip('nested-clip')
+    const stashedClip = makeCaptionedClip('stashed-clip')
+    const updateComposition = vi.fn()
+    useCompositionsStoreGetStateMock.mockReturnValue({
+      compositions: [
+        {
+          id: 'outer-comp',
+          items: [
+            {
+              id: 'inner-wrapper',
+              type: 'composition',
+              trackId: 'track-video',
+              from: 0,
+              durationInFrames: 90,
+              label: 'Inner',
+              compositionId: 'inner-comp',
+            },
+          ],
+        },
+        { id: 'inner-comp', items: [nestedClip] },
+      ],
+      updateComposition,
+    })
+    useCompositionNavigationStoreGetStateMock.mockReturnValue({
+      stashStack: [{ compositionId: 'inner-comp', items: [stashedClip] }],
+      mainHolder: null,
+    })
+    useTimelineStoreGetStateMock.mockReturnValue({ items: [], updateItem: vi.fn() })
+    getMediaMock.mockResolvedValue({
+      id: 'media-1',
+      fileName: 'clip.mp3',
+      mimeType: 'audio/mpeg',
+      codec: 'mp3',
+      fileLastModified: 123,
+    })
+    getMediaFileMock.mockResolvedValue(sourceFile)
+    transcribeCollectMock.mockResolvedValue([
+      {
+        text: 'Fresh nested phrase',
+        start: 0.2,
+        end: 1.4,
+        words: [
+          { text: 'Fresh', start: 0.2, end: 0.5 },
+          { text: 'nested', start: 0.53, end: 0.9 },
+          { text: 'phrase', start: 0.93, end: 1.4 },
+        ],
+      },
+    ])
+
+    const transcript = await mediaTranscriptionService.transcribeMedia('media-1')
+
+    expect(updateComposition).toHaveBeenCalledTimes(1)
+    expect(updateComposition).toHaveBeenCalledWith('inner-comp', {
+      items: [
+        expect.objectContaining({
+          id: 'nested-clip',
+          transcriptCaptions: expect.objectContaining({
+            sourceTranscriptUpdatedAt: transcript.updatedAt,
+            timingVersion: 4,
+            cues: [
+              {
+                id: 'transcript-media-1-0',
+                startSeconds: 0.2,
+                endSeconds: 1.4,
+                text: 'Fresh nested phrase',
+              },
+            ],
+          }),
+        }),
+      ],
+    })
+    expect(useCompositionNavigationStoreSetStateMock).toHaveBeenCalledWith({
+      stashStack: [
+        expect.objectContaining({
+          items: [
+            expect.objectContaining({
+              id: 'stashed-clip',
+              transcriptCaptions: expect.objectContaining({ timingVersion: 4 }),
+            }),
+          ],
+        }),
+      ],
+      mainHolder: null,
+    })
   })
 
   it('splits word-timestamped Whisper chunks into readable caption segments', async () => {
@@ -708,13 +900,110 @@ describe('mediaTranscriptionService.transcribeMedia', () => {
 
     const saved = saveTranscriptMock.mock.calls[0]?.[0] as MediaTranscript
     expect(saved.segments.length).toBeGreaterThan(1)
-    expect(saved.segments.every((segment) => segment.text.length <= 72)).toBe(true)
+    expect(saved.segments.every((segment) => segment.text.length <= 42)).toBe(true)
+    expect(saved.segments.every((segment) => segment.end - segment.start <= 2.2)).toBe(true)
     expect(saved.segments.every((segment) => (segment.words?.length ?? 0) > 0)).toBe(true)
     expect(saved.segments.map((segment) => segment.text)).toEqual([
       'my sentences.',
-      "So once again, I'm going to talk about the Netherlands in this",
-      'video.',
+      "So once again, I'm going to talk about",
+      'the Netherlands in this video.',
     ])
+  })
+
+  it('groups nearby words into phrases and breaks at an audible pause', async () => {
+    const sourceFile = new File(['audio'], 'clip.mp3', { type: 'audio/mpeg' })
+    getMediaMock.mockResolvedValue({
+      id: 'media-1',
+      fileName: 'clip.mp3',
+      mimeType: 'audio/mpeg',
+      codec: 'mp3',
+      fileLastModified: 123,
+    })
+    getMediaFileMock.mockResolvedValue(sourceFile)
+    transcribeCollectMock.mockResolvedValue([
+      {
+        text: 'take a look over there',
+        start: 4,
+        end: 5.4,
+        words: [
+          { text: 'take', start: 4, end: 4.24 },
+          { text: 'a', start: 4.27, end: 4.36 },
+          { text: 'look', start: 4.39, end: 4.66 },
+          { text: 'over', start: 4.9, end: 5.12 },
+          { text: 'there', start: 5.15, end: 5.4 },
+        ],
+      },
+    ])
+
+    await mediaTranscriptionService.transcribeMedia('media-1')
+
+    const saved = saveTranscriptMock.mock.calls[0]?.[0] as MediaTranscript
+    expect(saved.segments.map((segment) => segment.text)).toEqual(['take a look', 'over there'])
+    expect(saved.segments.map((segment) => segment.start)).toEqual([4, 4.9])
+    expect(saved.segments.every((segment) => segment.words!.length >= 2)).toBe(true)
+  })
+
+  it('does not merge a trailing one-word caption across a long pause', async () => {
+    const sourceFile = new File(['audio'], 'clip.mp3', { type: 'audio/mpeg' })
+    getMediaMock.mockResolvedValue({
+      id: 'media-1',
+      fileName: 'clip.mp3',
+      mimeType: 'audio/mpeg',
+      codec: 'mp3',
+      fileLastModified: 123,
+    })
+    getMediaFileMock.mockResolvedValue(sourceFile)
+    transcribeCollectMock.mockResolvedValue([
+      {
+        text: 'short phrase isolated',
+        start: 0,
+        end: 10.3,
+        words: [
+          { text: 'short', start: 0, end: 0.2 },
+          { text: 'phrase', start: 0.22, end: 0.5 },
+          { text: 'isolated', start: 10, end: 10.3 },
+        ],
+      },
+    ])
+
+    await mediaTranscriptionService.transcribeMedia('media-1')
+
+    const saved = saveTranscriptMock.mock.calls[0]?.[0] as MediaTranscript
+    expect(saved.segments.map((segment) => segment.text)).toEqual(['short phrase', 'isolated'])
+    expect(saved.segments.every((segment) => segment.end - segment.start <= 2.2)).toBe(true)
+  })
+
+  it('keeps timestamped CJK captions as short phrases rather than individual words', async () => {
+    const sourceFile = new File(['audio'], 'clip.mp3', { type: 'audio/mpeg' })
+    getMediaMock.mockResolvedValue({
+      id: 'media-1',
+      fileName: 'clip.mp3',
+      mimeType: 'audio/mpeg',
+      codec: 'mp3',
+      fileLastModified: 123,
+    })
+    getMediaFileMock.mockResolvedValue(sourceFile)
+    const characters = ['難', '知', '足', '看', '似', '個', '燕', '陽', '蝴', '蝶']
+    transcribeCollectMock.mockResolvedValue([
+      {
+        text: characters.join(''),
+        start: 10,
+        end: 13.95,
+        words: characters.map((text, index) => ({
+          text,
+          start: 10 + index * 0.4,
+          end: 10.35 + index * 0.4,
+        })),
+      },
+    ])
+
+    await mediaTranscriptionService.transcribeMedia('media-1')
+
+    const saved = saveTranscriptMock.mock.calls[0]?.[0] as MediaTranscript
+    expect(saved.segments.map((segment) => segment.text)).toEqual(['難知足看似', '個燕陽蝴蝶'])
+    expect(saved.segments.map((segment) => segment.start)).toEqual([10, 12])
+    expect(saved.segments.every((segment) => segment.words!.length > 1)).toBe(true)
+    expect(saved.segments.every((segment) => segment.end - segment.start <= 2.2)).toBe(true)
   })
 
   it('transcribes a conformed wav for custom-decoded codecs like pcm-s16be', async () => {

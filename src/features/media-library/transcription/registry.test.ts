@@ -17,7 +17,7 @@ describe('mediaTranscriptionAdapterRegistry', () => {
     expect(getDefaultMediaTranscriptionModel()).toBe('parakeet-tdt-v3')
     expect(getMediaTranscriptionModelOptions()).toContainEqual({
       value: 'whisper-small',
-      label: 'Small',
+      label: 'Whisper Small',
     })
     expect(getMediaTranscriptionModelOptions()).not.toContainEqual({
       value: 'whisper-tiny',
@@ -26,6 +26,6 @@ describe('mediaTranscriptionAdapterRegistry', () => {
   })
 
   it('formats model labels through the active adapter', () => {
-    expect(getMediaTranscriptionModelLabel('whisper-large')).toBe('Large v3 Turbo')
+    expect(getMediaTranscriptionModelLabel('whisper-large')).toBe('Whisper Large v3 Turbo')
   })
 })

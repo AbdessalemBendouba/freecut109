@@ -31,6 +31,7 @@ describe('whisper-settings', () => {
 
   it('falls back to auto-detect when a stored language is unsupported', () => {
     expect(getWhisperLanguageSelectValue('english')).toBe(WHISPER_AUTO_LANGUAGE_VALUE)
+    expect(getWhisperLanguageSelectValue('yue')).toBe(WHISPER_AUTO_LANGUAGE_VALUE)
   })
 
   it('includes quantization guidance for memory tradeoffs', () => {

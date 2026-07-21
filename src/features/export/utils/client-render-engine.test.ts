@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vite-plus/test'
 import type { TimelineItem } from '@/types/timeline'
 import type { SubCompRenderData } from './canvas-item-renderer'
 import {
+  buildSubCompositionRenderTracks,
   collectPriorityMediaItemIds,
   collectPriorityMediaItemIdsForFrames,
   collectPriorityNestedVideoItemIds,
@@ -14,6 +15,74 @@ import {
   selectPreviewVideoSource,
   subCompositionRenderDataHasGpuEffects,
 } from './client-render-engine'
+
+describe('nested transcript captions', () => {
+  it('adds a virtual transcript track when a clip inside a compound has captions enabled', () => {
+    const video = {
+      id: 'nested-video',
+      type: 'video',
+      trackId: 'video-track',
+      from: 0,
+      durationInFrames: 90,
+      label: 'Nested video',
+      mediaId: 'media-1',
+      src: 'blob:nested',
+      sourceStart: 0,
+      sourceEnd: 90,
+      sourceDuration: 90,
+      sourceFps: 30,
+      transcriptCaptions: {
+        type: 'transcript',
+        mediaId: 'media-1',
+        enabled: true,
+        updatedAt: 20,
+        cues: [
+          {
+            id: 'transcript-media-1-0',
+            startSeconds: 0.2,
+            endSeconds: 1.4,
+            text: 'Nested phrase',
+          },
+        ],
+      },
+    } satisfies TimelineItem
+    const tracks = buildSubCompositionRenderTracks({
+      fps: 30,
+      width: 1920,
+      height: 1080,
+      items: [video],
+      tracks: [
+        {
+          id: 'video-track',
+          name: 'Video',
+          order: 1,
+          height: 64,
+          locked: false,
+          visible: true,
+          muted: false,
+          solo: false,
+          items: [],
+        },
+      ],
+    })
+
+    expect(tracks).toHaveLength(2)
+    const transcriptTrack = tracks.find((track) =>
+      track.items.some((item) => item.type === 'subtitle'),
+    )
+    expect(transcriptTrack?.items).toEqual([
+      expect.objectContaining({
+        type: 'subtitle',
+        source: expect.objectContaining({
+          type: 'transcript',
+          mediaId: 'media-1',
+          clipId: 'nested-video',
+        }),
+        cues: [expect.objectContaining({ text: 'Nested phrase' })],
+      }),
+    ])
+  })
+})
 
 describe('comparison preview resource selection', () => {
   it('uses nested proxy media for preview consumers and source media otherwise', () => {

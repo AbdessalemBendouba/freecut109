@@ -277,12 +277,15 @@
       "language": "Sprache",
       "model": "Modell",
       "noLanguages": "Keine Sprachen verfügbar.",
+      "parakeetAutoDetects": "Erkennt {{count}} europäische Sprachen automatisch.",
+      "parakeetChooseWhisper": "Wähle für Chinesisch, Japanisch, Koreanisch und andere Sprachen ein Whisper-Modell.",
       "progressAria": "Transkriptionsfortschritt",
       "quantization": "Quantisierung",
       "refreshTitle": "Transkript aktualisieren",
       "searchLanguages": "Sprachen suchen",
       "start": "Starten",
-      "stop": "Stoppen"
+      "stop": "Stoppen",
+      "whisperLanguageHint": "Wähle für bessere Genauigkeit die gesprochene Sprache oder nutze die automatische Erkennung."
     },
     "type": {
       "audio": "Audio",

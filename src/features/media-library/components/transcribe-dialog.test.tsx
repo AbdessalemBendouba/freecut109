@@ -38,14 +38,22 @@ vi.mock('@/shared/state/playback', () => ({
 }))
 
 vi.mock('../transcription/registry', () => ({
-  getMediaTranscriptionModelOptions: () => [{ value: 'whisper-base', label: 'Whisper Base' }],
+  getMediaTranscriptionModelOptions: () => [
+    { value: 'parakeet-tdt-v3', label: 'Parakeet (fast)' },
+    { value: 'whisper-base', label: 'Whisper Base' },
+    { value: 'whisper-large', label: 'Whisper Large v3 Turbo' },
+  ],
 }))
 
 vi.mock('@/shared/utils/whisper-settings', () => ({
-  getWhisperLanguageSelectValue: (value: string) => value,
-  getWhisperLanguageSettingValue: (value: string) => value,
+  getWhisperLanguageSelectValue: (value: string) => value || 'auto',
+  getWhisperLanguageSettingValue: (value: string) => (value === 'auto' ? '' : value),
   normalizeSelectableWhisperModel: (value: string) => value,
-  WHISPER_LANGUAGE_OPTIONS: [{ value: '', label: 'Auto-detect' }],
+  WHISPER_AUTO_LANGUAGE_VALUE: 'auto',
+  WHISPER_LANGUAGE_OPTIONS: [
+    { value: 'auto', label: 'Auto-detect' },
+    { value: 'zh', label: 'Chinese' },
+  ],
   WHISPER_QUANTIZATION_OPTIONS: [{ value: 'hybrid', label: 'Hybrid' }],
 }))
 
@@ -66,20 +74,25 @@ vi.mock('@/components/ui/button', () => ({
 }))
 
 vi.mock('@/components/ui/label', () => ({
-  Label: ({ children }: { children: ReactNode }) => <label>{children}</label>,
+  Label: ({ children, htmlFor }: { children: ReactNode; htmlFor?: string }) => (
+    <label htmlFor={htmlFor}>{children}</label>
+  ),
 }))
 
 vi.mock('@/components/ui/combobox', () => ({
   Combobox: ({
+    id,
     value,
     onValueChange,
     disabled,
   }: {
+    id?: string
     value: string
     onValueChange: (value: string) => void
     disabled?: boolean
   }) => (
     <input
+      id={id}
       aria-label="Language"
       disabled={disabled}
       value={value}
@@ -185,6 +198,9 @@ import { TranscribeDialog } from './transcribe-dialog'
 describe('TranscribeDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    settingsStoreState.defaultWhisperModel = 'whisper-base'
+    settingsStoreState.defaultWhisperQuantization = 'hybrid'
+    settingsStoreState.defaultWhisperLanguage = ''
   })
 
   it('clears background skim and scrub previews when opened', () => {
@@ -257,5 +273,70 @@ describe('TranscribeDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('shows Parakeet language coverage instead of a language selector', () => {
+    settingsStoreState.defaultWhisperModel = 'parakeet-tdt-v3'
+    settingsStoreState.defaultWhisperLanguage = 'zh'
+    const onStart = vi.fn()
+
+    render(
+      <TranscribeDialog
+        open
+        onOpenChange={vi.fn()}
+        fileName="clip.mp4"
+        hasTranscript={false}
+        isRunning={false}
+        progressPercent={null}
+        progressLabel="Idle"
+        onStart={onStart}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText('Automatically detects 25 European languages.')).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'For Chinese, Japanese, Korean, and other languages, choose a Whisper model.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByLabelText('Language')).not.toBeInTheDocument()
+    expect(screen.queryByText('Quantization')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start' }))
+    expect(onStart).toHaveBeenCalledWith({
+      model: 'parakeet-tdt-v3',
+      quantization: 'hybrid',
+      language: '',
+    })
+  })
+
+  it('clears a Whisper-only language when switching to Parakeet', () => {
+    settingsStoreState.defaultWhisperLanguage = 'zh'
+
+    render(
+      <TranscribeDialog
+        open
+        onOpenChange={vi.fn()}
+        fileName="clip.mp4"
+        hasTranscript={false}
+        isRunning={false}
+        progressPercent={null}
+        progressLabel="Idle"
+        onStart={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByLabelText('Language')).toHaveValue('zh')
+    const modelAndQuantizationSelects = screen.getAllByRole('combobox')
+    expect(modelAndQuantizationSelects).toHaveLength(2)
+    fireEvent.change(modelAndQuantizationSelects[0]!, {
+      target: { value: 'parakeet-tdt-v3' },
+    })
+
+    expect(screen.queryByLabelText('Language')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'whisper-large' } })
+    expect(screen.getByLabelText('Language')).toHaveValue('auto')
   })
 })

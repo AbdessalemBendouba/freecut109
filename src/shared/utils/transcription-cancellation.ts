@@ -42,4 +42,4 @@ export function isTranscriptionOutOfMemoryError(error: unknown): boolean {
 }
 
 export const TRANSCRIPTION_OOM_HINT =
-  'The model ran out of memory. Try a lower quantization (q8 or q4) or a smaller model in Settings → Whisper, then try again.'
+  'The model ran out of memory. Try Whisper Small or a lower quantization (q8 or q4), then try again.'

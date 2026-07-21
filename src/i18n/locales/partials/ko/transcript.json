@@ -1,5 +1,7 @@
 {
   "transcript": {
+    "sourceAnalyzed": "전체 소스 분석 완료",
+    "detectedRange": "{{start}}~{{end}} 구간에서 음성을 감지했습니다. 무음 또는 음악만 있는 구간은 표시되지 않습니다.",
     "title": "전사",
     "tabLabel": "전사",
     "emptySelection": "전사를 편집하려면 비디오 또는 오디오 클립을 선택하세요.",
@@ -8,6 +10,9 @@
     "previousMatch": "이전 일치",
     "clearSearch": "검색 지우기",
     "noTranscript": "이 클립에는 아직 전사가 없습니다.",
+    "transcriptionFailed": "전사에 실패했습니다.",
+    "tryAgain": "다시 시도",
+    "largeTurboFallback": "Large Turbo의 메모리가 부족합니다. Whisper Small로 다시 시도 중…",
     "generate": "전사 생성",
     "transcribing": "전사 중…",
     "loading": "전사 불러오는 중…",

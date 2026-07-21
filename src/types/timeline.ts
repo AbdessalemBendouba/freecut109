@@ -33,6 +33,10 @@ export interface TimelineTranscriptCaptions {
   mediaId: string
   enabled: boolean
   updatedAt: number
+  /** Version of the stored media transcript these cues were generated from. */
+  sourceTranscriptUpdatedAt?: number
+  /** Bump when transcript-to-caption phrase timing rules change. */
+  timingVersion?: number
   /** Source-relative transcript cues. Render/export trims them to the clip. */
   cues: TimelineTranscriptCaptionCue[]
   style?: TimelineTranscriptCaptionStyle

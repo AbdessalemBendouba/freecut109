@@ -7,6 +7,7 @@ import {
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useSelectionStore } from '@/shared/state/selection'
 import { createLogger } from '@/shared/logging/logger'
+import { joinTranscriptWords } from '@/shared/utils/transcript-text'
 import { DEFAULT_PROJECT_HEIGHT, DEFAULT_PROJECT_WIDTH } from '@/shared/projects/defaults'
 import type { MediaTranscript, MediaTranscriptModel, MediaTranscriptSegment } from '@/types/storage'
 import type {
@@ -37,6 +38,8 @@ import {
 import { useProjectStore } from '@/features/media-library/deps/projects'
 import {
   removeTimelineItemsExact,
+  useCompositionNavigationStore,
+  useCompositionsStore,
   useTimelineStore,
 } from '@/features/media-library/deps/timeline-stores'
 import { useSettingsStore } from '@/features/media-library/deps/settings-contract'
@@ -54,11 +57,14 @@ import { TRANSCRIPTION_CANCELLED_MESSAGE } from '@/shared/utils/transcription-ca
 
 const logger = createLogger('MediaTranscriptionService')
 const DEFAULT_MODEL: MediaTranscriptModel = DEFAULT_WHISPER_MODEL
-const MAX_TRANSCRIPT_CAPTION_CHARS = 72
-const MAX_TRANSCRIPT_CAPTION_WORDS = 12
-const MAX_TRANSCRIPT_CAPTION_SECONDS = 4.2
-const PREFERRED_TRANSCRIPT_CAPTION_SECONDS = 2.8
-const TRANSCRIPT_CAPTION_BREAK_GAP_SECONDS = 0.55
+const MAX_TRANSCRIPT_CAPTION_CHARS = 42
+const MAX_TRANSCRIPT_CAPTION_WORDS = 8
+const MAX_TRANSCRIPT_CAPTION_SECONDS = 2.2
+const PREFERRED_TRANSCRIPT_CAPTION_SECONDS = 1.4
+const MIN_TRANSCRIPT_CAPTION_WORDS = 2
+// A short but audible pause is a better phrase boundary than a blanket timing offset.
+const TRANSCRIPT_CAPTION_BREAK_GAP_SECONDS = 0.18
+const TRANSCRIPT_CAPTION_TIMING_VERSION = 4
 const SENTENCE_END_PATTERN = /[.!?。！？]$/
 const DEFAULT_QUANTIZATION = DEFAULT_WHISPER_QUANTIZATION
 
@@ -142,10 +148,7 @@ function buildTranscriptSegmentFromWords(
   if (!first || !last) return null
 
   return {
-    text: validWords
-      .map((word) => word.text)
-      .join(' ')
-      .trim(),
+    text: joinTranscriptWords(validWords.map((word) => word.text)),
     start: first.start,
     end: last.end,
     words: validWords,
@@ -160,18 +163,25 @@ function shouldBreakTranscriptCaption(
   const previous = currentWords.at(-1)
   if (!first || !previous) return false
 
-  const nextText = [...currentWords, nextWord]
-    .map((word) => word.text)
-    .join(' ')
-    .trim()
+  const nextText = joinTranscriptWords([...currentWords, nextWord].map((word) => word.text))
   const currentDuration = previous.end - first.start
   const nextDuration = nextWord.end - first.start
   const gap = nextWord.start - previous.end
 
-  if (gap >= TRANSCRIPT_CAPTION_BREAK_GAP_SECONDS) return true
-  if (currentWords.length >= MAX_TRANSCRIPT_CAPTION_WORDS) return true
-  if (nextText.length > MAX_TRANSCRIPT_CAPTION_CHARS) return true
-  if (nextDuration > MAX_TRANSCRIPT_CAPTION_SECONDS) return true
+  if (
+    currentWords.length >= MIN_TRANSCRIPT_CAPTION_WORDS &&
+    gap >= TRANSCRIPT_CAPTION_BREAK_GAP_SECONDS
+  ) {
+    return true
+  }
+  if (
+    currentWords.length >= MIN_TRANSCRIPT_CAPTION_WORDS &&
+    (currentWords.length >= MAX_TRANSCRIPT_CAPTION_WORDS ||
+      nextText.length > MAX_TRANSCRIPT_CAPTION_CHARS ||
+      nextDuration > MAX_TRANSCRIPT_CAPTION_SECONDS)
+  ) {
+    return true
+  }
   if (
     currentDuration >= PREFERRED_TRANSCRIPT_CAPTION_SECONDS &&
     SENTENCE_END_PATTERN.test(previous.text)
@@ -180,6 +190,28 @@ function shouldBreakTranscriptCaption(
   }
 
   return false
+}
+
+function transcriptCaptionGroupFitsLimits(
+  words: ReturnType<typeof sanitizeTranscriptWord>[],
+): boolean {
+  const first = words[0]
+  const last = words.at(-1)
+  if (!first || !last) return false
+
+  const hasPhraseBreakingGap = words.some((word, index) => {
+    const previous = words[index - 1]
+    return (
+      previous !== undefined && word.start - previous.end >= TRANSCRIPT_CAPTION_BREAK_GAP_SECONDS
+    )
+  })
+
+  return (
+    words.length <= MAX_TRANSCRIPT_CAPTION_WORDS &&
+    joinTranscriptWords(words.map((word) => word.text)).length <= MAX_TRANSCRIPT_CAPTION_CHARS &&
+    last.end - first.start <= MAX_TRANSCRIPT_CAPTION_SECONDS &&
+    !hasPhraseBreakingGap
+  )
 }
 
 function segmentTranscriptForCaptions(segments: TranscriptSegment[]): MediaTranscriptSegment[] {
@@ -198,20 +230,41 @@ function segmentTranscriptForCaptions(segments: TranscriptSegment[]): MediaTrans
     }))
   }
 
-  const captionSegments: MediaTranscriptSegment[] = []
+  const captionWordGroups: (typeof words)[] = []
   let currentWords: typeof words = []
 
   for (const word of words) {
     if (currentWords.length > 0 && shouldBreakTranscriptCaption(currentWords, word)) {
-      const segment = buildTranscriptSegmentFromWords(currentWords)
-      if (segment) captionSegments.push(segment)
+      captionWordGroups.push(currentWords)
       currentWords = []
     }
     currentWords.push(word)
   }
 
-  const trailingSegment = buildTranscriptSegmentFromWords(currentWords)
-  if (trailingSegment) captionSegments.push(trailingSegment)
+  if (currentWords.length > 0) captionWordGroups.push(currentWords)
+
+  // Avoid ending on a one-word flash. Rebalance with the preceding phrase when possible.
+  const trailingGroup = captionWordGroups.at(-1)
+  const previousGroup = captionWordGroups.at(-2)
+  if (trailingGroup?.length === 1 && previousGroup) {
+    if (previousGroup.length >= 3) {
+      const shortenedPreviousGroup = previousGroup.slice(0, -1)
+      const rebalancedTrailingGroup = [previousGroup.at(-1)!, ...trailingGroup]
+      if (
+        transcriptCaptionGroupFitsLimits(shortenedPreviousGroup) &&
+        transcriptCaptionGroupFitsLimits(rebalancedTrailingGroup)
+      ) {
+        captionWordGroups.splice(-2, 2, shortenedPreviousGroup, rebalancedTrailingGroup)
+      }
+    } else if (transcriptCaptionGroupFitsLimits([...previousGroup, ...trailingGroup])) {
+      previousGroup.push(...trailingGroup)
+      captionWordGroups.pop()
+    }
+  }
+
+  const captionSegments = captionWordGroups
+    .map(buildTranscriptSegmentFromWords)
+    .filter((segment): segment is MediaTranscriptSegment => segment !== null)
 
   segments.forEach((segment, index) => {
     if ((sanitizedBySegment[index]?.length ?? 0) > 0) return
@@ -221,6 +274,67 @@ function segmentTranscriptForCaptions(segments: TranscriptSegment[]): MediaTrans
   })
 
   return captionSegments.toSorted((left, right) => left.start - right.start)
+}
+
+function buildTimelineTranscriptCaptionCues(
+  mediaId: string,
+  segments: readonly MediaTranscriptSegment[],
+): TimelineTranscriptCaptionCue[] {
+  return segmentTranscriptForCaptions([...segments]).map((segment, index) => ({
+    id: `transcript-${mediaId}-${index}`,
+    startSeconds: segment.start,
+    endSeconds: segment.end,
+    text: segment.text,
+  }))
+}
+
+function buildSyncedTranscriptCaptionItem(
+  item: TimelineItem,
+  mediaId: string,
+  transcript: MediaTranscript,
+  sourceCues: TimelineTranscriptCaptionCue[],
+): TimelineItem | null {
+  if (
+    (item.type !== 'video' && item.type !== 'audio') ||
+    item.mediaId !== mediaId ||
+    item.transcriptCaptions?.type !== 'transcript' ||
+    item.transcriptCaptions.mediaId !== mediaId ||
+    (item.transcriptCaptions.sourceTranscriptUpdatedAt === transcript.updatedAt &&
+      item.transcriptCaptions.timingVersion === TRANSCRIPT_CAPTION_TIMING_VERSION)
+  ) {
+    return null
+  }
+
+  return {
+    ...item,
+    transcriptCaptions: {
+      ...item.transcriptCaptions,
+      cues: sourceCues,
+      sourceTranscriptUpdatedAt: transcript.updatedAt,
+      timingVersion: TRANSCRIPT_CAPTION_TIMING_VERSION,
+      updatedAt: Date.now(),
+    },
+  }
+}
+
+function syncTranscriptCaptionItems(
+  items: readonly TimelineItem[],
+  mediaId: string,
+  transcript: MediaTranscript,
+  sourceCues: TimelineTranscriptCaptionCue[],
+): { items: TimelineItem[]; updatedClipCount: number } {
+  let updatedClipCount = 0
+  const nextItems = items.map((item) => {
+    const updatedItem = buildSyncedTranscriptCaptionItem(item, mediaId, transcript, sourceCues)
+    if (!updatedItem) return item
+    updatedClipCount += 1
+    return updatedItem
+  })
+
+  return {
+    items: updatedClipCount > 0 ? nextItems : [...items],
+    updatedClipCount,
+  }
 }
 
 class MediaTranscriptionService {
@@ -473,17 +587,14 @@ class MediaTranscriptionService {
       model: job.model,
       language: job.language,
       quantization: job.quantization,
-      text: segments
-        .map((segment) => segment.text.trim())
-        .filter(Boolean)
-        .join(' ')
-        .trim(),
+      text: joinTranscriptWords(segments.map((segment) => segment.text)),
       segments: segmentTranscriptForCaptions(segments),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     }
 
     await saveTranscript(transcript)
+    this.syncExistingTranscriptCaptions(mediaId, transcript)
     this.emitTranscriptChanged(mediaId)
     logger.info('Saved transcript', {
       mediaId,
@@ -491,6 +602,65 @@ class MediaTranscriptionService {
       model: getMediaTranscriptionModelLabel(transcript.model),
     })
     return transcript
+  }
+
+  /**
+   * Refresh transcript-derived cues already attached to timeline clips. Caption
+   * visibility and styling remain clip-owned and are intentionally preserved.
+   */
+  syncExistingTranscriptCaptions(mediaId: string, transcript: MediaTranscript): number {
+    const timeline = useTimelineStore.getState()
+    const sourceCues = buildTimelineTranscriptCaptionCues(mediaId, transcript.segments)
+    let updatedClipCount = 0
+
+    for (const item of timeline.items ?? []) {
+      const updatedItem = buildSyncedTranscriptCaptionItem(item, mediaId, transcript, sourceCues)
+      if (!updatedItem) continue
+      timeline.updateItem?.(item.id, {
+        transcriptCaptions: updatedItem.transcriptCaptions,
+      } as Partial<TimelineItem>)
+      updatedClipCount += 1
+    }
+
+    // Compound contents are stored outside the active timeline. Refresh every
+    // registered composition so deeply nested and reused instances cannot keep
+    // an older transcript snapshot.
+    const compositionsState = useCompositionsStore.getState()
+    for (const composition of compositionsState.compositions) {
+      const synced = syncTranscriptCaptionItems(
+        composition.items,
+        mediaId,
+        transcript,
+        sourceCues,
+      )
+      if (synced.updatedClipCount === 0) continue
+      compositionsState.updateComposition(composition.id, { items: synced.items })
+      updatedClipCount += synced.updatedClipCount
+    }
+
+    // While drilling through compounds, parent timelines are held in navigation
+    // stashes and can later overwrite the composition registry. Keep those
+    // snapshots in sync too.
+    const navigationState = useCompositionNavigationStore.getState()
+    let updatedStashedClipCount = 0
+    const syncStash = <T extends { items: TimelineItem[] }>(stash: T): T => {
+      const synced = syncTranscriptCaptionItems(stash.items, mediaId, transcript, sourceCues)
+      updatedStashedClipCount += synced.updatedClipCount
+      return synced.updatedClipCount > 0 ? { ...stash, items: synced.items } : stash
+    }
+    const nextStashStack = navigationState.stashStack.map(syncStash)
+    const nextMainHolder = navigationState.mainHolder
+      ? syncStash(navigationState.mainHolder)
+      : null
+    if (updatedStashedClipCount > 0) {
+      useCompositionNavigationStore.setState({
+        stashStack: nextStashStack,
+        mainHolder: nextMainHolder,
+      })
+      updatedClipCount += updatedStashedClipCount
+    }
+
+    return updatedClipCount
   }
 
   private async resolveTranscriptionBlob(
@@ -592,12 +762,7 @@ class MediaTranscriptionService {
 
       const clipCaptionItem = buildSubtitleSegmentForClip({
         trackId: targetTrack.id,
-        cues: transcript.segments.map((segment, index) => ({
-          id: `transcript-${clip.id}-${index}`,
-          startSeconds: segment.start,
-          endSeconds: segment.end,
-          text: segment.text,
-        })),
+        cues: buildTimelineTranscriptCaptionCues(clip.id, transcript.segments),
         clip,
         timelineFps: timeline.fps,
         canvasWidth,
@@ -670,14 +835,7 @@ class MediaTranscriptionService {
       canvasWidth,
       canvasHeight,
     )
-    const sourceCues: TimelineTranscriptCaptionCue[] = transcript.segments.map(
-      (segment, index) => ({
-        id: `transcript-${mediaId}-${index}`,
-        startSeconds: segment.start,
-        endSeconds: segment.end,
-        text: segment.text,
-      }),
-    )
+    const sourceCues = buildTimelineTranscriptCaptionCues(mediaId, transcript.segments)
     const generatedCaptionIdsToRemove = options.replaceExisting
       ? new Set(
           targetClips.flatMap((clip) =>
@@ -715,6 +873,8 @@ class MediaTranscriptionService {
           mediaId,
           enabled: true,
           updatedAt: Date.now(),
+          sourceTranscriptUpdatedAt: transcript.updatedAt,
+          timingVersion: TRANSCRIPT_CAPTION_TIMING_VERSION,
           cues: sourceCues,
           ...(styleTemplate ? { style: styleTemplate } : {}),
         },

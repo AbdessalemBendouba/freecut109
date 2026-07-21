@@ -277,12 +277,15 @@
       "language": "Dil",
       "model": "Model",
       "noLanguages": "Dil yok",
+      "parakeetAutoDetects": "{{count}} Avrupa dilini otomatik olarak algılar.",
+      "parakeetChooseWhisper": "Çince, Japonca, Korece ve diğer diller için bir Whisper modeli seçin.",
       "progressAria": "İlerleme",
       "quantization": "Niceleme",
       "refreshTitle": "Transkripsiyonu yenile",
       "searchLanguages": "Dillerde ara",
       "start": "Başlat",
-      "stop": "Durdur"
+      "stop": "Durdur",
+      "whisperLanguageHint": "Daha iyi doğruluk için konuşulan dili seçin veya otomatik algılamayı kullanın."
     },
     "type": {
       "audio": "Ses",

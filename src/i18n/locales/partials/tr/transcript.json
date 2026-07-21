@@ -1,5 +1,7 @@
 {
   "transcript": {
+    "sourceAnalyzed": "Kaynağın tamamı analiz edildi",
+    "detectedRange": "{{start}}–{{end}} arasında ses algılandı. Sessiz veya yalnızca müzik içeren bölümler gösterilmez.",
     "title": "Transkript",
     "tabLabel": "Transkript",
     "emptySelection": "Transkriptini düzenlemek için bir video veya ses klibi seçin.",
@@ -8,6 +10,9 @@
     "previousMatch": "Önceki eşleşme",
     "clearSearch": "Aramayı temizle",
     "noTranscript": "Bu klibin henüz transkripti yok.",
+    "transcriptionFailed": "Yazıya dökme başarısız oldu.",
+    "tryAgain": "Tekrar dene",
+    "largeTurboFallback": "Large Turbo için bellek yetersiz kaldı. Whisper Small ile yeniden deneniyor…",
     "generate": "Transkript oluştur",
     "transcribing": "Yazıya dökülüyor…",
     "loading": "Transkript yükleniyor…",
