@@ -10,7 +10,7 @@ export {
   getDefaultGeneratedLayerDurationInFrames,
   isTimelineTemplateDragData,
   buildSubCompositionInput,
-  collectSubCompositionMediaIds,
+  buildSubCompositionPreviewSignature,
   createClassicTrack,
   createScrubThrottleState,
   findBestCanvasDropPlacement,
@@ -38,5 +38,4 @@ export {
   useWaveform,
 } from '@/features/timeline/contracts/preview'
 
-export const importFilmstripCache = () =>
-  import('@/features/timeline/services/filmstrip-cache')
+export const importFilmstripCache = () => import('@/features/timeline/services/filmstrip-cache')

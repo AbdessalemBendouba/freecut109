@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { render, screen, waitFor } from '@testing-library/react'
 import type { CompositionInputProps } from '@/types/export'
 
@@ -20,6 +20,7 @@ const playbackState = vi.hoisted(() => ({
   zoom: -1,
   useProxy: true,
 }))
+const signatureState = vi.hoisted(() => ({ value: 'composition-graph-0', counter: 0 }))
 
 const compositionState = vi.hoisted(() => {
   const composition = {
@@ -45,8 +46,7 @@ const compositionState = vi.hoisted(() => {
 })
 
 const buildSubCompositionInputMock = vi.hoisted(() => vi.fn())
-const collectSubCompositionMediaIdsMock = vi.hoisted(() => vi.fn())
-const resolveMediaUrlMock = vi.hoisted(() => vi.fn())
+const buildSubCompositionPreviewSignatureMock = vi.hoisted(() => vi.fn())
 const resolveMediaUrlsMock = vi.hoisted(() => vi.fn())
 const createCompositionRendererMock = vi.hoisted(() => vi.fn())
 
@@ -68,13 +68,16 @@ vi.mock('@/features/preview/deps/timeline-contract', () => {
   return {
     useCompositionsStore,
     buildSubCompositionInput: buildSubCompositionInputMock,
-    collectSubCompositionMediaIds: collectSubCompositionMediaIdsMock,
+    buildSubCompositionPreviewSignature: buildSubCompositionPreviewSignatureMock,
   }
 })
 
 vi.mock('@/features/preview/deps/media-library-contract', () => ({
-  resolveMediaUrl: resolveMediaUrlMock,
   resolveMediaUrls: resolveMediaUrlsMock,
+}))
+
+vi.mock('@/infrastructure/browser/blob-url-manager', () => ({
+  useBlobUrlVersion: () => 0,
 }))
 
 vi.mock('@/features/preview/deps/export', () => ({
@@ -88,6 +91,8 @@ import { InlineCompositionPreview } from './inline-composition-preview'
 describe('InlineCompositionPreview', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    signatureState.counter += 1
+    signatureState.value = `composition-graph-${signatureState.counter}`
     playbackState.zoom = -1
     playbackState.useProxy = true
 
@@ -118,8 +123,7 @@ describe('InlineCompositionPreview', () => {
     const resolvedTracks = inputProps.tracks.map((track) => ({ ...track, resolved: true }))
 
     buildSubCompositionInputMock.mockReturnValue(inputProps)
-    collectSubCompositionMediaIdsMock.mockReturnValue(['media-1'])
-    resolveMediaUrlMock.mockResolvedValue('blob:media-1')
+    buildSubCompositionPreviewSignatureMock.mockImplementation(() => signatureState.value)
     resolveMediaUrlsMock.mockResolvedValue(resolvedTracks)
     createCompositionRendererMock.mockResolvedValue({
       preload: vi.fn().mockResolvedValue(undefined),
@@ -127,6 +131,10 @@ describe('InlineCompositionPreview', () => {
       warmGpuPipeline: vi.fn().mockResolvedValue(undefined),
       dispose: vi.fn(),
     })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
   })
 
   it('resolves compound clip tracks with proxy playback when enabled', async () => {
@@ -176,5 +184,85 @@ describe('InlineCompositionPreview', () => {
       mode: 'export',
       useProxyMedia: true,
     })
+  })
+
+  it('shares recursive media resolution across sibling comparison panels', async () => {
+    render(
+      <>
+        <InlineCompositionPreview
+          compositionId="composition-1"
+          seekFrame={12}
+          containerSize={{ width: 320, height: 180 }}
+          presentation="frame"
+        />
+        <InlineCompositionPreview
+          compositionId="composition-1"
+          seekFrame={24}
+          containerSize={{ width: 320, height: 180 }}
+          presentation="frame"
+        />
+      </>,
+    )
+
+    await waitFor(() => expect(createCompositionRendererMock).toHaveBeenCalledTimes(2))
+    expect(resolveMediaUrlsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders priority video-only frames before background preload completes', async () => {
+    let finishPreload!: () => void
+    const preloadPending = new Promise<void>((resolve) => {
+      finishPreload = resolve
+    })
+    const renderer = {
+      preload: vi.fn(async (options: { onPriorityMediaReady?: () => void }) => {
+        options.onPriorityMediaReady?.()
+        await preloadPending
+      }),
+      renderFrame: vi.fn().mockResolvedValue(undefined),
+      warmGpuPipeline: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn(),
+    }
+    createCompositionRendererMock.mockResolvedValue(renderer)
+
+    render(
+      <InlineCompositionPreview
+        compositionId="composition-1"
+        seekFrame={12}
+        containerSize={{ width: 320, height: 180 }}
+        presentation="frame"
+      />,
+    )
+
+    await waitFor(() => expect(renderer.renderFrame).toHaveBeenCalledWith(12))
+    expect(renderer.preload).toHaveBeenCalled()
+    finishPreload()
+  })
+
+  it('rebuilds the renderer when a nested composition graph revision changes', async () => {
+    const view = (
+      <InlineCompositionPreview
+        compositionId="composition-1"
+        seekFrame={12}
+        containerSize={{ width: 320, height: 180 }}
+        presentation="frame"
+      />
+    )
+    const { rerender } = render(view)
+
+    await waitFor(() => expect(createCompositionRendererMock).toHaveBeenCalledTimes(1))
+    const firstRenderer = await createCompositionRendererMock.mock.results[0]?.value
+
+    signatureState.value = `${signatureState.value}:nested-edit`
+    rerender(
+      <InlineCompositionPreview
+        compositionId="composition-1"
+        seekFrame={12}
+        containerSize={{ width: 321, height: 180 }}
+        presentation="frame"
+      />,
+    )
+
+    await waitFor(() => expect(createCompositionRendererMock).toHaveBeenCalledTimes(2))
+    expect(firstRenderer.dispose).toHaveBeenCalledOnce()
   })
 })

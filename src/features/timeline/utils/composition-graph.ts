@@ -68,7 +68,7 @@ export function wouldCreateCompositionCycle(params: {
   )
 }
 
-export function collectReachableCompositionIdsFromItems(
+function collectReachableCompositionIdsFromItems(
   items: TimelineItem[],
   compositionById: CompositionByIdLookup,
   visited: Set<string> = new Set(),

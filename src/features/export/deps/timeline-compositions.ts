@@ -6,6 +6,5 @@ export {
   getExportableSequence,
   listExportableSequences,
   type ExportableSequence,
-  collectReachableCompositionIdsFromItems,
   collectReachableCompositionIdsFromTracks,
 } from './timeline-compositions-contract'

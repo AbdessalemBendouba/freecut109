@@ -2,11 +2,161 @@ import { describe, expect, it } from 'vite-plus/test'
 import type { TimelineItem } from '@/types/timeline'
 import type { SubCompRenderData } from './canvas-item-renderer'
 import {
+  collectPriorityNestedVideoItemIds,
   resolveRenderedFrameCacheMode,
   resolveVideoPreloadPlan,
+  selectNestedMediaSource,
   selectPreviewVideoSource,
   subCompositionRenderDataHasGpuEffects,
 } from './client-render-engine'
+
+describe('comparison preview resource selection', () => {
+  it('uses nested proxy media for preview consumers and source media otherwise', () => {
+    expect(
+      selectNestedMediaSource({
+        useProxyMedia: true,
+        proxyUrl: 'blob:proxy',
+        sourceUrl: 'blob:source',
+      }),
+    ).toBe('blob:proxy')
+    expect(
+      selectNestedMediaSource({
+        useProxyMedia: false,
+        proxyUrl: 'blob:proxy',
+        sourceUrl: 'blob:source',
+      }),
+    ).toBe('blob:source')
+  })
+})
+
+describe('collectPriorityNestedVideoItemIds', () => {
+  it('initializes only video leaves visible at the mapped nested frame', () => {
+    const rootWrapper = {
+      id: 'root-wrapper',
+      type: 'composition',
+      trackId: 'root-track',
+      from: 0,
+      durationInFrames: 60,
+      compositionId: 'outer',
+      sourceStart: 10,
+      sourceFps: 60,
+      speed: 2,
+    } as TimelineItem
+    const nestedWrapper = {
+      id: 'nested-wrapper',
+      type: 'composition',
+      trackId: 'outer-track',
+      from: 20,
+      durationInFrames: 60,
+      compositionId: 'inner',
+      sourceStart: 5,
+      sourceFps: 30,
+      speed: 1,
+    } as TimelineItem
+    const visibleVideo = {
+      id: 'visible-video',
+      type: 'video',
+      trackId: 'inner-track',
+      from: 10,
+      durationInFrames: 10,
+    } as TimelineItem
+    const deferredVideo = {
+      id: 'deferred-video',
+      type: 'video',
+      trackId: 'inner-track',
+      from: 20,
+      durationInFrames: 10,
+    } as TimelineItem
+    const hiddenVideo = {
+      id: 'hidden-video',
+      type: 'video',
+      trackId: 'hidden-track',
+      from: 10,
+      durationInFrames: 10,
+    } as TimelineItem
+
+    expect(
+      collectPriorityNestedVideoItemIds({
+        tracks: [
+          {
+            id: 'root-track',
+            name: 'Root',
+            order: 0,
+            height: 60,
+            locked: false,
+            visible: true,
+            muted: false,
+            solo: false,
+            items: [rootWrapper],
+          },
+        ],
+        frame: 5,
+        fps: 30,
+        compositionById: {
+          outer: {
+            id: 'outer',
+            name: 'Outer',
+            fps: 60,
+            width: 1920,
+            height: 1080,
+            durationInFrames: 120,
+            items: [nestedWrapper],
+            tracks: [
+              {
+                id: 'outer-track',
+                name: 'Outer track',
+                order: 0,
+                height: 60,
+                locked: false,
+                visible: true,
+                muted: false,
+                solo: false,
+                items: [nestedWrapper],
+              },
+            ],
+            transitions: [],
+            keyframes: [],
+          },
+          inner: {
+            id: 'inner',
+            name: 'Inner',
+            fps: 30,
+            width: 1920,
+            height: 1080,
+            durationInFrames: 60,
+            items: [visibleVideo, deferredVideo, hiddenVideo],
+            tracks: [
+              {
+                id: 'inner-track',
+                name: 'Visible',
+                order: 0,
+                height: 60,
+                locked: false,
+                visible: true,
+                muted: false,
+                solo: false,
+                items: [visibleVideo, deferredVideo],
+              },
+              {
+                id: 'hidden-track',
+                name: 'Hidden',
+                order: 1,
+                height: 60,
+                locked: false,
+                visible: false,
+                muted: false,
+                solo: false,
+                items: [hiddenVideo],
+              },
+            ],
+            transitions: [],
+            keyframes: [],
+          },
+        },
+      }),
+    ).toEqual(['visible-video'])
+  })
+})
 
 describe('selectPreviewVideoSource', () => {
   it('selects the cached proxy when a compound item still carries its original source', () => {
@@ -16,8 +166,7 @@ describe('selectPreviewVideoSource', () => {
         candidates: ['blob:stored-original', 'blob:scrub-proxy'],
         sourceTime: 42,
         toleranceSeconds: 0.01,
-        getCachedPredecodedBitmap: (src) =>
-          src === 'blob:scrub-proxy' ? proxyBitmap : null,
+        getCachedPredecodedBitmap: (src) => (src === 'blob:scrub-proxy' ? proxyBitmap : null),
       }),
     ).toBe('blob:scrub-proxy')
   })

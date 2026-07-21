@@ -36,7 +36,7 @@ export type { SubComposition } from '../stores/compositions-store'
 export { useCompositionNavigationStore } from '../stores/composition-navigation-store'
 export {
   buildSubCompositionInput,
-  collectSubCompositionMediaIds,
+  buildSubCompositionPreviewSignature,
 } from '../utils/sub-composition-preview'
 export { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub-throttle'
 export { useWaveform } from '../hooks/use-waveform'

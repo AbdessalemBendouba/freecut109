@@ -20,7 +20,7 @@ import type {
   ImageItem,
   LottieItem,
   ShapeItem,
-  CompositionItem,
+  TimelineTrack,
 } from '@/types/timeline'
 import {
   LottieExportProvider,
@@ -74,10 +74,7 @@ import {
 } from '@/features/export/deps/timeline-compositions'
 import { doesMaskAffectTrack } from '@/shared/utils/mask-scope'
 import type { FrameInvalidationRequest } from '@/shared/utils/frame-invalidation'
-import {
-  collectReachableCompositionIdsFromItems,
-  collectReachableCompositionIdsFromTracks,
-} from '@/features/export/deps/timeline-compositions'
+import { collectReachableCompositionIdsFromTracks } from '@/features/export/deps/timeline-compositions'
 
 // Item renderer
 import {
@@ -105,6 +102,7 @@ import {
 } from './render-path-optimizer'
 import { ReverseVideoFrameCache } from './reverse-video-frame-cache'
 import { resolveReverseConformedVideoItem } from '@/shared/utils/reverse-conform-item'
+import { resolveCompositionSourceFrame } from './render-span'
 import {
   itemHasEnabledGpuEffect,
   isAnimatedImage,
@@ -180,6 +178,18 @@ export interface VideoPreloadPlan {
   deferredItemIds: string[]
 }
 
+export function selectNestedMediaSource({
+  useProxyMedia,
+  proxyUrl,
+  sourceUrl,
+}: {
+  useProxyMedia: boolean
+  proxyUrl: string | null
+  sourceUrl: string | null
+}): string | null {
+  return (useProxyMedia ? proxyUrl : null) ?? sourceUrl
+}
+
 /** Export opens every source up front; preview opens only the bounded priority window. */
 export function resolveVideoPreloadPlan(
   renderMode: 'export' | 'preview',
@@ -196,6 +206,71 @@ export function resolveVideoPreloadPlan(
     eagerItemIds: renderMode === 'export' ? remaining : [],
     deferredItemIds: renderMode === 'preview' ? remaining : [],
   }
+}
+
+function isVisibleAtFrame(
+  item: TimelineItem,
+  frame: number,
+  visibleTrackIds: ReadonlySet<string> | null,
+): boolean {
+  if (visibleTrackIds && !visibleTrackIds.has(item.trackId)) return false
+  return frame >= item.from && frame < item.from + item.durationInFrames
+}
+
+export function collectPriorityNestedVideoItemIds({
+  tracks,
+  frame,
+  fps,
+  compositionById,
+}: {
+  tracks: TimelineTrack[]
+  frame: number
+  fps: number
+  compositionById: Record<string, SubComposition | undefined>
+}): string[] {
+  const itemIds = new Set<string>()
+
+  const visitItems = (
+    items: TimelineItem[],
+    currentFrame: number,
+    currentFps: number,
+    visibleTrackIds: ReadonlySet<string> | null,
+    path: ReadonlySet<string>,
+  ) => {
+    for (const item of items) {
+      if (!isVisibleAtFrame(item, currentFrame, visibleTrackIds)) continue
+
+      if (item.type === 'video') {
+        itemIds.add(item.id)
+        continue
+      }
+      if (item.type !== 'composition' || path.has(item.compositionId)) continue
+
+      const subComposition = compositionById[item.compositionId]
+      if (!subComposition) continue
+      const subFrame = resolveCompositionSourceFrame(
+        item,
+        currentFrame,
+        currentFps,
+        subComposition.fps,
+      )
+      if (subFrame < 0 || subFrame >= subComposition.durationInFrames) continue
+
+      const nextPath = new Set(path)
+      nextPath.add(item.compositionId)
+      const subVisibleTrackIds = new Set(
+        subComposition.tracks.filter((track) => track.visible).map((track) => track.id),
+      )
+      visitItems(subComposition.items, subFrame, subComposition.fps, subVisibleTrackIds, nextPath)
+    }
+  }
+
+  for (const track of tracks) {
+    if (!track.visible) continue
+    visitItems(track.items ?? [], frame, fps, null, new Set())
+  }
+
+  return [...itemIds]
 }
 
 /**
@@ -329,6 +404,7 @@ export async function createCompositionRenderer(
 ) {
   const { fps, transitions = [], backgroundColor = '#000000', keyframes = [] } = composition
   const renderMode = options.mode ?? 'export'
+  const useProxyMedia = options.useProxyMedia === true
   const compositionTracks =
     options.renderText === false
       ? composition.tracks?.map((track) => ({
@@ -511,7 +587,6 @@ export async function createCompositionRenderer(
   const fallbackVideoBySrc = new Set<string>()
   const fallbackVideoClipIdByItem = new Map<string, string>()
   let fallbackVideoClipCounter = 0
-
   const registerVideoItem = (itemId: string, src: string): void => {
     if (!src) return
     const prevSrc = videoSourceByItemId.get(itemId)
@@ -1286,34 +1361,16 @@ export async function createCompositionRenderer(
       const pendingResolutions: Array<{ subItem: TimelineItem; mediaId: string }> = []
       const prioritySubCompVideoItemIds = new Set<string>()
       const compositionById = useCompositionsStore.getState().compositionById
-      // Collect priority video item IDs from all depths of nested compositions
-      // whose root-level wrapper falls within the priority scrub window.
-      for (const track of tracks) {
-        for (const item of track.items ?? []) {
-          if (item.type !== 'composition') continue
-          const compItem = item as CompositionItem
-          const subComp = compositionById[compItem.compositionId]
-          if (!subComp) continue
-          const subCompIsPriority =
-            priorityFrame !== null &&
-            compItem.from <= priorityFrame + priorityWindowFrames &&
-            compItem.from + compItem.durationInFrames >= priorityFrame - priorityWindowFrames
-          if (!subCompIsPriority) continue
-          const nestedCompIds = collectReachableCompositionIdsFromItems(
-            subComp.items,
-            compositionById,
-          )
-          const allComps = [
-            subComp,
-            ...nestedCompIds.flatMap((id) => (compositionById[id] ? [compositionById[id]] : [])),
-          ]
-          for (const comp of allComps) {
-            for (const subItem of comp.items) {
-              if (subItem.type === 'video') {
-                prioritySubCompVideoItemIds.add(subItem.id)
-              }
-            }
-          }
+      // Resolve only the video leaves visible at the requested nested frame.
+      // Other sources remain lazy in preview mode and initialize on demand.
+      if (priorityFrame !== null) {
+        for (const itemId of collectPriorityNestedVideoItemIds({
+          tracks,
+          frame: priorityFrame,
+          fps,
+          compositionById,
+        })) {
+          prioritySubCompVideoItemIds.add(itemId)
         }
       }
 
@@ -1343,9 +1400,11 @@ export async function createCompositionRenderer(
           if (subItem.type !== 'video' && subItem.type !== 'image' && subItem.type !== 'lottie')
             continue
           if (subItem.mediaId) {
-            const src =
-              (renderMode === 'preview' ? resolveProxyUrl(subItem.mediaId) : null) ??
-              blobUrlManager.get(subItem.mediaId)
+            const src = selectNestedMediaSource({
+              useProxyMedia,
+              proxyUrl: useProxyMedia ? resolveProxyUrl(subItem.mediaId) : null,
+              sourceUrl: blobUrlManager.get(subItem.mediaId),
+            })
             if (src) {
               subCompMediaItems.push({ subItem, src })
             } else {
@@ -1358,20 +1417,40 @@ export async function createCompositionRenderer(
         }
       }
 
-      // Resolve pending sub-comp URLs from OPFS in parallel
-      if (pendingResolutions.length > 0) {
-        getLog().debug('Resolving sub-comp media URLs from OPFS', {
-          count: pendingResolutions.length,
-        })
+      const resolvePendingSubCompMedia = async (
+        entries: Array<{ subItem: TimelineItem; mediaId: string }>,
+      ): Promise<Array<{ subItem: TimelineItem; src: string }>> => {
         const resolved = await Promise.all(
-          pendingResolutions.map(async ({ subItem, mediaId }) => {
-            const src = await resolveMediaUrl(mediaId)
-            return { subItem, src }
-          }),
+          entries.map(async ({ subItem, mediaId }) => ({
+            subItem,
+            src: await resolveMediaUrl(mediaId),
+          })),
         )
-        for (const { subItem, src } of resolved) {
-          if (src) subCompMediaItems.push({ subItem, src })
+        return resolved.filter(({ src }) => !!src)
+      }
+      const priorityPendingResolutions = pendingResolutions.filter(({ subItem }) =>
+        prioritySubCompVideoItemIds.has(subItem.id),
+      )
+      const deferredPendingResolutions = pendingResolutions.filter(
+        ({ subItem }) => !prioritySubCompVideoItemIds.has(subItem.id),
+      )
+      subCompMediaItems.push(...(await resolvePendingSubCompMedia(priorityPendingResolutions)))
+
+      let priorityReadyNotified = false
+      const notifyPriorityMediaReady = () => {
+        if (priorityReadyNotified) return
+        priorityReadyNotified = true
+        try {
+          options.onPriorityMediaReady?.()
+        } catch (err) {
+          getLog().warn('onPriorityMediaReady callback threw', { error: err })
         }
+      }
+
+      const resolveDeferredBeforeRegistration = subCompMediaItems.length === 0
+      if (resolveDeferredBeforeRegistration) {
+        notifyPriorityMediaReady()
+        subCompMediaItems.push(...(await resolvePendingSubCompMedia(deferredPendingResolutions)))
       }
 
       if (subCompMediaItems.length > 0) {
@@ -1400,10 +1479,20 @@ export async function createCompositionRenderer(
         // rest of preload (remaining videos, sub images, GIF/WebP frames)
         // finishes — so the user sees the correct frame faster after
         // exiting a sub-composition.
-        try {
-          options.onPriorityMediaReady?.()
-        } catch (err) {
-          getLog().warn('onPriorityMediaReady callback threw', { error: err })
+        notifyPriorityMediaReady()
+
+        const deferredResolvedMedia = resolveDeferredBeforeRegistration
+          ? []
+          : await resolvePendingSubCompMedia(deferredPendingResolutions)
+        subCompMediaItems.push(...deferredResolvedMedia)
+        for (const { subItem, src } of deferredResolvedMedia) {
+          if (subItem.type === 'video' && !videoExtractors.has(subItem.id)) {
+            registerVideoItem(subItem.id, src)
+            subVideoItemIds.push(subItem.id)
+            if (hasDom && !previewStrictDecode) {
+              bindFallbackVideoElement(subItem.id, src)
+            }
+          }
         }
 
         const subVideoPreloadPlan = resolveVideoPreloadPlan(
