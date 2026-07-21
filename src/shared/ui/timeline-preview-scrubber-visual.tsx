@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -11,6 +12,18 @@ import { formatTimecode } from '@/shared/utils/time-utils'
 
 const FLAG_HEIGHT = 12
 
+function shouldHidePreviewScrubber({
+  previewFrame,
+  suppressed,
+  suppressRefActive,
+}: {
+  previewFrame: number | null
+  suppressed: boolean
+  suppressRefActive: boolean
+}): boolean {
+  return previewFrame === null || suppressed || suppressRefActive
+}
+
 interface TimelinePreviewScrubberVisualProps {
   frameToPixels: (frame: number) => number
   fps: number
@@ -22,6 +35,7 @@ interface TimelinePreviewScrubberVisualProps {
   suppressRef?: MutableRefObject<boolean>
   /** Reposition from the live mapper whenever an external timeline scrolls. */
   positionSyncTargetRef?: RefObject<HTMLElement | null>
+  zIndex?: number
 }
 
 /** Shared ghost playhead visual used by every Edit timeline surface. */
@@ -35,6 +49,7 @@ export function TimelinePreviewScrubberVisual({
   suppressed = false,
   suppressRef,
   positionSyncTargetRef,
+  zIndex = 20,
 }: TimelinePreviewScrubberVisualProps) {
   const scrubberRef = useRef<HTMLDivElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
@@ -54,15 +69,21 @@ export function TimelinePreviewScrubberVisual({
   suppressedRef.current = suppressed
   suppressStateRef.current = suppressRef
 
-  const updatePosition = (previewFrame: number | null) => {
+  const updatePosition = useCallback((previewFrame: number | null) => {
     const node = scrubberRef.current
     if (!node) return
-    if (previewFrame === null || suppressedRef.current || suppressStateRef.current?.current) {
+    if (
+      shouldHidePreviewScrubber({
+        previewFrame,
+        suppressed: suppressedRef.current,
+        suppressRefActive: suppressStateRef.current?.current ?? false,
+      })
+    ) {
       node.style.display = 'none'
       return
     }
 
-    let clampedFrame = Math.max(0, previewFrame)
+    let clampedFrame = Math.max(0, previewFrame ?? 0)
     if (maxFrameRef.current !== undefined) {
       clampedFrame = Math.min(clampedFrame, maxFrameRef.current)
     }
@@ -77,12 +98,12 @@ export function TimelinePreviewScrubberVisual({
     if (tooltipRef.current) {
       tooltipRef.current.textContent = formatTimecode(clampedFrame, fpsRef.current)
     }
-  }
+  }, [])
 
   useEffect(() => {
     updatePosition(usePlaybackStore.getState().previewFrame)
     return usePlaybackStore.subscribe((state) => updatePosition(state.previewFrame))
-  }, [])
+  }, [updatePosition])
 
   useEffect(() => {
     const target = positionSyncTargetRef?.current
@@ -90,11 +111,11 @@ export function TimelinePreviewScrubberVisual({
     const reposition = () => updatePosition(usePlaybackStore.getState().previewFrame)
     target.addEventListener('scroll', reposition, { passive: true })
     return () => target.removeEventListener('scroll', reposition)
-  }, [positionSyncTargetRef])
+  }, [positionSyncTargetRef, updatePosition])
 
   useLayoutEffect(() => {
     updatePosition(usePlaybackStore.getState().previewFrame)
-  }, [frameToPixels, maxFrame, suppressed])
+  }, [frameToPixels, maxFrame, suppressed, updatePosition])
 
   useEffect(() => {
     const updateColor = (tool: string) => {
@@ -118,20 +139,21 @@ export function TimelinePreviewScrubberVisual({
 
       if (lineRef.current) lineRef.current.style.backgroundColor = lineColor
       if (handleRef.current) handleRef.current.style.backgroundColor = handleColor
+      updatePosition(usePlaybackStore.getState().previewFrame)
     }
 
     updateColor(useSelectionStore.getState().activeTool)
     return useSelectionStore.subscribe((state, previousState) => {
       if (state.activeTool !== previousState.activeTool) updateColor(state.activeTool)
     })
-  }, [])
+  }, [updatePosition])
 
   return (
     <div
       ref={scrubberRef}
       data-testid="timeline-preview-scrubber"
       className="absolute bottom-0 top-0 w-px"
-      style={{ display: 'none', pointerEvents: 'none', zIndex: 20 }}
+      style={{ display: 'none', pointerEvents: 'none', zIndex }}
     >
       <div
         ref={lineRef}

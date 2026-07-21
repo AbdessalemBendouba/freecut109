@@ -55,11 +55,11 @@ vi.mock('./timeline-markers', () => ({
 }))
 
 vi.mock('./timeline-playhead', () => ({
-  TimelinePlayhead: () => null,
+  TimelinePlayhead: () => <div data-testid="unified-timeline-playhead" />,
 }))
 
 vi.mock('./timeline-preview-scrubber', () => ({
-  TimelinePreviewScrubber: () => null,
+  TimelinePreviewScrubber: () => <div data-testid="unified-timeline-preview-scrubber" />,
 }))
 
 vi.mock('./timeline-track', () => ({
@@ -189,6 +189,16 @@ describe('TimelineContent playback selection behavior', () => {
     marqueeMocks.onGestureEnd = undefined
   })
 
+  it('renders one full-height playhead and one tool-only preview overlay', () => {
+    const { getAllByTestId, getByTestId } = render(
+      <TimelineContent duration={10} tracks={[VIDEO_TRACK]} />,
+    )
+
+    expect(getAllByTestId('unified-timeline-playhead')).toHaveLength(1)
+    expect(getAllByTestId('unified-timeline-preview-scrubber')).toHaveLength(1)
+    expect(getByTestId('unified-timeline-preview-scrubber')).toBeInTheDocument()
+  })
+
   it('keeps the selected clip selected after the playhead moves past it', async () => {
     render(<TimelineContent duration={10} tracks={[VIDEO_TRACK]} />)
 
@@ -316,9 +326,7 @@ describe('TimelineContent playback selection behavior', () => {
         frameCallbacks.push(callback)
         return frameCallbacks.length
       })
-    const { container, unmount } = render(
-      <TimelineContent duration={100} tracks={[VIDEO_TRACK]} />,
-    )
+    const { container, unmount } = render(<TimelineContent duration={100} tracks={[VIDEO_TRACK]} />)
     const scrollContainer = container.querySelector('[data-timeline-scroll-container]')
     if (!(scrollContainer instanceof HTMLDivElement)) {
       throw new Error('Expected timeline scroll container')

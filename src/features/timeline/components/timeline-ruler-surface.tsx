@@ -1,8 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import { useZoomStore } from '../stores/zoom-store'
-import { IO_LANE_HEIGHT, TimelineMarkers } from './timeline-markers'
-import { TimelinePlayhead } from './timeline-playhead'
-import { TimelinePreviewScrubber } from './timeline-preview-scrubber'
+import { TimelineMarkers } from './timeline-markers'
 import { applyTimelineLiveGeometry } from '../utils/timeline-live-geometry'
 import { EDITOR_LAYOUT_CSS_VALUES } from '@/config/editor-layout'
 
@@ -10,7 +8,6 @@ interface TimelineRulerSurfaceProps {
   duration: number
   containerWidth: number
   initialWidth: number
-  maxFrame: number
 }
 
 /**
@@ -22,7 +19,6 @@ export const TimelineRulerSurface = memo(function TimelineRulerSurface({
   duration,
   containerWidth,
   initialWidth,
-  maxFrame,
 }: TimelineRulerSurfaceProps) {
   const rulerRef = useRef<HTMLDivElement>(null)
   const committedSurfaceRef = useRef<HTMLDivElement>(null)
@@ -75,8 +71,6 @@ export const TimelineRulerSurface = memo(function TimelineRulerSurface({
       >
         <TimelineMarkers duration={duration} />
       </div>
-      <TimelinePreviewScrubber inRuler maxFrame={maxFrame} />
-      <TimelinePlayhead inRuler maxFrame={maxFrame} topOffsetPx={IO_LANE_HEIGHT} />
     </div>
   )
 })

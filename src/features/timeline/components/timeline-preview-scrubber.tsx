@@ -6,12 +6,14 @@ import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
 interface TimelinePreviewScrubberProps {
   inRuler?: boolean
   maxFrame?: number
+  zIndex?: number
 }
 
 /** Main timeline adapter for the shared preview scrubber visual. */
 export function TimelinePreviewScrubber({
   inRuler = false,
   maxFrame,
+  zIndex,
 }: TimelinePreviewScrubberProps) {
   const { frameToPixels, fps } = useTimelineZoomContext()
 
@@ -23,6 +25,7 @@ export function TimelinePreviewScrubber({
       maxFrame={maxFrame}
       rulerOffset={IO_LANE_HEIGHT}
       suppressRef={previewScrubberSuppressRef}
+      zIndex={zIndex}
     />
   )
 }

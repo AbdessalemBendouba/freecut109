@@ -41,6 +41,7 @@ import { TimelineTrack } from './timeline-track'
 import { TimelineGuidelines } from './timeline-guidelines'
 import { TimelineMediaDropZone } from './timeline-media-drop-zone'
 import { TimelineRecordingOverlay } from './timeline-recording-overlay'
+import { IO_LANE_HEIGHT } from './timeline-markers'
 import { FirstTrackRowFrame, TrackRowFrame, TrackSectionDivider } from './track-row-frame'
 import { MarqueeOverlay } from '@/shared/marquee/marquee-overlay'
 import { announceTimelineMarqueeActive } from '../utils/timeline-interaction-events'
@@ -703,9 +704,8 @@ const TimelineTrackSectionsSurface = memo(function TimelineTrackSectionsSurface(
  *
  * Main timeline rendering area that composes:
  * - TimelineMarkers (time ruler)
- * - TimelinePlayhead (in ruler)
  * - TimelineTracks (all tracks with items)
- * - TimelinePlayhead (through tracks)
+ * - One full-height TimelinePlayhead (flag + line)
  *
  * Dynamically calculates width based on furthest item
  * Memoized to prevent re-renders when props haven't changed.
@@ -1956,12 +1956,10 @@ export const TimelineContent = memo(function TimelineContent({
     () => (
       <>
         {isDragging && <TimelineGuidelines />}
-        <TimelinePreviewScrubber maxFrame={maxTimelineFrame} />
-        <TimelinePlayhead maxFrame={maxTimelineFrame} />
         <TimelineRecordingOverlay />
       </>
     ),
-    [isDragging, maxTimelineFrame],
+    [isDragging],
   )
 
   return (
@@ -2010,7 +2008,6 @@ export const TimelineContent = memo(function TimelineContent({
           duration={actualDuration}
           containerWidth={containerWidth}
           initialWidth={timelineWidth}
-          maxFrame={maxTimelineFrame}
         />
 
         <TimelineTrackSectionsSurface
@@ -2040,6 +2037,10 @@ export const TimelineContent = memo(function TimelineContent({
         >
           {trackSurfaceOverlayChildren}
         </TimelineTrackSectionsSurface>
+
+        {/* One overlay owns each complete marker across the ruler and tracks. */}
+        <TimelinePreviewScrubber inRuler maxFrame={maxTimelineFrame} zIndex={40} />
+        <TimelinePlayhead inRuler maxFrame={maxTimelineFrame} topOffsetPx={IO_LANE_HEIGHT} />
       </div>
 
       {anyOverflow && (

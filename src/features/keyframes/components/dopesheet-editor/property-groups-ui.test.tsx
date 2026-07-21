@@ -92,6 +92,44 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.queryByRole('slider', { name: /horizontal zoom/i })).toBeNull()
   })
 
+  it('uses middle-button drag to pan only the keyframe rows vertically', () => {
+    renderEditor({ presentation: 'classic' })
+
+    const scrollArea = screen.getByTestId('dopesheet-scroll-area')
+    scrollArea.scrollTop = 40
+    const middleMouseDown = new MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 1,
+      clientY: 100,
+    })
+
+    scrollArea.dispatchEvent(middleMouseDown)
+    window.dispatchEvent(
+      new MouseEvent('mousemove', {
+        bubbles: true,
+        cancelable: true,
+        clientY: 130,
+      }),
+    )
+
+    expect(middleMouseDown.defaultPrevented).toBe(true)
+    expect(scrollArea.scrollTop).toBe(10)
+    expect(document.body.style.cursor).toBe('grabbing')
+
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    window.dispatchEvent(
+      new MouseEvent('mousemove', {
+        bubbles: true,
+        cancelable: true,
+        clientY: 160,
+      }),
+    )
+
+    expect(scrollArea.scrollTop).toBe(10)
+    expect(document.body.style.cursor).toBe('')
+  })
+
   it('matches the main ruler with bottom-anchored major and pooled minor ticks', () => {
     renderEditor({ presentation: 'classic', totalFrames: 120 })
 
