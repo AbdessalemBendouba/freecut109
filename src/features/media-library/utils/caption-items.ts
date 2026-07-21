@@ -969,7 +969,34 @@ export function appendVirtualTranscriptCaptionTrack(
   canvasWidth: number,
   canvasHeight: number,
 ): TimelineTrack[] {
-  const baseTracks = tracks.filter((track) => track.id !== VIRTUAL_TRANSCRIPT_CAPTION_TRACK_ID)
+  const unfilteredBaseTracks = tracks.filter(
+    (track) => track.id !== VIRTUAL_TRANSCRIPT_CAPTION_TRACK_ID,
+  )
+  const reversedClipIds = new Set(
+    unfilteredBaseTracks.flatMap((track) =>
+      (track.items ?? [])
+        .filter(
+          (item) =>
+            (item.type === 'video' || item.type === 'audio') && item.isReversed === true,
+        )
+        .map((item) => item.id),
+    ),
+  )
+  const baseTracks = unfilteredBaseTracks.map((track) => {
+    const items = (track.items ?? []).filter((item) => {
+      if (item.type === 'text' && item.captionSource?.clipId) {
+        return !reversedClipIds.has(item.captionSource.clipId)
+      }
+      if (
+        item.type === 'subtitle' &&
+        (item.source.type === 'transcript' || item.source.type === 'embedded-subtitles')
+      ) {
+        return !reversedClipIds.has(item.source.clipId)
+      }
+      return true
+    })
+    return items.length === (track.items ?? []).length ? track : { ...track, items }
+  })
   const hasSoloTracks = baseTracks.some((track) => track.solo)
   const sourceTracks = baseTracks.filter((track) =>
     hasSoloTracks ? track.solo === true : track.visible !== false,
@@ -979,6 +1006,7 @@ export function appendVirtualTranscriptCaptionTrack(
   for (const track of sourceTracks) {
     for (const item of track.items ?? []) {
       if ((item.type !== 'video' && item.type !== 'audio') || !item.mediaId) continue
+      if (item.isReversed === true) continue
       const transcriptCaptions = item.transcriptCaptions
       if (
         !transcriptCaptions?.enabled ||

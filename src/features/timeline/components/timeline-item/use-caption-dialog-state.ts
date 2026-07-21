@@ -107,11 +107,13 @@ export function useCaptionDialogState({
   const canManageCaptions =
     !!item.mediaId &&
     !isBroken &&
+    item.isReversed !== true &&
     (item.type === 'video' || (item.type === 'audio' && linkedVideoCaptionOwner === null))
 
   const canExtractEmbeddedSubtitles = !!(
     mediaForItem &&
     !isBroken &&
+    item.isReversed !== true &&
     isEmbeddedSubtitleContainer(mediaForItem.fileName, mediaForItem.mimeType)
   )
 
@@ -159,6 +161,7 @@ export function useCaptionDialogState({
   const hasConsolidatablePerCueCaptions = useTimelineStore(
     useCallback(
       (s) =>
+        item.isReversed !== true &&
         s.items.some(
           (other) =>
             other.type === 'text' &&
@@ -166,7 +169,7 @@ export function useCaptionDialogState({
               other.captionSource?.type === 'subtitle-import') &&
             other.captionSource.clipId === item.id,
         ),
-      [item.id],
+      [item.id, item.isReversed],
     ),
   )
 

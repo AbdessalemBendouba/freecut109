@@ -820,6 +820,79 @@ describe('caption-items', () => {
     })
   })
 
+  it('suppresses all clip-owned captions while their source clip is reversed', () => {
+    const reversedClip = {
+      id: 'video-reversed',
+      type: 'video',
+      trackId: 'track-v',
+      from: 0,
+      durationInFrames: 90,
+      label: 'Reversed',
+      mediaId: 'media-1',
+      src: 'blob:test',
+      isReversed: true,
+      transcriptCaptions: {
+        type: 'transcript',
+        mediaId: 'media-1',
+        enabled: true,
+        updatedAt: 1,
+        cues: [{ id: 'virtual', startSeconds: 0, endSeconds: 1, text: 'Virtual' }],
+      },
+    } satisfies TimelineItem
+    const attachedText = {
+      id: 'caption-text',
+      type: 'text',
+      trackId: 'track-captions',
+      from: 0,
+      durationInFrames: 30,
+      label: 'Caption',
+      text: 'Caption',
+      color: '#fff',
+      captionSource: {
+        type: 'ai-captions',
+        mediaId: 'media-1',
+        clipId: reversedClip.id,
+      },
+    } satisfies TimelineItem
+    const attachedSubtitle = {
+      id: 'subtitle-segment',
+      type: 'subtitle',
+      trackId: 'track-captions',
+      from: 0,
+      durationInFrames: 90,
+      label: 'Subtitles',
+      color: '#fff',
+      source: { type: 'transcript', mediaId: 'media-1', clipId: reversedClip.id },
+      cues: [{ id: 'segment', startSeconds: 0, endSeconds: 1, text: 'Segment' }],
+    } satisfies TimelineItem
+    const title = {
+      id: 'title',
+      type: 'text',
+      trackId: 'track-captions',
+      from: 0,
+      durationInFrames: 90,
+      label: 'Title',
+      text: 'Keep me',
+      color: '#fff',
+    } satisfies TimelineItem
+    const videoTrack = { ...makeTrack('track-v', 1), kind: 'video' as const, items: [reversedClip] }
+    const captionTrack = {
+      ...makeTrack('track-captions', 0),
+      items: [attachedText, attachedSubtitle, title],
+    }
+
+    const tracks = appendVirtualTranscriptCaptionTrack(
+      [videoTrack, captionTrack],
+      30,
+      1920,
+      1080,
+    )
+
+    expect(tracks).toHaveLength(2)
+    expect(tracks.find((track) => track.id === 'track-captions')?.items).toEqual([title])
+    expect(tracks.some((track) => track.id === VIRTUAL_TRANSCRIPT_CAPTION_TRACK_ID)).toBe(false)
+  })
+
   it('inherits linkedGroupId from the source clip when consolidating per-cue captions', () => {
     const items: TimelineItem[] = [
       {

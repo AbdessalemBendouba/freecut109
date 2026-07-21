@@ -82,6 +82,13 @@ describe('buildTranscriptTokens', () => {
     expect(tokens[0]?.itemId).toBe('a')
   })
 
+  it('skips reversed clips because source transcript order no longer matches playback', () => {
+    const item = makeItem({ id: 'reversed', mediaId: 'm1', isReversed: true })
+    const transcript = makeTranscript('m1', [{ text: 'backwards', start: 0, end: 0.5 }])
+
+    expect(buildTranscriptTokens([item], { m1: transcript }, FPS)).toEqual([])
+  })
+
   it('does not duplicate words for a linked video + audio pair', () => {
     // Same media, same source span (a linked companion) — words appear once.
     const video = makeItem({ id: 'v', type: 'video', mediaId: 'm1' })

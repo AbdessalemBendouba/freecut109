@@ -36,7 +36,12 @@ export type TranscriptableItem = Extract<TimelineItem, { type: 'video' | 'audio'
 }
 
 export function isTranscriptableItem(item: TimelineItem | undefined): item is TranscriptableItem {
-  return !!item && (item.type === 'video' || item.type === 'audio') && !!item.mediaId
+  return (
+    !!item &&
+    (item.type === 'video' || item.type === 'audio') &&
+    item.isReversed !== true &&
+    !!item.mediaId
+  )
 }
 
 function collectWords(transcript: MediaTranscript): MediaTranscriptWord[] {
