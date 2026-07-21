@@ -38,7 +38,11 @@ import { resizeTracksOfKindByDelta } from '../utils/track-resize'
 import { applyTrackSizePreset, commitTrackHeights } from '../stores/actions/track-height-actions'
 import { useZoomStore } from '../stores/zoom-store'
 import { computeWheelZoomStep } from '../constants'
-import { clampSectionDividerPosition, getTrackSectionLayout } from '../utils/track-resize'
+import {
+  clampSectionDividerPosition,
+  getBottomAnchoredSectionScrollTop,
+  getTrackSectionLayout,
+} from '../utils/track-resize'
 import { clearMediaDragData } from '@/features/timeline/deps/media-library-resolver'
 import { useNewTrackZonePreviewStore } from '../stores/new-track-zone-preview-store'
 import { useTrackDropPreviewStore } from '../stores/track-drop-preview-store'
@@ -356,6 +360,8 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
           sectionDividerPosition: position,
           trackTitleBarHeight: editorLayout.timelineClipLabelRowHeight,
         })
+        const videoZoneHeight = Math.max(24, previewLayout.videoPaneHeight - videoDisplayHeight)
+        const audioZoneHeight = Math.max(24, previewLayout.audioPaneHeight - audioDisplayHeight)
         const roots = [
           trackHeadersRootRef.current,
           timelineContentRef.current?.parentElement ?? null,
@@ -370,14 +376,23 @@ export const Timeline = memo(function Timeline({ duration }: TimelineProps) {
             '--timeline-audio-pane-height',
             `${previewLayout.audioPaneHeight}px`,
           )
-          root.style.setProperty(
-            '--timeline-video-zone-height',
-            `${Math.max(24, previewLayout.videoPaneHeight - videoDisplayHeight)}px`,
-          )
-          root.style.setProperty(
-            '--timeline-audio-zone-height',
-            `${Math.max(24, previewLayout.audioPaneHeight - audioDisplayHeight)}px`,
-          )
+          root.style.setProperty('--timeline-video-zone-height', `${videoZoneHeight}px`)
+          root.style.setProperty('--timeline-audio-zone-height', `${audioZoneHeight}px`)
+        }
+
+        // Video tracks grow upward from the divider. Keep both synchronized
+        // scroll surfaces bottom-anchored during the RAF preview so the rows
+        // move with MMB instead of snapping into place on mouse release.
+        const videoScrollTop = getBottomAnchoredSectionScrollTop(
+          previewLayout.videoPaneHeight,
+          videoDisplayHeight,
+          videoZoneHeight,
+        )
+        if (videoTrackContentScrollRef.current) {
+          videoTrackContentScrollRef.current.scrollTop = videoScrollTop
+        }
+        if (videoTrackHeadersScrollRef.current) {
+          videoTrackHeadersScrollRef.current.scrollTop = videoScrollTop
         }
       })
       const handleMouseMove = (moveEvent: MouseEvent) => {

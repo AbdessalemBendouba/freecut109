@@ -146,6 +146,13 @@
   ::-webkit-scrollbar-corner {
     background: oklch(0.15 0 0);
   }
+
+  /* Timeline keyframe sheets reserve a custom overlay rail matching the main
+     timeline, so their native scrollbar must not consume a second gutter. */
+  [data-dopesheet-scroll-viewport]::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
 }
 
 @theme inline {

@@ -99,6 +99,19 @@ export function getMinimumTrackSectionSpacerHeight(trackTitleBarHeight: number):
   return Math.max(0, Math.round(trackTitleBarHeight * 1.5))
 }
 
+/**
+ * Keep a top-aligned spacer and its following rows pinned to the bottom edge of
+ * a resizable pane. This is arithmetic-only so divider previews can update the
+ * scroll position without forcing a layout read on every animation frame.
+ */
+export function getBottomAnchoredSectionScrollTop(
+  paneHeight: number,
+  sectionHeight: number,
+  spacerHeight: number,
+): number {
+  return Math.max(0, sectionHeight + spacerHeight - paneHeight)
+}
+
 function getTrackSectionHeights(tracks: TimelineTrack[]) {
   const videoSectionHeight = tracks.reduce(
     (sum, track) => sum + (getTrackKind(track) === 'video' ? track.height : 0),

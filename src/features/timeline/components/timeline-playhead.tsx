@@ -170,9 +170,7 @@ export function TimelinePlayhead({
       scrubAnimationTimeRef.current = null
       scrubScrollContainerRef.current = scrollContainer
       scrubPlayheadElementsRef.current = scrollContainer
-        ? Array.from(
-            scrollContainer.querySelectorAll<HTMLElement>('[data-timeline-playhead]'),
-          )
+        ? Array.from(scrollContainer.querySelectorAll<HTMLElement>('[data-timeline-playhead]'))
         : playheadRef.current
           ? [playheadRef.current]
           : []
@@ -192,9 +190,9 @@ export function TimelinePlayhead({
   useEffect(() => {
     if (!isDragging) return
 
-    // Apply grabbing cursor globally to prevent flickering
+    // Keep the horizontal scrub cursor stable while crossing timeline children.
     const originalCursor = document.body.style.cursor
-    document.body.style.cursor = 'grabbing'
+    document.body.style.cursor = 'ew-resize'
 
     const runScrubLoop = (timestamp: number) => {
       rafIdRef.current = null
@@ -213,11 +211,7 @@ export function TimelinePlayhead({
                 scrollContainer.scrollWidth)
           if (velocity !== 0 && canScroll) {
             const previousTimestamp = scrubAnimationTimeRef.current ?? timestamp - 1000 / 60
-            scrollContainer.scrollLeft += getEdgeScrollDelta(
-              velocity,
-              timestamp,
-              previousTimestamp,
-            )
+            scrollContainer.scrollLeft += getEdgeScrollDelta(velocity, timestamp, previousTimestamp)
             scrubAnimationTimeRef.current = timestamp
           } else {
             scrubAnimationTimeRef.current = null
@@ -251,7 +245,15 @@ export function TimelinePlayhead({
         }
 
         const visualClientX = getVisiblePlayheadClientX(clientX, coordinateBounds)
-        const visualTimelineX = visualClientX - coordinateBounds.left + scrollLeft
+        const pointerTimelineX = visualClientX - coordinateBounds.left + scrollLeft
+        const maxTimelineX =
+          maxFrameRef.current === undefined
+            ? undefined
+            : frameToPixelsRef.current(maxFrameRef.current)
+        const visualTimelineX =
+          maxTimelineX === undefined
+            ? pointerTimelineX
+            : Math.max(scrollLeft, Math.min(pointerTimelineX, maxTimelineX))
         for (const element of scrubPlayheadElementsRef.current) {
           element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
         }
@@ -340,8 +342,7 @@ export function TimelinePlayhead({
             width: '20px',
             height: '20px',
             transform: 'translateX(-50%)',
-            cursor:
-              activeToolRef.current === 'razor' ? 'default' : isDragging ? 'grabbing' : 'default',
+            cursor: activeToolRef.current === 'razor' ? 'default' : 'ew-resize',
             // Pass through pointer events in razor mode or during external drag operations
             pointerEvents: activeToolRef.current === 'razor' || isExternalDrag ? 'none' : 'auto',
             backgroundColor: 'transparent',

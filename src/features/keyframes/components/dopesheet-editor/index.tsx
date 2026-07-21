@@ -253,6 +253,8 @@ interface DopesheetEditorProps {
   onRulerEdgeScroll?: (deltaPixels: number) => number
   /** Clamp ruler scrubbing to the edited item's local frame range. */
   scrubClampToItemBounds?: boolean
+  /** Optional clip-relative bounds supplied by a shared composition timeline. */
+  scrubFrameBounds?: { minFrame: number; maxFrame: number }
   /** Callback when scrubbing starts */
   onScrubStart?: () => void
   /** Callback when scrubbing ends */
@@ -385,7 +387,11 @@ interface DopesheetEditorProps {
   axisConstraintByProperty?: Partial<
     Record<
       AnimatableProperty,
-      { label: string; constrained: boolean; onChange: (constrained: boolean) => void }
+      {
+        label: string
+        constrained: boolean
+        onChange: (constrained: boolean) => void
+      }
     >
   >
   /**
@@ -713,6 +719,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   getTimelineLivePixelsPerSecond,
   onRulerEdgeScroll,
   scrubClampToItemBounds = true,
+  scrubFrameBounds,
   onScrubStart,
   onScrubEnd,
   onDragStart,
@@ -1070,6 +1077,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     })
 
   const { width: timelineWidth } = useElementSize(timelineRef, {
+    deps: [visualizationMode],
+  })
+  const { width: sheetScrollWidth } = useElementSize(scrollAreaRef, {
+    enabled: showSheetPane,
     deps: [visualizationMode],
   })
 
@@ -1454,7 +1465,19 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     [graphBaseValueSpan, graphMinZoomValueSpan],
   )
   const fallbackTimelineWidth = Math.max(width - columnWidth, 1)
-  const effectiveTimelineWidth = Math.max(timelineWidth || fallbackTimelineWidth, 1)
+  const fullTimelineWidth = timelineWidth || fallbackTimelineWidth
+  const sheetTimelineWidth = Math.max(0, sheetScrollWidth - columnWidth)
+  const alignedTimelineWidth =
+    showSheetPane && sheetTimelineWidth > 0
+      ? Math.min(fullTimelineWidth, sheetTimelineWidth)
+      : fullTimelineWidth
+  const reservedScrollbarGutterWidth = Math.max(0, fullTimelineWidth - alignedTimelineWidth)
+  // In the classic Edit layout, timelineRef includes the cells' 1px left
+  // border while the shared playhead overlay begins after it. Use the overlay's
+  // exact width. The sheet body's stable scrollbar gutter is also excluded so
+  // the ruler, rows, graph, and playhead all end before the scrollbar column.
+  const timelineCellBorderWidth = presentation === 'classic' ? 1 : 0
+  const effectiveTimelineWidth = Math.max(alignedTimelineWidth - timelineCellBorderWidth, 1)
   const timelineEdgeInset = presentation === 'classic' ? 0 : undefined
   const timelinePixelsPerSecond = useMemo(
     () => (effectiveTimelineWidth / frameRange) * fps,
@@ -1657,10 +1680,19 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       const node = timelineRef.current
       if (!node) return currentFrame
       const rect = node.getBoundingClientRect()
-      const frame = xToFrame(clientX - rect.left)
-      return scrubClampToItemBounds ? clampFrame(frame, totalFrames) : frame
+      const frame = xToFrame(clientX - rect.left - timelineCellBorderWidth)
+      if (scrubClampToItemBounds) return clampFrame(frame, totalFrames)
+      if (!scrubFrameBounds) return frame
+      return Math.max(scrubFrameBounds.minFrame, Math.min(scrubFrameBounds.maxFrame, frame))
     },
-    [currentFrame, scrubClampToItemBounds, totalFrames, xToFrame],
+    [
+      currentFrame,
+      scrubClampToItemBounds,
+      scrubFrameBounds,
+      timelineCellBorderWidth,
+      totalFrames,
+      xToFrame,
+    ],
   )
 
   const getTimelineXFromClientX = useCallback(
@@ -1668,9 +1700,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       const node = timelineRef.current
       if (!node) return 0
       const rect = node.getBoundingClientRect()
-      return Math.max(0, Math.min(effectiveTimelineWidth, clientX - rect.left))
+      return Math.max(
+        0,
+        Math.min(effectiveTimelineWidth, clientX - rect.left - timelineCellBorderWidth),
+      )
     },
-    [effectiveTimelineWidth],
+    [effectiveTimelineWidth, timelineCellBorderWidth],
   )
 
   const getContentYFromClientY = useCallback(
@@ -1692,8 +1727,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     // on both sides so incoming tick marks are already present and move with
     // the main ruler instead of appearing at the next settled React update.
     const rulerOverscanFrames = timelineScrollContainerRef ? frameRange * 2 : 0
-    const first =
-      Math.floor((viewport.startFrame - rulerOverscanFrames) / step) * step
+    const first = Math.floor((viewport.startFrame - rulerOverscanFrames) / step) * step
     const last = viewport.endFrame + rulerOverscanFrames
     const result: number[] = []
     for (let frame = first; frame <= last; frame += step) {
@@ -2230,7 +2264,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       if (onPropertyValuePreview) {
         onDragEnd?.()
       } else {
-        onPropertyValueCommit?.(property, scrub.lastValue, { allowCreate: true })
+        onPropertyValueCommit?.(property, scrub.lastValue, {
+          allowCreate: true,
+        })
       }
     },
     [onDragEnd, onPropertyValueCommit, onPropertyValuePreview],
@@ -2701,6 +2737,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   ])
 
   const scrubPointerIdRef = useRef<number | null>(null)
+  const rulerScrubActiveRef = useRef(false)
+  const rulerScrubHandoffFrameRef = useRef<number | null>(null)
   const [isRulerScrubbing, setIsRulerScrubbing] = useState(false)
   const lastScrubbedFrameRef = useRef<number | null>(null)
   const rulerScrubClientXRef = useRef<number | null>(null)
@@ -2720,14 +2758,24 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       if (!node) return currentFrame
       const rect = node.getBoundingClientRect()
       const frame = getFrameFromAxisX(
-        clientX - rect.left,
+        clientX - rect.left - timelineCellBorderWidth,
         rulerScrubViewportRef.current,
         effectiveTimelineWidth,
         timelineEdgeInset,
       )
-      return scrubClampToItemBounds ? clampFrame(frame, totalFrames) : frame
+      if (scrubClampToItemBounds) return clampFrame(frame, totalFrames)
+      if (!scrubFrameBounds) return frame
+      return Math.max(scrubFrameBounds.minFrame, Math.min(scrubFrameBounds.maxFrame, frame))
     },
-    [currentFrame, effectiveTimelineWidth, scrubClampToItemBounds, timelineEdgeInset, totalFrames],
+    [
+      currentFrame,
+      effectiveTimelineWidth,
+      scrubClampToItemBounds,
+      scrubFrameBounds,
+      timelineCellBorderWidth,
+      timelineEdgeInset,
+      totalFrames,
+    ],
   )
   rulerEdgeScrollLoopRef.current = (timestamp: number) => {
     rulerEdgeScrollRafRef.current = null
@@ -2778,8 +2826,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   }, [])
   const handleRulerPointerDown = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
-      if (disabled) return
+      if (disabled || event.button !== 0) return
       event.preventDefault()
+      rulerScrubHandoffFrameRef.current = null
+      rulerScrubActiveRef.current = true
       setIsRulerScrubbing(true)
       scrubPointerIdRef.current = event.pointerId
       rulerScrubClientXRef.current = event.clientX
@@ -2852,6 +2902,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         // ignore pointer capture errors
       }
       const finalFrame = getRulerScrubFrameFromClientX(event.clientX)
+      rulerScrubHandoffFrameRef.current = finalFrame
       if (finalFrame !== lastScrubbedFrameRef.current) {
         queueRulerScrub({
           frame: finalFrame,
@@ -2869,6 +2920,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       rulerEdgeScrollTimestampRef.current = null
       lastScrubbedFrameRef.current = null
       flushPendingRulerScrub(true)
+      rulerScrubActiveRef.current = false
       onScrubEnd?.()
     },
     [
@@ -2881,12 +2933,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     ],
   )
 
-  // Standard scroll model, shared by the sheet-only and split-sheet panes:
+  // Match the main timeline navigation model for standalone keyframe editors:
   // - Ctrl/Cmd+wheel zooms the time axis about the cursor.
-  // - Shift+wheel / trackpad horizontal swipe pans the time axis.
-  // - Plain vertical wheel is left to bubble so the property rows scroll
-  //   natively (their container is `overflow-auto`); it never hijacks the time
-  //   axis.
+  // - Plain wheel / trackpad swipe pans the time axis horizontally.
+  // - Shift+wheel is left to the native property-row vertical scroller.
   const handleWheel = useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       if (disabled) return
@@ -2898,17 +2948,62 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         return
       }
 
-      const horizontalDelta = event.deltaX !== 0 ? event.deltaX : event.shiftKey ? event.deltaY : 0
+      if (event.shiftKey) return
+
+      const horizontalDelta = event.deltaY || event.deltaX
       if (horizontalDelta !== 0) {
         event.preventDefault()
         panFrames(Math.round((horizontalDelta / effectiveTimelineWidth) * frameRange))
-        return
       }
-
-      // Plain vertical wheel: let the rows scroll natively (no preventDefault).
     },
     [disabled, getFrameFromClientX, zoomAroundFrame, panFrames, effectiveTimelineWidth, frameRange],
   )
+
+  // Edit shares the main timeline axis and deliberately disables the local
+  // viewport mutators. Forward its navigation gestures to the main timeline's
+  // non-passive wheel listener so momentum, bounds, cursor anchoring, live DOM
+  // geometry, and store throttling remain one implementation.
+  useEffect(() => {
+    const root = pickWhipRootRef.current
+    const timeline = timelineScrollContainerRef?.current
+    if (!root || !timeline || viewportInteractionEnabled) return
+
+    const forwardLinkedTimelineWheel = (event: WheelEvent) => {
+      const isZoomGesture = event.ctrlKey || event.metaKey
+      // App.tsx prevents native browser zoom during document capture, so a
+      // Ctrl/Cmd-wheel event arrives here with defaultPrevented already set.
+      // It still needs to reach the main timeline's anchored zoom handler.
+      if ((!isZoomGesture && event.defaultPrevented) || event.shiftKey || event.altKey) return
+      event.preventDefault()
+      event.stopPropagation()
+      timeline.dispatchEvent(
+        new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          screenX: event.screenX,
+          screenY: event.screenY,
+          deltaX: event.deltaX,
+          deltaY: event.deltaY,
+          deltaZ: event.deltaZ,
+          deltaMode: event.deltaMode,
+          ctrlKey: event.ctrlKey,
+          metaKey: event.metaKey,
+          shiftKey: event.shiftKey,
+          altKey: event.altKey,
+          button: event.button,
+          buttons: event.buttons,
+        }),
+      )
+    }
+
+    root.addEventListener('wheel', forwardLinkedTimelineWheel, {
+      passive: false,
+    })
+    return () => root.removeEventListener('wheel', forwardLinkedTimelineWheel)
+  }, [timelineScrollContainerRef, viewportInteractionEnabled])
 
   const graphDisplayProperty = useMemo(() => {
     if (graphVisibleProperties.size === 0) return null
@@ -3040,12 +3135,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
 
     scheduleDragPreviewFrames(timingStripPreviewFrames)
   }, [scheduleDragPreviewFrames, timingStripPreviewFrames, showSheetPane])
+  const rulerLabelFrameOffset = timelineScrollContainerRef ? itemFrom : 0
   const formatRulerTick = useCallback(
     (frame: number): string => {
+      const displayFrame = frame + rulerLabelFrameOffset
       if (graphRulerUnit === 'frames' || !fps || fps <= 0) {
-        return String(frame)
+        return String(displayFrame)
       }
-      const seconds = frame / fps
+      const seconds = displayFrame / fps
       if (seconds >= 60) {
         const minutes = Math.floor(seconds / 60)
         const remainder = seconds - minutes * 60
@@ -3053,30 +3150,58 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       }
       return `${seconds.toFixed(seconds < 10 ? 2 : 1)}s`
     },
-    [graphRulerUnit, fps],
+    [graphRulerUnit, fps, rulerLabelFrameOffset],
   )
 
-  const rulerTickElements = useMemo(
-    () =>
-      ticks.map((frame) => (
-        <div
-          key={frame}
-          className="absolute inset-y-0 border-l border-border/60"
-          style={{ left: Math.round(frameToX(frame)) }}
-        >
-          <span
-            className="absolute top-0.5 left-1 text-[10px] text-muted-foreground"
-            style={{
-              transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
-              transformOrigin: '0 50%',
-            }}
+  const rulerTickElements = useMemo(() => {
+    const firstTick = ticks[0]
+    const lastTick = ticks[ticks.length - 1]
+    const minorTickLayer =
+      firstTick !== undefined && lastTick !== undefined && ticks.length > 1
+        ? (() => {
+            const firstX = frameToX(firstTick)
+            const majorSpacing = Math.abs(frameToX(ticks[1]!) - firstX)
+            const minorSpacing = majorSpacing / 4
+            return (
+              <div
+                data-dopesheet-ruler-minor-ticks
+                className="pointer-events-none absolute bottom-0 h-1"
+                style={{
+                  left: Math.round(firstX),
+                  width: Math.ceil(frameToX(lastTick) - firstX + majorSpacing),
+                  backgroundImage:
+                    'linear-gradient(to right, rgba(255, 255, 255, 0.14) 1px, transparent 1px)',
+                  backgroundSize: `${minorSpacing}px 100%`,
+                }}
+              />
+            )
+          })()
+        : null
+
+    return (
+      <>
+        {minorTickLayer}
+        {ticks.map((frame) => (
+          <div
+            key={frame}
+            data-dopesheet-ruler-major-tick
+            className="pointer-events-none absolute bottom-0 h-2 border-l border-white/30"
+            style={{ left: Math.round(frameToX(frame)) }}
           >
-            {formatRulerTick(frame)}
-          </span>
-        </div>
-      )),
-    [ticks, frameToX, formatRulerTick],
-  )
+            <span
+              className="absolute bottom-[7px] left-1 whitespace-nowrap text-[10px] text-muted-foreground"
+              style={{
+                transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
+                transformOrigin: '0 50%',
+              }}
+            >
+              {formatRulerTick(frame)}
+            </span>
+          </div>
+        ))}
+      </>
+    )
+  }, [ticks, frameToX, formatRulerTick])
   const renderPropertyRowContent = useCallback(
     (row: DopesheetPropertyRow, options?: { classic?: boolean; indented?: boolean }) => {
       const classic = options?.classic ?? false
@@ -4317,6 +4442,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onRulerPointerUp={handleRulerPointerUp}
       onRulerPointerLeave={handleRulerPointerLeave}
       rulerTickElements={rulerTickElements}
+      reservedRightGutterWidth={reservedScrollbarGutterWidth}
     />
   )
   // The timeline cells (ruler, rows, graph) all sit behind a 1px `border-l`, so
@@ -4336,11 +4462,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         totalFrames={totalFrames}
         clampToItemBounds={playheadClampToItemBounds}
         followPreviewFrame={!onSkim}
+        localScrubActiveRef={rulerScrubActiveRef}
+        localScrubHandoffFrameRef={rulerScrubHandoffFrameRef}
         frameToX={frameToX}
         globalFrameToX={globalFrameToPixels}
         positionSyncTargetRef={timelineScrollContainerRef}
         maxLeft={effectiveTimelineWidth - 1}
-        clampToViewport={playheadClampToItemBounds}
         className="absolute top-0 bottom-0"
       />
     </div>
@@ -4359,11 +4486,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         totalFrames={totalFrames}
         clampToItemBounds={playheadClampToItemBounds}
         followPreviewFrame={!onSkim}
+        localScrubActiveRef={rulerScrubActiveRef}
+        localScrubHandoffFrameRef={rulerScrubHandoffFrameRef}
         frameToX={frameToX}
         globalFrameToX={globalFrameToPixels}
         positionSyncTargetRef={timelineScrollContainerRef}
         maxLeft={effectiveTimelineWidth - 1}
-        clampToViewport={playheadClampToItemBounds}
         className="absolute top-0 bottom-0"
       />
     </div>
@@ -4609,8 +4737,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                   onClick={() => onGraphModeChange(mode)}
                 >
                   {mode === 'value'
-                    ? t('timeline.keyframeEditor.valueGraph', { defaultValue: 'Value' })
-                    : t('timeline.keyframeEditor.speedGraph', { defaultValue: 'Speed' })}
+                    ? t('timeline.keyframeEditor.valueGraph', {
+                        defaultValue: 'Value',
+                      })
+                    : t('timeline.keyframeEditor.speedGraph', {
+                        defaultValue: 'Speed',
+                      })}
                 </button>
               ))}
             </div>

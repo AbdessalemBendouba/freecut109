@@ -2,7 +2,11 @@
 
 import { describe, expect, it } from 'vite-plus/test'
 
-import { getTimelineWidth, getZoomToFitLevel } from './timeline-layout'
+import {
+  getContentBoundedEdgeScrollLeft,
+  getTimelineWidth,
+  getZoomToFitLevel,
+} from './timeline-layout'
 
 describe('timeline layout helpers', () => {
   it('keeps zoom-to-fit framing unchanged', () => {
@@ -15,5 +19,35 @@ describe('timeline layout helpers', () => {
 
   it('preserves the same tail room when content already exceeds the viewport', () => {
     expect(getTimelineWidth({ contentWidth: 1500, viewportWidth: 1000 })).toBe(1850)
+  })
+
+  it('keeps edge scrubbing out of the timeline right-side navigation room', () => {
+    expect(
+      getContentBoundedEdgeScrollLeft({
+        contentWidth: 1500,
+        viewportWidth: 1000,
+        scrollLeft: 490,
+        deltaPixels: 24,
+      }),
+    ).toBe(500)
+    expect(
+      getContentBoundedEdgeScrollLeft({
+        contentWidth: 1500,
+        viewportWidth: 1000,
+        scrollLeft: 500,
+        deltaPixels: 24,
+      }),
+    ).toBe(500)
+  })
+
+  it('allows edge scrubbing back from deliberately opened right-side navigation room', () => {
+    expect(
+      getContentBoundedEdgeScrollLeft({
+        contentWidth: 1500,
+        viewportWidth: 1000,
+        scrollLeft: 650,
+        deltaPixels: -24,
+      }),
+    ).toBe(626)
   })
 })

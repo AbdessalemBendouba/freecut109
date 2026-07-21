@@ -10,6 +10,7 @@ interface DopesheetRulerHeaderProps {
   onRulerPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void
   onRulerPointerLeave: (event: ReactPointerEvent<HTMLDivElement>) => void
   rulerTickElements: ReactNode
+  reservedRightGutterWidth?: number
 }
 
 export function DopesheetRulerHeader({
@@ -20,6 +21,7 @@ export function DopesheetRulerHeader({
   onRulerPointerUp,
   onRulerPointerLeave,
   rulerTickElements,
+  reservedRightGutterWidth = 0,
 }: DopesheetRulerHeaderProps) {
   const { t } = useTranslation()
 
@@ -53,6 +55,13 @@ export function DopesheetRulerHeader({
         >
           {rulerTickElements}
         </div>
+        {reservedRightGutterWidth > 0 ? (
+          <div
+            data-testid="dopesheet-ruler-scrollbar-gutter"
+            className="pointer-events-none absolute inset-y-0 right-0 z-10 border-l border-border/60 bg-background/80"
+            style={{ width: reservedRightGutterWidth }}
+          />
+        ) : null}
       </div>
     </div>
   )

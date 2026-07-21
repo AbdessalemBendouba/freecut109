@@ -11,6 +11,11 @@ interface TimelineWidthInput {
   viewportWidth: number
 }
 
+interface TimelineContentScrollInput extends TimelineWidthInput {
+  scrollLeft: number
+  deltaPixels: number
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value))
 }
@@ -39,4 +44,26 @@ export function getTimelineWidth({ contentWidth, viewportWidth }: TimelineWidthI
   }
 
   return Math.max(viewportWidth, contentWidth + getTimelineRightScrollRoom(viewportWidth))
+}
+
+/**
+ * Stop edge scrubbing when the real content end reaches the viewport edge.
+ * The extra right-side navigation room remains available to deliberate scroll.
+ */
+export function getContentBoundedEdgeScrollLeft({
+  contentWidth,
+  viewportWidth,
+  scrollLeft,
+  deltaPixels,
+}: TimelineContentScrollInput): number {
+  if (deltaPixels <= 0) {
+    return Math.max(0, scrollLeft + deltaPixels)
+  }
+
+  const maxContentScrollLeft = Math.max(0, contentWidth - Math.max(0, viewportWidth))
+  if (scrollLeft >= maxContentScrollLeft) {
+    return scrollLeft
+  }
+
+  return Math.min(maxContentScrollLeft, scrollLeft + deltaPixels)
 }

@@ -78,7 +78,9 @@ import { useTimelineSettingsStore } from '../stores/timeline-settings-store'
 import { useTimelineViewportStore } from '../stores/timeline-viewport-store'
 import { useZoomStore } from '../stores/zoom-store'
 import { perfMarkRender } from '@/shared/logging/perf-marks'
+import { notifyTimelineLiveScroll } from '@/shared/timeline/live-scroll-sync'
 import { useSettledTimelineScrollLeft } from './use-settled-timeline-scroll-left'
+import { getContentBoundedEdgeScrollLeft } from '../utils/timeline-layout'
 import type {
   AnimatableProperty,
   BezierControlPoints,
@@ -939,6 +941,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     ),
   )
   const allItemsById = useItemsStore((s) => s.itemById)
+  const maxItemEndFrame = useItemsStore((s) => s.maxItemEndFrame)
   const allKeyframesByItemId = useKeyframesStore((s) => s.keyframesByItemId)
   const {
     drag: propertyLinkDrag,
@@ -1133,10 +1136,21 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       if (!container) return 0
 
       const previousScrollLeft = container.scrollLeft
-      container.scrollLeft = previousScrollLeft + deltaPixels
+      const pixelsPerSecond = useZoomStore.getState().pixelsPerSecond
+      const viewportWidth = useTimelineViewportStore.getState().viewportWidth
+      const contentDuration = Math.max(maxItemEndFrame / editTimelineFps, 10)
+      container.scrollLeft = getContentBoundedEdgeScrollLeft({
+        contentWidth: contentDuration * pixelsPerSecond,
+        viewportWidth,
+        scrollLeft: previousScrollLeft,
+        deltaPixels,
+      })
       const nextScrollLeft = container.scrollLeft
       const appliedPixels = nextScrollLeft - previousScrollLeft
       if (appliedPixels !== 0) {
+        // Native scroll may arrive after the next paint. Broadcast the applied
+        // DOM position so both playheads consume this scrollLeft immediately.
+        notifyTimelineLiveScroll(container)
         const timelineViewport = useTimelineViewportStore.getState()
         timelineViewport.setViewportImmediate({
           scrollLeft: nextScrollLeft,
@@ -1147,7 +1161,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       }
       return appliedPixels
     },
-    [surface, timelineScrollContainerRef],
+    [editTimelineFps, maxItemEndFrame, surface, timelineScrollContainerRef],
   )
 
   const allAvailableProperties = useMemo(() => {
@@ -2803,11 +2817,10 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     : panelHeaderHeight
 
   const editorInset = surface === 'edit' ? 0 : 16
-  const sharedEditEditorWidth =
-    surface === 'edit' && propertyColumnWidth !== undefined && editTimelineViewportWidth > 0
-      ? propertyColumnWidth + 1 + editTimelineViewportWidth
-      : containerWidth
-  const editorWidth = Math.max(0, sharedEditEditorWidth - editorInset)
+  // The docked editor spans the full timeline row. Its own 12px custom
+  // scrollbar then occupies the same right-edge column as the main timeline's
+  // scrollbar instead of subtracting a second gutter from the shared axis.
+  const editorWidth = Math.max(0, containerWidth - editorInset)
   const editorHeight = Math.max(0, resolvedContentHeight - editorInset)
   // Only render the docked editor when explicitly opened from the toolbar/hotkey.
   // Selecting a clip should not surface the docked panel by itself.
@@ -3083,6 +3096,17 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   }
                   onRulerEdgeScroll={surface === 'edit' ? handleEditTimelineEdgeScroll : undefined}
                   scrubClampToItemBounds={surface !== 'edit'}
+                  scrubFrameBounds={
+                    surface === 'edit'
+                      ? {
+                          minFrame: -selectedItemForEditor.from,
+                          maxFrame:
+                            Math.floor(
+                              Math.max(maxItemEndFrame / editTimelineFps, 10) * editTimelineFps,
+                            ) - selectedItemForEditor.from,
+                        }
+                      : undefined
+                  }
                   onScrubStart={handleScrubStart}
                   onScrubEnd={handleScrubEnd}
                   onDragStart={handleDragStart}

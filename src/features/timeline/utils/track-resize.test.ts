@@ -5,6 +5,7 @@ import { TRACK_SECTION_DIVIDER_HEIGHT, MAX_TRACK_HEIGHT, MIN_TRACK_HEIGHT } from
 import {
   clampSectionDividerPosition,
   clampTrackHeight,
+  getBottomAnchoredSectionScrollTop,
   getMinimumTrackSectionSpacerHeight,
   getTrackSectionLayout,
   resizeAllTracksInList,
@@ -62,6 +63,11 @@ describe('track-resize', () => {
   it('keeps the A/V spacer slightly taller than the title bar', () => {
     expect(getMinimumTrackSectionSpacerHeight(24)).toBe(36)
     expect(getMinimumTrackSectionSpacerHeight(26)).toBe(39)
+  })
+
+  it('computes the live bottom anchor without reading pane layout', () => {
+    expect(getBottomAnchoredSectionScrollTop(180, 240, 24)).toBe(84)
+    expect(getBottomAnchoredSectionScrollTop(280, 240, 40)).toBe(0)
   })
 
   it('keeps a buffer when manual divider drags reach either edge', () => {

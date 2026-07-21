@@ -25,6 +25,10 @@ interface DopesheetPlayheadLineProps {
   clampToItemBounds?: boolean
   /** Whether the committed playhead should follow transient preview/skim frames. */
   followPreviewFrame?: boolean
+  /** Local ruler ownership allows scrub previews without following ordinary hover skims. */
+  localScrubActiveRef?: RefObject<boolean>
+  /** Last local ruler frame held until the deferred editor prop catches up. */
+  localScrubHandoffFrameRef?: RefObject<number | null>
   /** Convert a clip-relative frame to x within the timeline viewport. */
   frameToX: (frame: number) => number
   /** Exact shared Edit-axis mapper. Receives an absolute timeline frame. */
@@ -38,12 +42,86 @@ interface DopesheetPlayheadLineProps {
   className?: string
 }
 
+interface PlayheadPositionState {
+  itemFrom: number
+  totalFrames: number
+  relativeFrame: number
+  clampToItemBounds: boolean
+  followPreviewFrame: boolean
+}
+
+function clampRelativeFrame(frame: number, pos: PlayheadPositionState): number {
+  if (!pos.clampToItemBounds) return frame
+  const lastFrame = Math.max(0, (pos.totalFrames || 1) - 1)
+  return Math.max(0, Math.min(lastFrame, frame))
+}
+
+function resolveScrubHandoffFrame(
+  pos: PlayheadPositionState,
+  currentFrame: number,
+  previewFrame: number | null,
+  isMainTimelineScrubbing: boolean,
+): number | null {
+  if (isMainTimelineScrubbing) {
+    mainTimelineScrubHandoffFrameRef.current = previewFrame ?? currentFrame
+    return null
+  }
+
+  const handoffFrame = mainTimelineScrubHandoffFrameRef.current
+  if (handoffFrame === null) return null
+  if (pos.itemFrom + pos.relativeFrame === handoffFrame) {
+    mainTimelineScrubHandoffFrameRef.current = null
+    return null
+  }
+
+  return clampRelativeFrame(handoffFrame - pos.itemFrom, pos)
+}
+
+function resolveLocalScrubHandoffFrame(
+  pos: PlayheadPositionState,
+  isLocalTimelineScrubbing: boolean,
+  handoffFrameRef?: RefObject<number | null>,
+): number | null {
+  if (isLocalTimelineScrubbing || !handoffFrameRef) return null
+  const handoffFrame = handoffFrameRef.current
+  if (handoffFrame === null) return null
+  if (pos.relativeFrame === handoffFrame) {
+    handoffFrameRef.current = null
+    return null
+  }
+  return clampRelativeFrame(handoffFrame, pos)
+}
+
+function shouldFollowTransientFrame(
+  pos: PlayheadPositionState,
+  isMainTimelineScrubbing: boolean,
+  isLocalTimelineScrubbing: boolean,
+): boolean {
+  return pos.followPreviewFrame || isMainTimelineScrubbing || isLocalTimelineScrubbing
+}
+
+function resolveLiveRelativeFrame(
+  pos: PlayheadPositionState,
+  currentFrame: number,
+  previewFrame: number | null,
+  isPlaying: boolean,
+  isMainTimelineScrubbing: boolean,
+  followTransientFrame: boolean,
+): number | null {
+  const hasFollowedPreview = previewFrame !== null && followTransientFrame
+  if (!isPlaying && !isMainTimelineScrubbing && !hasFollowedPreview) return null
+  const frame = followTransientFrame ? (previewFrame ?? currentFrame) : currentFrame
+  return clampRelativeFrame(frame - pos.itemFrom, pos)
+}
+
 export function DopesheetPlayheadLine({
   relativeFrame,
   itemFrom,
   totalFrames,
   clampToItemBounds = true,
   followPreviewFrame = true,
+  localScrubActiveRef,
+  localScrubHandoffFrameRef,
   frameToX,
   globalFrameToX,
   positionSyncTargetRef,
@@ -85,39 +163,37 @@ export function DopesheetPlayheadLine({
 
   const livePlaybackRelFrame = (): number | null => {
     const state = usePlaybackStore.getState()
-    const isPreviewing = state.previewFrame !== null
     const pos = posRef.current
     const isMainTimelineScrubbing = mainTimelineScrubActiveRef.current
-    const followTransientFrame = pos.followPreviewFrame || isMainTimelineScrubbing
+    const isLocalTimelineScrubbing = localScrubActiveRef?.current === true
+    const followTransientFrame = shouldFollowTransientFrame(
+      pos,
+      isMainTimelineScrubbing,
+      isLocalTimelineScrubbing,
+    )
 
-    if (isMainTimelineScrubbing) {
-      mainTimelineScrubHandoffFrameRef.current = state.previewFrame ?? state.currentFrame
-    } else if (mainTimelineScrubHandoffFrameRef.current !== null) {
-      const propGlobalFrame = pos.itemFrom + pos.relativeFrame
-      if (propGlobalFrame === mainTimelineScrubHandoffFrameRef.current) {
-        mainTimelineScrubHandoffFrameRef.current = null
-      } else {
-        const relative = mainTimelineScrubHandoffFrameRef.current - pos.itemFrom
-        if (!pos.clampToItemBounds) return relative
-        const lastFrame = Math.max(0, (pos.totalFrames || 1) - 1)
-        return Math.max(0, Math.min(lastFrame, relative))
-      }
-    }
+    const localHandoffFrame = resolveLocalScrubHandoffFrame(
+      pos,
+      isLocalTimelineScrubbing,
+      localScrubHandoffFrameRef,
+    )
+    if (localHandoffFrame !== null) return localHandoffFrame
 
-    if (
-      !state.isPlaying &&
-      !isMainTimelineScrubbing &&
-      (!isPreviewing || !followTransientFrame)
-    ) {
-      return null
-    }
-    const frame = followTransientFrame
-      ? (state.previewFrame ?? state.currentFrame)
-      : state.currentFrame
-    const relative = frame - pos.itemFrom
-    if (!pos.clampToItemBounds) return relative
-    const lastFrame = Math.max(0, (pos.totalFrames || 1) - 1)
-    return Math.max(0, Math.min(lastFrame, relative))
+    const handoffFrame = resolveScrubHandoffFrame(
+      pos,
+      state.currentFrame,
+      state.previewFrame,
+      isMainTimelineScrubbing,
+    )
+    if (handoffFrame !== null) return handoffFrame
+    return resolveLiveRelativeFrame(
+      pos,
+      state.currentFrame,
+      state.previewFrame,
+      state.isPlaying,
+      isMainTimelineScrubbing,
+      followTransientFrame,
+    )
   }
 
   useLayoutEffect(() => {
@@ -146,7 +222,7 @@ export function DopesheetPlayheadLine({
     }
     // Positioning inputs are read from posRef so this subscription stays stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [positionSyncTargetRef])
+  }, [localScrubActiveRef, localScrubHandoffFrameRef, positionSyncTargetRef])
 
   return (
     <div ref={ref} data-testid="dopesheet-playhead-line" className={className}>

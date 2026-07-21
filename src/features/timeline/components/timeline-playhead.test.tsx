@@ -59,9 +59,11 @@ describe('TimelinePlayhead', () => {
 
     const hitArea = container.querySelector('[style*="width: 20px"]') as HTMLDivElement | null
     expect(hitArea).toBeTruthy()
+    expect(hitArea).toHaveStyle({ cursor: 'ew-resize' })
 
     fireEvent.mouseDown(hitArea!, { clientX: 24, clientY: 8, button: 0 })
     expect(mainTimelineScrubActiveRef.current).toBe(true)
+    expect(document.body).toHaveStyle({ cursor: 'ew-resize' })
     fireEvent.mouseMove(document, { clientX: 120, clientY: 8 })
 
     await waitFor(() => {
@@ -71,6 +73,7 @@ describe('TimelinePlayhead', () => {
 
     fireEvent.mouseUp(document, { clientX: 120, clientY: 8 })
     expect(mainTimelineScrubActiveRef.current).toBe(false)
+    expect(document.body.style.cursor).toBe('')
 
     await waitFor(() => {
       expect(usePlaybackStore.getState().currentFrame).toBe(36)
@@ -114,9 +117,7 @@ describe('TimelinePlayhead', () => {
       toJSON: () => ({}),
     })
     const hitArea = container.querySelector('[style*="width: 20px"]') as HTMLDivElement
-    const rulerPlayhead = container.querySelector<HTMLElement>(
-      '[data-timeline-playhead="ruler"]',
-    )!
+    const rulerPlayhead = container.querySelector<HTMLElement>('[data-timeline-playhead="ruler"]')!
     const tracksPlayhead = container.querySelector<HTMLElement>(
       '[data-timeline-playhead="tracks"]',
     )!
@@ -141,6 +142,58 @@ describe('TimelinePlayhead', () => {
 
     fireEvent.mouseUp(document, { clientX: 300, clientY: 8 })
     expect(usePlaybackStore.getState().previewFrame).toBeNull()
+    animationFrameSpy.mockRestore()
+  })
+
+  it('clamps the draggable playhead visual to the project end', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const { container } = render(
+      <div className="timeline-container">
+        <div className="timeline-ruler">
+          <TimelinePlayhead inRuler maxFrame={30} />
+        </div>
+        <div className="timeline-tracks">
+          <TimelinePlayhead maxFrame={30} />
+        </div>
+      </div>,
+    )
+    const scrollContainer = container.querySelector('.timeline-container') as HTMLDivElement
+    Object.defineProperties(scrollContainer, {
+      clientWidth: { configurable: true, value: 300 },
+      scrollWidth: { configurable: true, value: 1200 },
+      scrollLeft: { configurable: true, value: 0, writable: true },
+    })
+    scrollContainer.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 200,
+      width: 300,
+      height: 200,
+      toJSON: () => ({}),
+    })
+    const hitArea = container.querySelector('[style*="width: 20px"]') as HTMLDivElement
+    const rulerPlayhead = container.querySelector<HTMLElement>('[data-timeline-playhead="ruler"]')!
+    const tracksPlayhead = container.querySelector<HTMLElement>(
+      '[data-timeline-playhead="tracks"]',
+    )!
+
+    fireEvent.mouseDown(hitArea, { clientX: 250, clientY: 8, button: 0 })
+    frameCallbacks.shift()?.(16)
+
+    expect(rulerPlayhead).toHaveStyle({ transform: 'translate3d(100px, 0, 0)' })
+    expect(tracksPlayhead.style.transform).toBe(rulerPlayhead.style.transform)
+    expect(usePlaybackStore.getState().currentFrame).toBe(30)
+
+    fireEvent.mouseUp(document, { clientX: 250, clientY: 8 })
     animationFrameSpy.mockRestore()
   })
 })

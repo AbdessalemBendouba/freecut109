@@ -68,6 +68,61 @@ describe('DopesheetEditor playhead overlay', () => {
     })
   })
 
+  it('uses the main viewport right edge for the classic shared playhead clamp', () => {
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={100}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        clampViewportToContent={false}
+        presentation="classic"
+        width={640}
+        height={240}
+      />,
+    )
+
+    // 640px editor - 248px property column - 1px cell border leaves a 391px
+    // viewport whose final visible pixel is x=390, matching the main ruler.
+    expect(screen.getByTestId('dopesheet-playhead-line')).toHaveStyle({
+      transform: 'translate3d(390px, 0, 0)',
+    })
+  })
+
+  it('reserves the sheet scrollbar gutter across the ruler and playhead axis', () => {
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockImplementation(function (this: HTMLElement) {
+        return this.dataset.testid === 'dopesheet-scroll-area' ? 628 : 0
+      })
+
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={100}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        clampViewportToContent={false}
+        presentation="classic"
+        width={640}
+        height={240}
+      />,
+    )
+
+    expect(screen.getByTestId('dopesheet-scroll-area')).toHaveStyle({ right: '12px' })
+    expect(screen.getByTestId('dopesheet-scrollbar')).toHaveClass(
+      'right-0',
+      'w-3',
+      'bg-background/80',
+    )
+    expect(screen.getByTestId('dopesheet-ruler-scrollbar-gutter')).toHaveStyle({ width: '12px' })
+    expect(screen.getByTestId('dopesheet-playhead-line')).toHaveStyle({
+      transform: 'translate3d(378px, 0, 0)',
+    })
+
+    clientWidthSpy.mockRestore()
+  })
+
   it('shows the shared ruler in graph mode and defers the playhead to the graph', () => {
     render(
       <DopesheetEditor
@@ -119,6 +174,86 @@ describe('DopesheetEditor playhead overlay', () => {
     expect(onScrubEnd).toHaveBeenCalledOnce()
   })
 
+  it('clamps shared Edit ruler scrubbing to the composition bounds', () => {
+    const onScrub = vi.fn()
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        totalFrames={50}
+        frameViewport={{ startFrame: -100, endFrame: 200 }}
+        clampViewportToContent={false}
+        scrubClampToItemBounds={false}
+        scrubFrameBounds={{ minFrame: -20, maxFrame: 80 }}
+        width={640}
+        height={240}
+        onScrub={onScrub}
+      />,
+    )
+
+    const ruler = screen.getByTestId('dopesheet-ruler')
+    fireEvent.pointerDown(ruler, { button: 0, pointerId: 17, clientX: 640 })
+    fireEvent.pointerUp(ruler, { pointerId: 17, clientX: 640 })
+
+    expect(onScrub).toHaveBeenCalledWith(80)
+  })
+
+  it('snaps the committed playhead to a primary ruler press before pointer movement', () => {
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={10}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        width={640}
+        height={240}
+        onScrub={(frame) => usePlaybackStore.getState().setScrubFrame(frame, 'item-1')}
+        onScrubEnd={() => usePlaybackStore.getState().setPreviewFrame(null)}
+        onSkim={() => {}}
+      />,
+    )
+
+    const ruler = screen.getByTestId('dopesheet-ruler')
+    const playhead = screen.getByTestId('dopesheet-playhead-line')
+    const initialTransform = playhead.style.transform
+
+    fireEvent.pointerDown(ruler, { button: 0, pointerId: 8, clientX: 196 })
+
+    expect(usePlaybackStore.getState().currentFrame).toBe(50)
+    expect(playhead.style.transform).not.toBe(initialTransform)
+    expect(playhead).toHaveStyle({ transform: 'translate3d(196px, 0, 0)' })
+
+    fireEvent.pointerUp(ruler, { pointerId: 8, clientX: 196 })
+    expect(playhead).toHaveStyle({ transform: 'translate3d(196px, 0, 0)' })
+  })
+
+  it('aligns the classic ruler pointer with the playhead after the cell border', () => {
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        presentation="classic"
+        width={640}
+        height={240}
+        onScrub={(frame) => usePlaybackStore.getState().setScrubFrame(frame, 'item-1')}
+        onSkim={() => {}}
+      />,
+    )
+
+    const ruler = screen.getByTestId('dopesheet-ruler')
+    fireEvent.pointerDown(ruler, { button: 0, pointerId: 81, clientX: 196.5 })
+
+    expect(usePlaybackStore.getState().currentFrame).toBe(50)
+    expect(screen.getByTestId('dopesheet-playhead-line')).toHaveStyle({
+      transform: 'translate3d(195.5px, 0, 0)',
+    })
+
+    fireEvent.pointerUp(ruler, { pointerId: 81, clientX: 196.5 })
+  })
+
   it('auto-scrolls a linked timeline while the ruler pointer stays at the edge', () => {
     const frameCallbacks: FrameRequestCallback[] = []
     const animationFrameSpy = vi
@@ -138,6 +273,7 @@ describe('DopesheetEditor playhead overlay', () => {
         frameViewport={{ startFrame: 0, endFrame: 100 }}
         clampViewportToContent={false}
         scrubClampToItemBounds={false}
+        presentation="classic"
         width={640}
         height={240}
         onScrub={onScrub}
@@ -173,6 +309,87 @@ describe('DopesheetEditor playhead overlay', () => {
 
     fireEvent.pointerUp(ruler, { pointerId: 9, clientX: 640 })
     animationFrameSpy.mockRestore()
+  })
+
+  it('uses main-timeline wheel semantics in a standalone keyframe editor', () => {
+    const onFrameViewportChange = vi.fn()
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        totalFrames={300}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        width={640}
+        height={240}
+        onFrameViewportChange={onFrameViewportChange}
+      />,
+    )
+
+    const ruler = screen.getByTestId('dopesheet-ruler')
+    fireEvent.wheel(ruler, { deltaY: 120 })
+    expect(onFrameViewportChange).toHaveBeenLastCalledWith({ startFrame: 31, endFrame: 131 })
+
+    onFrameViewportChange.mockClear()
+    fireEvent.wheel(ruler, { deltaY: 120, shiftKey: true })
+    expect(onFrameViewportChange).not.toHaveBeenCalled()
+
+    fireEvent.wheel(ruler, { clientX: 196, deltaY: -120, ctrlKey: true })
+    const zoomedViewport = onFrameViewportChange.mock.lastCall?.[0]
+    expect(zoomedViewport.endFrame - zoomedViewport.startFrame).toBeLessThan(100)
+  })
+
+  it('routes linked keyframe wheel navigation through the main timeline handler', () => {
+    const timeline = document.createElement('div')
+    const forwardedEvents: WheelEvent[] = []
+    timeline.addEventListener(
+      'wheel',
+      (event) => {
+        forwardedEvents.push(event)
+        event.preventDefault()
+      },
+      { passive: false },
+    )
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        totalFrames={300}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        viewportInteractionEnabled={false}
+        timelineScrollContainerRef={{ current: timeline }}
+        presentation="classic"
+        width={640}
+        height={240}
+      />,
+    )
+
+    const ruler = screen.getByTestId('dopesheet-ruler')
+    const panEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 320,
+      deltaY: 120,
+    })
+    act(() => ruler.dispatchEvent(panEvent))
+    expect(panEvent.defaultPrevented).toBe(true)
+    expect(forwardedEvents).toHaveLength(1)
+    expect(forwardedEvents[0]).toMatchObject({ clientX: 320, deltaY: 120, ctrlKey: false })
+
+    const zoomEvent = new WheelEvent('wheel', {
+      bubbles: true,
+      cancelable: true,
+      clientX: 400,
+      deltaY: -120,
+      ctrlKey: true,
+    })
+    act(() => ruler.dispatchEvent(zoomEvent))
+    expect(forwardedEvents).toHaveLength(2)
+    expect(forwardedEvents[1]).toMatchObject({ clientX: 400, deltaY: -120, ctrlKey: true })
+
+    fireEvent.wheel(ruler, { deltaY: 120, shiftKey: true })
+    expect(forwardedEvents).toHaveLength(2)
   })
 
   it('shows a separate skim playhead while keeping the committed playhead in place', () => {
@@ -274,13 +491,12 @@ describe('DopesheetEditor playhead overlay', () => {
 
     expect(committed).toHaveStyle({ transform: 'translate3d(90px, 0, 0)' })
 
-    // Edit uses the same clipped global axis as the main timeline. Once the
-    // playhead leaves the viewport it keeps moving offscreen instead of pinning
-    // to the keyframe sheet edge.
+    // Seeking can remain outside the selected clip, but the visible playhead
+    // pins to the ruler edge while the shared timeline scrolls underneath it.
     scrollContainer.scrollLeft = 200
     fireEvent.scroll(scrollContainer)
 
-    expect(committed).toHaveStyle({ transform: 'translate3d(-50px, 0, 0)' })
+    expect(committed).toHaveStyle({ transform: 'translate3d(0px, 0, 0)' })
   })
 
   it('compositor-pans keyframe geometry between settled React viewport updates', () => {
@@ -300,9 +516,9 @@ describe('DopesheetEditor playhead overlay', () => {
       />,
     )
 
-    const rulerSurface = screen.getByTestId('dopesheet-ruler').querySelector(
-      '[data-motion-ruler-surface]',
-    )
+    const rulerSurface = screen
+      .getByTestId('dopesheet-ruler')
+      .querySelector('[data-motion-ruler-surface]')
     expect(rulerSurface).toHaveStyle({
       transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
     })
