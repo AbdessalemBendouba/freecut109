@@ -124,6 +124,12 @@ export function GlobalTooltip() {
       const target = (eventTarget as Element).closest('[data-tooltip]') as HTMLElement
       if (!target) return
 
+      // `mouseenter` is captured for every descendant (for example, the SVG
+      // inside an icon button). Moving from the button surface onto that icon
+      // is still inside the same tooltip trigger and must not restart its
+      // delay or visible state.
+      if (e.relatedTarget instanceof Node && target.contains(e.relatedTarget)) return
+
       // Clear any pending hide timeout
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
@@ -147,7 +153,12 @@ export function GlobalTooltip() {
           ? (eventTarget as Element)
           : eventTarget?.parentElement
 
-      if (!element || !element.closest('[data-tooltip]')) return
+      const target = element?.closest('[data-tooltip]') as HTMLElement | null
+      if (!target) return
+
+      // Ignore movement between descendants of the same trigger. Without this,
+      // leaving an SVG path for its button is interpreted as leaving the button.
+      if (e.relatedTarget instanceof Node && target.contains(e.relatedTarget)) return
 
       // Clear show timeout if leaving before it fires
       if (timeoutRef.current) {
