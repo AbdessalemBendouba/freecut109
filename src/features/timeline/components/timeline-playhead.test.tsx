@@ -9,7 +9,10 @@ import { useTimelineStore } from '../stores/timeline-store'
 import {
   mainTimelineScrubActiveRef,
   mainTimelineScrubHandoffFrameRef,
+  resetTimelineSkimmerScrubForTest,
+  timelineSkimmerScrubSignal,
 } from '@/shared/timeline/main-timeline-scrub'
+import { notifyTimelineScrubVisualFrame } from '@/shared/timeline/live-scroll-sync'
 
 describe('TimelinePlayhead', () => {
   beforeEach(() => {
@@ -34,6 +37,7 @@ describe('TimelinePlayhead', () => {
     useZoomStore.getState().setZoomLevelSynchronized(1)
     mainTimelineScrubActiveRef.current = false
     mainTimelineScrubHandoffFrameRef.current = null
+    resetTimelineSkimmerScrubForTest()
   })
 
   it('uses atomic scrub updates while dragging and clears preview on release', async () => {
@@ -64,6 +68,7 @@ describe('TimelinePlayhead', () => {
 
     fireEvent.mouseDown(hitArea!, { clientX: 24, clientY: 8, button: 0 })
     expect(mainTimelineScrubActiveRef.current).toBe(true)
+    expect(timelineSkimmerScrubSignal.current).toBe(true)
     expect(document.body).toHaveStyle({ cursor: 'ew-resize' })
     fireEvent.mouseMove(document, { clientX: 120, clientY: 8 })
 
@@ -74,12 +79,53 @@ describe('TimelinePlayhead', () => {
 
     fireEvent.mouseUp(document, { clientX: 120, clientY: 8 })
     expect(mainTimelineScrubActiveRef.current).toBe(false)
+    expect(timelineSkimmerScrubSignal.current).toBe(false)
     expect(document.body.style.cursor).toBe('')
 
     await waitFor(() => {
       expect(usePlaybackStore.getState().currentFrame).toBe(36)
       expect(usePlaybackStore.getState().previewFrame).toBeNull()
     })
+  })
+
+  it('releases scrub ownership and cancels the RAF when the window loses focus', async () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame')
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frameCallbacks.push(callback)
+      return frameCallbacks.length
+    })
+    const { container } = render(
+      <div className="timeline-ruler">
+        <TimelinePlayhead inRuler maxFrame={300} />
+      </div>,
+    )
+    const ruler = container.querySelector('.timeline-ruler') as HTMLDivElement
+    ruler.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 600,
+      bottom: 40,
+      width: 600,
+      height: 40,
+      toJSON: () => ({}),
+    })
+    const hitArea = container.querySelector('[style*="width: 20px"]') as HTMLDivElement
+
+    fireEvent.mouseDown(hitArea, { clientX: 120, clientY: 8, button: 0 })
+    expect(mainTimelineScrubActiveRef.current).toBe(true)
+    expect(timelineSkimmerScrubSignal.current).toBe(true)
+    expect(frameCallbacks).toHaveLength(1)
+
+    fireEvent.blur(window)
+
+    expect(mainTimelineScrubActiveRef.current).toBe(false)
+    expect(timelineSkimmerScrubSignal.current).toBe(false)
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(1)
+    expect(usePlaybackStore.getState().previewFrame).toBeNull()
+    await waitFor(() => expect(document.body.style.cursor).toBe(''))
   })
 
   it('uses an explicit ruler origin when the unified playhead is its sibling', () => {
@@ -124,6 +170,36 @@ describe('TimelinePlayhead', () => {
     fireEvent.mouseUp(document, { clientX: 130, clientY: 8 })
 
     expect(usePlaybackStore.getState().currentFrame).toBe(60)
+  })
+
+  it('follows a keyframe scrub visual frame before its throttled store update', () => {
+    const { container } = render(
+      <div className="timeline-container">
+        <TimelinePlayhead inRuler maxFrame={300} />
+      </div>,
+    )
+    const scrollContainer = container.querySelector('.timeline-container') as HTMLDivElement
+    const playhead = container.querySelector('[data-timeline-playhead="ruler"]') as HTMLDivElement
+    Object.defineProperties(scrollContainer, {
+      clientWidth: { configurable: true, value: 301 },
+      scrollLeft: { configurable: true, value: 100, writable: true },
+    })
+
+    notifyTimelineScrubVisualFrame(scrollContainer, {
+      frame: 90,
+      source: 'keyframe',
+      viewportProgress: 2 / 3,
+    })
+
+    expect(playhead).toHaveStyle({ transform: 'translate3d(300px, 0, 0)' })
+    expect(usePlaybackStore.getState().currentFrame).toBe(12)
+
+    notifyTimelineScrubVisualFrame(scrollContainer, {
+      frame: 300,
+      source: 'keyframe',
+      viewportProgress: 1,
+    })
+    expect(playhead).toHaveStyle({ transform: 'translate3d(400px, 0, 0)' })
   })
 
   it('auto-scrolls at the viewport edge while keeping both playheads cursor-locked', () => {
@@ -234,7 +310,9 @@ describe('TimelinePlayhead', () => {
     fireEvent.mouseDown(hitArea, { clientX: 250, clientY: 8, button: 0 })
     frameCallbacks.shift()?.(16)
 
-    expect(rulerPlayhead).toHaveStyle({ transform: 'translate3d(100px, 0, 0)' })
+    expect(rulerPlayhead).toHaveStyle({
+      transform: 'translate3d(100px, 0, 0)',
+    })
     expect(tracksPlayhead.style.transform).toBe(rulerPlayhead.style.transform)
     expect(usePlaybackStore.getState().currentFrame).toBe(30)
 

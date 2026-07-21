@@ -11,7 +11,18 @@ import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
 import { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub-throttle'
 import { withPerfMeasure, perfMarkRender } from '@/shared/logging/perf-marks'
 import { PlayheadMarks } from '@/shared/ui/playhead-marks'
-import { mainTimelineScrubActiveRef } from '@/shared/timeline/main-timeline-scrub'
+import {
+  beginTimelineSkimmerScrub,
+  endTimelineSkimmerScrub,
+  mainTimelineScrubActiveRef,
+} from '@/shared/timeline/main-timeline-scrub'
+import {
+  TIMELINE_SCRUB_VISUAL_FRAME_EVENT,
+  getTimelineScrubViewportProgress,
+  getTimelineScrubViewportX,
+  notifyTimelineScrubVisualFrame,
+  type TimelineScrubVisualFrameDetail,
+} from '@/shared/timeline/live-scroll-sync'
 import {
   getEdgeScrollDelta,
   getPlayheadEdgeScrollVelocity,
@@ -39,7 +50,10 @@ function getPlayheadDragSurfaces({
   coordinateSurface: HTMLDivElement | null
 } {
   if (!playhead) {
-    return { scrollContainer: null, coordinateSurface: explicitCoordinateSurface }
+    return {
+      scrollContainer: null,
+      coordinateSurface: explicitCoordinateSurface,
+    }
   }
 
   const scrollContainer = playhead.closest<HTMLDivElement>('.timeline-container')
@@ -115,6 +129,7 @@ export function TimelinePlayhead({
   const scrubScrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrubCoordinateSurfaceRef = useRef<HTMLDivElement | null>(null)
   const scrubPlayheadElementsRef = useRef<HTMLElement[]>([])
+  const skimmerScrubOwnerRef = useRef({})
   const scrubThrottleStateRef = useRef(
     createScrubThrottleState({
       frame: usePlaybackStore.getState().currentFrame,
@@ -177,6 +192,24 @@ export function TimelinePlayhead({
     playheadRef.current.style.transform = `translate3d(${leftPosition}px, 0, 0)`
   }, [frameToPixels, isDragging])
 
+  useEffect(() => {
+    const scrollContainer = playheadRef.current?.closest<HTMLDivElement>('.timeline-container')
+    if (!scrollContainer) return
+
+    const updateFromLinkedScrub = (event: Event) => {
+      const { source, viewportProgress } = (event as CustomEvent<TimelineScrubVisualFrameDetail>)
+        .detail
+      if (source !== 'keyframe' || !playheadRef.current) return
+      const viewportX = getTimelineScrubViewportX(viewportProgress, scrollContainer.clientWidth - 1)
+      playheadRef.current.style.transform = `translate3d(${scrollContainer.scrollLeft + viewportX}px, 0, 0)`
+    }
+
+    scrollContainer.addEventListener(TIMELINE_SCRUB_VISUAL_FRAME_EVENT, updateFromLinkedScrub)
+    return () => {
+      scrollContainer.removeEventListener(TIMELINE_SCRUB_VISUAL_FRAME_EVENT, updateFromLinkedScrub)
+    }
+  }, [])
+
   // Track external drag operations to disable pointer events on hit areas
   useEffect(() => {
     const handleDragStart = () => setIsExternalDrag(true)
@@ -227,6 +260,8 @@ export function TimelinePlayhead({
       })
       isDraggingRef.current = true
       mainTimelineScrubActiveRef.current = true
+      beginTimelineSkimmerScrub(skimmerScrubOwnerRef.current)
+      setPreviewFrameRef.current(null)
       setIsDragging(true)
     },
     [coordinateSurfaceRef, inRuler],
@@ -235,6 +270,7 @@ export function TimelinePlayhead({
   // Handle dragging
   useEffect(() => {
     if (!isDragging) return
+    const skimmerScrubOwner = skimmerScrubOwnerRef.current
 
     // Keep the horizontal scrub cursor stable while crossing timeline children.
     const originalCursor = document.body.style.cursor
@@ -303,6 +339,14 @@ export function TimelinePlayhead({
         for (const element of scrubPlayheadElementsRef.current) {
           element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
         }
+        notifyTimelineScrubVisualFrame(scrollContainer, {
+          frame: targetFrame,
+          source: 'main',
+          viewportProgress: getTimelineScrubViewportProgress(
+            visualTimelineX - scrollLeft,
+            viewportBounds.width - 1,
+          ),
+        })
       })
 
       if (isDraggingRef.current) rafIdRef.current = requestAnimationFrame(runScrubLoop)
@@ -342,16 +386,19 @@ export function TimelinePlayhead({
       // Keep the shared flag set through the preview-clear notification so the
       // keyframe playhead retains the final scrub position until props settle.
       mainTimelineScrubActiveRef.current = false
+      endTimelineSkimmerScrub(skimmerScrubOwner)
       setIsDragging(false)
     }
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener('blur', handleMouseUp)
     rafIdRef.current = requestAnimationFrame(runScrubLoop)
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('blur', handleMouseUp)
       // Restore original cursor
       document.body.style.cursor = originalCursor
       // Cancel any pending RAF to prevent memory leaks
@@ -361,6 +408,7 @@ export function TimelinePlayhead({
       }
       scrubAnimationTimeRef.current = null
       mainTimelineScrubActiveRef.current = false
+      endTimelineSkimmerScrub(skimmerScrubOwner)
     }
   }, [isDragging]) // Stable dependencies - no stale closures
 

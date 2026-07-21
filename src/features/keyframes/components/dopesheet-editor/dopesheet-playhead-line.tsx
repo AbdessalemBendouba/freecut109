@@ -12,7 +12,12 @@ import {
   mainTimelineScrubActiveRef,
   mainTimelineScrubHandoffFrameRef,
 } from '@/shared/timeline/main-timeline-scrub'
-import { TIMELINE_LIVE_SCROLL_EVENT } from '@/shared/timeline/live-scroll-sync'
+import {
+  TIMELINE_LIVE_SCROLL_EVENT,
+  TIMELINE_SCRUB_VISUAL_FRAME_EVENT,
+  getTimelineScrubViewportX,
+  type TimelineScrubVisualFrameDetail,
+} from '@/shared/timeline/live-scroll-sync'
 
 interface DopesheetPlayheadLineProps {
   /** Clip-relative playhead frame for paused seek and zoom updates. */
@@ -198,6 +203,10 @@ export function DopesheetPlayheadLine({
 
   useLayoutEffect(() => {
     if (!ref.current) return
+    // The local ruler drag owns the visual position until its queued scrub
+    // frame catches up with a live edge-scroll. Reapplying settled props here
+    // would briefly map the previous frame against the new scroll position.
+    if (localScrubActiveRef?.current === true || mainTimelineScrubActiveRef.current) return
     const liveRelativeFrame = livePlaybackRelFrame()
     const x = clampLeft(liveRelativeFrame ?? posRef.current.relativeFrame)
     ref.current.style.transform = `translate3d(${x}px, 0, 0)`
@@ -211,14 +220,28 @@ export function DopesheetPlayheadLine({
         ref.current.style.transform = `translate3d(${clampLeft(relativeFrame)}px, 0, 0)`
       }
     }
+    const updateFromScroll = () => {
+      // Edge scrolling broadcasts scrollLeft before the coalesced scrub frame.
+      // Preserve the cursor-locked visual until the playback-store update.
+      if (localScrubActiveRef?.current === true || mainTimelineScrubActiveRef.current) return
+      update()
+    }
+    const updateFromScrubVisualFrame = (event: Event) => {
+      const { viewportProgress } = (event as CustomEvent<TimelineScrubVisualFrameDetail>).detail
+      if (!ref.current) return
+      const viewportX = getTimelineScrubViewportX(viewportProgress, posRef.current.maxLeft)
+      ref.current.style.transform = `translate3d(${viewportX}px, 0, 0)`
+    }
     const unsubscribe = usePlaybackStore.subscribe(update)
     const target = positionSyncTargetRef?.current
-    target?.addEventListener('scroll', update, { passive: true })
-    target?.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, update)
+    target?.addEventListener('scroll', updateFromScroll, { passive: true })
+    target?.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, updateFromScroll)
+    target?.addEventListener(TIMELINE_SCRUB_VISUAL_FRAME_EVENT, updateFromScrubVisualFrame)
     return () => {
       unsubscribe()
-      target?.removeEventListener('scroll', update)
-      target?.removeEventListener(TIMELINE_LIVE_SCROLL_EVENT, update)
+      target?.removeEventListener('scroll', updateFromScroll)
+      target?.removeEventListener(TIMELINE_LIVE_SCROLL_EVENT, updateFromScroll)
+      target?.removeEventListener(TIMELINE_SCRUB_VISUAL_FRAME_EVENT, updateFromScrubVisualFrame)
     }
     // Positioning inputs are read from posRef so this subscription stays stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
