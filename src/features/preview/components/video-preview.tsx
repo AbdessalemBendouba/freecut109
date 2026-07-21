@@ -13,6 +13,7 @@ import { RollingEditOverlay } from './rolling-edit-overlay'
 import { RippleEditOverlay } from './ripple-edit-overlay'
 import { SlipEditOverlay } from './slip-edit-overlay'
 import { SlideEditOverlay } from './slide-edit-overlay'
+import { useSelectedComparisonCompositionPrewarm } from './use-selected-comparison-composition-prewarm'
 import { useGpuEffectsOverlay } from '../hooks/use-gpu-effects-overlay'
 import {
   usePreviewCompositionBaseModel,
@@ -161,6 +162,12 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     project,
     containerSize,
     suspendOverlay,
+  })
+  useSelectedComparisonCompositionPrewarm({
+    fps,
+    items,
+    useProxyMedia: useProxy,
+    blobUrlVersion,
   })
   const showGpuEffectsOverlay = useGpuEffectsOverlay(
     gpuEffectsCanvasRef,

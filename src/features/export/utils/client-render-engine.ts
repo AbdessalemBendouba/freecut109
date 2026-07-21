@@ -441,6 +441,35 @@ export function collectPriorityMediaItemIds({
   }
 }
 
+export function collectPriorityMediaItemIdsForFrames({
+  tracks,
+  frames,
+  fps,
+  compositionById,
+}: {
+  tracks: TimelineTrack[]
+  frames: readonly number[]
+  fps: number
+  compositionById: Record<string, SubComposition | undefined>
+}): PriorityMediaItemIds {
+  const merged = {
+    video: new Set<string>(),
+    image: new Set<string>(),
+    lottie: new Set<string>(),
+  }
+  for (const frame of frames) {
+    const frameItems = collectPriorityMediaItemIds({ tracks, frame, fps, compositionById })
+    for (const itemId of frameItems.video) merged.video.add(itemId)
+    for (const itemId of frameItems.image) merged.image.add(itemId)
+    for (const itemId of frameItems.lottie) merged.lottie.add(itemId)
+  }
+  return {
+    video: [...merged.video],
+    image: [...merged.image],
+    lottie: [...merged.lottie],
+  }
+}
+
 export function collectPriorityNestedVideoItemIds(
   options: Parameters<typeof collectPriorityMediaItemIds>[0],
 ): string[] {
@@ -1447,6 +1476,7 @@ export async function createCompositionRenderer(
     async preload(
       options: {
         priorityFrame?: number
+        priorityFrames?: readonly number[]
         priorityWindowFrames?: number
         onPriorityMediaReady?: () => void
         signal?: AbortSignal
@@ -1469,15 +1499,19 @@ export async function createCompositionRenderer(
         throw new Error('WORKER_REQUIRES_MAIN_THREAD:composition')
       }
 
-      const priorityFrame = Number.isFinite(options.priorityFrame)
-        ? Math.round(options.priorityFrame!)
-        : null
+      const priorityFrames = [options.priorityFrame, ...(options.priorityFrames ?? [])]
+        .filter((frame): frame is number => Number.isFinite(frame))
+        .map((frame) => Math.round(frame))
+        .filter((frame, index, frames) => frames.indexOf(frame) === index)
+      const priorityFrame = priorityFrames[0] ?? null
       const priorityWindowFrames = Math.max(4, Math.round(options.priorityWindowFrames ?? fps * 4))
       const compositionById = useCompositionsStore.getState().compositionById
-      const priorityMediaItemIds =
-        priorityFrame === null
-          ? { video: [], image: [], lottie: [] }
-          : collectPriorityMediaItemIds({ tracks, frame: priorityFrame, fps, compositionById })
+      const priorityMediaItemIds = collectPriorityMediaItemIdsForFrames({
+        tracks,
+        frames: priorityFrames,
+        fps,
+        compositionById,
+      })
       const priorityImageItemIds = new Set(priorityMediaItemIds.image)
       const priorityLottieItemIds = new Set(priorityMediaItemIds.lottie)
       const prioritizedMainVideoIds =

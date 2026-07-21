@@ -3,6 +3,7 @@ import type { TimelineItem } from '@/types/timeline'
 import type { SubCompRenderData } from './canvas-item-renderer'
 import {
   collectPriorityMediaItemIds,
+  collectPriorityMediaItemIdsForFrames,
   collectPriorityNestedVideoItemIds,
   resolveCompositionRendererExecutionPolicy,
   resolveRenderedFrameCacheMode,
@@ -48,6 +49,48 @@ describe('comparison preview resource selection', () => {
     expect(
       selectRendererPreloadItems('export', items, new Set(['target']), (item) => item.id),
     ).toEqual(items)
+  })
+
+  it('unions exact dependencies for every sibling comparison frame', () => {
+    const firstVideo = {
+      id: 'first-video',
+      type: 'video',
+      trackId: 'track',
+      from: 0,
+      durationInFrames: 10,
+    } as TimelineItem
+    const secondImage = {
+      id: 'second-image',
+      type: 'image',
+      trackId: 'track',
+      from: 10,
+      durationInFrames: 10,
+    } as TimelineItem
+
+    expect(
+      collectPriorityMediaItemIdsForFrames({
+        tracks: [
+          {
+            id: 'track',
+            name: 'Track',
+            order: 0,
+            height: 60,
+            locked: false,
+            visible: true,
+            muted: false,
+            solo: false,
+            items: [firstVideo, secondImage],
+          },
+        ],
+        frames: [5, 15],
+        fps: 30,
+        compositionById: {},
+      }),
+    ).toEqual({
+      video: ['first-video'],
+      image: ['second-image'],
+      lottie: [],
+    })
   })
 })
 

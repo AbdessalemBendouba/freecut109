@@ -87,10 +87,18 @@ vi.mock('@/features/preview/deps/export', () => ({
 }))
 
 import { InlineCompositionPreview } from './inline-composition-preview'
+import { disposeComparisonCompositionRenderSessionsForTest } from './comparison-composition-render-session'
 
 describe('InlineCompositionPreview', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    const canvasPrototype = HTMLCanvasElement.prototype as unknown as {
+      getContext: () => CanvasRenderingContext2D
+    }
+    vi.spyOn(canvasPrototype, 'getContext').mockReturnValue({
+      clearRect: vi.fn(),
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D)
     signatureState.counter += 1
     signatureState.value = `composition-graph-${signatureState.counter}`
     playbackState.zoom = -1
@@ -134,6 +142,7 @@ describe('InlineCompositionPreview', () => {
   })
 
   afterEach(() => {
+    disposeComparisonCompositionRenderSessionsForTest()
     vi.restoreAllMocks()
   })
 
@@ -190,7 +199,7 @@ describe('InlineCompositionPreview', () => {
     })
   })
 
-  it('defers root media resolution to sibling comparison renderers', async () => {
+  it('shares one comparison renderer across sibling frame panels', async () => {
     render(
       <>
         <InlineCompositionPreview
@@ -208,8 +217,75 @@ describe('InlineCompositionPreview', () => {
       </>,
     )
 
-    await waitFor(() => expect(createCompositionRendererMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(createCompositionRendererMock).toHaveBeenCalledTimes(1))
+    const renderer = await createCompositionRendererMock.mock.results[0]?.value
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(12)
+      expect(renderer.renderFrame).toHaveBeenCalledWith(24)
+    })
+    expect(renderer.preload.mock.calls[0]?.[0]).toMatchObject({
+      priorityFrame: 12,
+      priorityFrames: [12, 24],
+    })
     expect(resolveMediaUrlsMock).not.toHaveBeenCalled()
+  })
+
+  it('retains a comparison renderer across a quick overlay remount', async () => {
+    const first = render(
+      <InlineCompositionPreview
+        compositionId="composition-1"
+        seekFrame={12}
+        containerSize={{ width: 320, height: 180 }}
+        presentation="frame"
+      />,
+    )
+
+    await waitFor(() => expect(createCompositionRendererMock).toHaveBeenCalledTimes(1))
+    const renderer = await createCompositionRendererMock.mock.results[0]?.value
+    await waitFor(() => expect(renderer.renderFrame).toHaveBeenCalledWith(12))
+    first.unmount()
+
+    render(
+      <InlineCompositionPreview
+        compositionId="composition-1"
+        seekFrame={24}
+        containerSize={{ width: 320, height: 180 }}
+        presentation="frame"
+      />,
+    )
+
+    await waitFor(() => expect(renderer.renderFrame).toHaveBeenCalledWith(24))
+    expect(createCompositionRendererMock).toHaveBeenCalledTimes(1)
+    expect(renderer.dispose).not.toHaveBeenCalled()
+  })
+
+  it('reuses the active comparison session while drag frames change', async () => {
+    const { rerender } = render(
+      <InlineCompositionPreview
+        compositionId="composition-1"
+        seekFrame={12}
+        containerSize={{ width: 320, height: 180 }}
+        presentation="frame"
+      />,
+    )
+
+    await waitFor(() => expect(createCompositionRendererMock).toHaveBeenCalledTimes(1))
+    const renderer = await createCompositionRendererMock.mock.results[0]?.value
+    await waitFor(() => expect(renderer.renderFrame).toHaveBeenCalledWith(12))
+
+    rerender(
+      <InlineCompositionPreview
+        compositionId="composition-1"
+        seekFrame={13}
+        containerSize={{ width: 320, height: 180 }}
+        presentation="frame"
+      />,
+    )
+
+    await waitFor(() => expect(renderer.renderFrame).toHaveBeenCalledWith(13))
+    expect(createCompositionRendererMock).toHaveBeenCalledTimes(1)
+    expect(renderer.preload).toHaveBeenCalledTimes(1)
+    expect(renderer.dispose).not.toHaveBeenCalled()
   })
 
   it('renders priority video-only frames before background preload completes', async () => {

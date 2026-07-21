@@ -15,8 +15,10 @@ import {
 import { createLogger } from '@/shared/logging/logger'
 import { getPreviewNeedsOverflow, getPreviewPlayerSize } from '../utils/preview-pixel-snap'
 import { useBlobUrlVersion } from '@/infrastructure/browser/blob-url-manager'
+import { useComparisonCompositionFrame } from './use-comparison-composition-frame'
 
 const RESOLVED_TRACK_CACHE_LIMIT = 12
+const COMPARISON_LOADING_DELAY_MS = 80
 const resolvedTrackPromiseCache = new Map<string, Promise<CompositionInputProps['tracks']>>()
 
 function getOrCreateResolvedTrackPromise(
@@ -65,6 +67,65 @@ interface InlineCompositionPreviewProps {
   presentation?: 'workspace' | 'frame'
 }
 
+type InlinePresentation = NonNullable<InlineCompositionPreviewProps['presentation']>
+
+function cloneComparisonTracks(
+  presentation: InlinePresentation,
+  input: CompositionInputProps | null,
+): CompositionInputProps['tracks'] | null {
+  if (presentation !== 'frame' || !input) return null
+  return structuredClone(input.tracks)
+}
+
+function selectResolvedTracks({
+  presentation,
+  comparisonTracks,
+  resolvedTrackResult,
+  resolutionKey,
+}: {
+  presentation: InlinePresentation
+  comparisonTracks: CompositionInputProps['tracks'] | null
+  resolvedTrackResult: { key: string; tracks: CompositionInputProps['tracks'] } | null
+  resolutionKey: string
+}): CompositionInputProps['tracks'] | null {
+  if (presentation === 'frame') return comparisonTracks
+  if (resolvedTrackResult?.key !== resolutionKey) return null
+  return resolvedTrackResult.tracks
+}
+
+function getComparisonSessionKey({
+  presentation,
+  rendererInput,
+  resolutionKey,
+  width,
+  height,
+}: {
+  presentation: InlinePresentation
+  rendererInput: CompositionInputProps | null
+  resolutionKey: string
+  width: number
+  height: number
+}): string | null {
+  if (presentation !== 'frame' || !rendererInput) return null
+  return `${resolutionKey}:${width}x${height}`
+}
+
+function selectRendererReady(
+  presentation: InlinePresentation,
+  comparisonReady: boolean,
+  workspaceReady: boolean,
+): boolean {
+  return presentation === 'frame' ? comparisonReady : workspaceReady
+}
+
+function selectLoadingVisibility(
+  presentation: InlinePresentation,
+  comparisonLoading: boolean,
+  loading: boolean,
+): boolean {
+  return presentation === 'frame' ? comparisonLoading : loading
+}
+
 export const InlineCompositionPreview = memo(function InlineCompositionPreview({
   compositionId,
   seekFrame,
@@ -103,15 +164,27 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
     key: string
     tracks: CompositionInputProps['tracks']
   } | null>(null)
-  const resolvedTracks =
-    resolvedTrackResult?.key === resolutionKey ? resolvedTrackResult.tracks : null
 
   const compositionInput = useMemo(() => {
     if (!composition || !compositionGraphSignature) return null
     return buildSubCompositionInput(composition)
   }, [composition, compositionGraphSignature])
+  const comparisonTracks = useMemo(
+    () => cloneComparisonTracks(presentation, compositionInput),
+    [compositionInput, presentation],
+  )
+  const resolvedTracks = selectResolvedTracks({
+    presentation,
+    comparisonTracks,
+    resolvedTrackResult,
+    resolutionKey,
+  })
 
   useEffect(() => {
+    if (presentation === 'frame') {
+      setResolvedTrackResult(null)
+      return
+    }
     if (!compositionInput) {
       setResolvedTrackResult(null)
       return
@@ -122,12 +195,9 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
     setResolvedTrackResult(null)
 
     const loadResolvedTracks = async () => {
-      const nextResolvedTracks =
-        presentation === 'frame'
-          ? structuredClone(compositionInput.tracks)
-          : await getOrCreateResolvedTrackPromise(resolutionKey, async () => {
-              return resolveMediaUrls(compositionInput.tracks, { useProxy })
-            })
+      const nextResolvedTracks = await getOrCreateResolvedTrackPromise(resolutionKey, async () => {
+        return resolveMediaUrls(compositionInput.tracks, { useProxy })
+      })
       if (controller.signal.aborted) return
       if (!cancelled) {
         setResolvedTrackResult({ key: resolutionKey, tracks: nextResolvedTracks })
@@ -176,12 +246,36 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
   const rendererRef = useRef<CompositionRendererInstance | null>(null)
   const offscreenRef = useRef<OffscreenCanvas | null>(null)
   const lastPresentedFrameRef = useRef<number | null>(null)
-  const [rendererReady, setRendererReady] = useState(false)
+  const [workspaceRendererReady, setWorkspaceRendererReady] = useState(false)
 
   const rendererInput = useMemo<CompositionInputProps | null>(() => {
     if (!compositionGraphSignature || !compositionInput || !resolvedTracks) return null
     return { ...compositionInput, tracks: resolvedTracks }
   }, [compositionGraphSignature, compositionInput, resolvedTracks])
+  const comparisonSessionKey = getComparisonSessionKey({
+    presentation,
+    rendererInput,
+    resolutionKey,
+    width: compositionWidth,
+    height: compositionHeight,
+  })
+  const comparisonRendererReady = useComparisonCompositionFrame({
+    enabled: presentation === 'frame',
+    sessionKey: comparisonSessionKey,
+    compositionId,
+    input: rendererInput,
+    width: compositionWidth,
+    height: compositionHeight,
+    useProxyMedia: useProxy,
+    frame: clampedSeekFrame,
+    displayCanvasRef,
+    onError: reportInitializationFailure,
+  })
+  const rendererReady = selectRendererReady(
+    presentation,
+    comparisonRendererReady,
+    workspaceRendererReady,
+  )
 
   const renderAndPresent = useCallback(
     async (
@@ -208,20 +302,20 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
   )
 
   useEffect(() => {
+    if (presentation === 'frame') return
     if (!rendererInput) {
-      setRendererReady(false)
+      setWorkspaceRendererReady(false)
       return
     }
     if (typeof OffscreenCanvas === 'undefined') {
-      setRendererReady(false)
+      setWorkspaceRendererReady(false)
       return
     }
 
     let cancelled = false
     const controller = new AbortController()
     let createdRenderer: CompositionRendererInstance | null = null
-    let priorityPresentation: Promise<boolean> | null = null
-    setRendererReady(false)
+    setWorkspaceRendererReady(false)
     lastPresentedFrameRef.current = null
 
     const offscreen = new OffscreenCanvas(compositionWidth, compositionHeight)
@@ -234,10 +328,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
       try {
         const { createCompositionRenderer } = await importCompositionRenderer()
         const renderer = await createCompositionRenderer(rendererInput, offscreen, ctx, {
-          // Frame-comparison canvases must not participate in the live preview's
-          // global strict-decode/cancellation session. Target-first preload and
-          // proxy selection are configured independently below.
-          mode: presentation === 'frame' ? 'comparison' : 'preview',
+          mode: 'preview',
           useProxyMedia: useProxy,
         })
         if (cancelled) {
@@ -252,23 +343,13 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
           void renderer.warmGpuPipeline()
         }
 
-        const presentPriorityFrame = () => {
-          if (presentation !== 'frame' || priorityPresentation || controller.signal.aborted) return
-          priorityPresentation = renderAndPresent(renderer, offscreen, clampedSeekFrameRef.current)
-          void priorityPresentation.then((presented) => {
-            if (!cancelled && presented) setRendererReady(true)
-          })
-        }
-
         await renderer.preload({
           priorityFrame: clampedSeekFrameRef.current,
-          onPriorityMediaReady: presentPriorityFrame,
           signal: controller.signal,
         })
         if (cancelled) return
-        const presented = await (priorityPresentation ??
-          renderAndPresent(renderer, offscreen, clampedSeekFrameRef.current))
-        if (!cancelled && presented) setRendererReady(true)
+        const presented = await renderAndPresent(renderer, offscreen, clampedSeekFrameRef.current)
+        if (!cancelled && presented) setWorkspaceRendererReady(true)
       } catch (error) {
         reportInitializationFailure(cancelled, error)
       }
@@ -294,6 +375,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
   }, [rendererInput, compositionWidth, compositionHeight, presentation, useProxy, renderAndPresent])
 
   useEffect(() => {
+    if (presentation === 'frame') return
     if (!rendererReady) return
     const renderer = rendererRef.current
     const offscreen = offscreenRef.current
@@ -322,7 +404,21 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
     return () => {
       cancelled = true
     }
-  }, [clampedSeekFrame, rendererReady, renderAndPresent])
+  }, [clampedSeekFrame, presentation, rendererReady, renderAndPresent])
+
+  const isLoading = !resolvedTracks || !rendererReady
+  const [showDelayedComparisonLoading, setShowDelayedComparisonLoading] = useState(false)
+  useEffect(() => {
+    if (presentation !== 'frame' || !isLoading) {
+      setShowDelayedComparisonLoading(false)
+      return
+    }
+    const timer = setTimeout(
+      () => setShowDelayedComparisonLoading(true),
+      COMPARISON_LOADING_DELAY_MS,
+    )
+    return () => clearTimeout(timer)
+  }, [isLoading, presentation])
 
   if (!composition || !compositionInput) {
     return (
@@ -332,7 +428,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
     )
   }
 
-  const showLoading = !resolvedTracks || !rendererReady
+  const showLoading = selectLoadingVisibility(presentation, showDelayedComparisonLoading, isLoading)
 
   if (presentation === 'frame') {
     return (

@@ -15,6 +15,7 @@ export {
   createScrubThrottleState,
   findBestCanvasDropPlacement,
   getDroppedMediaDurationInFrames,
+  getSynchronizedLinkedItems,
   getTrackKind,
   performInsertEdit,
   performOverwriteEdit,
