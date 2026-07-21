@@ -88,6 +88,46 @@ describe('TimelinePlayhead', () => {
     })
   })
 
+  it('releases scrub ownership and cancels the RAF when the window loses focus', async () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const cancelAnimationFrameSpy = vi.spyOn(window, 'cancelAnimationFrame')
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frameCallbacks.push(callback)
+      return frameCallbacks.length
+    })
+    const { container } = render(
+      <div className="timeline-ruler">
+        <TimelinePlayhead inRuler maxFrame={300} />
+      </div>,
+    )
+    const ruler = container.querySelector('.timeline-ruler') as HTMLDivElement
+    ruler.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 600,
+      bottom: 40,
+      width: 600,
+      height: 40,
+      toJSON: () => ({}),
+    })
+    const hitArea = container.querySelector('[style*="width: 20px"]') as HTMLDivElement
+
+    fireEvent.mouseDown(hitArea, { clientX: 120, clientY: 8, button: 0 })
+    expect(mainTimelineScrubActiveRef.current).toBe(true)
+    expect(timelineSkimmerScrubSignal.current).toBe(true)
+    expect(frameCallbacks).toHaveLength(1)
+
+    fireEvent.blur(window)
+
+    expect(mainTimelineScrubActiveRef.current).toBe(false)
+    expect(timelineSkimmerScrubSignal.current).toBe(false)
+    expect(cancelAnimationFrameSpy).toHaveBeenCalledWith(1)
+    expect(usePlaybackStore.getState().previewFrame).toBeNull()
+    await waitFor(() => expect(document.body.style.cursor).toBe(''))
+  })
+
   it('uses an explicit ruler origin when the unified playhead is its sibling', () => {
     const rulerRef = createRef<HTMLDivElement>()
     const { container } = render(

@@ -392,11 +392,13 @@ export function TimelinePlayhead({
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener('blur', handleMouseUp)
     rafIdRef.current = requestAnimationFrame(runScrubLoop)
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('blur', handleMouseUp)
       // Restore original cursor
       document.body.style.cursor = originalCursor
       // Cancel any pending RAF to prevent memory leaks

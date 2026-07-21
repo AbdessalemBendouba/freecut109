@@ -1019,10 +1019,12 @@ export const TimelineMarkers = memo(function TimelineMarkers({
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
+    window.addEventListener('blur', handleMouseUp)
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
+      window.removeEventListener('blur', handleMouseUp)
       document.body.style.cursor = originalCursor
       // Ensure cleanup
       isScrubActiveRef.current = false
