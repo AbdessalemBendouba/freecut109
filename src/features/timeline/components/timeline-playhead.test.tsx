@@ -64,6 +64,7 @@ describe('TimelinePlayhead', () => {
 
     const hitArea = container.querySelector('[style*="width: 20px"]') as HTMLDivElement | null
     expect(hitArea).toBeTruthy()
+    expect(hitArea).toHaveAttribute('data-playhead-handle')
     expect(hitArea).toHaveStyle({ cursor: 'ew-resize' })
 
     fireEvent.mouseDown(hitArea!, { clientX: 24, clientY: 8, button: 0 })
