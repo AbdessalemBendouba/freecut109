@@ -311,6 +311,69 @@ describe('DopesheetEditor playhead overlay', () => {
     animationFrameSpy.mockRestore()
   })
 
+  it('keeps the playhead cursor-locked between an edge scroll and its queued scrub frame', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const scrollContainer = document.createElement('div')
+    const timelineScrollContainerRef = { current: scrollContainer }
+    const pixelsPerFrame = 391 / 100
+    const onRulerEdgeScroll = vi.fn((deltaPixels: number) => {
+      const appliedPixels = Math.min(deltaPixels, 12)
+      scrollContainer.scrollLeft += appliedPixels
+      scrollContainer.dispatchEvent(new Event(TIMELINE_LIVE_SCROLL_EVENT))
+      return appliedPixels
+    })
+
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        totalFrames={300}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        clampViewportToContent={false}
+        scrubClampToItemBounds={false}
+        presentation="classic"
+        width={640}
+        height={240}
+        onScrub={(frame) => usePlaybackStore.getState().setScrubFrame(frame)}
+        onRulerEdgeScroll={onRulerEdgeScroll}
+        globalFrameToPixels={(frame) => frame * pixelsPerFrame - scrollContainer.scrollLeft}
+        timelineScrollContainerRef={timelineScrollContainerRef}
+      />,
+    )
+
+    const ruler = screen.getByTestId('dopesheet-ruler')
+    vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
+      x: 249,
+      y: 0,
+      left: 249,
+      top: 0,
+      right: 640,
+      bottom: 22,
+      width: 391,
+      height: 22,
+      toJSON: () => ({}),
+    } as DOMRect)
+
+    fireEvent.pointerDown(ruler, { button: 0, pointerId: 91, clientX: 640 })
+    const playhead = screen.getByTestId('dopesheet-playhead-line')
+    const cursorLockedTransform = playhead.style.transform
+
+    act(() => frameCallbacks.shift()?.(16))
+
+    expect(onRulerEdgeScroll).toHaveBeenCalledOnce()
+    expect(playhead.style.transform).toBe(cursorLockedTransform)
+
+    fireEvent.pointerUp(ruler, { pointerId: 91, clientX: 640 })
+    animationFrameSpy.mockRestore()
+  })
+
   it('uses main-timeline wheel semantics in a standalone keyframe editor', () => {
     const onFrameViewportChange = vi.fn()
     render(
