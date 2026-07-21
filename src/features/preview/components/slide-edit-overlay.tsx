@@ -44,6 +44,7 @@ export function SlideEditOverlay({ fps }: SlideEditOverlayProps) {
         return {
           item: leftNeighbor,
           sourceTime: outInfo.sourceTime,
+          sourceFrame: outInfo.sourceFrame,
           timecode: outInfo.timecode,
           label: '',
         }
@@ -56,6 +57,7 @@ export function SlideEditOverlay({ fps }: SlideEditOverlayProps) {
         return {
           item: rightNeighbor,
           sourceTime: inInfo.sourceTime,
+          sourceFrame: inInfo.sourceFrame,
           timecode: inInfo.timecode,
           label: '',
         }
@@ -72,6 +74,7 @@ export function SlideEditOverlay({ fps }: SlideEditOverlayProps) {
         return {
           item: leftNeighbor,
           sourceTime: outInfo.sourceTime,
+          sourceFrame: outInfo.sourceFrame,
           timecode: outInfo.timecode,
           label: 'OUT',
         }
@@ -95,6 +98,7 @@ export function SlideEditOverlay({ fps }: SlideEditOverlayProps) {
         return {
           item: rightNeighbor,
           sourceTime: inInfo.sourceTime,
+          sourceFrame: inInfo.sourceFrame,
           timecode: inInfo.timecode,
           label: 'IN',
         }

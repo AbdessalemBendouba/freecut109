@@ -566,6 +566,46 @@ describe('compound clip preseek recursion', () => {
     expect(result.get('blob:nested-fresh')![0]).toBeCloseTo(1.0)
   })
 
+  it('propagates an outer wrapper slip through nested compounds exactly once', () => {
+    const outer = makeCompositionItem({
+      compositionId: 'sub-outer',
+      sourceStart: 30,
+    })
+    const nested = makeCompositionItem({
+      id: 'nested-comp',
+      compositionId: 'sub-inner',
+      from: 0,
+      durationInFrames: 300,
+      sourceStart: 15,
+    })
+    const leaf = makeSubVideoItem()
+    const tracks = [makeMixedTrack([outer])]
+    const collect = (sourceStart: number) =>
+      collectVisibleTrackVideoSourceTimesBySrc(
+        [makeMixedTrack([{ ...outer, sourceStart }])],
+        190,
+        30,
+        {
+          requireExplicitSourceFps: false,
+          resolveComposition: (id) => {
+            if (id === 'sub-outer') return { fps: 30, items: [nested] }
+            if (id === 'sub-inner') return { fps: 30, items: [leaf] }
+            return null
+          },
+          resolveItemSrc: () => 'blob:nested-fresh',
+        },
+      )
+
+    const beforeSlip = collect(30)
+    const afterSlip = collect(42)
+
+    expect(tracks[0]?.items[0]).toMatchObject({ sourceStart: 30 })
+    expect(nested).toMatchObject({ sourceStart: 15 })
+    expect(leaf).toMatchObject({ sourceStart: 0 })
+    expect(beforeSlip.get('blob:nested-fresh')![0]).toBeCloseTo(2.5)
+    expect(afterSlip.get('blob:nested-fresh')![0]).toBeCloseTo(2.9)
+  })
+
   it('breaks cyclic compound references without recursing forever', () => {
     const outer = makeCompositionItem({ compositionId: 'sub-cycle' })
     const nestedCycle = makeCompositionItem({
@@ -575,14 +615,9 @@ describe('compound clip preseek recursion', () => {
       durationInFrames: 300,
     })
 
-    const result = collectVisibleTrackVideoSourceTimesBySrc(
-      [makeMixedTrack([outer])],
-      190,
-      30,
-      {
-        resolveComposition: () => ({ fps: 30, items: [nestedCycle] }),
-      },
-    )
+    const result = collectVisibleTrackVideoSourceTimesBySrc([makeMixedTrack([outer])], 190, 30, {
+      resolveComposition: () => ({ fps: 30, items: [nestedCycle] }),
+    })
 
     expect(result.size).toBe(0)
   })

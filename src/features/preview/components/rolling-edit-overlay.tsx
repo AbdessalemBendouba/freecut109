@@ -38,12 +38,14 @@ export function RollingEditOverlay({ fps }: RollingEditOverlayProps) {
       leftPanel={{
         item: leftItem,
         sourceTime: outInfo.sourceTime,
+        sourceFrame: outInfo.sourceFrame,
         timecode: outInfo.timecode,
         label: 'OUT',
       }}
       rightPanel={{
         item: rightItem,
         sourceTime: inInfo.sourceTime,
+        sourceFrame: inInfo.sourceFrame,
         timecode: inInfo.timecode,
         label: 'IN',
       }}

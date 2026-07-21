@@ -54,24 +54,28 @@ export function SlipEditOverlay({ fps }: SlipEditOverlayProps) {
       leftPanel={{
         item: virtualItem,
         sourceTime: inInfo.sourceTime,
+        sourceFrame: inInfo.sourceFrame,
         timecode: inInfo.timecode,
         label: 'IN',
       }}
       rightPanel={{
         item: virtualItem,
         sourceTime: outInfo.sourceTime,
+        sourceFrame: outInfo.sourceFrame,
         timecode: outInfo.timecode,
         label: 'OUT',
       }}
       topLeftCorner={{
         item: slippedItem,
         sourceTime: currentInInfo.sourceTime,
+        sourceFrame: currentInInfo.sourceFrame,
         timecode: currentInInfo.timecode,
         label: '',
       }}
       topRightCorner={{
         item: slippedItem,
         sourceTime: currentOutInfo.sourceTime,
+        sourceFrame: currentOutInfo.sourceFrame,
         timecode: currentOutInfo.timecode,
         label: '',
       }}

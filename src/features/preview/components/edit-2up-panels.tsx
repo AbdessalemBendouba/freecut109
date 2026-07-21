@@ -27,6 +27,7 @@ import {
 } from './edit-panel-media-utils'
 import { useBlobUrlVersion } from '@/infrastructure/browser/blob-url-manager'
 import { useEditOverlayPanelPrewarm } from './use-edit-overlay-panel-prewarm'
+import { InlineCompositionPreview } from './inline-composition-preview'
 
 const TYPE_PLACEHOLDER_COLORS: Record<string, string> = {
   image: '#22c55e',
@@ -111,6 +112,7 @@ function useResolvedVideoBlobUrl(mediaId: string | undefined): string | null {
 export interface EditTwoUpPanelData {
   item: TimelineItem | null
   sourceTime?: number
+  sourceFrame?: number
   timecode: string
   label: string
   placeholderText?: string
@@ -158,6 +160,7 @@ export function EditTwoUpPanels({ leftPanel, rightPanel }: EditTwoUpPanelsProps)
       <FramePanel
         item={leftPanel.item}
         sourceTime={leftPanel.sourceTime}
+        sourceFrame={leftPanel.sourceFrame}
         timecode={leftPanel.timecode}
         label={leftPanel.label}
         areaHeight={sharedAreaHeight}
@@ -167,6 +170,7 @@ export function EditTwoUpPanels({ leftPanel, rightPanel }: EditTwoUpPanelsProps)
       <FramePanel
         item={rightPanel.item}
         sourceTime={rightPanel.sourceTime}
+        sourceFrame={rightPanel.sourceFrame}
         timecode={rightPanel.timecode}
         label={rightPanel.label}
         areaHeight={sharedAreaHeight}
@@ -180,6 +184,7 @@ export function EditTwoUpPanels({ leftPanel, rightPanel }: EditTwoUpPanelsProps)
 interface FramePanelProps {
   item: TimelineItem | null
   sourceTime?: number
+  sourceFrame?: number
   timecode: string
   label: string
   areaHeight: number
@@ -190,6 +195,7 @@ interface FramePanelProps {
 function FramePanel({
   item,
   sourceTime,
+  sourceFrame,
   timecode,
   label,
   areaHeight,
@@ -212,21 +218,53 @@ function FramePanel({
           className="overflow-hidden border border-white/10"
           style={{ width: mediaWidth, height: mediaHeight }}
         >
-          {renderPanelMedia(item, sourceTime, placeholderText, {
-            renderVideo: (videoItem, time) => (
-              <VideoFrame
-                key={`${videoItem.id}:${videoItem.mediaId ?? 'none'}`}
-                item={videoItem}
-                sourceTime={time}
-              />
-            ),
-            renderImage: (imageItem) => <ImageFrame item={imageItem} />,
-            renderPlaceholder: (type, text) => <TypePlaceholder type={type} text={text} />,
-          })}
+          {renderPanelMedia(
+            item,
+            sourceTime,
+            placeholderText,
+            {
+              renderVideo: (videoItem, time) => (
+                <VideoFrame
+                  key={`${videoItem.id}:${videoItem.mediaId ?? 'none'}`}
+                  item={videoItem}
+                  sourceTime={time}
+                />
+              ),
+              renderImage: (imageItem) => <ImageFrame item={imageItem} />,
+              renderComposition: (compositionItem, frame) => (
+                <CompositionFrame item={compositionItem} sourceFrame={frame} />
+              ),
+              renderPlaceholder: (type, text) => <TypePlaceholder type={type} text={text} />,
+            },
+            sourceFrame,
+          )}
         </div>
       </div>
       <span className="text-lg font-mono text-white/90 tabular-nums pt-1">{timecode}</span>
     </div>
+  )
+}
+
+interface CompositionFrameProps {
+  item: TimelineItem
+  sourceFrame: number
+}
+
+export function CompositionFrame({ item, sourceFrame }: CompositionFrameProps) {
+  if (item.type !== 'composition') {
+    return null
+  }
+
+  return (
+    <InlineCompositionPreview
+      compositionId={item.compositionId}
+      seekFrame={sourceFrame}
+      containerSize={{
+        width: item.compositionWidth,
+        height: item.compositionHeight,
+      }}
+      presentation="frame"
+    />
   )
 }
 

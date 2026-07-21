@@ -1,5 +1,5 @@
 import type { TimelineItem } from '@/types/timeline'
-import { timelineToSourceFrames } from './source-calculations'
+import { isMediaItem, timelineToSourceFrames } from './source-calculations'
 
 export interface PreviewItemUpdate {
   id: string
@@ -68,6 +68,21 @@ export function applyMovePreview(item: TimelineItem, fromDelta: number): Preview
   return {
     id: item.id,
     from: item.from + fromDelta,
+  }
+}
+
+export function applySlidePreview(
+  item: TimelineItem,
+  slideDelta: number,
+  sourceDelta: number,
+): PreviewItemUpdate {
+  const update = applyMovePreview(item, slideDelta)
+  if (sourceDelta === 0 || !isMediaItem(item) || item.sourceEnd === undefined) return update
+
+  return {
+    ...update,
+    sourceStart: (item.sourceStart ?? 0) + sourceDelta,
+    sourceEnd: item.sourceEnd + sourceDelta,
   }
 }
 

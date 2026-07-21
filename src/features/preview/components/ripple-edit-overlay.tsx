@@ -122,6 +122,7 @@ export function RippleEditOverlay({ fps }: RippleEditOverlayProps) {
           leftPanel={{
             item: trimmedItem,
             sourceTime: outInfo.sourceTime,
+            sourceFrame: outInfo.sourceFrame,
             timecode: outInfo.timecode,
             label: 'OUT',
           }}
@@ -143,12 +144,14 @@ export function RippleEditOverlay({ fps }: RippleEditOverlayProps) {
         leftPanel={{
           item: trimmedItem,
           sourceTime: outInfo.sourceTime,
+          sourceFrame: outInfo.sourceFrame,
           timecode: outInfo.timecode,
           label: 'OUT',
         }}
         rightPanel={{
           item: nextItem,
           sourceTime: inInfo.sourceTime,
+          sourceFrame: inInfo.sourceFrame,
           timecode: inInfo.timecode,
           label: 'IN',
         }}
@@ -179,6 +182,7 @@ export function RippleEditOverlay({ fps }: RippleEditOverlayProps) {
         rightPanel={{
           item: trimmedItem,
           sourceTime: inInfo.sourceTime,
+          sourceFrame: inInfo.sourceFrame,
           timecode: inInfo.timecode,
           label: 'IN',
         }}
@@ -195,12 +199,14 @@ export function RippleEditOverlay({ fps }: RippleEditOverlayProps) {
       leftPanel={{
         item: prevItem,
         sourceTime: outInfo.sourceTime,
+        sourceFrame: outInfo.sourceFrame,
         timecode: outInfo.timecode,
         label: 'OUT',
       }}
       rightPanel={{
         item: trimmedItem,
         sourceTime: inInfo.sourceTime,
+        sourceFrame: inInfo.sourceFrame,
         timecode: inInfo.timecode,
         label: 'IN',
       }}

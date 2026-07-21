@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
-import { render, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import type { CompositionInputProps } from '@/types/export'
 
 class FakeOffscreenCanvas {
@@ -148,5 +148,33 @@ describe('InlineCompositionPreview', () => {
 
     const [compositionInput] = createCompositionRendererMock.mock.calls[0] ?? []
     expect(compositionInput.tracks[0]).toMatchObject({ resolved: true })
+  })
+
+  it('renders a clamped nested composition frame without workspace chrome', async () => {
+    render(
+      <InlineCompositionPreview
+        compositionId="composition-1"
+        seekFrame={120}
+        containerSize={{ width: 320, height: 180 }}
+        presentation="frame"
+      />,
+    )
+
+    expect(screen.getByLabelText('Compound clip frame preview')).toBeTruthy()
+    expect(screen.queryByLabelText('Inline compound clip preview')).toBeNull()
+
+    await waitFor(() => {
+      const renderer = createCompositionRendererMock.mock.results[0]?.value
+      expect(renderer).toBeTruthy()
+    })
+
+    const renderer = await createCompositionRendererMock.mock.results[0]?.value
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(89)
+    })
+    expect(createCompositionRendererMock.mock.calls[0]?.[3]).toMatchObject({
+      mode: 'export',
+      useProxyMedia: true,
+    })
   })
 })

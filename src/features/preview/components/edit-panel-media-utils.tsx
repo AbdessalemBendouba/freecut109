@@ -10,6 +10,9 @@ export function getItemAspectRatio(item: TimelineItem | null): number {
   ) {
     return item.sourceWidth / item.sourceHeight
   }
+  if (item?.type === 'composition' && item.compositionWidth && item.compositionHeight) {
+    return item.compositionWidth / item.compositionHeight
+  }
   return 16 / 9
 }
 
@@ -37,6 +40,7 @@ export function computeFittedMediaSize(
 export interface PanelMediaRenderers {
   renderVideo: (item: TimelineItem, sourceTime: number) => ReactNode
   renderImage: (item: TimelineItem) => ReactNode
+  renderComposition: (item: TimelineItem, sourceFrame: number) => ReactNode
   renderPlaceholder: (type: string, text: string) => ReactNode
 }
 
@@ -45,6 +49,7 @@ export function renderPanelMedia(
   sourceTime: number | undefined,
   placeholderText: string | undefined,
   renderers: PanelMediaRenderers,
+  sourceFrame?: number,
 ): ReactNode {
   if (!item) {
     return renderers.renderPlaceholder('gap', placeholderText ?? 'GAP')
@@ -56,6 +61,14 @@ export function renderPanelMedia(
 
   if (item.type === 'image') {
     return renderers.renderImage(item)
+  }
+
+  if (item.type === 'composition') {
+    const fallbackSourceFrame = Math.max(
+      0,
+      Math.round((sourceTime ?? 0) * Math.max(1, item.sourceFps ?? 30)),
+    )
+    return renderers.renderComposition(item, sourceFrame ?? fallbackSourceFrame)
   }
 
   return renderers.renderPlaceholder(item.type, placeholderText ?? item.type)

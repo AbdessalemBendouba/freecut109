@@ -26,12 +26,14 @@ interface InlineCompositionPreviewProps {
     width: number
     height: number
   }
+  presentation?: 'workspace' | 'frame'
 }
 
 export const InlineCompositionPreview = memo(function InlineCompositionPreview({
   compositionId,
   seekFrame,
   containerSize,
+  presentation = 'workspace',
 }: InlineCompositionPreviewProps) {
   const useProxy = usePlaybackStore((s) => s.useProxy)
   const requestKey = `${compositionId}:${useProxy ? 'proxy' : 'source'}`
@@ -42,6 +44,7 @@ export const InlineCompositionPreview = memo(function InlineCompositionPreview({
       compositionId={compositionId}
       seekFrame={seekFrame}
       containerSize={containerSize}
+      presentation={presentation}
     />
   )
 })
@@ -50,6 +53,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
   compositionId,
   seekFrame,
   containerSize,
+  presentation = 'workspace',
 }: InlineCompositionPreviewProps) {
   const composition = useCompositionsStore((s) => s.compositionById[compositionId])
   const zoom = usePlaybackStore((s) => s.zoom)
@@ -155,7 +159,10 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
       try {
         const { createCompositionRenderer } = await importCompositionRenderer()
         const renderer = await createCompositionRenderer(rendererInput, offscreen, ctx, {
-          mode: 'preview',
+          // Comparison panels can render the same composition at multiple frames
+          // simultaneously. Isolate their decoder pools so identical nested item
+          // IDs do not fight over a shared preview extractor lane.
+          mode: presentation === 'frame' ? 'export' : 'preview',
           useProxyMedia: useProxy,
         })
         if (cancelled) {
@@ -197,7 +204,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
         offscreenRef.current = null
       }
     }
-  }, [rendererInput, compositionWidth, compositionHeight, useProxy])
+  }, [rendererInput, compositionWidth, compositionHeight, presentation, useProxy])
 
   useEffect(() => {
     if (!rendererReady) return
@@ -247,6 +254,24 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
   }
 
   const showLoading = !resolvedTracks || !rendererReady
+
+  if (presentation === 'frame') {
+    return (
+      <div className="relative w-full h-full bg-black" aria-label="Compound clip frame preview">
+        <canvas
+          ref={displayCanvasRef}
+          width={compositionWidth}
+          height={compositionHeight}
+          className="block w-full h-full object-contain"
+        />
+        {showLoading && (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground bg-black/30">
+            Loading compound clip...
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div

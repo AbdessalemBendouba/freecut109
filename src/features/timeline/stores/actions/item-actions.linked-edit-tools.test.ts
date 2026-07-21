@@ -263,10 +263,13 @@ describe('linked edit tools', () => {
     expect(itemById['audio-1']).toMatchObject({ from: 0, durationInFrames: 120, speed: 0.5 })
   })
 
-  it('slips synchronized compound wrappers together', () => {
+  it.each([
+    ['visual', 'comp-1'],
+    ['audio', 'comp-audio-1'],
+  ])('slips synchronized compound wrappers together from the %s wrapper', (_side, itemId) => {
     setCompoundWrapperItems()
 
-    slipItem('comp-1', 12)
+    slipItem(itemId, 12)
 
     const itemById = useItemsStore.getState().itemById
     expect(itemById['comp-1']).toMatchObject({
@@ -929,6 +932,80 @@ describe('linked edit tools', () => {
       }),
     ])
   })
+
+  it.each([
+    {
+      side: 'visual',
+      itemId: 'visual-middle',
+      leftId: 'visual-left',
+      rightId: 'visual-right',
+    },
+    {
+      side: 'audio',
+      itemId: 'audio-middle',
+      leftId: 'audio-left',
+      rightId: 'audio-right',
+    },
+  ])(
+    'slides split compound wrappers with source continuity from the $side wrapper',
+    ({ itemId, leftId, rightId }) => {
+      const visual = (id: string, from: number, sourceStart: number, sourceEnd: number) =>
+        makeCompositionItem({
+          id: `visual-${id}`,
+          from,
+          durationInFrames: 30,
+          compositionId: 'nested-composition',
+          linkedGroupId: `group-${id}`,
+          originId: 'visual-split-origin',
+          sourceStart,
+          sourceEnd,
+          sourceDuration: 600,
+          sourceFps: 60,
+          speed: 2,
+        })
+      const audio = (id: string, from: number, sourceStart: number, sourceEnd: number) =>
+        makeAudioItem({
+          id: `audio-${id}`,
+          from,
+          durationInFrames: 30,
+          mediaId: undefined,
+          src: '',
+          compositionId: 'nested-composition',
+          linkedGroupId: `group-${id}`,
+          originId: 'audio-split-origin',
+          sourceStart,
+          sourceEnd,
+          sourceDuration: 600,
+          sourceFps: 60,
+          speed: 2,
+        })
+
+      useItemsStore
+        .getState()
+        .setItems([
+          visual('left', 0, 0, 120),
+          audio('left', 0, 0, 120),
+          visual('middle', 30, 120, 240),
+          audio('middle', 30, 120, 240),
+          visual('right', 60, 240, 360),
+          audio('right', 60, 240, 360),
+        ])
+
+      slideItem(itemId, 5, leftId, rightId)
+
+      const itemById = useItemsStore.getState().itemById
+      expect(itemById['visual-middle']).toMatchObject({
+        from: 35,
+        sourceStart: 140,
+        sourceEnd: 260,
+      })
+      expect(itemById['audio-middle']).toMatchObject({
+        from: 35,
+        sourceStart: 140,
+        sourceEnd: 260,
+      })
+    },
+  )
 
   it('clamps an audio-initiated linked slide against the video transition handle', () => {
     useItemsStore.getState().setItems([
