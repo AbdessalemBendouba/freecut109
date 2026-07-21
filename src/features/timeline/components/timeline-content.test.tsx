@@ -247,6 +247,8 @@ describe('TimelineContent playback selection behavior', () => {
       '[data-timeline-committed-surface="tracks"]',
     ) as HTMLDivElement
     const trackNode = container.querySelector(`[data-track-id="${VIDEO_TRACK.id}"]`)
+    const liveScroll = vi.fn()
+    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, liveScroll)
 
     const liveRectRead = vi.fn(() => ({
       left: 0,
@@ -291,6 +293,7 @@ describe('TimelineContent playback selection behavior', () => {
     expect(useZoomStore.getState().level).toBeCloseTo(1.15)
     expect(scrollContainer.scrollLeft).toBeCloseTo(30)
     expect(useTimelineViewportStore.getState().scrollLeft).toBeCloseTo(30)
+    expect(liveScroll).toHaveBeenCalledOnce()
     expect(frameCallbacks).toHaveLength(0)
     expect(container.querySelector('[data-timeline-committed-surface="tracks"]')).toBe(
       committedSurface,

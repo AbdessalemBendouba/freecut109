@@ -5,6 +5,7 @@ import { useTimelineStore } from '../stores/timeline-store'
 import { useItemsStore } from '../stores/items-store'
 import { useZoomStore } from '../stores/zoom-store'
 import { getTimelineWidth } from '../utils/timeline-layout'
+import { perfMarkRender } from '@/shared/logging/perf-marks'
 import { cn } from '@/shared/ui/cn'
 import { getNavigatorResizeDragResult, getNavigatorThumbMetrics } from './timeline-navigator-utils'
 
@@ -147,6 +148,7 @@ export function TimelineNavigator({
   timelineWidth,
   scrollContainerRef,
 }: TimelineNavigatorProps) {
+  perfMarkRender('TimelineNavigator')
   const trackRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLDivElement>(null)
   const dragRafRef = useRef<number | null>(null)
@@ -158,10 +160,9 @@ export function TimelineNavigator({
   const fps = useTimelineStore((s) => s.fps)
   const setZoomImmediate = useZoomStore((s) => s.setZoomLevelImmediate)
   const setZoomSynchronized = useZoomStore((s) => s.setZoomLevelSynchronized)
-  const scrollLeft = useTimelineViewportStore((s) => s.scrollLeft)
   const viewportWidth = useTimelineViewportStore((s) => s.viewportWidth)
   const livePixelsPerSecondRef = useRef(useZoomStore.getState().pixelsPerSecond)
-  const liveScrollLeftRef = useRef(scrollLeft)
+  const liveScrollLeftRef = useRef(useTimelineViewportStore.getState().scrollLeft)
 
   const [trackWidth, setTrackWidth] = useState(0)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
@@ -412,7 +413,6 @@ export function TimelineNavigator({
     navigatorTimelineWidth,
     renderedMetrics.thumbLeft,
     renderedMetrics.thumbWidth,
-    scrollLeft,
   ])
 
   useEffect(() => {

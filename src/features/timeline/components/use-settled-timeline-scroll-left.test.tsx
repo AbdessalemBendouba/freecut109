@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { _resetViewportThrottle, useTimelineViewportStore } from '../stores/timeline-viewport-store'
 import {
-  EDIT_DOPESHEET_PAN_MAX_STALE_MS,
+  EDIT_DOPESHEET_PAN_REBASE_VIEWPORT_RATIO,
   EDIT_DOPESHEET_PAN_SETTLE_MS,
   useSettledTimelineScrollLeft,
 } from './use-settled-timeline-scroll-left'
@@ -44,21 +44,25 @@ describe('useSettledTimelineScrollLeft', () => {
     expect(result.current).toBe(80)
   })
 
-  it('bounds stale React geometry during a continuous pan', () => {
+  it('rebases only after the compositor pan crosses a viewport-relative distance', () => {
     const container = document.createElement('div')
+    Object.defineProperty(container, 'clientWidth', { configurable: true, value: 200 })
     const scrollContainerRef = { current: container }
     const { result } = renderHook(() =>
       useSettledTimelineScrollLeft(scrollContainerRef, true),
     )
 
+    const rebaseDistance = 200 * EDIT_DOPESHEET_PAN_REBASE_VIEWPORT_RATIO
     act(() => {
-      for (let elapsed = 60; elapsed <= EDIT_DOPESHEET_PAN_MAX_STALE_MS; elapsed += 60) {
-        vi.advanceTimersByTime(60)
-        container.scrollLeft = elapsed
-        container.dispatchEvent(new Event('scroll'))
-      }
+      container.scrollLeft = rebaseDistance - 1
+      container.dispatchEvent(new Event('scroll'))
     })
+    expect(result.current).toBe(0)
 
-    expect(result.current).toBe(EDIT_DOPESHEET_PAN_MAX_STALE_MS)
+    act(() => {
+      container.scrollLeft = rebaseDistance
+      container.dispatchEvent(new Event('scroll'))
+    })
+    expect(result.current).toBe(rebaseDistance)
   })
 })

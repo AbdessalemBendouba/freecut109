@@ -245,6 +245,10 @@ interface DopesheetEditorProps {
   timelineScrollContainerRef?: RefObject<HTMLDivElement | null>
   /** Scroll position used to render the current keyframe geometry snapshot. */
   timelinePanBaseScrollLeft?: number
+  /** Pixels-per-second used to render the current keyframe geometry snapshot. */
+  timelinePanBasePixelsPerSecond?: number
+  /** Read the linked timeline's live scale without subscribing this editor tree. */
+  getTimelineLivePixelsPerSecond?: () => number
   /** Pan a linked timeline during stationary-pointer ruler edge scrubbing. */
   onRulerEdgeScroll?: (deltaPixels: number) => number
   /** Clamp ruler scrubbing to the edited item's local frame range. */
@@ -705,6 +709,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   globalFrameToPixels,
   timelineScrollContainerRef,
   timelinePanBaseScrollLeft,
+  timelinePanBasePixelsPerSecond,
+  getTimelineLivePixelsPerSecond,
   onRulerEdgeScroll,
   scrubClampToItemBounds = true,
   onScrubStart,
@@ -873,38 +879,43 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     })
   }, [])
   const pickWhipRootRef = useRef<HTMLDivElement>(null)
-  const livePanSurfacesRef = useRef<HTMLElement[]>([])
   const livePanXRef = useRef(0)
   useLayoutEffect(() => {
-    const root = pickWhipRootRef.current
-    if (!root) return
-    const surfaces = Array.from(
-      root.querySelectorAll<HTMLElement>('[data-motion-viewport-surface]'),
-    )
-    livePanSurfacesRef.current = surfaces
-    const transform = `translate3d(${livePanXRef.current}px, 0, 0)`
-    for (const surface of surfaces) surface.style.transform = transform
-  })
-  useLayoutEffect(() => {
     const scrollContainer = timelineScrollContainerRef?.current
-    if (!scrollContainer || timelinePanBaseScrollLeft === undefined) return
+    const root = pickWhipRootRef.current
+    if (!scrollContainer || !root || timelinePanBaseScrollLeft === undefined) return
 
-    const syncLivePan = () => {
-      const nextPanX = timelinePanBaseScrollLeft - scrollContainer.scrollLeft
+    const syncLiveAxis = () => {
+      const basePixelsPerSecond = timelinePanBasePixelsPerSecond ?? 1
+      const livePixelsPerSecond = getTimelineLivePixelsPerSecond?.() ?? basePixelsPerSecond
+      const scale =
+        basePixelsPerSecond > 0 && livePixelsPerSecond > 0
+          ? livePixelsPerSecond / basePixelsPerSecond
+          : 1
+      const nextPanX = scale * timelinePanBaseScrollLeft - scrollContainer.scrollLeft
       livePanXRef.current = nextPanX
-      const transform = `translate3d(${nextPanX}px, 0, 0)`
-      for (const surface of livePanSurfacesRef.current) surface.style.transform = transform
+      root.style.setProperty(
+        '--dopesheet-live-axis-transform',
+        `translate3d(${nextPanX}px, 0, 0) scaleX(${scale})`,
+      )
+      root.style.setProperty('--dopesheet-live-axis-inverse-scale', `${1 / scale}`)
     }
-    syncLivePan()
-    scrollContainer.addEventListener('scroll', syncLivePan, { passive: true })
-    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLivePan)
+    syncLiveAxis()
+    scrollContainer.addEventListener('scroll', syncLiveAxis, { passive: true })
+    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLiveAxis)
     return () => {
-      scrollContainer.removeEventListener('scroll', syncLivePan)
-      scrollContainer.removeEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLivePan)
+      scrollContainer.removeEventListener('scroll', syncLiveAxis)
+      scrollContainer.removeEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLiveAxis)
       livePanXRef.current = 0
-      for (const surface of livePanSurfacesRef.current) surface.style.removeProperty('transform')
+      root.style.removeProperty('--dopesheet-live-axis-transform')
+      root.style.removeProperty('--dopesheet-live-axis-inverse-scale')
     }
-  }, [timelinePanBaseScrollLeft, timelineScrollContainerRef])
+  }, [
+    getTimelineLivePixelsPerSecond,
+    timelinePanBasePixelsPerSecond,
+    timelinePanBaseScrollLeft,
+    timelineScrollContainerRef,
+  ])
   const insertExpressionReference = useCallback(
     (origin: ExpressionReferenceDragOrigin, candidate: ExpressionReferenceCandidate) => {
       const reference = `prop(${JSON.stringify(candidate.itemId)}, ${JSON.stringify(candidate.property)})`
@@ -3053,7 +3064,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           className="absolute inset-y-0 border-l border-border/60"
           style={{ left: Math.round(frameToX(frame)) }}
         >
-          <span className="absolute top-0.5 left-1 text-[10px] text-muted-foreground">
+          <span
+            className="absolute top-0.5 left-1 text-[10px] text-muted-foreground"
+            style={{
+              transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
+              transformOrigin: '0 50%',
+            }}
+          >
             {formatRulerTick(frame)}
           </span>
         </div>
@@ -4447,6 +4464,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     return (
       <div
         ref={pickWhipRootRef}
+        data-testid="dopesheet-editor-root"
         className={cn(
           'relative flex flex-col overflow-hidden',
           disabled && 'opacity-60 pointer-events-none',
@@ -4480,6 +4498,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     return (
       <div
         ref={pickWhipRootRef}
+        data-testid="dopesheet-editor-root"
         className={cn('flex h-full flex-col gap-0.5 overflow-hidden', className)}
         style={{ height, width }}
       >
@@ -4530,6 +4549,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   return (
     <div
       ref={pickWhipRootRef}
+      data-testid="dopesheet-editor-root"
       className={cn('flex h-full flex-col gap-0.5 overflow-hidden', className)}
       style={{ height, width }}
     >

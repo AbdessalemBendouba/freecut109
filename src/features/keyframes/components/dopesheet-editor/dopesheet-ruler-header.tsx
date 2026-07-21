@@ -46,6 +46,10 @@ export function DopesheetRulerHeader({
           data-motion-viewport-surface
           data-motion-ruler-surface
           className="absolute inset-0"
+          style={{
+            transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
+            transformOrigin: '0 0',
+          }}
         >
           {rulerTickElements}
         </div>

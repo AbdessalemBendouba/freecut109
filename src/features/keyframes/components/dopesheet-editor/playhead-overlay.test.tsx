@@ -44,7 +44,7 @@ describe('DopesheetEditor playhead overlay', () => {
     expect(clip).toHaveStyle({ left: '249px' })
     expect(clip).toHaveClass('overflow-hidden')
     // Playhead should be clamped to 0 (left edge), not negative
-    expect(line).toHaveStyle({ left: '0px' })
+    expect(line).toHaveStyle({ transform: 'translate3d(0px, 0, 0)' })
     expect(screen.getAllByTestId('dopesheet-playhead-line')).toHaveLength(1)
     expect(line.querySelectorAll('span')).toHaveLength(2)
   })
@@ -63,7 +63,9 @@ describe('DopesheetEditor playhead overlay', () => {
       />,
     )
 
-    expect(screen.getByTestId('dopesheet-playhead-line')).toHaveStyle({ left: '0px' })
+    expect(screen.getByTestId('dopesheet-playhead-line')).toHaveStyle({
+      transform: 'translate3d(0px, 0, 0)',
+    })
   })
 
   it('shows the shared ruler in graph mode and defers the playhead to the graph', () => {
@@ -189,14 +191,14 @@ describe('DopesheetEditor playhead overlay', () => {
     )
 
     const committed = screen.getByTestId('dopesheet-playhead-line')
-    const committedLeft = committed.style.left
+    const committedTransform = committed.style.transform
     const skim = screen.getByTestId('timeline-preview-scrubber')
 
     act(() => usePlaybackStore.getState().setPreviewFrame(80, 'item-1'))
 
     expect(skim.style.display).toBe('')
     expect(skim.style.transform).toBe('translate3d(123.25px, 0, 0)')
-    expect(committed.style.left).toBe(committedLeft)
+    expect(committed.style.transform).toBe(committedTransform)
 
     const ruler = screen.getByTestId('dopesheet-ruler')
     fireEvent.pointerMove(ruler, { pointerId: 1, clientX: 196 })
@@ -220,23 +222,23 @@ describe('DopesheetEditor playhead overlay', () => {
     )
 
     const committed = screen.getByTestId('dopesheet-playhead-line')
-    const initialLeft = committed.style.left
+    const initialTransform = committed.style.transform
 
     act(() => usePlaybackStore.getState().setPreviewFrame(40, 'item-1'))
-    expect(committed.style.left).toBe(initialLeft)
+    expect(committed.style.transform).toBe(initialTransform)
 
     mainTimelineScrubActiveRef.current = true
     act(() => usePlaybackStore.getState().setScrubFrame(60))
-    expect(committed.style.left).not.toBe(initialLeft)
+    expect(committed.style.transform).not.toBe(initialTransform)
     expect(mainTimelineScrubHandoffFrameRef.current).toBe(60)
 
     // The main timeline clears preview before ending the shared gesture. The
     // lower playhead must keep the final position rather than snapping back.
-    const finalLeft = committed.style.left
+    const finalTransform = committed.style.transform
     act(() => usePlaybackStore.getState().setPreviewFrame(null))
     expect(mainTimelineScrubHandoffFrameRef.current).toBe(60)
     mainTimelineScrubActiveRef.current = false
-    expect(committed.style.left).toBe(finalLeft)
+    expect(committed.style.transform).toBe(finalTransform)
   })
 
   it('repositions the Edit playhead from the live scroll axis without a React render', () => {
@@ -265,12 +267,12 @@ describe('DopesheetEditor playhead overlay', () => {
     )
 
     const committed = screen.getByTestId('dopesheet-playhead-line')
-    expect(committed).toHaveStyle({ left: '130px' })
+    expect(committed).toHaveStyle({ transform: 'translate3d(130px, 0, 0)' })
 
     scrollContainer.scrollLeft = 60
     scrollContainer.dispatchEvent(new Event(TIMELINE_LIVE_SCROLL_EVENT))
 
-    expect(committed).toHaveStyle({ left: '90px' })
+    expect(committed).toHaveStyle({ transform: 'translate3d(90px, 0, 0)' })
 
     // Edit uses the same clipped global axis as the main timeline. Once the
     // playhead leaves the viewport it keeps moving offscreen instead of pinning
@@ -278,7 +280,7 @@ describe('DopesheetEditor playhead overlay', () => {
     scrollContainer.scrollLeft = 200
     fireEvent.scroll(scrollContainer)
 
-    expect(committed).toHaveStyle({ left: '-50px' })
+    expect(committed).toHaveStyle({ transform: 'translate3d(-50px, 0, 0)' })
   })
 
   it('compositor-pans keyframe geometry between settled React viewport updates', () => {
@@ -302,13 +304,49 @@ describe('DopesheetEditor playhead overlay', () => {
       '[data-motion-ruler-surface]',
     )
     expect(rulerSurface).toHaveStyle({
-      transform: 'translate3d(0px, 0, 0)',
+      transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
     })
 
     scrollContainer.scrollLeft = 65
     scrollContainer.dispatchEvent(new Event(TIMELINE_LIVE_SCROLL_EVENT))
 
-    expect(rulerSurface).toHaveStyle({ transform: 'translate3d(-45px, 0, 0)' })
+    expect(screen.getByTestId('dopesheet-editor-root')).toHaveStyle({
+      '--dopesheet-live-axis-transform': 'translate3d(-45px, 0, 0) scaleX(1)',
+    })
+  })
+
+  it('applies linked live zoom on the compositor without changing rendered geometry props', () => {
+    const scrollContainer = document.createElement('div')
+    scrollContainer.scrollLeft = 60
+    const timelineScrollContainerRef = { current: scrollContainer }
+    let livePixelsPerSecond = 150
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        width={640}
+        height={240}
+        timelineScrollContainerRef={timelineScrollContainerRef}
+        timelinePanBaseScrollLeft={20}
+        timelinePanBasePixelsPerSecond={100}
+        getTimelineLivePixelsPerSecond={() => livePixelsPerSecond}
+      />,
+    )
+
+    const root = screen.getByTestId('dopesheet-editor-root')
+    expect(root).toHaveStyle({
+      '--dopesheet-live-axis-transform': 'translate3d(-30px, 0, 0) scaleX(1.5)',
+      '--dopesheet-live-axis-inverse-scale': `${1 / 1.5}`,
+    })
+
+    livePixelsPerSecond = 75
+    scrollContainer.dispatchEvent(new Event(TIMELINE_LIVE_SCROLL_EVENT))
+    expect(root).toHaveStyle({
+      '--dopesheet-live-axis-transform': 'translate3d(-45px, 0, 0) scaleX(0.75)',
+      '--dopesheet-live-axis-inverse-scale': `${1 / 0.75}`,
+    })
   })
 
   it('pre-renders ruler marks around the linked viewport for immediate pans', () => {

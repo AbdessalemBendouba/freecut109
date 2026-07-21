@@ -1515,6 +1515,7 @@ export const TimelineContent = memo(function TimelineContent({
             // throttled scroll path would briefly combine the new scale with an
             // old offset and put its playhead at a different screen position.
             syncViewportFromContainer(queuedScrollLeft, true)
+            notifyTimelineLiveScroll(container)
           }
         })
       })

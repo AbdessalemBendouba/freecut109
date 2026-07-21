@@ -8,7 +8,7 @@ import {
 import { useTimelineViewportStore } from '../stores/timeline-viewport-store'
 
 export const EDIT_DOPESHEET_PAN_SETTLE_MS = 90
-export const EDIT_DOPESHEET_PAN_MAX_STALE_MS = 180
+export const EDIT_DOPESHEET_PAN_REBASE_VIEWPORT_RATIO = 0.75
 
 /**
  * Keeps expensive keyframe geometry off the main timeline's per-frame pan path.
@@ -30,22 +30,24 @@ export function useSettledTimelineScrollLeft(
     if (!container) return
 
     let settleTimeout: ReturnType<typeof setTimeout> | null = null
-    let lastPublishTime = performance.now()
-
     const publish = () => {
       if (settleTimeout !== null) {
         clearTimeout(settleTimeout)
         settleTimeout = null
       }
       const nextScrollLeft = container.scrollLeft
-      lastPublishTime = performance.now()
       if (Math.abs(nextScrollLeft - publishedScrollLeftRef.current) < 0.5) return
       publishedScrollLeftRef.current = nextScrollLeft
       startTransition(() => setScrollLeft(nextScrollLeft))
     }
 
     const handleScroll = () => {
-      if (performance.now() - lastPublishTime >= EDIT_DOPESHEET_PAN_MAX_STALE_MS) {
+      const viewportWidth = container.clientWidth
+      const rebaseDistance = viewportWidth * EDIT_DOPESHEET_PAN_REBASE_VIEWPORT_RATIO
+      if (
+        viewportWidth > 0 &&
+        Math.abs(container.scrollLeft - publishedScrollLeftRef.current) >= rebaseDistance
+      ) {
         publish()
       }
       if (settleTimeout !== null) clearTimeout(settleTimeout)

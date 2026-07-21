@@ -123,14 +123,17 @@ export function DopesheetPlayheadLine({
   useLayoutEffect(() => {
     if (!ref.current) return
     const liveRelativeFrame = livePlaybackRelFrame()
-    ref.current.style.left = `${clampLeft(liveRelativeFrame ?? posRef.current.relativeFrame)}px`
+    const x = clampLeft(liveRelativeFrame ?? posRef.current.relativeFrame)
+    ref.current.style.transform = `translate3d(${x}px, 0, 0)`
   })
 
   useEffect(() => {
     const update = () => {
       const liveRelativeFrame = livePlaybackRelFrame()
       const relativeFrame = liveRelativeFrame ?? posRef.current.relativeFrame
-      if (ref.current) ref.current.style.left = `${clampLeft(relativeFrame)}px`
+      if (ref.current) {
+        ref.current.style.transform = `translate3d(${clampLeft(relativeFrame)}px, 0, 0)`
+      }
     }
     const unsubscribe = usePlaybackStore.subscribe(update)
     const target = positionSyncTargetRef?.current

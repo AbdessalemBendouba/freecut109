@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vite-plus/test'
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { TimelineNavigator } from './timeline-navigator'
 import { getNavigatorResizeDragResult, getNavigatorThumbMetrics } from './timeline-navigator-utils'
@@ -8,6 +8,12 @@ import { useTimelineSettingsStore } from '../stores/timeline-settings-store'
 import { useItemsStore } from '../stores/items-store'
 import { useZoomStore } from '../stores/zoom-store'
 import { ZOOM_MIN } from '../constants'
+
+const perfMarkMocks = vi.hoisted(() => ({ mark: vi.fn() }))
+
+vi.mock('@/shared/logging/perf-marks', () => ({
+  perfMarkRender: perfMarkMocks.mark,
+}))
 
 describe('timeline navigator resize math', () => {
   it('keeps scroll pinned to zero when the right handle expands from the far left', () => {
@@ -90,6 +96,24 @@ describe('timeline navigator interaction', () => {
     fireEvent.click(getByTestId('timeline-navigator-thumb'))
 
     expect(scrollContainer.scrollLeft).toBe(120)
+  })
+
+  it('does not React-render for scroll-only viewport publications', () => {
+    const scrollContainer = document.createElement('div')
+    render(
+      <TimelineNavigator
+        actualDuration={10}
+        timelineWidth={1000}
+        scrollContainerRef={{ current: scrollContainer }}
+      />,
+    )
+    perfMarkMocks.mark.mockClear()
+
+    act(() => {
+      useTimelineViewportStore.setState({ scrollLeft: 240 })
+    })
+
+    expect(perfMarkMocks.mark).not.toHaveBeenCalledWith('TimelineNavigator')
   })
 
   it('keeps live wheel zoom and anchor scrolling synchronized before content settles', async () => {

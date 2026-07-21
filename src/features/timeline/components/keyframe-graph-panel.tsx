@@ -1072,7 +1072,9 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     [currentProject],
   )
   const editTimelineViewportWidth = useTimelineViewportStore((state) => state.viewportWidth)
-  const editTimelinePixelsPerSecond = useZoomStore((state) => state.pixelsPerSecond)
+  // The expensive editor tree follows settled geometry. Live wheel zoom is
+  // applied by the dopesheet root's compositor axis transform instead.
+  const editTimelinePixelsPerSecond = useZoomStore((state) => state.contentPixelsPerSecond)
   const editTimelineFps = useTimelineSettingsStore((state) => state.fps)
   const editTimelineScrollLeft = useSettledTimelineScrollLeft(
     timelineScrollContainerRef,
@@ -1119,6 +1121,10 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       return (globalFrame / editTimelineFps) * pixelsPerSecond - scrollLeft
     },
     [editTimelineFps, editTimelinePixelsPerSecond, timelineScrollContainerRef],
+  )
+  const getEditTimelineLivePixelsPerSecond = useCallback(
+    () => useZoomStore.getState().pixelsPerSecond,
+    [],
   )
   const handleEditTimelineEdgeScroll = useCallback(
     (deltaPixels: number) => {
@@ -3068,6 +3074,12 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   }
                   timelinePanBaseScrollLeft={
                     surface === 'edit' ? editTimelineScrollLeft : undefined
+                  }
+                  timelinePanBasePixelsPerSecond={
+                    surface === 'edit' ? editTimelinePixelsPerSecond : undefined
+                  }
+                  getTimelineLivePixelsPerSecond={
+                    surface === 'edit' ? getEditTimelineLivePixelsPerSecond : undefined
                   }
                   onRulerEdgeScroll={surface === 'edit' ? handleEditTimelineEdgeScroll : undefined}
                   scrubClampToItemBounds={surface !== 'edit'}
