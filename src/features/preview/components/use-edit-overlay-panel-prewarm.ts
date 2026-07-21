@@ -142,6 +142,7 @@ export function useEditOverlayPanelPrewarm(
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
 
     const run = async () => {
       const requestGroups = await Promise.all(
@@ -213,7 +214,9 @@ export function useEditOverlayPanelPrewarm(
       }
 
       for (const [src, timestamps] of groupedBySrc) {
-        void backgroundBatchPreseek(src, timestamps).catch(() => null)
+        void backgroundBatchPreseek(src, timestamps, { signal: controller.signal }).catch(
+          () => null,
+        )
       }
     }
 
@@ -221,6 +224,7 @@ export function useEditOverlayPanelPrewarm(
 
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [blobUrlVersion, prewarmTargets])
 }

@@ -189,9 +189,11 @@ async function renderItemContent(
       break
     }
     case 'image':
+      await rctx.ensureImageItemReady?.(effectiveItem as ImageItem)
       renderImageItem(ctx, effectiveItem as ImageItem, transform, rctx, frame)
       break
     case 'lottie':
+      await rctx.ensureLottieItemReady?.(effectiveItem as LottieItem)
       renderLottieItem(ctx, effectiveItem as LottieItem, transform, rctx, frame)
       break
     case 'text': {

@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vite-plus/test'
 import type { TimelineItem } from '@/types/timeline'
 import type { SubCompRenderData } from './canvas-item-renderer'
 import {
+  collectPriorityMediaItemIds,
   collectPriorityNestedVideoItemIds,
+  resolveCompositionRendererExecutionPolicy,
   resolveRenderedFrameCacheMode,
   resolveVideoPreloadPlan,
   selectNestedMediaSource,
+  selectRendererPreloadItems,
   selectPreviewVideoSource,
   subCompositionRenderDataHasGpuEffects,
 } from './client-render-engine'
@@ -26,6 +29,25 @@ describe('comparison preview resource selection', () => {
         sourceUrl: 'blob:source',
       }),
     ).toBe('blob:source')
+  })
+
+  it('keeps comparison drawing isolated while enabling lazy worker-backed frames', () => {
+    expect(resolveCompositionRendererExecutionPolicy('comparison')).toEqual({
+      itemRenderMode: 'export',
+      usesSharedPreviewPool: false,
+      usesStrictPreviewDecode: false,
+      allowsPredecodedVideoFrames: true,
+    })
+  })
+
+  it('keeps only exact target dependencies in comparison preload batches', () => {
+    const items = [{ id: 'target' }, { id: 'future' }]
+    expect(
+      selectRendererPreloadItems('comparison', items, new Set(['target']), (item) => item.id),
+    ).toEqual([{ id: 'target' }])
+    expect(
+      selectRendererPreloadItems('export', items, new Set(['target']), (item) => item.id),
+    ).toEqual(items)
   })
 })
 
@@ -156,6 +178,51 @@ describe('collectPriorityNestedVideoItemIds', () => {
       }),
     ).toEqual(['visible-video'])
   })
+
+  it('collects exact-frame image and Lottie leaves without unrelated media', () => {
+    const visibleImage = {
+      id: 'visible-image',
+      type: 'image',
+      trackId: 'track',
+      from: 0,
+      durationInFrames: 10,
+    } as TimelineItem
+    const visibleLottie = {
+      id: 'visible-lottie',
+      type: 'lottie',
+      trackId: 'track',
+      from: 0,
+      durationInFrames: 10,
+    } as TimelineItem
+    const futureVideo = {
+      id: 'future-video',
+      type: 'video',
+      trackId: 'track',
+      from: 10,
+      durationInFrames: 10,
+    } as TimelineItem
+
+    expect(
+      collectPriorityMediaItemIds({
+        tracks: [
+          {
+            id: 'track',
+            name: 'Track',
+            order: 0,
+            height: 60,
+            locked: false,
+            visible: true,
+            muted: false,
+            solo: false,
+            items: [visibleImage, visibleLottie, futureVideo],
+          },
+        ],
+        frame: 5,
+        fps: 30,
+        compositionById: {},
+      }),
+    ).toEqual({ video: [], image: ['visible-image'], lottie: ['visible-lottie'] })
+  })
 })
 
 describe('selectPreviewVideoSource', () => {
@@ -207,6 +274,14 @@ describe('resolveVideoPreloadPlan', () => {
       priorityItemIds: ['nearby'],
       eagerItemIds: ['active', 'far'],
       deferredItemIds: [],
+    })
+  })
+
+  it('keeps comparison sources isolated but defers every non-target decoder', () => {
+    expect(resolveVideoPreloadPlan('comparison', ['target', 'future'], ['target'])).toEqual({
+      priorityItemIds: ['target'],
+      eagerItemIds: [],
+      deferredItemIds: ['future'],
     })
   })
 })

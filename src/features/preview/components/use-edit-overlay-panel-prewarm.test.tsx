@@ -122,12 +122,17 @@ describe('useEditOverlayPanelPrewarm', () => {
       label: 'Root',
     } as CompositionItem
 
-    renderHook(() =>
+    const { unmount } = renderHook(() =>
       useEditOverlayPanelPrewarm([{ item: wrapper, sourceFrame: 10, sourceTime: 10 / 30 }]),
     )
 
     await waitFor(() => {
-      expect(backgroundBatchPreseekMock).toHaveBeenCalledWith('blob:proxy-media-1', [10 / 30])
+      expect(backgroundBatchPreseekMock).toHaveBeenCalledWith('blob:proxy-media-1', [10 / 30], {
+        signal: expect.any(AbortSignal),
+      })
     })
+    const signal = backgroundBatchPreseekMock.mock.calls[0]?.[2]?.signal as AbortSignal
+    unmount()
+    expect(signal.aborted).toBe(true)
   })
 })

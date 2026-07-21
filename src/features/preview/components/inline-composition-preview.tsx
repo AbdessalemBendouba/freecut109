@@ -50,7 +50,7 @@ function getLogger() {
 }
 
 function reportInitializationFailure(cancelled: boolean, error: unknown): void {
-  if (!cancelled) {
+  if (!cancelled && !(error instanceof DOMException && error.name === 'AbortError')) {
     getLogger().warn('Failed to initialize inline composition renderer', { error })
   }
 }
@@ -118,13 +118,17 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
     }
 
     let cancelled = false
+    const controller = new AbortController()
     setResolvedTrackResult(null)
 
     const loadResolvedTracks = async () => {
-      const nextResolvedTracks = await getOrCreateResolvedTrackPromise(resolutionKey, async () => {
-        // Resolve root tracks once; nested target media is prioritized by the renderer.
-        return resolveMediaUrls(compositionInput.tracks, { useProxy })
-      })
+      const nextResolvedTracks =
+        presentation === 'frame'
+          ? structuredClone(compositionInput.tracks)
+          : await getOrCreateResolvedTrackPromise(resolutionKey, async () => {
+              return resolveMediaUrls(compositionInput.tracks, { useProxy })
+            })
+      if (controller.signal.aborted) return
       if (!cancelled) {
         setResolvedTrackResult({ key: resolutionKey, tracks: nextResolvedTracks })
       }
@@ -138,8 +142,9 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
 
     return () => {
       cancelled = true
+      controller.abort()
     }
-  }, [compositionId, compositionInput, resolutionKey, useProxy])
+  }, [compositionId, compositionInput, presentation, resolutionKey, useProxy])
 
   const compositionWidth = composition?.width || 640
   const compositionHeight = composition?.height || 360
@@ -178,26 +183,6 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
     return { ...compositionInput, tracks: resolvedTracks }
   }, [compositionGraphSignature, compositionInput, resolvedTracks])
 
-  const canPresentPriorityFrame = useMemo(() => {
-    if (!compositionGraphSignature) return false
-    const compositionById = useCompositionsStore.getState().compositionById
-    const visited = new Set<string>()
-    const visit = (id: string): boolean => {
-      if (visited.has(id)) return true
-      visited.add(id)
-      const current = compositionById[id]
-      if (!current) return true
-      for (const item of current.items) {
-        if (item.type === 'image' || item.type === 'lottie') return false
-        if (item.type === 'composition' && item.compositionId && !visit(item.compositionId)) {
-          return false
-        }
-      }
-      return true
-    }
-    return visit(compositionId)
-  }, [compositionGraphSignature, compositionId])
-
   const renderAndPresent = useCallback(
     async (
       renderer: CompositionRendererInstance,
@@ -233,6 +218,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
     }
 
     let cancelled = false
+    const controller = new AbortController()
     let createdRenderer: CompositionRendererInstance | null = null
     let priorityPresentation: Promise<boolean> | null = null
     setRendererReady(false)
@@ -251,7 +237,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
           // Frame-comparison canvases must not participate in the live preview's
           // global strict-decode/cancellation session. Target-first preload and
           // proxy selection are configured independently below.
-          mode: presentation === 'frame' ? 'export' : 'preview',
+          mode: presentation === 'frame' ? 'comparison' : 'preview',
           useProxyMedia: useProxy,
         })
         if (cancelled) {
@@ -267,7 +253,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
         }
 
         const presentPriorityFrame = () => {
-          if (!canPresentPriorityFrame || priorityPresentation) return
+          if (presentation !== 'frame' || priorityPresentation || controller.signal.aborted) return
           priorityPresentation = renderAndPresent(renderer, offscreen, clampedSeekFrameRef.current)
           void priorityPresentation.then((presented) => {
             if (!cancelled && presented) setRendererReady(true)
@@ -277,6 +263,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
         await renderer.preload({
           priorityFrame: clampedSeekFrameRef.current,
           onPriorityMediaReady: presentPriorityFrame,
+          signal: controller.signal,
         })
         if (cancelled) return
         const presented = await (priorityPresentation ??
@@ -291,6 +278,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
 
     return () => {
       cancelled = true
+      controller.abort()
       if (createdRenderer) {
         try {
           createdRenderer.dispose()
@@ -303,15 +291,7 @@ const InlineCompositionPreviewContent = memo(function InlineCompositionPreviewCo
         offscreenRef.current = null
       }
     }
-  }, [
-    rendererInput,
-    compositionWidth,
-    compositionHeight,
-    presentation,
-    useProxy,
-    canPresentPriorityFrame,
-    renderAndPresent,
-  ])
+  }, [rendererInput, compositionWidth, compositionHeight, presentation, useProxy, renderAndPresent])
 
   useEffect(() => {
     if (!rendererReady) return

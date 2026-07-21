@@ -181,12 +181,16 @@ describe('InlineCompositionPreview', () => {
       expect(renderer.renderFrame).toHaveBeenCalledWith(89)
     })
     expect(createCompositionRendererMock.mock.calls[0]?.[3]).toMatchObject({
-      mode: 'export',
+      mode: 'comparison',
       useProxyMedia: true,
+    })
+    expect(renderer.preload.mock.calls[0]?.[0]).toMatchObject({
+      priorityFrame: 89,
+      signal: expect.any(AbortSignal),
     })
   })
 
-  it('shares recursive media resolution across sibling comparison panels', async () => {
+  it('defers root media resolution to sibling comparison renderers', async () => {
     render(
       <>
         <InlineCompositionPreview
@@ -205,7 +209,7 @@ describe('InlineCompositionPreview', () => {
     )
 
     await waitFor(() => expect(createCompositionRendererMock).toHaveBeenCalledTimes(2))
-    expect(resolveMediaUrlsMock).toHaveBeenCalledTimes(1)
+    expect(resolveMediaUrlsMock).not.toHaveBeenCalled()
   })
 
   it('renders priority video-only frames before background preload completes', async () => {
@@ -251,6 +255,7 @@ describe('InlineCompositionPreview', () => {
 
     await waitFor(() => expect(createCompositionRendererMock).toHaveBeenCalledTimes(1))
     const firstRenderer = await createCompositionRendererMock.mock.results[0]?.value
+    const firstPreloadSignal = firstRenderer.preload.mock.calls[0]?.[0]?.signal as AbortSignal
 
     signatureState.value = `${signatureState.value}:nested-edit`
     rerender(
@@ -264,5 +269,6 @@ describe('InlineCompositionPreview', () => {
 
     await waitFor(() => expect(createCompositionRendererMock).toHaveBeenCalledTimes(2))
     expect(firstRenderer.dispose).toHaveBeenCalledOnce()
+    expect(firstPreloadSignal.aborted).toBe(true)
   })
 })

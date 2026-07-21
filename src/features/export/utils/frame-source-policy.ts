@@ -39,6 +39,7 @@ export interface PreviewStrictWaitingFallbackOptions {
 export interface PreviewWorkerBitmapOptions {
   renderMode: RenderMode
   hasReadyDomVideo: boolean
+  allowPredecodedVideoFrames?: boolean
 }
 
 export interface PreviewVideoElementFallbackOptions {
@@ -230,8 +231,8 @@ export function shouldUsePreviewStrictWaitingFallback(
 }
 
 export function shouldTryPreviewWorkerBitmap(options: PreviewWorkerBitmapOptions): boolean {
-  const { renderMode, hasReadyDomVideo } = options
-  return renderMode === 'preview' && !hasReadyDomVideo
+  const { renderMode, hasReadyDomVideo, allowPredecodedVideoFrames } = options
+  return (renderMode === 'preview' || allowPredecodedVideoFrames === true) && !hasReadyDomVideo
 }
 
 export function shouldAllowPreviewVideoElementFallback(

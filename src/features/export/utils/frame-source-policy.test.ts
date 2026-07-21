@@ -233,6 +233,13 @@ describe('frame-source-policy', () => {
         hasReadyDomVideo: false,
       }),
     ).toBe(false)
+    expect(
+      shouldTryPreviewWorkerBitmap({
+        renderMode: 'export',
+        hasReadyDomVideo: false,
+        allowPredecodedVideoFrames: true,
+      }),
+    ).toBe(true)
   })
 
   it('allows preview video element fallback when mediabunny is unavailable', () => {
