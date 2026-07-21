@@ -12,8 +12,9 @@ import { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub
 import { withPerfMeasure, perfMarkRender } from '@/shared/logging/perf-marks'
 import { PlayheadMarks } from '@/shared/ui/playhead-marks'
 import {
+  beginTimelineSkimmerScrub,
+  endTimelineSkimmerScrub,
   mainTimelineScrubActiveRef,
-  timelineSkimmerScrubActiveRef,
 } from '@/shared/timeline/main-timeline-scrub'
 import {
   TIMELINE_SCRUB_VISUAL_FRAME_EVENT,
@@ -128,6 +129,7 @@ export function TimelinePlayhead({
   const scrubScrollContainerRef = useRef<HTMLDivElement | null>(null)
   const scrubCoordinateSurfaceRef = useRef<HTMLDivElement | null>(null)
   const scrubPlayheadElementsRef = useRef<HTMLElement[]>([])
+  const skimmerScrubOwnerRef = useRef({})
   const scrubThrottleStateRef = useRef(
     createScrubThrottleState({
       frame: usePlaybackStore.getState().currentFrame,
@@ -258,7 +260,7 @@ export function TimelinePlayhead({
       })
       isDraggingRef.current = true
       mainTimelineScrubActiveRef.current = true
-      timelineSkimmerScrubActiveRef.current = true
+      beginTimelineSkimmerScrub(skimmerScrubOwnerRef.current)
       setPreviewFrameRef.current(null)
       setIsDragging(true)
     },
@@ -268,6 +270,7 @@ export function TimelinePlayhead({
   // Handle dragging
   useEffect(() => {
     if (!isDragging) return
+    const skimmerScrubOwner = skimmerScrubOwnerRef.current
 
     // Keep the horizontal scrub cursor stable while crossing timeline children.
     const originalCursor = document.body.style.cursor
@@ -383,7 +386,7 @@ export function TimelinePlayhead({
       // Keep the shared flag set through the preview-clear notification so the
       // keyframe playhead retains the final scrub position until props settle.
       mainTimelineScrubActiveRef.current = false
-      timelineSkimmerScrubActiveRef.current = false
+      endTimelineSkimmerScrub(skimmerScrubOwner)
       setIsDragging(false)
     }
 
@@ -403,7 +406,7 @@ export function TimelinePlayhead({
       }
       scrubAnimationTimeRef.current = null
       mainTimelineScrubActiveRef.current = false
-      timelineSkimmerScrubActiveRef.current = false
+      endTimelineSkimmerScrub(skimmerScrubOwner)
     }
   }, [isDragging]) // Stable dependencies - no stale closures
 

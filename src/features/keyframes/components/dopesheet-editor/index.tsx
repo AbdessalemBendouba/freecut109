@@ -78,7 +78,11 @@ import {
   getTimelineScrubViewportProgress,
   notifyTimelineScrubVisualFrame,
 } from '@/shared/timeline/live-scroll-sync'
-import { timelineSkimmerScrubActiveRef } from '@/shared/timeline/main-timeline-scrub'
+import {
+  beginTimelineSkimmerScrub,
+  endTimelineSkimmerScrub,
+  timelineSkimmerScrubSignal,
+} from '@/shared/timeline/main-timeline-scrub'
 import { DopesheetSheetBody } from './dopesheet-sheet-body'
 import { DopesheetInterpolationButtons } from './dopesheet-interpolation-buttons'
 import { DopesheetParameterMenu } from './dopesheet-parameter-menu'
@@ -2805,6 +2809,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const rulerEdgeScrollRafRef = useRef<number | null>(null)
   const rulerEdgeScrollTimestampRef = useRef<number | null>(null)
   const rulerEdgeScrollLoopRef = useRef<(timestamp: number) => void>(() => {})
+  const skimmerScrubOwnerRef = useRef({})
   const getRulerFrameViewportX = useCallback(
     (frame: number) => {
       const mappedX = globalFrameToPixels ? globalFrameToPixels(itemFrom + frame) : frameToX(frame)
@@ -2934,14 +2939,15 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     )
   }
   useEffect(() => {
+    const skimmerScrubOwner = skimmerScrubOwnerRef.current
     return () => {
       if (rulerEdgeScrollRafRef.current !== null) {
         cancelAnimationFrame(rulerEdgeScrollRafRef.current)
       }
       if (scrubPointerIdRef.current !== null) {
         rulerScrubActiveRef.current = false
-        timelineSkimmerScrubActiveRef.current = false
       }
+      endTimelineSkimmerScrub(skimmerScrubOwner)
     }
   }, [])
   const handleRulerPointerDown = useCallback(
@@ -2950,7 +2956,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       event.preventDefault()
       rulerScrubHandoffFrameRef.current = null
       rulerScrubActiveRef.current = true
-      timelineSkimmerScrubActiveRef.current = true
+      beginTimelineSkimmerScrub(skimmerScrubOwnerRef.current)
       setIsRulerScrubbing(true)
       scrubPointerIdRef.current = event.pointerId
       rulerScrubClientXRef.current = event.clientX
@@ -3048,7 +3054,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       flushPendingRulerScrub(true)
       rulerScrubActiveRef.current = false
       onScrubEnd?.()
-      timelineSkimmerScrubActiveRef.current = false
+      endTimelineSkimmerScrub(skimmerScrubOwnerRef.current)
     },
     [
       flushPendingRulerScrub,
@@ -4636,7 +4642,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         rulerOffset={0}
         showTooltip={false}
         suppressed={isRulerScrubbing}
-        suppressRefs={[rulerScrubActiveRef, timelineSkimmerScrubActiveRef]}
+        suppressRefs={[rulerScrubActiveRef]}
+        suppressSignal={timelineSkimmerScrubSignal}
         positionSyncTargetRef={timelineScrollContainerRef}
       />
     </div>

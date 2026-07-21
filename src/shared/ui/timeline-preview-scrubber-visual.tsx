@@ -12,6 +12,18 @@ import { formatTimecode } from '@/shared/utils/time-utils'
 
 const FLAG_HEIGHT = 12
 
+interface ImperativeBooleanSignal {
+  readonly current: boolean
+  subscribe: (listener: () => void) => () => void
+}
+
+function isImperativelySuppressed(
+  suppressRefs: ReadonlyArray<MutableRefObject<boolean>> | undefined,
+  suppressSignal: ImperativeBooleanSignal | undefined,
+): boolean {
+  return (suppressRefs?.some((ref) => ref.current) ?? false) || (suppressSignal?.current ?? false)
+}
+
 function shouldHidePreviewScrubber({
   previewFrame,
   suppressed,
@@ -33,6 +45,7 @@ interface TimelinePreviewScrubberVisualProps {
   showTooltip?: boolean
   suppressed?: boolean
   suppressRefs?: ReadonlyArray<MutableRefObject<boolean>>
+  suppressSignal?: ImperativeBooleanSignal
   /** Reposition from the live mapper whenever an external timeline scrolls. */
   positionSyncTargetRef?: RefObject<HTMLElement | null>
   zIndex?: number
@@ -48,6 +61,7 @@ export function TimelinePreviewScrubberVisual({
   showTooltip = true,
   suppressed = false,
   suppressRefs,
+  suppressSignal,
   positionSyncTargetRef,
   zIndex = 20,
 }: TimelinePreviewScrubberVisualProps) {
@@ -60,6 +74,7 @@ export function TimelinePreviewScrubberVisual({
   const maxFrameRef = useRef(maxFrame)
   const suppressedRef = useRef(suppressed)
   const suppressStateRefsRef = useRef(suppressRefs)
+  const suppressSignalRef = useRef(suppressSignal)
   // Positioning runs in a layout effect below, so these refs must already hold
   // this render's mapper. Updating them in a passive effect leaves the skim line
   // one zoom render behind.
@@ -68,6 +83,7 @@ export function TimelinePreviewScrubberVisual({
   maxFrameRef.current = maxFrame
   suppressedRef.current = suppressed
   suppressStateRefsRef.current = suppressRefs
+  suppressSignalRef.current = suppressSignal
 
   const updatePosition = useCallback((previewFrame: number | null) => {
     const node = scrubberRef.current
@@ -76,7 +92,10 @@ export function TimelinePreviewScrubberVisual({
       shouldHidePreviewScrubber({
         previewFrame,
         suppressed: suppressedRef.current,
-        suppressRefActive: suppressStateRefsRef.current?.some((ref) => ref.current) ?? false,
+        suppressRefActive: isImperativelySuppressed(
+          suppressStateRefsRef.current,
+          suppressSignalRef.current,
+        ),
       })
     ) {
       node.style.display = 'none'
@@ -104,6 +123,13 @@ export function TimelinePreviewScrubberVisual({
     updatePosition(usePlaybackStore.getState().previewFrame)
     return usePlaybackStore.subscribe((state) => updatePosition(state.previewFrame))
   }, [updatePosition])
+
+  useEffect(() => {
+    if (!suppressSignal) return
+    return suppressSignal.subscribe(() => {
+      updatePosition(usePlaybackStore.getState().previewFrame)
+    })
+  }, [suppressSignal, updatePosition])
 
   useEffect(() => {
     const target = positionSyncTargetRef?.current

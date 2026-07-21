@@ -1,11 +1,13 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { usePlaybackStore } from '@/shared/state/playback'
+import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
 import { DopesheetEditor } from './index'
 import {
   mainTimelineScrubActiveRef,
   mainTimelineScrubHandoffFrameRef,
-  timelineSkimmerScrubActiveRef,
+  resetTimelineSkimmerScrubForTest,
+  timelineSkimmerScrubSignal,
 } from '@/shared/timeline/main-timeline-scrub'
 import {
   TIMELINE_LIVE_SCROLL_EVENT,
@@ -32,7 +34,7 @@ describe('DopesheetEditor playhead overlay', () => {
     })
     mainTimelineScrubActiveRef.current = false
     mainTimelineScrubHandoffFrameRef.current = null
-    timelineSkimmerScrubActiveRef.current = false
+    resetTimelineSkimmerScrubForTest()
   })
 
   it('clamps the playhead to the left edge when the current frame is before the viewport', () => {
@@ -646,7 +648,9 @@ describe('DopesheetEditor playhead overlay', () => {
       })
     const scrollContainer = document.createElement('div')
     const timelineScrollContainerRef = { current: scrollContainer }
-    const onScrub = vi.fn()
+    const onScrub = vi.fn((frame: number) => {
+      usePlaybackStore.getState().setScrubFrame(frame)
+    })
     const onVisualFrame = vi.fn()
     scrollContainer.addEventListener(TIMELINE_SCRUB_VISUAL_FRAME_EVENT, (event) => {
       onVisualFrame((event as CustomEvent).detail)
@@ -658,26 +662,35 @@ describe('DopesheetEditor playhead overlay', () => {
     })
 
     render(
-      <DopesheetEditor
-        itemId="item-1"
-        keyframesByProperty={{ x: [] }}
-        currentFrame={0}
-        totalFrames={300}
-        frameViewport={{ startFrame: 0, endFrame: 100 }}
-        clampViewportToContent={false}
-        scrubClampToItemBounds={false}
-        presentation="classic"
-        width={640}
-        height={240}
-        fps={30}
-        onScrub={onScrub}
-        onRulerEdgeScroll={onRulerEdgeScroll}
-        timelineScrollContainerRef={timelineScrollContainerRef}
-        getTimelineLivePixelsPerSecond={() => 240}
-      />,
+      <>
+        <TimelinePreviewScrubberVisual
+          frameToPixels={(frame) => frame}
+          fps={30}
+          suppressSignal={timelineSkimmerScrubSignal}
+        />
+        <DopesheetEditor
+          itemId="item-1"
+          keyframesByProperty={{ x: [] }}
+          currentFrame={0}
+          totalFrames={300}
+          frameViewport={{ startFrame: 0, endFrame: 100 }}
+          clampViewportToContent={false}
+          scrubClampToItemBounds={false}
+          presentation="classic"
+          width={640}
+          height={240}
+          fps={30}
+          onScrub={onScrub}
+          onScrubEnd={() => usePlaybackStore.getState().setPreviewFrame(null)}
+          onRulerEdgeScroll={onRulerEdgeScroll}
+          timelineScrollContainerRef={timelineScrollContainerRef}
+          getTimelineLivePixelsPerSecond={() => 240}
+        />
+      </>,
     )
 
     const ruler = screen.getByTestId('dopesheet-ruler')
+    const mainSkimmer = screen.getByTestId('timeline-preview-scrubber')
     vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
       x: 248,
       y: 0,
@@ -690,18 +703,23 @@ describe('DopesheetEditor playhead overlay', () => {
       toJSON: () => ({}),
     } as DOMRect)
 
+    act(() => usePlaybackStore.getState().setPreviewFrame(20))
+    expect(mainSkimmer).not.toHaveStyle({ display: 'none' })
+
     fireEvent.pointerDown(ruler, { button: 0, pointerId: 92, clientX: 640 })
     expect(onScrub).toHaveBeenLastCalledWith(49)
-    expect(timelineSkimmerScrubActiveRef.current).toBe(true)
+    expect(timelineSkimmerScrubSignal.current).toBe(true)
+    expect(mainSkimmer).toHaveStyle({ display: 'none' })
 
     act(() => frameCallbacks.shift()?.(16))
 
     expect(onVisualFrame).toHaveBeenLastCalledWith(
       expect.objectContaining({ frame: 50, source: 'keyframe' }),
     )
+    expect(mainSkimmer).toHaveStyle({ display: 'none' })
 
     fireEvent.pointerUp(ruler, { pointerId: 92, clientX: 640 })
-    expect(timelineSkimmerScrubActiveRef.current).toBe(false)
+    expect(timelineSkimmerScrubSignal.current).toBe(false)
     animationFrameSpy.mockRestore()
   })
 

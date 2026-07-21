@@ -15,8 +15,9 @@ import { TimelineProjectMarkers } from './timeline-project-markers'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
 import { beginIoPointerDrag, IoRangeStrip } from '@/shared/timeline/io-range'
 import {
+  beginTimelineSkimmerScrub,
+  endTimelineSkimmerScrub,
   mainTimelineScrubActiveRef,
-  timelineSkimmerScrubActiveRef,
 } from '@/shared/timeline/main-timeline-scrub'
 import {
   getTimelineScrubViewportProgress,
@@ -479,6 +480,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
   const scrubRAFIdRef = useRef<number | null>(null)
   const scrubAnimationTimeRef = useRef<number | null>(null)
   const scrubPlayheadElementsRef = useRef<HTMLElement[]>([])
+  const skimmerScrubOwnerRef = useRef({})
   const isScrubActiveRef = useRef(false)
   const scrubThrottleStateRef = useRef(createScrubThrottleState())
 
@@ -947,7 +949,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       scrubAnimationTimeRef.current = null
       isScrubActiveRef.current = true
       mainTimelineScrubActiveRef.current = true
-      timelineSkimmerScrubActiveRef.current = true
+      beginTimelineSkimmerScrub(skimmerScrubOwnerRef.current)
 
       pauseRef.current()
 
@@ -982,6 +984,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
 
   useEffect(() => {
     if (!isDragging) return
+    const skimmerScrubOwner = skimmerScrubOwnerRef.current
 
     const originalCursor = document.body.style.cursor
     document.body.style.cursor = 'ew-resize'
@@ -1011,7 +1014,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       // Clear after the preview notification so linked playheads retain the
       // final frame while their slower React props catch up.
       mainTimelineScrubActiveRef.current = false
-      timelineSkimmerScrubActiveRef.current = false
+      endTimelineSkimmerScrub(skimmerScrubOwner)
     }
 
     document.addEventListener('mousemove', handleMouseMove)
@@ -1024,7 +1027,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       // Ensure cleanup
       isScrubActiveRef.current = false
       mainTimelineScrubActiveRef.current = false
-      timelineSkimmerScrubActiveRef.current = false
+      endTimelineSkimmerScrub(skimmerScrubOwner)
       if (scrubRAFIdRef.current !== null) {
         cancelAnimationFrame(scrubRAFIdRef.current)
         scrubRAFIdRef.current = null

@@ -1,13 +1,10 @@
 import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
-import { timelineSkimmerScrubActiveRef } from '@/shared/timeline/main-timeline-scrub'
+import { timelineSkimmerScrubSignal } from '@/shared/timeline/main-timeline-scrub'
 import { useTimelineZoomContext } from '../contexts/timeline-zoom-context'
 import { IO_LANE_HEIGHT } from './timeline-markers'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
 
-const MAIN_TIMELINE_SKIMMER_SUPPRESS_REFS = [
-  previewScrubberSuppressRef,
-  timelineSkimmerScrubActiveRef,
-]
+const MAIN_TIMELINE_SKIMMER_SUPPRESS_REFS = [previewScrubberSuppressRef]
 
 interface TimelinePreviewScrubberProps {
   inRuler?: boolean
@@ -31,6 +28,7 @@ export function TimelinePreviewScrubber({
       maxFrame={maxFrame}
       rulerOffset={IO_LANE_HEIGHT}
       suppressRefs={MAIN_TIMELINE_SKIMMER_SUPPRESS_REFS}
+      suppressSignal={timelineSkimmerScrubSignal}
       zIndex={zIndex}
     />
   )

@@ -9,7 +9,8 @@ import { useTimelineStore } from '../stores/timeline-store'
 import {
   mainTimelineScrubActiveRef,
   mainTimelineScrubHandoffFrameRef,
-  timelineSkimmerScrubActiveRef,
+  resetTimelineSkimmerScrubForTest,
+  timelineSkimmerScrubSignal,
 } from '@/shared/timeline/main-timeline-scrub'
 import { notifyTimelineScrubVisualFrame } from '@/shared/timeline/live-scroll-sync'
 
@@ -36,7 +37,7 @@ describe('TimelinePlayhead', () => {
     useZoomStore.getState().setZoomLevelSynchronized(1)
     mainTimelineScrubActiveRef.current = false
     mainTimelineScrubHandoffFrameRef.current = null
-    timelineSkimmerScrubActiveRef.current = false
+    resetTimelineSkimmerScrubForTest()
   })
 
   it('uses atomic scrub updates while dragging and clears preview on release', async () => {
@@ -67,7 +68,7 @@ describe('TimelinePlayhead', () => {
 
     fireEvent.mouseDown(hitArea!, { clientX: 24, clientY: 8, button: 0 })
     expect(mainTimelineScrubActiveRef.current).toBe(true)
-    expect(timelineSkimmerScrubActiveRef.current).toBe(true)
+    expect(timelineSkimmerScrubSignal.current).toBe(true)
     expect(document.body).toHaveStyle({ cursor: 'ew-resize' })
     fireEvent.mouseMove(document, { clientX: 120, clientY: 8 })
 
@@ -78,7 +79,7 @@ describe('TimelinePlayhead', () => {
 
     fireEvent.mouseUp(document, { clientX: 120, clientY: 8 })
     expect(mainTimelineScrubActiveRef.current).toBe(false)
-    expect(timelineSkimmerScrubActiveRef.current).toBe(false)
+    expect(timelineSkimmerScrubSignal.current).toBe(false)
     expect(document.body.style.cursor).toBe('')
 
     await waitFor(() => {
