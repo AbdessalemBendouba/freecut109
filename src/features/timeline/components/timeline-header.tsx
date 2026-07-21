@@ -27,6 +27,7 @@ import {
   FlagOff,
   Link2,
   Volume2,
+  Diamond,
 } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import { formatHotkeyBinding } from '@/config/hotkeys'
@@ -57,6 +58,38 @@ function TrimEditIcon({ className }: { className?: string }) {
     </svg>
   )
 }
+
+const InlineKeyframesToggle = memo(function InlineKeyframesToggle({
+  isOpen,
+  onToggle,
+}: {
+  isOpen: boolean
+  onToggle: () => void
+}) {
+  const { t } = useTranslation()
+  const label = t(
+    isOpen ? 'timeline.keyframeEditor.editLane.hide' : 'timeline.keyframeEditor.editLane.show',
+    { defaultValue: isOpen ? 'Hide keyframe panel' : 'Show keyframe panel' },
+  )
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      style={{
+        width: EDITOR_LAYOUT_CSS_VALUES.toolbarButtonSize,
+        height: EDITOR_LAYOUT_CSS_VALUES.toolbarButtonSize,
+      }}
+      className={isOpen ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}
+      onClick={onToggle}
+      aria-label={label}
+      aria-pressed={isOpen}
+      data-tooltip={label}
+    >
+      <Diamond className="h-3.5 w-3.5" />
+    </Button>
+  )
+})
 
 function isDifferentSliderValue(previousValue: number | null, nextValue: number): boolean {
   return previousValue === null || Math.abs(previousValue - nextValue) > 0.000001
@@ -290,6 +323,8 @@ export const TimelineHeader = memo(function TimelineHeader({
   const activeTool = useSelectionStore((s) => s.activeTool)
   const setActiveTool = useSelectionStore((s) => s.setActiveTool)
   const selectedMarkerId = useSelectionStore((s) => s.selectedMarkerId)
+  const inlineKeyframesOpen = useSelectionStore((s) => s.editKeyframePanelOpen)
+  const toggleEditKeyframePanel = useSelectionStore((s) => s.toggleEditKeyframePanel)
   const clearSelection = useSelectionStore((s) => s.clearSelection)
   const linkedSelectionEnabled = useEditorStore((s) => s.linkedSelectionEnabled)
   const setLinkedSelectionEnabled = useEditorStore((s) => s.setLinkedSelectionEnabled)
@@ -297,7 +332,6 @@ export const TimelineHeader = memo(function TimelineHeader({
   const canRedo = useTimelineCommandStore((s) => s.canRedo)
   const undoLabel = useTimelineCommandStore((s) => s.getUndoLabel())
   const redoLabel = useTimelineCommandStore((s) => s.getRedoLabel())
-
   const SlipSlideFlyoutIcon = activeTool === 'slide' ? BetweenHorizontalEnd : ArrowRightLeft
 
   const btnSize = {
@@ -628,6 +662,8 @@ export const TimelineHeader = memo(function TimelineHeader({
           </Button>
 
           <Separator orientation="vertical" className="h-5 mx-1.5" />
+
+          <InlineKeyframesToggle isOpen={inlineKeyframesOpen} onToggle={toggleEditKeyframePanel} />
 
           <Button
             variant="ghost"

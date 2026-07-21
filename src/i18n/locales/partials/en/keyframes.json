@@ -66,6 +66,16 @@
         "easeInOut": "Ease In/Out",
         "easeOut": "Ease Out"
       },
+      "editLane": {
+        "property": "Keyframe property",
+        "position": "Position",
+        "scale": "Scale",
+        "anchor": "Anchor",
+        "previous": "Previous keyframe",
+        "next": "Next keyframe",
+        "show": "Show keyframe panel",
+        "hide": "Hide keyframe panel"
+      },
       "holdHint": "Value holds until the next keyframe.",
       "unhold": "Unhold",
       "legend": {

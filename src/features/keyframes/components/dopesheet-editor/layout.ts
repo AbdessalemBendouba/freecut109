@@ -10,31 +10,41 @@ function getFrameRange(viewport: Viewport): number {
   return Math.max(1, viewport.endFrame - viewport.startFrame)
 }
 
-function getUsableTimelineWidth(timelineWidth: number): number {
-  return Math.max(0, timelineWidth - KEYFRAME_EDGE_INSET * 2)
+function getUsableTimelineWidth(timelineWidth: number, edgeInset: number): number {
+  return Math.max(0, timelineWidth - edgeInset * 2)
 }
 
-export function getFrameAxisX(frame: number, viewport: Viewport, timelineWidth: number): number {
+export function getFrameAxisX(
+  frame: number,
+  viewport: Viewport,
+  timelineWidth: number,
+  edgeInset = KEYFRAME_EDGE_INSET,
+): number {
   if (timelineWidth <= 0) return 0
 
-  const usableWidth = getUsableTimelineWidth(timelineWidth)
+  const usableWidth = getUsableTimelineWidth(timelineWidth, edgeInset)
   if (usableWidth <= 0) {
     return timelineWidth / 2
   }
 
   const frameRange = getFrameRange(viewport)
-  return KEYFRAME_EDGE_INSET + ((frame - viewport.startFrame) / frameRange) * usableWidth
+  return edgeInset + ((frame - viewport.startFrame) / frameRange) * usableWidth
 }
 
-export function getFrameFromAxisX(x: number, viewport: Viewport, timelineWidth: number): number {
-  const usableWidth = getUsableTimelineWidth(timelineWidth)
+export function getFrameFromAxisX(
+  x: number,
+  viewport: Viewport,
+  timelineWidth: number,
+  edgeInset = KEYFRAME_EDGE_INSET,
+): number {
+  const usableWidth = getUsableTimelineWidth(timelineWidth, edgeInset)
   if (timelineWidth <= 0 || usableWidth <= 0) {
     return viewport.startFrame
   }
 
   const frameRange = getFrameRange(viewport)
-  const clampedX = Math.max(KEYFRAME_EDGE_INSET, Math.min(timelineWidth - KEYFRAME_EDGE_INSET, x))
-  const relative = (clampedX - KEYFRAME_EDGE_INSET) / usableWidth
+  const clampedX = Math.max(edgeInset, Math.min(timelineWidth - edgeInset, x))
+  const relative = (clampedX - edgeInset) / usableWidth
   return Math.round(viewport.startFrame + relative * frameRange)
 }
 
@@ -42,15 +52,16 @@ export function getVisibleKeyframeX(
   frame: number,
   viewport: Viewport,
   timelineWidth: number,
+  edgeInset = KEYFRAME_EDGE_INSET,
 ): number | null {
   if (timelineWidth <= 0) return null
   if (frame < viewport.startFrame || frame > viewport.endFrame) return null
-  const minX = KEYFRAME_EDGE_INSET
-  const maxX = timelineWidth - KEYFRAME_EDGE_INSET
+  const minX = edgeInset
+  const maxX = timelineWidth - edgeInset
 
   if (maxX <= minX) {
     return timelineWidth / 2
   }
 
-  return Math.max(minX, Math.min(maxX, getFrameAxisX(frame, viewport, timelineWidth)))
+  return Math.max(minX, Math.min(maxX, getFrameAxisX(frame, viewport, timelineWidth, edgeInset)))
 }

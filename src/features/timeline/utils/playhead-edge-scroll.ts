@@ -1,15 +1,12 @@
-export const PLAYHEAD_EDGE_SCROLL_ZONE_PX = 48
-export const PLAYHEAD_EDGE_SCROLL_MAX_PX_PER_SECOND = 720
+const PLAYHEAD_EDGE_SCROLL_ZONE_PX = 48
+const PLAYHEAD_EDGE_SCROLL_MAX_PX_PER_SECOND = 720
 
 interface HorizontalBounds {
   left: number
   right: number
 }
 
-export function getPlayheadEdgeScrollVelocity(
-  clientX: number,
-  bounds: HorizontalBounds,
-): number {
+export function getPlayheadEdgeScrollVelocity(clientX: number, bounds: HorizontalBounds): number {
   const leftDepth = PLAYHEAD_EDGE_SCROLL_ZONE_PX - (clientX - bounds.left)
   if (leftDepth > 0) {
     return (

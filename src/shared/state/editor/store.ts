@@ -124,7 +124,6 @@ export const useEditorStore = create<EditorState & EditorActions>((set) => ({
   activePanel: null,
   leftSidebarOpen: true,
   rightSidebarOpen: true,
-  keyframeEditorOpen: false,
   keyframeEditorShortcutScopeActive: false,
   transcriptEditorShortcutScopeActive: false,
   workspace: initialWorkspace,
@@ -170,29 +169,12 @@ export const useEditorStore = create<EditorState & EditorActions>((set) => ({
   setActivePanel: (panel) => set({ activePanel: panel }),
   setLeftSidebarOpen: (open) => set({ leftSidebarOpen: open }),
   setRightSidebarOpen: (open) => set({ rightSidebarOpen: open }),
-  setKeyframeEditorOpen: (open) =>
-    set((state) => ({
-      keyframeEditorOpen: open,
-      keyframeEditorShortcutScopeActive: open ? state.keyframeEditorShortcutScopeActive : false,
-      leftSidebarOpen: open ? true : state.leftSidebarOpen,
-    })),
   setKeyframeEditorShortcutScopeActive: (active) =>
     set({ keyframeEditorShortcutScopeActive: active }),
   setTranscriptEditorShortcutScopeActive: (active) =>
     set({ transcriptEditorShortcutScopeActive: active }),
   toggleLeftSidebar: () => set((state) => ({ leftSidebarOpen: !state.leftSidebarOpen })),
   toggleRightSidebar: () => set((state) => ({ rightSidebarOpen: !state.rightSidebarOpen })),
-  toggleKeyframeEditorOpen: () =>
-    set((state) => {
-      const nextOpen = !state.keyframeEditorOpen
-      return {
-        keyframeEditorOpen: nextOpen,
-        keyframeEditorShortcutScopeActive: nextOpen
-          ? state.keyframeEditorShortcutScopeActive
-          : false,
-        leftSidebarOpen: nextOpen ? true : state.leftSidebarOpen,
-      }
-    }),
   setWorkspace: (workspace) =>
     set((state) => {
       if (state.workspace === workspace) return state

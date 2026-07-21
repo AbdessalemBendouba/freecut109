@@ -1,5 +1,5 @@
 import { useState, type ComponentProps } from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { createEvent, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { DopesheetEditor } from './index'
 import { EXPRESSION_DOCK_HEIGHT } from './dopesheet-expression-dock'
@@ -35,7 +35,9 @@ describe('DopesheetEditor property groups', () => {
 
   async function openExpressionEditor(propertyLabel: string): Promise<void> {
     fireEvent.click(
-      screen.getByRole('button', { name: new RegExp(`add ${propertyLabel} expression`, 'i') }),
+      screen.getByRole('button', {
+        name: new RegExp(`add ${propertyLabel} expression`, 'i'),
+      }),
     )
     await screen.findByRole('textbox', {
       name: new RegExp(`${propertyLabel} expression source`, 'i'),
@@ -49,16 +51,175 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.getByRole('button', { name: /collapse audio/i })).toBeTruthy()
     expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeTruthy()
     expect(
-      screen.getByRole('spinbutton', { name: /volume \(db\) value at playhead/i }),
+      screen.getByRole('spinbutton', {
+        name: /volume \(db\) value at playhead/i,
+      }),
     ).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /collapse transform/i }))
 
-    expect(screen.queryByRole('spinbutton', { name: /x position value at playhead/i })).toBeNull()
+    expect(
+      screen.queryByRole('spinbutton', {
+        name: /x position value at playhead/i,
+      }),
+    ).toBeNull()
     expect(screen.getByRole('button', { name: /expand transform/i })).toBeTruthy()
     expect(
-      screen.getByRole('spinbutton', { name: /volume \(db\) value at playhead/i }),
+      screen.getByRole('spinbutton', {
+        name: /volume \(db\) value at playhead/i,
+      }),
     ).toBeTruthy()
+  })
+
+  it('renders the classic Edit presentation without Motion property chrome', () => {
+    renderEditor({ presentation: 'classic' })
+
+    expect(screen.getByTestId('dopesheet-ruler')).toBeTruthy()
+    expect(screen.getByText('Property')).toBeTruthy()
+    expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeTruthy()
+    expect(
+      screen.getByRole('spinbutton', {
+        name: /volume \(db\) value at playhead/i,
+      }),
+    ).toBeTruthy()
+
+    expect(screen.queryByText('Parameters')).toBeNull()
+    expect(screen.queryByRole('button', { name: /collapse transform/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /show .* curve/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /lock .* row/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /add .* expression/i })).toBeNull()
+    expect(screen.queryByTestId('keyframe-navigator-thumb')).toBeNull()
+    expect(screen.queryByRole('slider', { name: /horizontal zoom/i })).toBeNull()
+  })
+
+  it('uses middle-button drag to pan only the keyframe rows vertically', () => {
+    renderEditor({ presentation: 'classic' })
+
+    const scrollArea = screen.getByTestId('dopesheet-scroll-area')
+    scrollArea.scrollTop = 40
+    const middleMouseDown = new MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button: 1,
+      clientY: 100,
+    })
+
+    scrollArea.dispatchEvent(middleMouseDown)
+    window.dispatchEvent(
+      new MouseEvent('mousemove', {
+        bubbles: true,
+        cancelable: true,
+        clientY: 130,
+      }),
+    )
+
+    expect(middleMouseDown.defaultPrevented).toBe(true)
+    expect(scrollArea.scrollTop).toBe(10)
+    expect(document.body.style.cursor).toBe('grabbing')
+
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+    window.dispatchEvent(
+      new MouseEvent('mousemove', {
+        bubbles: true,
+        cancelable: true,
+        clientY: 160,
+      }),
+    )
+
+    expect(scrollArea.scrollTop).toBe(10)
+    expect(document.body.style.cursor).toBe('')
+  })
+
+  it('matches the main ruler with bottom-anchored major and pooled minor ticks', () => {
+    renderEditor({ presentation: 'classic', totalFrames: 120 })
+
+    const ruler = screen.getByTestId('dopesheet-ruler')
+    const majorTicks = ruler.querySelectorAll('[data-dopesheet-ruler-major-tick]')
+    const minorTickLayers = ruler.querySelectorAll('[data-dopesheet-ruler-minor-ticks]')
+
+    expect(majorTicks.length).toBeGreaterThan(1)
+    expect(majorTicks[0]).toHaveClass('bottom-0', 'h-2', 'border-white/30')
+    expect(minorTickLayers).toHaveLength(1)
+    expect(minorTickLayers[0]).toHaveClass('bottom-0', 'h-1')
+  })
+
+  it('shows global frame labels on the shared Edit ruler', () => {
+    const timelineScrollContainerRef = {
+      current: document.createElement('div'),
+    }
+    renderEditor({
+      presentation: 'classic',
+      itemFrom: 100,
+      frameViewport: { startFrame: -100, endFrame: 0 },
+      timelineScrollContainerRef,
+    })
+
+    const ticks = Array.from(
+      screen
+        .getByTestId('dopesheet-ruler')
+        .querySelectorAll<HTMLElement>('[data-dopesheet-ruler-major-tick]'),
+    )
+    const globalZeroTick = ticks.find((tick) => tick.style.left === '0px')
+
+    expect(globalZeroTick).toHaveTextContent('0')
+  })
+
+  it('forwards guarded ctrl-wheel zoom from the shared Edit timeline', () => {
+    const timeline = document.createElement('div')
+    const forwardedWheel = vi.fn()
+    timeline.addEventListener('wheel', forwardedWheel)
+
+    renderEditor({
+      presentation: 'classic',
+      viewportInteractionEnabled: false,
+      timelineScrollContainerRef: { current: timeline },
+    })
+
+    const root = screen.getByTestId('dopesheet-editor-root')
+    const guardedEvent = createEvent.wheel(root, {
+      ctrlKey: true,
+      clientX: 420,
+      deltaY: -100,
+      cancelable: true,
+    })
+
+    // Match App.tsx's document-capture browser-zoom guard.
+    guardedEvent.preventDefault()
+    fireEvent(root, guardedEvent)
+
+    expect(forwardedWheel).toHaveBeenCalledOnce()
+    const forwardedEvent = forwardedWheel.mock.calls[0]?.[0] as WheelEvent
+    expect(forwardedEvent.ctrlKey).toBe(true)
+    expect(forwardedEvent.clientX).toBe(420)
+    expect(forwardedEvent.deltaY).toBe(-100)
+  })
+
+  it('shows a functional axis constraint on the classic primary scale row', () => {
+    const onConstraintChange = vi.fn()
+    renderEditor({
+      presentation: 'classic',
+      keyframesByProperty: { width: [], height: [] },
+      propertyValues: { width: 100, height: 100 },
+      propertyLabels: { width: 'Scale X', height: 'Scale Y' },
+      axisConstraintByProperty: {
+        width: {
+          label: 'Scale',
+          constrained: true,
+          onChange: onConstraintChange,
+        },
+      },
+    })
+
+    expect(screen.getByText('Scale X')).toBeTruthy()
+    expect(screen.getByText('Scale Y')).toBeTruthy()
+    const constraint = screen.getByRole('button', {
+      name: 'Unconstrain Scale axes',
+    })
+    expect(constraint).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Scale X').nextElementSibling).toBe(constraint)
+
+    fireEvent.click(constraint)
+    expect(onConstraintChange).toHaveBeenCalledWith(false)
   })
 
   it('expands and collapses sibling property groups with Shift-click', () => {
@@ -70,9 +231,15 @@ describe('DopesheetEditor property groups', () => {
 
     expect(screen.getByRole('button', { name: /expand transform/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /expand audio/i })).toBeTruthy()
-    expect(screen.queryByRole('spinbutton', { name: /x position value at playhead/i })).toBeNull()
     expect(
-      screen.queryByRole('spinbutton', { name: /volume \(db\) value at playhead/i }),
+      screen.queryByRole('spinbutton', {
+        name: /x position value at playhead/i,
+      }),
+    ).toBeNull()
+    expect(
+      screen.queryByRole('spinbutton', {
+        name: /volume \(db\) value at playhead/i,
+      }),
     ).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /expand transform/i }), {
@@ -203,7 +370,9 @@ describe('DopesheetEditor property groups', () => {
     const editor = screen.getByRole('textbox', {
       name: /x position expression source/i,
     }) as HTMLTextAreaElement
-    const presets = screen.getByRole('combobox', { name: 'Expression presets' })
+    const presets = screen.getByRole('combobox', {
+      name: 'Expression presets',
+    })
 
     expect(presets.querySelectorAll('optgroup')).toHaveLength(3)
     expect(presets.querySelectorAll('option').length).toBeGreaterThan(8)
@@ -250,7 +419,9 @@ describe('DopesheetEditor property groups', () => {
       onRemovePropertyExpression: vi.fn(),
     })
 
-    const indicator = screen.getByRole('button', { name: /edit x position expression/i })
+    const indicator = screen.getByRole('button', {
+      name: /edit x position expression/i,
+    })
     fireEvent.click(indicator)
     fireEvent.change(screen.getByRole('textbox', { name: /x position expression source/i }), {
       target: { value: 'value / 0' },
@@ -355,7 +526,12 @@ describe('DopesheetEditor property groups', () => {
       name: /pick a reference property for x position/i,
     })
 
-    fireEvent.pointerDown(referenceControl, { button: 0, pointerId: 21, clientX: 0, clientY: 0 })
+    fireEvent.pointerDown(referenceControl, {
+      button: 0,
+      pointerId: 21,
+      clientX: 0,
+      clientY: 0,
+    })
     expect(screen.getByTestId('expression-reference-pick-whip')).toBeInTheDocument()
     fireEvent.pointerMove(window, { pointerId: 21, clientX: 30, clientY: 30 })
     fireEvent.pointerUp(window, { pointerId: 21, clientX: 30, clientY: 30 })
@@ -479,10 +655,16 @@ describe('DopesheetEditor property groups', () => {
     fireEvent.click(screen.getByText(/display audio parameters/i))
 
     expect(
-      screen.getByRole('spinbutton', { name: /x position value at playhead/i, hidden: true }),
+      screen.getByRole('spinbutton', {
+        name: /x position value at playhead/i,
+        hidden: true,
+      }),
     ).toBeTruthy()
     expect(
-      screen.queryByRole('spinbutton', { name: /volume \(db\) value at playhead/i, hidden: true }),
+      screen.queryByRole('spinbutton', {
+        name: /volume \(db\) value at playhead/i,
+        hidden: true,
+      }),
     ).toBeNull()
   })
 
@@ -495,13 +677,19 @@ describe('DopesheetEditor property groups', () => {
     })
 
     expect(
-      screen.queryByRole('button', { name: /toggle transform keyframes at playhead/i }),
+      screen.queryByRole('button', {
+        name: /toggle transform keyframes at playhead/i,
+      }),
     ).toBeNull()
     expect(
-      screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }),
+      screen.getByRole('button', {
+        name: /toggle x position keyframe at playhead/i,
+      }),
     ).toBeEnabled()
     expect(
-      screen.getByRole('button', { name: /toggle y position keyframe at playhead/i }),
+      screen.getByRole('button', {
+        name: /toggle y position keyframe at playhead/i,
+      }),
     ).toBeEnabled()
     expect(onAddKeyframe).not.toHaveBeenCalled()
   })
@@ -522,7 +710,9 @@ describe('DopesheetEditor property groups', () => {
     )
     expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeDisabled()
     expect(
-      screen.getByRole('button', { name: /toggle x position keyframe at playhead/i }),
+      screen.getByRole('button', {
+        name: /toggle x position keyframe at playhead/i,
+      }),
     ).toBeDisabled()
     expect(
       screen.getByRole('spinbutton', { name: /y position value at playhead/i }),
@@ -619,9 +809,13 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.queryByLabelText(/height value at playhead/i)).toBeNull()
     expect(screen.queryByLabelText(/anchor y value at playhead/i)).toBeNull()
 
-    fireEvent.change(screen.getByLabelText('Position Y'), { target: { value: '48' } })
+    fireEvent.change(screen.getByLabelText('Position Y'), {
+      target: { value: '48' },
+    })
     fireEvent.blur(screen.getByLabelText('Position Y'))
-    expect(onPositionCommit).toHaveBeenCalledWith('y', 48, { allowCreate: false })
+    expect(onPositionCommit).toHaveBeenCalledWith('y', 48, {
+      allowCreate: false,
+    })
   })
 
   it('exposes one Vector2 Property Link for a compound Position row', () => {
@@ -767,7 +961,9 @@ describe('DopesheetEditor property groups', () => {
       onPropertyChange: vi.fn(),
     })
 
-    const yToggle = screen.getByRole('button', { name: /show y position curve/i })
+    const yToggle = screen.getByRole('button', {
+      name: /show y position curve/i,
+    })
     fireEvent.click(yToggle)
     expect(yToggle).toHaveAttribute('aria-pressed', 'true')
 
@@ -899,7 +1095,9 @@ describe('DopesheetEditor property groups', () => {
       </div>,
     )
 
-    fireEvent.keyDown(screen.getByTestId('dopesheet-graph-pane'), { key: 'Delete' })
+    fireEvent.keyDown(screen.getByTestId('dopesheet-graph-pane'), {
+      key: 'Delete',
+    })
 
     expect(onRemoveKeyframes).toHaveBeenCalledWith([
       { itemId: 'item-1', property: 'x', keyframeId: 'kf-1' },
@@ -983,7 +1181,9 @@ describe('DopesheetEditor property groups', () => {
 
   it('renders clipboard controls in the bottom row', () => {
     renderEditor({
-      keyframesByProperty: { x: [{ id: 'kx-1', frame: 8, value: 100, easing: 'linear' }] },
+      keyframesByProperty: {
+        x: [{ id: 'kx-1', frame: 8, value: 100, easing: 'linear' }],
+      },
       propertyValues: { x: 100 },
       selectedKeyframeIds: new Set(['kx-1']),
       onCopyKeyframes: vi.fn(),
@@ -1010,7 +1210,9 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.getByRole('button', { name: /lock transform rows/i })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /enable auto-key for transform/i })).toBeNull()
     expect(
-      screen.queryByRole('button', { name: /toggle transform keyframes at playhead/i }),
+      screen.queryByRole('button', {
+        name: /toggle transform keyframes at playhead/i,
+      }),
     ).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /lock transform rows/i }))
@@ -1035,7 +1237,9 @@ describe('DopesheetEditor property groups', () => {
       onPropertyValueCommit: vi.fn(),
     })
 
-    const curveButton = screen.getByRole('button', { name: /show all transform curves/i })
+    const curveButton = screen.getByRole('button', {
+      name: /show all transform curves/i,
+    })
     expect(curveButton.parentElement).not.toHaveClass('opacity-0', 'pointer-events-none')
 
     const headerButtons = [
@@ -1077,10 +1281,14 @@ describe('DopesheetEditor property groups', () => {
     })
 
     fireEvent.click(
-      screen.getByRole('button', { name: /reset x position animation to its base value/i }),
+      screen.getByRole('button', {
+        name: /reset x position animation to its base value/i,
+      }),
     )
     fireEvent.click(
-      screen.getByRole('button', { name: /reset all transform animations to their base values/i }),
+      screen.getByRole('button', {
+        name: /reset all transform animations to their base values/i,
+      }),
     )
 
     expect(onRemoveKeyframes).toHaveBeenNthCalledWith(1, [
@@ -1168,7 +1376,11 @@ describe('DopesheetEditor property groups', () => {
     fireEvent.click(screen.getByRole('button', { name: /collapse transform/i }))
     const groupKeyframe = screen.getByTestId('group-keyframe-transform-8')
 
-    fireEvent.pointerDown(groupKeyframe, { button: 0, pointerId: 1, clientX: 100 })
+    fireEvent.pointerDown(groupKeyframe, {
+      button: 0,
+      pointerId: 1,
+      clientX: 100,
+    })
     fireEvent.pointerMove(window, { pointerId: 1, clientX: 140 })
 
     await waitFor(() => {

@@ -123,6 +123,9 @@ export const TimelineItem = memo(function TimelineItem({
   const isSelected = useSelectionStore(
     useCallback((s) => s.selectedItemIdSet.has(item.id), [item.id]),
   )
+  const keyframesExpanded = useSelectionStore(
+    useCallback((s) => s.expandedKeyframeLanes.has(item.id), [item.id]),
+  )
 
   // Granular selector: check if this item's media is broken (missing/permission denied)
   // or orphaned (media metadata deleted from IndexedDB)
@@ -172,7 +175,9 @@ export const TimelineItem = memo(function TimelineItem({
     () => itemKeyframes?.properties.filter((p) => p.keyframes.length > 0) ?? [],
     [itemKeyframes],
   )
-  const hasKeyframes = keyframedProperties.length > 0
+  const hasKeyframes =
+    keyframedProperties.length > 0 ||
+    (itemKeyframes?.vectorProperties?.some((property) => property.keyframes.length > 0) ?? false)
   const hasMotion =
     (item.motionModifiers?.some((modifier) => modifier.enabled) ?? false) ||
     (item.effects?.some((effect) => effect.audioPulse?.enabled) ?? false)
@@ -1065,6 +1070,7 @@ export const TimelineItem = memo(function TimelineItem({
               /* Status indicators */
               <ClipIndicators
                 hasKeyframes={hasKeyframes}
+                keyframesExpanded={keyframesExpanded}
                 hasMotion={hasMotion}
                 currentSpeed={currentSpeed}
                 isReversed={item.isReversed === true}
@@ -1075,6 +1081,9 @@ export const TimelineItem = memo(function TimelineItem({
                 hasMediaId={!!item.mediaId}
                 isMask={item.type === 'shape' ? (item.isMask ?? false) : false}
                 isShape={item.type === 'shape'}
+                onKeyframesToggle={() => {
+                  useSelectionStore.getState().toggleKeyframeLanes(item.id)
+                }}
               />
             )}
           </div>

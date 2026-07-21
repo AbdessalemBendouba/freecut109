@@ -6,6 +6,7 @@ import { useSelectionStore } from './selection-store'
 describe('selection-store', () => {
   beforeEach(() => {
     useSelectionStore.getState().clearSelection()
+    useSelectionStore.getState().setEditKeyframePanelOpen(false)
   })
 
   describe('selectItems', () => {
@@ -187,21 +188,59 @@ describe('selection-store', () => {
     })
   })
 
-  describe('keyframe lanes', () => {
-    it('toggles keyframe lane expansion', () => {
+  describe('Edit keyframe panel', () => {
+    it('selects an unselected item and toggles its panel atomically', () => {
       useSelectionStore.getState().toggleKeyframeLanes('item-1')
+      expect(useSelectionStore.getState().editKeyframePanelOpen).toBe(true)
       expect(useSelectionStore.getState().expandedKeyframeLanes.has('item-1')).toBe(true)
+      expect(useSelectionStore.getState().selectedItemIds).toEqual(['item-1'])
 
       useSelectionStore.getState().toggleKeyframeLanes('item-1')
+      expect(useSelectionStore.getState().editKeyframePanelOpen).toBe(false)
       expect(useSelectionStore.getState().expandedKeyframeLanes.has('item-1')).toBe(false)
+      expect(useSelectionStore.getState().selectedItemIds).toEqual(['item-1'])
     })
 
-    it('sets keyframe lane expanded state explicitly', () => {
+    it('sets panel visibility explicitly', () => {
       useSelectionStore.getState().setKeyframeLanesExpanded('item-1', true)
+      expect(useSelectionStore.getState().editKeyframePanelOpen).toBe(true)
       expect(useSelectionStore.getState().expandedKeyframeLanes.has('item-1')).toBe(true)
 
       useSelectionStore.getState().setKeyframeLanesExpanded('item-1', false)
+      expect(useSelectionStore.getState().editKeyframePanelOpen).toBe(false)
       expect(useSelectionStore.getState().expandedKeyframeLanes.has('item-1')).toBe(false)
+    })
+
+    it('keeps the panel open and retargets it when clip selection changes', () => {
+      useSelectionStore.getState().setKeyframeLanesExpanded('item-1', true)
+      useSelectionStore.getState().setKeyframeLanesExpanded('item-2', true)
+      expect([...useSelectionStore.getState().expandedKeyframeLanes]).toEqual(['item-2'])
+
+      useSelectionStore.getState().selectItems(['item-3'])
+      expect([...useSelectionStore.getState().expandedKeyframeLanes]).toEqual(['item-3'])
+
+      useSelectionStore.getState().selectItems(['item-3', 'item-4'])
+      expect(useSelectionStore.getState().editKeyframePanelOpen).toBe(true)
+      expect(useSelectionStore.getState().expandedKeyframeLanes.size).toBe(0)
+
+      useSelectionStore.getState().clearItemSelection()
+      expect(useSelectionStore.getState().editKeyframePanelOpen).toBe(true)
+      expect(useSelectionStore.getState().expandedKeyframeLanes.size).toBe(0)
+    })
+
+    it('toggles the panel without a selected clip and targets the next selected clip', () => {
+      useSelectionStore.getState().toggleEditKeyframePanel()
+
+      expect(useSelectionStore.getState().editKeyframePanelOpen).toBe(true)
+      expect(useSelectionStore.getState().expandedKeyframeLanes.size).toBe(0)
+      expect(useSelectionStore.getState().selectedItemIds).toEqual([])
+
+      useSelectionStore.getState().selectItems(['item-1'])
+      expect([...useSelectionStore.getState().expandedKeyframeLanes]).toEqual(['item-1'])
+
+      useSelectionStore.getState().toggleEditKeyframePanel()
+      expect(useSelectionStore.getState().editKeyframePanelOpen).toBe(false)
+      expect(useSelectionStore.getState().expandedKeyframeLanes.size).toBe(0)
     })
   })
 })

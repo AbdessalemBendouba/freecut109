@@ -8,14 +8,6 @@ vi.mock('./timeline-markers', () => ({
   TimelineMarkers: () => <div data-testid="stable-ruler-markers" />,
 }))
 
-vi.mock('./timeline-playhead', () => ({
-  TimelinePlayhead: () => null,
-}))
-
-vi.mock('./timeline-preview-scrubber', () => ({
-  TimelinePreviewScrubber: () => null,
-}))
-
 import { TimelineRulerSurface } from './timeline-ruler-surface'
 
 describe('TimelineRulerSurface', () => {
@@ -29,7 +21,7 @@ describe('TimelineRulerSurface', () => {
 
   it('updates live ruler geometry without scaling its mounted DOM', () => {
     const view = render(
-      <TimelineRulerSurface duration={10} containerWidth={500} initialWidth={500} maxFrame={300} />,
+      <TimelineRulerSurface duration={10} containerWidth={500} initialWidth={500} />,
     )
     const ruler = view.container.querySelector('.timeline-ruler') as HTMLDivElement
     const surface = view.container.querySelector(

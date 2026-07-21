@@ -41,6 +41,7 @@ import { TimelineTrack } from './timeline-track'
 import { TimelineGuidelines } from './timeline-guidelines'
 import { TimelineMediaDropZone } from './timeline-media-drop-zone'
 import { TimelineRecordingOverlay } from './timeline-recording-overlay'
+import { IO_LANE_HEIGHT } from './timeline-markers'
 import { FirstTrackRowFrame, TrackRowFrame, TrackSectionDivider } from './track-row-frame'
 import { MarqueeOverlay } from '@/shared/marquee/marquee-overlay'
 import { announceTimelineMarqueeActive } from '../utils/timeline-interaction-events'
@@ -65,6 +66,7 @@ import {
 } from '../utils/zoom-anchor'
 import { frameToPixelsNow, pixelsToFrameNow } from '../utils/zoom-conversions'
 import { applyTimelineLiveGeometry } from '../utils/timeline-live-geometry'
+import { notifyTimelineLiveScroll } from '@/shared/timeline/live-scroll-sync'
 
 const ACTIVE_TIMELINE_GESTURE_CURSOR_CLASSES = [
   'timeline-cursor-trim-left',
@@ -188,7 +190,7 @@ function TrackSectionScrollbarOverlay({
     const clientHeight = element.clientHeight
     const scrollHeight = element.scrollHeight
     const overflowHeight = scrollHeight - clientHeight
-    const railHeight = Math.max(0, height - railInset * 2)
+    const railHeight = Math.max(0, (railRef.current?.clientHeight ?? height) - railInset * 2)
     const thumbHeight =
       overflowHeight > 0
         ? Math.min(railHeight, Math.max(24, (clientHeight / scrollHeight) * railHeight))
@@ -334,7 +336,12 @@ function TrackSectionScrollbarOverlay({
   return (
     <div
       className="relative shrink-0"
-      style={{ height: `${height}px` }}
+      style={{
+        height:
+          section === 'single'
+            ? `${height}px`
+            : `var(--timeline-${section}-pane-height, ${height}px)`,
+      }}
       role="scrollbar"
       aria-label={`${section} track section scrollbar`}
       aria-controls="timeline-track-sections"
@@ -575,7 +582,9 @@ const TimelineTrackSectionsSurface = memo(function TimelineTrackSectionsSurface(
       ref={options.scrollRef}
       data-track-section-scroll={options.section}
       className="min-h-0 overflow-y-auto overflow-x-hidden"
-      style={{ height: `${options.height}px` }}
+      style={{
+        height: `var(--timeline-${options.section}-pane-height, ${options.height}px)`,
+      }}
     >
       <div className="relative min-h-full">
         {options.section === 'video' && options.anchorTrackId && (
@@ -586,7 +595,12 @@ const TimelineTrackSectionsSurface = memo(function TimelineTrackSectionsSurface(
           />
         )}
         {options.section === 'video' && !options.anchorTrackId && (
-          <div aria-hidden="true" style={{ height: `${options.zoneHeight}px` }} />
+          <div
+            aria-hidden="true"
+            style={{
+              height: `var(--timeline-video-zone-height, ${options.zoneHeight}px)`,
+            }}
+          />
         )}
 
         {sectionTracks.map((track, index) => {
@@ -609,7 +623,12 @@ const TimelineTrackSectionsSurface = memo(function TimelineTrackSectionsSurface(
           />
         )}
         {options.section === 'audio' && !options.anchorTrackId && (
-          <div aria-hidden="true" style={{ height: `${options.zoneHeight}px` }} />
+          <div
+            aria-hidden="true"
+            style={{
+              height: `var(--timeline-audio-zone-height, ${options.zoneHeight}px)`,
+            }}
+          />
         )}
       </div>
     </div>
@@ -685,9 +704,8 @@ const TimelineTrackSectionsSurface = memo(function TimelineTrackSectionsSurface(
  *
  * Main timeline rendering area that composes:
  * - TimelineMarkers (time ruler)
- * - TimelinePlayhead (in ruler)
  * - TimelineTracks (all tracks with items)
- * - TimelinePlayhead (through tracks)
+ * - One full-height TimelinePlayhead (flag + line)
  *
  * Dynamically calculates width based on furthest item
  * Memoized to prevent re-renders when props haven't changed.
@@ -764,6 +782,7 @@ export const TimelineContent = memo(function TimelineContent({
   // Granular selectors for drag state - avoid subscribing to entire dragState object
   const isDragging = useSelectionStore((s) => !!s.dragState?.isDragging)
   const containerRef = useRef<HTMLDivElement>(null)
+  const rulerCoordinateSurfaceRef = useRef<HTMLDivElement>(null)
   const tracksContainerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(0)
   const marqueeWasActiveRef = useRef(false)
@@ -1264,7 +1283,9 @@ export const TimelineContent = memo(function TimelineContent({
     if (e.button !== 0) return
 
     const target = e.target as HTMLElement
-    if (!target.closest('[data-track-id]') || target.closest('[data-item-id]')) return
+    if (!target.closest('[data-track-id]') || target.closest('[data-item-id]')) {
+      return
+    }
 
     // A press on track background is a potential marquee gesture. Freeze the
     // skim target immediately so the few pixels before marquee activation do
@@ -1389,7 +1410,7 @@ export const TimelineContent = memo(function TimelineContent({
       // Detect hovered item
       const target = e.target as HTMLElement
       const itemEl = target.closest('[data-item-id]') as HTMLElement | null
-      const itemId = itemEl?.getAttribute('data-item-id') ?? undefined
+      const itemId = itemEl?.dataset.itemId
 
       if (marqueePointerDownRef.current) {
         marqueeReleasePreviewRef.current = { frame, itemId }
@@ -1506,12 +1527,18 @@ export const TimelineContent = memo(function TimelineContent({
           if (container) {
             container.scrollLeft = queuedScrollLeft
             scrollLeftRef.current = queuedScrollLeft
-            scheduleViewportSync()
+            // Edit's lower keyframe timeline derives its axis from this shared
+            // viewport plus the live zoom store. Publish the matching scroll
+            // immediately in the same RAF as the zoom update; the normal
+            // throttled scroll path would briefly combine the new scale with an
+            // old offset and put its playhead at a different screen position.
+            syncViewportFromContainer(queuedScrollLeft, true)
+            notifyTimelineLiveScroll(container)
           }
         })
       })
     },
-    [scheduleViewportSync],
+    [syncViewportFromContainer],
   )
 
   const clearQueuedZoomApply = useCallback(() => {
@@ -1741,6 +1768,9 @@ export const TimelineContent = memo(function TimelineContent({
       // Apply velocity to scroll position
       if (Math.abs(velocityXRef.current) > SCROLL_MIN_VELOCITY) {
         container.scrollLeft += velocityXRef.current * frames
+        // Linked panels live outside this native scroller. Notify them inside
+        // the same RAF so their ruler/playhead update before this frame paints.
+        notifyTimelineLiveScroll(container)
         velocityXRef.current *= scrollDecay
         hasScrollMomentum = true
       } else {
@@ -1927,16 +1957,24 @@ export const TimelineContent = memo(function TimelineContent({
     () => (
       <>
         {isDragging && <TimelineGuidelines />}
-        <TimelinePreviewScrubber maxFrame={maxTimelineFrame} />
-        <TimelinePlayhead maxFrame={maxTimelineFrame} />
         <TimelineRecordingOverlay />
       </>
     ),
-    [isDragging, maxTimelineFrame],
+    [isDragging],
   )
 
   return (
-    <div className="flex flex-1 min-h-0 min-w-0 bg-background/30">
+    <div
+      className="flex flex-1 min-h-0 min-w-0 bg-background/30"
+      style={
+        {
+          '--timeline-video-pane-height': `${videoPaneHeight}px`,
+          '--timeline-audio-pane-height': `${audioPaneHeight}px`,
+          '--timeline-video-zone-height': `${videoZoneHeight}px`,
+          '--timeline-audio-zone-height': `${audioZoneHeight}px`,
+        } as React.CSSProperties
+      }
+    >
       <div
         ref={mergedRef}
         data-timeline-scroll-container
@@ -1971,7 +2009,7 @@ export const TimelineContent = memo(function TimelineContent({
           duration={actualDuration}
           containerWidth={containerWidth}
           initialWidth={timelineWidth}
-          maxFrame={maxTimelineFrame}
+          coordinateSurfaceRef={rulerCoordinateSurfaceRef}
         />
 
         <TimelineTrackSectionsSurface
@@ -2001,6 +2039,15 @@ export const TimelineContent = memo(function TimelineContent({
         >
           {trackSurfaceOverlayChildren}
         </TimelineTrackSectionsSurface>
+
+        {/* One overlay owns each complete marker across the ruler and tracks. */}
+        <TimelinePreviewScrubber inRuler maxFrame={maxTimelineFrame} zIndex={40} />
+        <TimelinePlayhead
+          inRuler
+          maxFrame={maxTimelineFrame}
+          topOffsetPx={IO_LANE_HEIGHT}
+          coordinateSurfaceRef={rulerCoordinateSurfaceRef}
+        />
       </div>
 
       {anyOverflow && (

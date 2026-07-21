@@ -128,9 +128,7 @@ export function getVectorAutoKeyframeOperation(
   const relativeFrame = currentFrame - item.from
   if (relativeFrame < 0 || relativeFrame >= item.durationInFrames) return null
 
-  const lane = itemKeyframes?.vectorProperties?.find(
-    (candidate) => candidate.property === property,
-  )
+  const lane = itemKeyframes?.vectorProperties?.find((candidate) => candidate.property === property)
   const existing = lane?.keyframes.find((keyframe) => keyframe.frame === relativeFrame)
   if (existing) {
     return {
@@ -155,9 +153,7 @@ export function getVectorAutoKeyframeOperation(
 
   const shouldAdd =
     Boolean(lane?.keyframes.length) ||
-    VECTOR_AUTO_KEY_ALIASES[property].some((alias) =>
-      isAutoKeyframeEnabled(item.id, alias),
-    )
+    VECTOR_AUTO_KEY_ALIASES[property].some((alias) => isAutoKeyframeEnabled(item.id, alias))
   if (!shouldAdd) return null
 
   return {
@@ -182,12 +178,7 @@ export function getAutoKeyframeOperation(
   currentFrame: number,
 ): AutoKeyframeOperation | null {
   const relativeFrame = currentFrame - item.from
-  const result = shouldAutoKeyframe(
-    item,
-    itemKeyframes,
-    property,
-    relativeFrame,
-  )
+  const result = shouldAutoKeyframe(item, itemKeyframes, property, relativeFrame)
 
   if (!result.handled) {
     return null
@@ -212,17 +203,6 @@ export function getAutoKeyframeOperation(
     easing: 'linear',
   }
 }
-
-/**
- * Properties that can be animated via gizmo transforms
- */
-export const GIZMO_ANIMATABLE_PROPS: TransformAnimatableProperty[] = [
-  'x',
-  'y',
-  'width',
-  'height',
-  'rotation',
-]
 
 /**
  * All animatable transform properties

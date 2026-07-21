@@ -28,6 +28,7 @@ export function useEditingShortcuts(callbacks: TimelineShortcutCallbacks) {
   const selectedItemIds = useSelectionStore((s) => s.selectedItemIds)
   const selectedMarkerId = useSelectionStore((s) => s.selectedMarkerId)
   const selectedTransitionId = useSelectionStore((s) => s.selectedTransitionId)
+  const editKeyframePanelOpen = useSelectionStore((s) => s.editKeyframePanelOpen)
   const clearSelection = useSelectionStore((s) => s.clearSelection)
   const selectedKeyframes = useKeyframeSelectionStore((s) => s.selectedKeyframes)
   const removeItems = useTimelineStore((s) => s.removeItems)
@@ -37,7 +38,6 @@ export function useEditingShortcuts(callbacks: TimelineShortcutCallbacks) {
   const updateItemsTransformMap = useTimelineStore((s) => s.updateItemsTransformMap)
   const joinItems = useTimelineStore((s) => s.joinItems)
   const items = useTimelineStore((s) => s.items)
-  const keyframeEditorOpen = useEditorStore((s) => s.keyframeEditorOpen)
   const keyframeEditorShortcutScopeActive = useEditorStore(
     (s) => s.keyframeEditorShortcutScopeActive,
   )
@@ -49,7 +49,7 @@ export function useEditingShortcuts(callbacks: TimelineShortcutCallbacks) {
   // delete must yield so it doesn't also fire and remove the timeline clip.
   const deleteOwnedByPanel =
     keyframeEditorShortcutScopeActive ||
-    (keyframeEditorOpen && selectedKeyframes.length > 0) ||
+    (editKeyframePanelOpen && selectedKeyframes.length > 0) ||
     transcriptEditorShortcutScopeActive
 
   const nudgeSelectedVisualItems = useCallback(

@@ -29,7 +29,6 @@ describe('editor-store', () => {
       workspace: 'edit',
       leftSidebarOpen: true,
       rightSidebarOpen: true,
-      keyframeEditorOpen: false,
       keyframeEditorShortcutScopeActive: false,
       activeTab: 'media',
       clipInspectorTab: 'video',
@@ -79,19 +78,6 @@ describe('editor-store', () => {
 
     useEditorStore.getState().toggleRightSidebar()
     expect(useEditorStore.getState().rightSidebarOpen).toBe(true)
-  })
-
-  it('opens the keyframe editor and reveals the left sidebar', () => {
-    useEditorStore.getState().setLeftSidebarOpen(false)
-    expect(useEditorStore.getState().keyframeEditorOpen).toBe(false)
-
-    useEditorStore.getState().toggleKeyframeEditorOpen()
-
-    expect(useEditorStore.getState().keyframeEditorOpen).toBe(true)
-    expect(useEditorStore.getState().leftSidebarOpen).toBe(true)
-
-    useEditorStore.getState().setKeyframeEditorOpen(false)
-    expect(useEditorStore.getState().keyframeEditorOpen).toBe(false)
   })
 
   it('sets active tab', () => {

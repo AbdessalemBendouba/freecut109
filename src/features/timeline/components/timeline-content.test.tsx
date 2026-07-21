@@ -12,6 +12,7 @@ import { _resetViewportThrottle, useTimelineViewportStore } from '../stores/time
 import { useTimelineStore } from '../stores/timeline-store'
 import { _resetZoomStoreForTest, useZoomStore } from '../stores/zoom-store'
 import { TimelineContent } from './timeline-content'
+import { TIMELINE_LIVE_SCROLL_EVENT } from '@/shared/timeline/live-scroll-sync'
 
 const perfMarkMocks = vi.hoisted(() => ({
   mark: vi.fn(),
@@ -54,11 +55,11 @@ vi.mock('./timeline-markers', () => ({
 }))
 
 vi.mock('./timeline-playhead', () => ({
-  TimelinePlayhead: () => null,
+  TimelinePlayhead: () => <div data-testid="unified-timeline-playhead" />,
 }))
 
 vi.mock('./timeline-preview-scrubber', () => ({
-  TimelinePreviewScrubber: () => null,
+  TimelinePreviewScrubber: () => <div data-testid="unified-timeline-preview-scrubber" />,
 }))
 
 vi.mock('./timeline-track', () => ({
@@ -154,6 +155,7 @@ function resetStores() {
     activeTool: 'select',
     dragState: null,
     expandedKeyframeLanes: new Set<string>(),
+    editKeyframePanelOpen: false,
   })
 
   resetPlaybackPreviewState()
@@ -185,6 +187,16 @@ describe('TimelineContent playback selection behavior', () => {
   beforeEach(() => {
     resetStores()
     marqueeMocks.onGestureEnd = undefined
+  })
+
+  it('renders one full-height playhead and one tool-only preview overlay', () => {
+    const { getAllByTestId, getByTestId } = render(
+      <TimelineContent duration={10} tracks={[VIDEO_TRACK]} />,
+    )
+
+    expect(getAllByTestId('unified-timeline-playhead')).toHaveLength(1)
+    expect(getAllByTestId('unified-timeline-preview-scrubber')).toHaveLength(1)
+    expect(getByTestId('unified-timeline-preview-scrubber')).toBeInTheDocument()
   })
 
   it('keeps the selected clip selected after the playhead moves past it', async () => {
@@ -245,6 +257,8 @@ describe('TimelineContent playback selection behavior', () => {
       '[data-timeline-committed-surface="tracks"]',
     ) as HTMLDivElement
     const trackNode = container.querySelector(`[data-track-id="${VIDEO_TRACK.id}"]`)
+    const liveScroll = vi.fn()
+    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, liveScroll)
 
     const liveRectRead = vi.fn(() => ({
       left: 0,
@@ -288,6 +302,9 @@ describe('TimelineContent playback selection behavior', () => {
 
     expect(useZoomStore.getState().level).toBeCloseTo(1.15)
     expect(scrollContainer.scrollLeft).toBeCloseTo(30)
+    expect(useTimelineViewportStore.getState().scrollLeft).toBeCloseTo(30)
+    expect(liveScroll).toHaveBeenCalledOnce()
+    expect(frameCallbacks).toHaveLength(0)
     expect(container.querySelector('[data-timeline-committed-surface="tracks"]')).toBe(
       committedSurface,
     )
@@ -296,6 +313,33 @@ describe('TimelineContent playback selection behavior', () => {
     expect(
       Number.parseFloat(committedSurface.style.getPropertyValue('--timeline-px-per-frame')),
     ).toBeCloseTo(115 / 30)
+
+    unmount()
+    animationFrameSpy.mockRestore()
+  })
+
+  it('notifies linked panels inside each horizontal momentum frame', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const { container, unmount } = render(<TimelineContent duration={100} tracks={[VIDEO_TRACK]} />)
+    const scrollContainer = container.querySelector('[data-timeline-scroll-container]')
+    if (!(scrollContainer instanceof HTMLDivElement)) {
+      throw new Error('Expected timeline scroll container')
+    }
+    const liveScroll = vi.fn()
+    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, liveScroll)
+
+    fireEvent.wheel(scrollContainer, { deltaY: 120 })
+    expect(frameCallbacks).toHaveLength(1)
+    act(() => frameCallbacks.shift()?.(performance.now()))
+
+    expect(scrollContainer.scrollLeft).toBeGreaterThan(0)
+    expect(liveScroll).toHaveBeenCalledOnce()
 
     unmount()
     animationFrameSpy.mockRestore()

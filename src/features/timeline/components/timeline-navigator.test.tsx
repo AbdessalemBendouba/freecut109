@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vite-plus/test'
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { TimelineNavigator } from './timeline-navigator'
 import { getNavigatorResizeDragResult, getNavigatorThumbMetrics } from './timeline-navigator-utils'
@@ -7,6 +7,13 @@ import { useTimelineViewportStore } from '../stores/timeline-viewport-store'
 import { useTimelineSettingsStore } from '../stores/timeline-settings-store'
 import { useItemsStore } from '../stores/items-store'
 import { useZoomStore } from '../stores/zoom-store'
+import { ZOOM_MIN } from '../constants'
+
+const perfMarkMocks = vi.hoisted(() => ({ mark: vi.fn() }))
+
+vi.mock('@/shared/logging/perf-marks', () => ({
+  perfMarkRender: perfMarkMocks.mark,
+}))
 
 describe('timeline navigator resize math', () => {
   it('keeps scroll pinned to zero when the right handle expands from the far left', () => {
@@ -38,6 +45,26 @@ describe('timeline navigator resize math', () => {
     expect(result.targetThumbWidth).toBe(70)
     expect(result.nextThumbLeft + result.targetThumbWidth).toBe(150)
   })
+
+  it('stops resizing and scrolling once the minimum zoom thumb width is reached', () => {
+    const input = {
+      dragTarget: 'right' as const,
+      dragStartThumbLeft: 30,
+      dragStartThumbWidth: 40,
+      trackWidth: 300,
+      viewportWidth: 1200,
+      contentDuration: 6000,
+    }
+
+    const atMinimum = getNavigatorResizeDragResult({ ...input, deltaX: 20 })
+    const draggedPastMinimum = getNavigatorResizeDragResult({ ...input, deltaX: 200 })
+
+    expect(atMinimum.nextZoom).toBe(ZOOM_MIN)
+    expect(draggedPastMinimum.nextZoom).toBe(ZOOM_MIN)
+    expect(draggedPastMinimum.targetThumbWidth).toBeCloseTo(atMinimum.targetThumbWidth)
+    expect(draggedPastMinimum.nextThumbLeft).toBeCloseTo(atMinimum.nextThumbLeft)
+    expect(draggedPastMinimum.nextScrollLeft).toBeCloseTo(atMinimum.nextScrollLeft)
+  })
 })
 
 describe('timeline navigator interaction', () => {
@@ -45,7 +72,7 @@ describe('timeline navigator interaction', () => {
     useTimelineSettingsStore.setState({ fps: 30 })
     useItemsStore.getState().setItems([])
     useItemsStore.getState().setTracks([])
-    useZoomStore.getState().setZoomLevelImmediate(1)
+    useZoomStore.getState().setZoomLevelSynchronized(1)
     useTimelineViewportStore.getState().setViewport({
       scrollLeft: 120,
       scrollTop: 0,
@@ -69,6 +96,24 @@ describe('timeline navigator interaction', () => {
     fireEvent.click(getByTestId('timeline-navigator-thumb'))
 
     expect(scrollContainer.scrollLeft).toBe(120)
+  })
+
+  it('does not React-render for scroll-only viewport publications', () => {
+    const scrollContainer = document.createElement('div')
+    render(
+      <TimelineNavigator
+        actualDuration={10}
+        timelineWidth={1000}
+        scrollContainerRef={{ current: scrollContainer }}
+      />,
+    )
+    perfMarkMocks.mark.mockClear()
+
+    act(() => {
+      useTimelineViewportStore.setState({ scrollLeft: 240 })
+    })
+
+    expect(perfMarkMocks.mark).not.toHaveBeenCalledWith('TimelineNavigator')
   })
 
   it('keeps live wheel zoom and anchor scrolling synchronized before content settles', async () => {
@@ -152,6 +197,62 @@ describe('timeline navigator interaction', () => {
 
     expect(useZoomStore.getState().level).not.toBe(1)
     expect(thumb.style.width).toBe(previewWidth)
+
+    clientWidthSpy.mockRestore()
+    animationFrameSpy.mockRestore()
+  })
+
+  it('does not pan when a resize handle is dragged past minimum zoom', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(400)
+    const scrollContainer = document.createElement('div')
+    scrollContainer.scrollLeft = 2000
+
+    const { getByTestId } = render(
+      <TimelineNavigator
+        actualDuration={1000}
+        timelineWidth={100_240}
+        scrollContainerRef={{ current: scrollContainer }}
+      />,
+    )
+
+    const thumb = getByTestId('timeline-navigator-thumb')
+    fireEvent.mouseDown(getByTestId('timeline-navigator-right-handle'), { clientX: 200 })
+    fireEvent.mouseMove(window, { clientX: 300 })
+    frameCallbacks.shift()?.(0)
+    const minimumWidth = thumb.style.width
+    const minimumLeft = thumb.style.left
+    const minimumScrollLeft = scrollContainer.scrollLeft
+
+    fireEvent.mouseMove(window, { clientX: 500 })
+    frameCallbacks.shift()?.(16)
+
+    expect(thumb.style.width).toBe(minimumWidth)
+    expect(thumb.style.left).toBe(minimumLeft)
+    expect(scrollContainer.scrollLeft).toBe(minimumScrollLeft)
+
+    fireEvent.mouseUp(window)
+    expect(scrollContainer.scrollLeft).toBe(minimumScrollLeft)
+    expect(useZoomStore.getState()).toMatchObject({
+      level: ZOOM_MIN,
+      contentLevel: ZOOM_MIN,
+      isZoomInteracting: false,
+    })
+
+    // Simulate the browser clamping scrollLeft while the newly settled content
+    // width commits. The release handoff restores the exact clamped resize view
+    // before the next paint instead of letting that clamp become a pan.
+    scrollContainer.scrollLeft = minimumScrollLeft + 200
+    frameCallbacks.shift()?.(32)
+    expect(scrollContainer.scrollLeft).toBe(minimumScrollLeft)
 
     clientWidthSpy.mockRestore()
     animationFrameSpy.mockRestore()

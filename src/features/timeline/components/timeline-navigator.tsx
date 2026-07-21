@@ -5,6 +5,7 @@ import { useTimelineStore } from '../stores/timeline-store'
 import { useItemsStore } from '../stores/items-store'
 import { useZoomStore } from '../stores/zoom-store'
 import { getTimelineWidth } from '../utils/timeline-layout'
+import { perfMarkRender } from '@/shared/logging/perf-marks'
 import { cn } from '@/shared/ui/cn'
 import { getNavigatorResizeDragResult, getNavigatorThumbMetrics } from './timeline-navigator-utils'
 
@@ -147,19 +148,21 @@ export function TimelineNavigator({
   timelineWidth,
   scrollContainerRef,
 }: TimelineNavigatorProps) {
+  perfMarkRender('TimelineNavigator')
   const trackRef = useRef<HTMLDivElement>(null)
   const thumbRef = useRef<HTMLDivElement>(null)
   const dragRafRef = useRef<number | null>(null)
+  const releaseScrollRafRef = useRef<number | null>(null)
   const dragSnapshotRef = useRef<NavigatorDragSnapshot | null>(null)
   const pendingPreviewRef = useRef<NavigatorDragPreview | null>(null)
   const latestPreviewRef = useRef<NavigatorDragPreview | null>(null)
   const viewHandoffRef = useRef<NavigatorViewHandoff | null>(null)
   const fps = useTimelineStore((s) => s.fps)
   const setZoomImmediate = useZoomStore((s) => s.setZoomLevelImmediate)
-  const scrollLeft = useTimelineViewportStore((s) => s.scrollLeft)
+  const setZoomSynchronized = useZoomStore((s) => s.setZoomLevelSynchronized)
   const viewportWidth = useTimelineViewportStore((s) => s.viewportWidth)
   const livePixelsPerSecondRef = useRef(useZoomStore.getState().pixelsPerSecond)
-  const liveScrollLeftRef = useRef(scrollLeft)
+  const liveScrollLeftRef = useRef(useTimelineViewportStore.getState().scrollLeft)
 
   const [trackWidth, setTrackWidth] = useState(0)
   const [dragTarget, setDragTarget] = useState<DragTarget>(null)
@@ -290,6 +293,10 @@ export function TimelineNavigator({
     (event: React.MouseEvent, target: Exclude<DragTarget, null>) => {
       event.preventDefault()
       event.stopPropagation()
+      if (releaseScrollRafRef.current !== null) {
+        cancelAnimationFrame(releaseScrollRafRef.current)
+        releaseScrollRafRef.current = null
+      }
       const live = getLiveNavigatorMetrics()
       dragSnapshotRef.current = {
         startX: event.clientX,
@@ -406,13 +413,15 @@ export function TimelineNavigator({
     navigatorTimelineWidth,
     renderedMetrics.thumbLeft,
     renderedMetrics.thumbWidth,
-    scrollLeft,
   ])
 
   useEffect(() => {
     return () => {
       if (dragRafRef.current !== null) {
         cancelAnimationFrame(dragRafRef.current)
+      }
+      if (releaseScrollRafRef.current !== null) {
+        cancelAnimationFrame(releaseScrollRafRef.current)
       }
     }
   }, [])
@@ -468,6 +477,18 @@ export function TimelineNavigator({
       flush()
       const snapshot = dragSnapshotRef.current
       const finalPreview = latestPreviewRef.current
+      if (finalPreview?.zoom !== undefined) {
+        // The live resize uses deferred content geometry for responsiveness.
+        // Settle that geometry before the final scroll write so a later width
+        // commit cannot clamp the old scroll position and move the navigator
+        // after the pointer has already been released.
+        setZoomSynchronized(finalPreview.zoom)
+        setScrollLeftOnContainer(finalPreview.scrollLeft)
+        releaseScrollRafRef.current = requestAnimationFrame(() => {
+          releaseScrollRafRef.current = null
+          setScrollLeftOnContainer(finalPreview.scrollLeft)
+        })
+      }
       viewHandoffRef.current =
         snapshot && finalPreview
           ? {
@@ -505,6 +526,7 @@ export function TimelineNavigator({
     dragTarget,
     rebaseActiveDragToTrackWidth,
     setZoomImmediate,
+    setZoomSynchronized,
     setScrollLeftOnContainer,
     viewportWidth,
   ])

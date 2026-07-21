@@ -41,6 +41,7 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
   activeSnapTarget: null,
   activeLinkedDropTarget: null,
   dragState: null,
+  editKeyframePanelOpen: false,
   expandedKeyframeLanes: new Set<string>(),
 
   // Actions
@@ -60,6 +61,11 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
       return {
         selectedItemIds: ids,
         selectedItemIdSet: new Set(ids),
+        expandedKeyframeLanes: state.editKeyframePanelOpen
+          ? ids.length === 1
+            ? new Set([ids[0]!])
+            : new Set<string>()
+          : state.expandedKeyframeLanes,
         selectedMarkerId: null, // Clear marker selection (mutually exclusive)
         selectedTransitionId: null, // Clear transition selection
         // Preserve track selection when selecting items
@@ -72,6 +78,7 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
       selectedTransitionId: null, // Clear transition selection
       selectedItemIds: [], // Clear clip selection (mutually exclusive)
       selectedItemIdSet: new Set<string>(),
+      expandedKeyframeLanes: new Set<string>(),
       // Don't clear activeTrackId - it's for track operations, not selection display
       selectionType: id ? 'marker' : null,
     }),
@@ -81,6 +88,7 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
       selectedMarkerId: null, // Clear marker selection
       selectedItemIds: [], // Clear clip selection (mutually exclusive)
       selectedItemIdSet: new Set<string>(),
+      expandedKeyframeLanes: new Set<string>(),
       selectionType: id ? 'transition' : null,
     }),
   selectTrack: (id) =>
@@ -90,6 +98,7 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
       selectedTrackIds: id ? [id] : [],
       selectedItemIds: [],
       selectedItemIdSet: new Set<string>(),
+      expandedKeyframeLanes: new Set<string>(),
       selectedMarkerId: null, // Clear marker selection
       selectionType: id ? 'track' : null,
     }),
@@ -102,6 +111,7 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
         selectedTrackId: ids[0] || null, // Deprecated
         selectedItemIds: [],
         selectedItemIdSet: new Set<string>(),
+        expandedKeyframeLanes: new Set<string>(),
         selectedMarkerId: null, // Clear marker selection
         selectionType: newSelectedIds.length > 0 ? 'track' : null,
       }
@@ -113,6 +123,7 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
       selectedTrackIds: id ? [id] : [],
       selectedItemIds: [],
       selectedItemIdSet: new Set<string>(),
+      expandedKeyframeLanes: new Set<string>(),
       selectedMarkerId: null, // Clear marker selection
       selectionType: id ? 'track' : null,
     }),
@@ -129,6 +140,7 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
         selectedTrackId: newSelectedIds[0] || null, // Deprecated
         selectedItemIds: [],
         selectedItemIdSet: new Set<string>(),
+        expandedKeyframeLanes: new Set<string>(),
         selectedMarkerId: null, // Clear marker selection
         selectionType: newSelectedIds.length > 0 ? 'track' : null,
       }
@@ -137,6 +149,7 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
     set({
       selectedItemIds: [],
       selectedItemIdSet: new Set<string>(),
+      expandedKeyframeLanes: new Set<string>(),
       selectedMarkerId: null,
       selectedTransitionId: null,
       selectedTrackId: null,
@@ -148,6 +161,7 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
     set((state) => ({
       selectedItemIds: [],
       selectedItemIdSet: new Set<string>(),
+      expandedKeyframeLanes: new Set<string>(),
       selectionType: state.selectedTrackIds.length > 0 ? 'track' : null,
     })),
   setDragState: (dragState) =>
@@ -159,25 +173,46 @@ export const useSelectionStore = create<SelectionState & SelectionActions>((set)
   setActiveSnapTarget: (activeSnapTarget) => set({ activeSnapTarget }),
   setActiveLinkedDropTarget: (activeLinkedDropTarget) => set({ activeLinkedDropTarget }),
   setActiveTool: (tool) => set({ activeTool: tool }),
-  // Keyframe lanes expansion
+  // Edit keyframe panel visibility is independent from its optional clip target.
+  toggleEditKeyframePanel: () =>
+    set((state) => {
+      const open = !state.editKeyframePanelOpen
+      const selectedItemId = state.selectedItemIds.length === 1 ? state.selectedItemIds[0] : null
+      return {
+        editKeyframePanelOpen: open,
+        expandedKeyframeLanes:
+          open && selectedItemId ? new Set([selectedItemId]) : new Set<string>(),
+      }
+    }),
+  setEditKeyframePanelOpen: (open) =>
+    set((state) => {
+      if (state.editKeyframePanelOpen === open) return state
+      const selectedItemId = state.selectedItemIds.length === 1 ? state.selectedItemIds[0] : null
+      return {
+        editKeyframePanelOpen: open,
+        expandedKeyframeLanes:
+          open && selectedItemId ? new Set([selectedItemId]) : new Set<string>(),
+      }
+    }),
   toggleKeyframeLanes: (itemId) =>
     set((state) => {
-      const newSet = new Set(state.expandedKeyframeLanes)
-      if (newSet.has(itemId)) {
-        newSet.delete(itemId)
-      } else {
-        newSet.add(itemId)
+      const isOpen = state.editKeyframePanelOpen && state.expandedKeyframeLanes.has(itemId)
+      return {
+        selectedItemIds: [itemId],
+        selectedItemIdSet: new Set([itemId]),
+        selectedMarkerId: null,
+        selectedTransitionId: null,
+        selectionType: 'item',
+        editKeyframePanelOpen: !isOpen,
+        expandedKeyframeLanes: isOpen ? new Set<string>() : new Set([itemId]),
       }
-      return { expandedKeyframeLanes: newSet }
     }),
   setKeyframeLanesExpanded: (itemId, expanded) =>
     set((state) => {
-      const newSet = new Set(state.expandedKeyframeLanes)
       if (expanded) {
-        newSet.add(itemId)
-      } else {
-        newSet.delete(itemId)
+        return { editKeyframePanelOpen: true, expandedKeyframeLanes: new Set([itemId]) }
       }
-      return { expandedKeyframeLanes: newSet }
+      if (!state.expandedKeyframeLanes.has(itemId)) return state
+      return { editKeyframePanelOpen: false, expandedKeyframeLanes: new Set<string>() }
     }),
 }))

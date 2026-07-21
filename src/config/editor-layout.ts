@@ -5,6 +5,8 @@
  *
  * Prefer changing presets here before editing one-off component sizes.
  */
+export const EDIT_DOPESHEET_COLUMN_WIDTH = 248
+
 const EDITOR_DENSITY_PRESETS = {
   compact: {
     toolbarHeight: 48,
@@ -31,7 +33,9 @@ const EDITOR_DENSITY_PRESETS = {
     // sides. The ruler now hosts a top IO lane (12px) + a shorter tick ruler.
     timelineTracksHeaderHeight: 34,
     timelineRulerHeight: 34,
-    timelineSidebarWidth: 176,
+    // The Edit track header follows the classic dopesheet property column so
+    // both timeline surfaces share the same ruler and playhead origin.
+    timelineSidebarWidth: EDIT_DOPESHEET_COLUMN_WIDTH,
     timelineMeterWidth: 84,
     timelineMixerWidth: 260,
     timelineTrackHeight: 100,

@@ -49,14 +49,7 @@ import {
   importMediaLibraryService,
   useMediaLibraryStore,
 } from '@/features/editor/deps/media-library'
-import { useTimelineStore } from '@/features/editor/deps/timeline-store'
-import {
-  findCompatibleTrackForItemType,
-  findNearestAvailableSpace,
-} from '@/features/editor/deps/timeline-utils'
 import { usePlaybackStore } from '@/shared/state/playback'
-import { useSelectionStore } from '@/shared/state/selection'
-import type { AudioItem } from '@/types/timeline'
 import type { MediaMetadata } from '@/types/storage'
 import {
   KOKORO_TTS_BEST_MODEL,
@@ -87,6 +80,7 @@ import {
   musicgenService,
   type MusicgenModelId,
 } from '../services/musicgen-service'
+import { insertGeneratedAudioOnNewTrack } from '../utils/insert-generated-audio'
 import { getLanguageDisplayName, insertTextAtCursor } from '../utils/tts-ui-helpers'
 
 const MUSIC_PROMPT_PRESETS = [
@@ -223,56 +217,6 @@ const MiniAudioPlayer = memo(function MiniAudioPlayer({ src }: { src: string }) 
     </div>
   )
 })
-
-function insertAudioItemAtPlayhead(media: MediaMetadata, blobUrl: string): boolean {
-  const { tracks, items, fps, addItem } = useTimelineStore.getState()
-  const { activeTrackId, selectItems } = useSelectionStore.getState()
-
-  const targetTrack = findCompatibleTrackForItemType({
-    tracks,
-    items,
-    itemType: 'audio',
-    preferredTrackId: activeTrackId,
-  })
-
-  if (!targetTrack) return false
-
-  const sourceFps = media.fps || fps
-  const durationInFrames = Math.max(1, Math.round(media.duration * fps))
-  const sourceDurationFrames = Math.round(media.duration * sourceFps)
-
-  const proposedPosition = usePlaybackStore.getState().currentFrame
-  const finalPosition =
-    findNearestAvailableSpace(proposedPosition, durationInFrames, targetTrack.id, items) ??
-    proposedPosition
-
-  const audioItem: AudioItem = {
-    id: crypto.randomUUID(),
-    type: 'audio',
-    trackId: targetTrack.id,
-    from: finalPosition,
-    durationInFrames,
-    label: media.fileName,
-    mediaId: media.id,
-    originId: crypto.randomUUID(),
-    src: blobUrl,
-    sourceStart: 0,
-    sourceEnd: sourceDurationFrames,
-    sourceDuration: sourceDurationFrames,
-    sourceFps,
-    trimStart: 0,
-    trimEnd: 0,
-  }
-
-  addItem(audioItem)
-
-  // addItem may silently drop the item if placement fails; verify it landed.
-  const added = useTimelineStore.getState().items.some((i) => i.id === audioItem.id)
-  if (added) {
-    selectItems([audioItem.id])
-  }
-  return added
-}
 
 export const AiPanel = memo(function AiPanel() {
   const { t } = useTranslation()
@@ -685,10 +629,13 @@ export const AiPanel = memo(function AiPanel() {
       setGenerations: Dispatch<SetStateAction<AudioGeneration[]>>,
       setError: Dispatch<SetStateAction<string | null>>,
     ) => {
+      // Saving is asynchronous, so capture the user's intended insertion point
+      // when they click rather than after the media import finishes.
+      const insertionFrame = usePlaybackStore.getState().currentFrame
       const media = await saveGeneration(generation, setGenerations, setError)
       if (!media) return
 
-      const inserted = insertAudioItemAtPlayhead(media, generation.objectUrl)
+      const inserted = insertGeneratedAudioOnNewTrack(media, generation.objectUrl, insertionFrame)
       showNotification({
         type: inserted ? 'success' : 'warning',
         message: inserted

@@ -89,6 +89,8 @@ describe('useEditingShortcuts delete ownership', () => {
       selectedMarkerId: null,
       selectedTransitionId: null,
       selectionType: null,
+      editKeyframePanelOpen: false,
+      expandedKeyframeLanes: new Set(),
     })
     useKeyframeSelectionStore.setState({
       selectedKeyframes: [],
@@ -96,7 +98,6 @@ describe('useEditingShortcuts delete ownership', () => {
       isCut: false,
     })
     useEditorStore.setState({
-      keyframeEditorOpen: false,
       keyframeEditorShortcutScopeActive: false,
       transcriptEditorShortcutScopeActive: false,
     })
@@ -122,14 +123,13 @@ describe('useEditingShortcuts delete ownership', () => {
     useSelectionStore.setState({
       selectedItemIds: ['clip-1'],
       selectionType: 'item',
+      editKeyframePanelOpen: true,
+      expandedKeyframeLanes: new Set(['clip-1']),
     })
     useKeyframeSelectionStore.setState({
       selectedKeyframes: [{ itemId: 'clip-1', property: 'x', keyframeId: 'kf-1' }],
     })
-    useEditorStore.setState({
-      keyframeEditorOpen: true,
-      keyframeEditorShortcutScopeActive: false,
-    })
+    useEditorStore.setState({ keyframeEditorShortcutScopeActive: false })
 
     render(<ShortcutHarness />)
 
@@ -168,9 +168,9 @@ describe('useEditingShortcuts delete ownership', () => {
     useSelectionStore.setState({
       selectedItemIds: ['clip-1'],
       selectionType: 'item',
+      editKeyframePanelOpen: false,
     })
     useEditorStore.setState({
-      keyframeEditorOpen: true,
       keyframeEditorShortcutScopeActive: true,
     })
 
@@ -203,6 +203,8 @@ describe('useEditingShortcuts delete ownership', () => {
     useSelectionStore.setState({
       selectedItemIds: ['clip-1'],
       selectionType: 'item',
+      editKeyframePanelOpen: false,
+      expandedKeyframeLanes: new Set(),
     })
     useEditorStore.setState({
       transcriptEditorShortcutScopeActive: true,
@@ -242,7 +244,6 @@ describe('useEditingShortcuts delete ownership', () => {
       selectedKeyframes: [{ itemId: 'clip-1', property: 'x', keyframeId: 'kf-1' }],
     })
     useEditorStore.setState({
-      keyframeEditorOpen: false,
       keyframeEditorShortcutScopeActive: false,
     })
 

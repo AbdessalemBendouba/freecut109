@@ -50,10 +50,7 @@ export function addKeyframe(
   )
 }
 
-export function setDirectPropertyLink(
-  itemId: string,
-  link: DirectPropertyLink,
-): void {
+export function setDirectPropertyLink(itemId: string, link: DirectPropertyLink): void {
   execute(
     'SET_DIRECT_PROPERTY_LINK',
     () => {
@@ -69,10 +66,7 @@ export function setDirectPropertyLink(
   )
 }
 
-export function removeDirectPropertyLink(
-  itemId: string,
-  property: DirectLinkableProperty,
-): void {
+export function removeDirectPropertyLink(itemId: string, property: DirectLinkableProperty): void {
   execute(
     'REMOVE_DIRECT_PROPERTY_LINK',
     () => {
@@ -94,10 +88,7 @@ export function setPropertyExpression(itemId: string, expression: PropertyExpres
   )
 }
 
-export function removePropertyExpression(
-  itemId: string,
-  property: DirectLinkableProperty,
-): void {
+export function removePropertyExpression(itemId: string, property: DirectLinkableProperty): void {
   execute(
     'REMOVE_PROPERTY_EXPRESSION',
     () => {
@@ -305,10 +296,7 @@ export function applyMotionPresetKeyframes(
   // from the pre-filtered set, so clearing while only some replacements survive
   // would silently delete keyframes we can't re-add. A partial apply must be a
   // no-op instead.
-  if (
-    validPayloads.length < payloads.length ||
-    validVectorFrames.length < vectorFrames.length
-  ) {
+  if (validPayloads.length < payloads.length || validVectorFrames.length < vectorFrames.length) {
     getLogger().warn('Preset keyframes blocked by transition regions; skipping apply', {
       originalCount: payloads.length,
       validCount: validPayloads.length,
@@ -558,20 +546,6 @@ export function removeKeyframesForProperty(itemId: string, property: AnimatableP
     'REMOVE_KEYFRAMES_FOR_PROPERTY',
     () => {
       useKeyframesStore.getState()._removeKeyframesForProperty(itemId, property)
-      useTimelineSettingsStore.getState().markDirty()
-    },
-    { itemId, property },
-  )
-}
-
-export function removeVectorKeyframesForProperty(
-  itemId: string,
-  property: VectorAnimatableProperty,
-): void {
-  execute(
-    'REMOVE_VECTOR_KEYFRAMES_FOR_PROPERTY',
-    () => {
-      useKeyframesStore.getState()._removeVectorKeyframesForProperty(itemId, property)
       useTimelineSettingsStore.getState().markDirty()
     },
     { itemId, property },

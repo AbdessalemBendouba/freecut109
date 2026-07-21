@@ -222,6 +222,10 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
         data-motion-viewport-edge-inset={KEYFRAME_EDGE_INSET}
         data-motion-viewport-axis-width={axisWidth}
         className="absolute inset-0"
+        style={{
+          transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
+          transformOrigin: '0 0',
+        }}
       >
         <div
           aria-hidden
@@ -256,6 +260,7 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
                 style={{
                   left: renderedX,
                   top: '50%',
+                  transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
                 }}
                 disabled={movableEntries.length === 0 || disabled}
                 onPointerDown={(event) => onGroupKeyframePointerDown(frameGroup, event)}
@@ -290,7 +295,11 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
               <div
                 key={`preview-${groupId}-${frameGroup.frame}`}
                 className="absolute z-20 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center pointer-events-none"
-                style={{ left: renderedX, top: '50%' }}
+                style={{
+                  left: renderedX,
+                  top: '50%',
+                  transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
+                }}
               >
                 <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
               </div>
@@ -410,6 +419,10 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
         data-motion-viewport-edge-inset={KEYFRAME_EDGE_INSET}
         data-motion-viewport-axis-width={axisWidth}
         className="absolute inset-0"
+        style={{
+          transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
+          transformOrigin: '0 0',
+        }}
       >
         <div
           aria-hidden
@@ -476,6 +489,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
               style={{
                 left: renderedX,
                 top: '50%',
+                transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
               }}
               disabled={locked || disabled}
               onPointerDown={(event) => onKeyframePointerDown(property, keyframe.id, event)}
@@ -527,7 +541,11 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
             <div
               key={`preview-${property}-${keyframeId}`}
               className="absolute z-20 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center pointer-events-none"
-              style={{ left: renderedX, top: '50%' }}
+              style={{
+                left: renderedX,
+                top: '50%',
+                transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
+              }}
             >
               <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
             </div>,

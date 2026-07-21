@@ -29,6 +29,7 @@ interface KeyframeTimingStripProps {
   onSlideStart?: (selectedIds: string[]) => void
   onSlideChange?: (deltaFrames: number, selectedIds: string[]) => void
   onSlideEnd?: (selectedIds: string[]) => void
+  onSlideCancel?: (selectedIds: string[]) => void
 }
 
 interface DragState {
@@ -84,6 +85,7 @@ export function KeyframeTimingStrip({
   onSlideStart,
   onSlideChange,
   onSlideEnd,
+  onSlideCancel,
 }: KeyframeTimingStripProps) {
   const trackRef = useRef<HTMLDivElement>(null)
   const dragStateRef = useRef<DragState | null>(null)
@@ -272,12 +274,27 @@ export function KeyframeTimingStrip({
       setMarqueeRange(null)
     }
 
-    return addWindowPointerListeners(handlePointerMove, handlePointerUp)
+    const handlePointerCancel = (event: PointerEvent) => {
+      const dragState = dragStateRef.current
+      if (dragState?.pointerId === event.pointerId) {
+        dragStateRef.current = null
+        if (dragState.started) onSlideCancel?.(dragState.selectedIds)
+      }
+
+      const marqueeState = marqueeStateRef.current
+      if (marqueeState?.pointerId === event.pointerId) {
+        marqueeStateRef.current = null
+        setMarqueeRange(null)
+      }
+    }
+
+    return addWindowPointerListeners(handlePointerMove, handlePointerUp, handlePointerCancel)
   }, [
     metrics.contentFrameMax,
     metrics.usableTrackWidth,
     onSelectionChange,
     onSlideChange,
+    onSlideCancel,
     onSlideEnd,
     onSlideStart,
     updateMarqueeSelection,

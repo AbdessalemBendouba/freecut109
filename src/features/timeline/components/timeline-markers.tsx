@@ -14,6 +14,7 @@ import { TimelineInOutMarkers } from './timeline-in-out-markers'
 import { TimelineProjectMarkers } from './timeline-project-markers'
 import { previewScrubberSuppressRef } from './preview-scrubber-suppress'
 import { beginIoPointerDrag, IoRangeStrip } from '@/shared/timeline/io-range'
+import { mainTimelineScrubActiveRef } from '@/shared/timeline/main-timeline-scrub'
 import { useSettingsStore } from '@/features/timeline/deps/settings'
 
 // Utilities and hooks
@@ -347,6 +348,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
 
   // Refs for drag handlers
   const pixelsToFrameRef = useRef(pixelsToFrameNow)
+  const frameToPixelsRef = useRef(frameToPixels)
   const setCurrentFrameRef = useRef(setCurrentFrame)
   const setScrubFrameRef = useRef(setScrubFrame)
   const setPreviewFrameRef = useRef(usePlaybackStore.getState().setPreviewFrame)
@@ -371,6 +373,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
   const safeOutPoint = sanitizedInOutPoints.outPoint
 
   useEffect(() => {
+    frameToPixelsRef.current = frameToPixels
     setCurrentFrameRef.current = setCurrentFrame
     setScrubFrameRef.current = setScrubFrame
     markDirtyRef.current = markDirty
@@ -379,7 +382,17 @@ export const TimelineMarkers = memo(function TimelineMarkers({
     durationRef.current = duration
     inPointRef.current = safeInPoint
     outPointRef.current = safeOutPoint
-  }, [setCurrentFrame, setScrubFrame, markDirty, pause, fps, duration, safeInPoint, safeOutPoint])
+  }, [
+    frameToPixels,
+    setCurrentFrame,
+    setScrubFrame,
+    markDirty,
+    pause,
+    fps,
+    duration,
+    safeInPoint,
+    safeOutPoint,
+  ])
 
   useEffect(() => {
     if (safeInPoint === inPoint && safeOutPoint === outPoint) {
@@ -700,11 +713,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
           scrollContainer.scrollLeft + scrollContainer.clientWidth < scrollContainer.scrollWidth)
       if (velocity !== 0 && canScroll) {
         const previousTimestamp = scrubAnimationTimeRef.current ?? timestamp - 1000 / 60
-        scrollContainer.scrollLeft += getEdgeScrollDelta(
-          velocity,
-          timestamp,
-          previousTimestamp,
-        )
+        scrollContainer.scrollLeft += getEdgeScrollDelta(velocity, timestamp, previousTimestamp)
         scrubAnimationTimeRef.current = timestamp
       } else {
         scrubAnimationTimeRef.current = null
@@ -746,7 +755,11 @@ export const TimelineMarkers = memo(function TimelineMarkers({
     if (scrollContainer) {
       const viewportRect = scrollContainer.getBoundingClientRect()
       const visualClientX = getVisiblePlayheadClientX(mouseClientX, viewportRect)
-      const visualTimelineX = visualClientX - viewportRect.left + scrollContainer.scrollLeft
+      const pointerTimelineX = visualClientX - viewportRect.left + scrollContainer.scrollLeft
+      const visualTimelineX = Math.max(
+        scrollContainer.scrollLeft,
+        Math.min(pointerTimelineX, frameToPixelsRef.current(maxFrame)),
+      )
       for (const element of scrubPlayheadElementsRef.current) {
         element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
       }
@@ -825,10 +838,8 @@ export const TimelineMarkers = memo(function TimelineMarkers({
           const coordinateBox = scrollContainer ?? containerRef.current
           const coordinateRect = coordinateBox?.getBoundingClientRect()
           const scrollLeft = scrollContainer?.scrollLeft ?? 0
-          const rangeLeft =
-            (coordinateRect?.left ?? 0) + frameToPixels(nextIn) - scrollLeft
-          const rangeRight =
-            (coordinateRect?.left ?? 0) + frameToPixels(nextOut) - scrollLeft
+          const rangeLeft = (coordinateRect?.left ?? 0) + frameToPixels(nextIn) - scrollLeft
+          const rangeRight = (coordinateRect?.left ?? 0) + frameToPixels(nextOut) - scrollLeft
           const visibleLeft = coordinateRect
             ? Math.max(coordinateRect.left, Math.min(coordinateRect.right, rangeLeft))
             : rangeLeft
@@ -902,6 +913,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       scrubMouseClientXRef.current = e.clientX
       scrubAnimationTimeRef.current = null
       isScrubActiveRef.current = true
+      mainTimelineScrubActiveRef.current = true
 
       pauseRef.current()
 
@@ -921,8 +933,12 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       if (scrollContainerRef.current) {
         const viewportRect = scrollContainerRef.current.getBoundingClientRect()
         const visualClientX = getVisiblePlayheadClientX(e.clientX, viewportRect)
-        const visualTimelineX =
+        const pointerTimelineX =
           visualClientX - viewportRect.left + scrollContainerRef.current.scrollLeft
+        const visualTimelineX = Math.max(
+          scrollContainerRef.current.scrollLeft,
+          Math.min(pointerTimelineX, frameToPixelsRef.current(maxFrame)),
+        )
         for (const element of scrubPlayheadElementsRef.current) {
           element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
         }
@@ -947,7 +963,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
     if (!isDragging) return
 
     const originalCursor = document.body.style.cursor
-    document.body.style.cursor = 'grabbing'
+    document.body.style.cursor = 'ew-resize'
 
     const handleMouseMove = (e: MouseEvent) => {
       // Just store position - the unified RAF loop handles everything else
@@ -961,11 +977,19 @@ export const TimelineMarkers = memo(function TimelineMarkers({
         cancelAnimationFrame(scrubRAFIdRef.current)
         scrubRAFIdRef.current = null
       }
-      setScrubFrameRef.current(getFrameFromClientX(scrubMouseClientXRef.current))
+      const finalFrame = getFrameFromClientX(scrubMouseClientXRef.current)
+      setScrubFrameRef.current(finalFrame)
+      const finalTimelineX = frameToPixelsRef.current(finalFrame)
+      for (const element of scrubPlayheadElementsRef.current) {
+        element.style.transform = `translate3d(${finalTimelineX}px, 0, 0)`
+      }
       scrubAnimationTimeRef.current = null
       scrubPlayheadElementsRef.current = []
       setIsDragging(false)
       setPreviewFrameRef.current(null)
+      // Clear after the preview notification so linked playheads retain the
+      // final frame while their slower React props catch up.
+      mainTimelineScrubActiveRef.current = false
     }
 
     document.addEventListener('mousemove', handleMouseMove)
@@ -977,6 +1001,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       document.body.style.cursor = originalCursor
       // Ensure cleanup
       isScrubActiveRef.current = false
+      mainTimelineScrubActiveRef.current = false
       if (scrubRAFIdRef.current !== null) {
         cancelAnimationFrame(scrubRAFIdRef.current)
         scrubRAFIdRef.current = null
@@ -999,6 +1024,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       style={{
         background: 'oklch(0.22 0 0 / 0.22)',
         userSelect: 'none',
+        cursor: 'ew-resize',
         height: EDITOR_LAYOUT_CSS_VALUES.timelineRulerHeight,
         width: width ? `${width}px` : undefined,
         minWidth: width ? `${width}px` : undefined,
