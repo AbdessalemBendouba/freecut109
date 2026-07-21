@@ -7,6 +7,7 @@ import {
   collectPriorityNestedVideoItemIds,
   resolveCompositionRendererExecutionPolicy,
   resolveRenderedFrameCacheMode,
+  resolveWorkerPredecodeWaitMs,
   resolveVideoPreloadPlan,
   selectNestedMediaSource,
   selectRendererPreloadItems,
@@ -346,6 +347,14 @@ describe('resolveRenderedFrameCacheMode', () => {
     expect(resolveRenderedFrameCacheMode({ previousFrame: 100, frame: 101, fps: 30 })).toBe(
       'gpu-only',
     )
+  })
+})
+
+describe('resolveWorkerPredecodeWaitMs', () => {
+  it('does not let an isolated comparison frame hold the shared render queue', () => {
+    expect(resolveWorkerPredecodeWaitMs('comparison', 'skip')).toBeUndefined()
+    expect(resolveWorkerPredecodeWaitMs('preview', 'skip')).toBe(900)
+    expect(resolveWorkerPredecodeWaitMs('export', 'full')).toBeUndefined()
   })
 })
 

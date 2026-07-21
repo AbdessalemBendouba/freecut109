@@ -172,6 +172,8 @@ export { subCompositionRenderDataHasGpuEffects }
 
 export type RenderedFrameCacheMode = 'full' | 'gpu-only' | 'skip'
 
+const ISOLATED_SEEK_WORKER_WAIT_MS = 900
+
 export interface VideoPreloadPlan {
   priorityItemIds: string[]
   eagerItemIds: string[]
@@ -197,6 +199,16 @@ export function resolveCompositionRendererExecutionPolicy(
     usesStrictPreviewDecode: isPreview,
     allowsPredecodedVideoFrames: mode === 'comparison',
   }
+}
+
+export function resolveWorkerPredecodeWaitMs(
+  rendererMode: CompositionRendererMode,
+  renderedFrameCacheMode: RenderedFrameCacheMode,
+): number | undefined {
+  // Comparison frames share a serialized render session. A long worker wait
+  // here would let a superseded guide frame block the current drag target.
+  if (rendererMode === 'comparison') return undefined
+  return renderedFrameCacheMode === 'skip' ? ISOLATED_SEEK_WORKER_WAIT_MS : undefined
 }
 
 export interface PriorityMediaItemIds {
@@ -1157,7 +1169,6 @@ export async function createCompositionRenderer(
     }
   }
   const PREWARM_DECODE_MAX_ITEMS = 6
-  const ISOLATED_SEEK_WORKER_WAIT_MS = 900
   let prewarmCanvas: OffscreenCanvas | HTMLCanvasElement | null = null
   let prewarmCtx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null
   let prewarmAttempted = false
@@ -1183,7 +1194,7 @@ export async function createCompositionRenderer(
     mediabunnyDisabledItems,
     mediabunnyFailureCountByItem,
     allowPredecodedVideoFrames: executionPolicy.allowsPredecodedVideoFrames,
-    workerPredecodeWaitMs: isComparisonMode ? ISOLATED_SEEK_WORKER_WAIT_MS : undefined,
+    workerPredecodeWaitMs: undefined,
     getResolvedVideoSource: (item, sourceTime, toleranceSeconds) => {
       const registeredSource = videoSourceByItemId.get(item.id)
       if (renderMode !== 'preview') {
@@ -1958,8 +1969,10 @@ export async function createCompositionRenderer(
       })
       itemRenderContext.captureDecodedVideoFrames =
         Boolean(scrubbingCache && scrubbingFrameCacheActive) && renderedFrameCacheMode !== 'skip'
-      itemRenderContext.workerPredecodeWaitMs =
-        renderedFrameCacheMode === 'skip' ? ISOLATED_SEEK_WORKER_WAIT_MS : undefined
+      itemRenderContext.workerPredecodeWaitMs = resolveWorkerPredecodeWaitMs(
+        rendererMode,
+        renderedFrameCacheMode,
+      )
 
       // Refresh sub-comp render data so edits inside compound clips (effects,
       // items, keyframes) show up during playback. Reference-equality keeps
