@@ -38,8 +38,12 @@ import {
 
 const MIN_SPEED = 0.1
 const MAX_SPEED = 10.0
-const CROP_STEP = 0.1
+const CROP_STEP = 1
 const CROP_TOLERANCE = 0.01
+
+function snapCropPixels(value: number): number {
+  return Number.isFinite(value) ? Math.round(value) : 0
+}
 
 interface VideoSectionProps {
   items: TimelineItem[]
@@ -76,7 +80,7 @@ function buildCropUpdate(
   const dimension = edge === 'left' || edge === 'right' ? dimensions.width : dimensions.height
   return normalizeCropSettings({
     ...crop,
-    [edge]: cropPixelsToRatio(pixels, dimension),
+    [edge]: cropPixelsToRatio(snapCropPixels(pixels), dimension),
   })
 }
 
@@ -88,7 +92,7 @@ function buildCropSoftnessUpdate(
   return normalizeCropSettings({
     ...crop,
     softness: cropSignedPixelsToRatio(
-      pixels,
+      snapCropPixels(pixels),
       Math.max(1, getCropSoftnessReferenceDimension(dimensions.width, dimensions.height)),
     ),
   })
@@ -112,7 +116,7 @@ function getResolvedCropState(
 }
 
 function formatCropValue(value: number): string {
-  return value.toFixed(3)
+  return value.toFixed(0)
 }
 
 function getResolvedCropPropertyValue(
@@ -344,6 +348,7 @@ export function VideoSection({ items }: VideoSectionProps) {
   const commitCropEdge = useCallback(
     (edge: CropEdge, pixels: number) => {
       const property = CROP_EDGE_PROPERTY[edge]
+      const snappedPixels = snapCropPixels(pixels)
       const autoOps: AutoKeyframeOperation[] = []
 
       videoItems.forEach((item) => {
@@ -351,7 +356,7 @@ export function VideoSection({ items }: VideoSectionProps) {
           item,
           keyframesByItemId.get(item.id) ?? undefined,
           property,
-          pixels,
+          snappedPixels,
           currentFrame,
         )
         if (operation) {
@@ -360,7 +365,7 @@ export function VideoSection({ items }: VideoSectionProps) {
         }
 
         updateItem(item.id, {
-          crop: buildCropUpdate(item.crop, edge, pixels, getCropDimensions(item)),
+          crop: buildCropUpdate(item.crop, edge, snappedPixels, getCropDimensions(item)),
         })
       })
 
@@ -397,6 +402,7 @@ export function VideoSection({ items }: VideoSectionProps) {
 
   const commitCropSoftness = useCallback(
     (pixels: number) => {
+      const snappedPixels = snapCropPixels(pixels)
       const autoOps: AutoKeyframeOperation[] = []
 
       videoItems.forEach((item) => {
@@ -404,7 +410,7 @@ export function VideoSection({ items }: VideoSectionProps) {
           item,
           keyframesByItemId.get(item.id) ?? undefined,
           'cropSoftness',
-          pixels,
+          snappedPixels,
           currentFrame,
         )
         if (operation) {
@@ -413,7 +419,7 @@ export function VideoSection({ items }: VideoSectionProps) {
         }
 
         updateItem(item.id, {
-          crop: buildCropSoftnessUpdate(item.crop, pixels, getCropDimensions(item)),
+          crop: buildCropSoftnessUpdate(item.crop, snappedPixels, getCropDimensions(item)),
         })
       })
 

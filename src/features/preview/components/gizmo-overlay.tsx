@@ -45,16 +45,21 @@ import {
   worldPointToPositionKeyframeValue,
 } from '../utils/motion-path-edit'
 import { attachWindowMotionPathPointerInteraction } from '../utils/motion-path-pointer-interaction'
-import type { AutoKeyframeOperation } from '@/features/preview/deps/keyframes'
+import {
+  getAutoKeyframeOperation,
+  type AutoKeyframeOperation,
+} from '@/features/preview/deps/keyframes'
 import type { ItemKeyframes, SpatialBezierTangents } from '@/types/keyframe'
 import type { TimelineItem } from '@/types/timeline'
 import type { BoundingBox, CoordinateParams, Transform, Point } from '../types/gizmo'
 import type { ResolvedTransform, TransformProperties } from '@/types/transform'
+import { normalizeCropSettings } from '@/shared/utils/media-crop'
 import { getSourceDimensions, resolveTransform } from '@/features/preview/deps/composition-runtime'
 import {
   buildGizmoTransformCommit,
   resolveEditableGizmoTransform,
 } from '../utils/gizmo-transform-commit'
+import { CROP_EDGE_PROPERTY, type CropEdge } from '../utils/crop-gizmo'
 
 interface GizmoOverlayProps {
   containerRect: DOMRect | null
@@ -161,6 +166,8 @@ export function GizmoOverlay({
   const canvasSnapEnabled = useSettingsStore((s) => s.canvasSnapEnabled)
   const updateItemTransform = useTimelineStore((s) => s.updateItemTransform)
   const updateItemsTransformMap = useTimelineStore((s) => s.updateItemsTransformMap)
+  const updateItem = useTimelineStore((s) => s.updateItem)
+  const applyAutoKeyframeOperations = useTimelineStore((s) => s.applyAutoKeyframeOperations)
   const updateVectorKeyframe = useTimelineStore((s) => s.updateVectorKeyframe)
 
   // Ref to track if we just finished a drag (to prevent background click from deselecting)
@@ -631,9 +638,7 @@ export function GizmoOverlay({
               item.transform ?? null,
             )}:${JSON.stringify(item.transformParent ?? null)}:${JSON.stringify(
               item.motionModifiers ?? null,
-            )}:${JSON.stringify(
-              item.motionLayers ?? null,
-            )}`,
+            )}:${JSON.stringify(item.motionLayers ?? null)}`,
         )
         .join('|'),
     [selectedItems],
@@ -879,6 +884,55 @@ export function GizmoOverlay({
     ],
   )
 
+  const handleCropEnd = useCallback(
+    (itemId: string, edge: CropEdge, ratio: number) => {
+      const item = visualItems.find((candidate) => candidate.id === itemId)
+      if (!item || item.type !== 'video') return
+
+      const currentFrame = usePlaybackStore.getState().currentFrame
+      const sourceDimensions = getSourceDimensions(item) ?? {
+        width: Math.max(1, item.transform?.width ?? projectSize.width),
+        height: Math.max(1, item.transform?.height ?? projectSize.height),
+      }
+      const sourceDimension =
+        edge === 'left' || edge === 'right' ? sourceDimensions.width : sourceDimensions.height
+      const sourcePixels = Math.round(ratio * sourceDimension)
+      const operation = getAutoKeyframeOperation(
+        item,
+        useKeyframesStore.getState().keyframesByItemId[itemId],
+        CROP_EDGE_PROPERTY[edge],
+        sourcePixels,
+        currentFrame,
+      )
+
+      if (operation) {
+        applyAutoKeyframeOperations([operation])
+      } else {
+        updateItem(itemId, {
+          crop: normalizeCropSettings({ ...item.crop, [edge]: sourcePixels / sourceDimension }),
+        })
+      }
+
+      justFinishedDragRef.current = true
+      setTimeout(() => {
+        justFinishedDragRef.current = false
+      }, 100)
+      setOtherItemBounds([])
+      if (!usePlaybackStore.getState().isPlaying) {
+        usePreviewBridgeStore.getState().setDisplayedFrame(usePlaybackStore.getState().currentFrame)
+      }
+      setForceUpdate((value) => value + 1)
+    },
+    [
+      applyAutoKeyframeOperations,
+      projectSize.height,
+      projectSize.width,
+      setOtherItemBounds,
+      updateItem,
+      visualItems,
+    ],
+  )
+
   // Handle group transform end - commit transforms for all items as a single undo operation
   const handleGroupTransformEnd = useCallback(
     (transforms: Map<string, Transform>, operation: 'move' | 'resize' | 'rotate') => {
@@ -968,6 +1022,10 @@ export function GizmoOverlay({
     (itemId: string, e: React.MouseEvent) => {
       if (isExclusiveCanvasEditorActive) return
       e.stopPropagation()
+      // A crop handle moves away from the pointer as it is dragged inward.
+      // Suppress the click synthesized after mouseup so it cannot select a
+      // different item that is now underneath the pointer.
+      if (justFinishedDragRef.current) return
       const isSelected = selectedItemIdsSet.has(itemId)
       const isGroupSelection = selectedItemIds.length > 1
 
@@ -1231,6 +1289,7 @@ export function GizmoOverlay({
             onTransformEnd={(transform, operation) =>
               handleTransformEnd(selectedItems[0]!.id, transform, operation)
             }
+            onCropEnd={(edge, ratio) => handleCropEnd(selectedItems[0]!.id, edge, ratio)}
             isPlaying={isPlaying}
           />
         ) : selectedItems.length > 1 ? (

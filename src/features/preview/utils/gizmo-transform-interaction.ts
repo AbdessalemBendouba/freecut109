@@ -2,6 +2,29 @@ import type { Point, Transform } from '../types/gizmo'
 
 export type TransformOperation = 'move' | 'resize' | 'rotate'
 
+/**
+ * A mouse drag can still synthesize a click after mouseup. If the dragged
+ * handle moved away from the pointer, that click may be retargeted to the
+ * preview background and clear selection. Consume only that same-turn click;
+ * the listener is removed before a later, explicit user click can occur.
+ */
+export function suppressReleaseClick(): void {
+  let timeoutId: number | null = null
+  const cleanup = () => {
+    window.removeEventListener('click', handleClick, true)
+    if (timeoutId !== null) window.clearTimeout(timeoutId)
+  }
+  const handleClick = (event: MouseEvent) => {
+    event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
+    cleanup()
+  }
+
+  window.addEventListener('click', handleClick, true)
+  timeoutId = window.setTimeout(cleanup, 0)
+}
+
 function hasTransformChanged(a: Transform, b: Transform): boolean {
   const tolerance = 0.01
   return (

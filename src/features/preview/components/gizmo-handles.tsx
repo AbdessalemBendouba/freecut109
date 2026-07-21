@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react'
+import type { CropEdge } from '../utils/crop-gizmo'
 import type { GizmoHandle } from '../types/gizmo'
 import { getScaleCursor, HANDLE_SIZE, ROTATION_HANDLE_OFFSET } from '../utils/coordinate-transform'
 
@@ -6,6 +7,7 @@ import { getScaleCursor, HANDLE_SIZE, ROTATION_HANDLE_OFFSET } from '../utils/co
  * Scale handle positions (corners and edges).
  */
 const SCALE_HANDLES: GizmoHandle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+const CORNER_SCALE_HANDLES = new Set<GizmoHandle>(['nw', 'ne', 'se', 'sw'])
 
 /**
  * Screen bounds for the gizmo container.
@@ -35,6 +37,10 @@ interface GizmoHandlesProps {
   onScaleStart: (handle: GizmoHandle, e: React.MouseEvent) => void
   /** Called when dragging starts on the rotation handle */
   onRotateStart: (e: React.MouseEvent) => void
+  /** Current crop viewport in screen pixels, relative to the gizmo container */
+  cropRect?: { left: number; top: number; width: number; height: number }
+  /** Called when dragging starts on a crop edge handle */
+  onCropStart?: (edge: CropEdge, e: React.MouseEvent) => void
 }
 
 /**
@@ -55,6 +61,8 @@ export function GizmoHandles({
   onTranslateStart,
   onScaleStart,
   onRotateStart,
+  cropRect,
+  onCropStart,
 }: GizmoHandlesProps) {
   // Get style for a scale handle
   const getHandleStyle = (handle: GizmoHandle): CSSProperties => {
@@ -110,31 +118,87 @@ export function GizmoHandles({
       />
 
       {/* Scale handles */}
-      {SCALE_HANDLES.map((handle) => {
-        const handleLabels: Record<GizmoHandle, string> = {
-          nw: 'Resize from top-left corner',
-          n: 'Resize from top edge',
-          ne: 'Resize from top-right corner',
-          e: 'Resize from right edge',
-          se: 'Resize from bottom-right corner',
-          s: 'Resize from bottom edge',
-          sw: 'Resize from bottom-left corner',
-          w: 'Resize from left edge',
-          rotate: 'Rotate element',
-        }
-        return (
+      {SCALE_HANDLES.filter((handle) => !cropRect || CORNER_SCALE_HANDLES.has(handle)).map(
+        (handle) => {
+          const handleLabels: Record<GizmoHandle, string> = {
+            nw: 'Resize from top-left corner',
+            n: 'Resize from top edge',
+            ne: 'Resize from top-right corner',
+            e: 'Resize from right edge',
+            se: 'Resize from bottom-right corner',
+            s: 'Resize from bottom edge',
+            sw: 'Resize from bottom-left corner',
+            w: 'Resize from left edge',
+            rotate: 'Rotate element',
+          }
+          return (
+            <div
+              key={handle}
+              className="bg-white border border-orange-500"
+              style={{ ...getHandleStyle(handle), zIndex: 102 }}
+              role="button"
+              aria-label={handleLabels[handle]}
+              tabIndex={0}
+              data-gizmo={`scale-${handle}`}
+              onMouseDown={(e) => onScaleStart(handle, e)}
+            />
+          )
+        },
+      )}
+
+      {cropRect && onCropStart && (
+        <>
           <div
-            key={handle}
-            className="bg-white border border-orange-500"
-            style={{ ...getHandleStyle(handle), zIndex: 102 }}
-            role="button"
-            aria-label={handleLabels[handle]}
-            tabIndex={0}
-            data-gizmo={`scale-${handle}`}
-            onMouseDown={(e) => onScaleStart(handle, e)}
+            className="pointer-events-none absolute border border-orange-400/80"
+            style={{
+              left: cropRect.left,
+              top: cropRect.top,
+              width: cropRect.width,
+              height: cropRect.height,
+              boxSizing: 'border-box',
+              zIndex: 102,
+            }}
+            data-gizmo="crop-outline"
           />
-        )
-      })}
+          {(['left', 'right', 'top', 'bottom'] as const).map((edge) => {
+            const horizontal = edge === 'top' || edge === 'bottom'
+            const width = horizontal ? 24 : 6
+            const height = horizontal ? 6 : 24
+            const left = horizontal
+              ? cropRect.left + cropRect.width / 2 - width / 2
+              : edge === 'left'
+                ? cropRect.left - width / 2
+                : cropRect.left + cropRect.width - width / 2
+            const top = horizontal
+              ? edge === 'top'
+                ? cropRect.top - height / 2
+                : cropRect.top + cropRect.height - height / 2
+              : cropRect.top + cropRect.height / 2 - height / 2
+            return (
+              <div
+                key={edge}
+                className="absolute border border-white bg-orange-500 shadow-sm"
+                style={{
+                  left,
+                  top,
+                  width,
+                  height,
+                  cursor: getScaleCursor(
+                    edge === 'left' ? 'w' : edge === 'right' ? 'e' : edge === 'top' ? 'n' : 's',
+                    rotation,
+                  ),
+                  zIndex: 103,
+                }}
+                role="button"
+                aria-label={`Crop ${edge} edge`}
+                tabIndex={0}
+                data-gizmo={`crop-${edge}`}
+                onMouseDown={(e) => onCropStart(edge, e)}
+              />
+            )
+          })}
+        </>
+      )}
 
       {/* Rotation handle */}
       <div

@@ -4,6 +4,7 @@
  */
 
 export { useAnimatedTransform } from '@/features/keyframes/hooks/use-animated-transform'
+export { resolveAnimatedCrop } from '@/features/keyframes/utils/animated-crop-resolver'
 export {
   getAutoKeyframeOperation,
   getVectorAutoKeyframeOperation,
