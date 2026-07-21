@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import { useZoomStore } from '../stores/zoom-store'
 import { TimelineMarkers } from './timeline-markers'
 import { applyTimelineLiveGeometry } from '../utils/timeline-live-geometry'
@@ -8,6 +8,7 @@ interface TimelineRulerSurfaceProps {
   duration: number
   containerWidth: number
   initialWidth: number
+  coordinateSurfaceRef?: RefObject<HTMLDivElement | null>
 }
 
 /**
@@ -19,8 +20,10 @@ export const TimelineRulerSurface = memo(function TimelineRulerSurface({
   duration,
   containerWidth,
   initialWidth,
+  coordinateSurfaceRef,
 }: TimelineRulerSurfaceProps) {
-  const rulerRef = useRef<HTMLDivElement>(null)
+  const localRulerRef = useRef<HTMLDivElement>(null)
+  const rulerRef = coordinateSurfaceRef ?? localRulerRef
   const committedSurfaceRef = useRef<HTMLDivElement>(null)
 
   const applyRulerZoom = useCallback(() => {
@@ -35,7 +38,7 @@ export const TimelineRulerSurface = memo(function TimelineRulerSurface({
       viewportWidth: containerWidth,
       livePixelsPerSecond: pixelsPerSecond,
     })
-  }, [containerWidth, duration])
+  }, [containerWidth, duration, rulerRef])
 
   useLayoutEffect(() => {
     applyRulerZoom()

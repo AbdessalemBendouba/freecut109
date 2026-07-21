@@ -1,5 +1,5 @@
 // React and external libraries
-import { useState, useCallback, useEffect, useRef, useLayoutEffect } from 'react'
+import { useState, useCallback, useEffect, useRef, useLayoutEffect, type RefObject } from 'react'
 
 // Stores and selectors
 import { usePlaybackStore } from '@/shared/state/playback'
@@ -23,6 +23,48 @@ interface TimelinePlayheadProps {
   maxFrame?: number // Maximum frame the playhead can be dragged to (content duration)
   // Drop the marks below the ruler's top IO lane so the flag doesn't share it.
   topOffsetPx?: number
+  coordinateSurfaceRef?: RefObject<HTMLDivElement | null>
+}
+
+function getPlayheadDragSurfaces({
+  playhead,
+  explicitCoordinateSurface,
+  inRuler,
+}: {
+  playhead: HTMLDivElement | null
+  explicitCoordinateSurface: HTMLDivElement | null
+  inRuler: boolean
+}): {
+  scrollContainer: HTMLDivElement | null
+  coordinateSurface: HTMLDivElement | null
+} {
+  if (!playhead) {
+    return { scrollContainer: null, coordinateSurface: explicitCoordinateSurface }
+  }
+
+  const scrollContainer = playhead.closest<HTMLDivElement>('.timeline-container')
+  const fallbackSurface = inRuler
+    ? playhead.closest<HTMLDivElement>('.timeline-ruler')
+    : playhead.closest<HTMLDivElement>('.timeline-tracks')
+  const coordinateSurface = explicitCoordinateSurface ?? (scrollContainer ? null : fallbackSurface)
+
+  return { scrollContainer, coordinateSurface }
+}
+
+function getPlayheadPointerX(
+  coordinateSurface: HTMLDivElement | null,
+  scrollContainer: HTMLDivElement | null,
+  clientX: number,
+  fallbackX: number,
+): number {
+  if (coordinateSurface) {
+    return clientX - coordinateSurface.getBoundingClientRect().left
+  }
+  if (scrollContainer) {
+    return clientX - scrollContainer.getBoundingClientRect().left + scrollContainer.scrollLeft
+  }
+
+  return fallbackX
 }
 
 /**
@@ -38,6 +80,7 @@ export function TimelinePlayhead({
   inRuler = false,
   maxFrame,
   topOffsetPx = 0,
+  coordinateSurfaceRef,
 }: TimelinePlayheadProps) {
   perfMarkRender('TimelinePlayhead')
   // Don't subscribe to currentFrame - use ref + manual subscription instead
@@ -70,6 +113,7 @@ export function TimelinePlayhead({
   const scrubClientXRef = useRef<number | null>(null)
   const scrubAnimationTimeRef = useRef<number | null>(null)
   const scrubScrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const scrubCoordinateSurfaceRef = useRef<HTMLDivElement | null>(null)
   const scrubPlayheadElementsRef = useRef<HTMLElement[]>([])
   const scrubThrottleStateRef = useRef(
     createScrubThrottleState({
@@ -156,19 +200,21 @@ export function TimelinePlayhead({
       e.stopPropagation()
       // Seeking is disabled during a voiceover take (see timeline-markers).
       if (isMicRecordingActive(useMicRecordingStore.getState().status)) return
-      const container = inRuler
-        ? playheadRef.current?.closest('.timeline-ruler')
-        : playheadRef.current?.closest('.timeline-tracks')
-      const scrollContainer = playheadRef.current?.closest(
-        '.timeline-container',
-      ) as HTMLDivElement | null
-      const rect = scrollContainer?.getBoundingClientRect() ?? container?.getBoundingClientRect()
-      const pointerX = rect
-        ? e.clientX - rect.left + (scrollContainer?.scrollLeft ?? 0)
-        : frameToPixelsRef.current(usePlaybackStore.getState().currentFrame)
+      const { scrollContainer, coordinateSurface } = getPlayheadDragSurfaces({
+        playhead: playheadRef.current,
+        explicitCoordinateSurface: coordinateSurfaceRef?.current ?? null,
+        inRuler,
+      })
+      const pointerX = getPlayheadPointerX(
+        coordinateSurface,
+        scrollContainer,
+        e.clientX,
+        frameToPixelsRef.current(usePlaybackStore.getState().currentFrame),
+      )
       scrubClientXRef.current = e.clientX
       scrubAnimationTimeRef.current = null
       scrubScrollContainerRef.current = scrollContainer
+      scrubCoordinateSurfaceRef.current = coordinateSurface
       scrubPlayheadElementsRef.current = scrollContainer
         ? Array.from(scrollContainer.querySelectorAll<HTMLElement>('[data-timeline-playhead]'))
         : playheadRef.current
@@ -183,7 +229,7 @@ export function TimelinePlayhead({
       mainTimelineScrubActiveRef.current = true
       setIsDragging(true)
     },
-    [inRuler],
+    [coordinateSurfaceRef, inRuler],
   )
 
   // Handle dragging
@@ -218,15 +264,14 @@ export function TimelinePlayhead({
           }
         }
 
+        const coordinateSurface = scrubCoordinateSurfaceRef.current
         const coordinateBounds =
-          scrollContainer?.getBoundingClientRect() ??
-          (inRuler
-            ? playheadRef.current?.closest('.timeline-ruler')?.getBoundingClientRect()
-            : playheadRef.current?.closest('.timeline-tracks')?.getBoundingClientRect())
+          coordinateSurface?.getBoundingClientRect() ?? scrollContainer?.getBoundingClientRect()
         if (!coordinateBounds) return
 
         const scrollLeft = scrollContainer?.scrollLeft ?? 0
-        const pointerX = clientX - coordinateBounds.left + scrollLeft
+        const coordinateScrollOffset = coordinateSurface ? 0 : scrollLeft
+        const pointerX = clientX - coordinateBounds.left + coordinateScrollOffset
         let targetFrame = Math.max(0, Math.round(pixelsToFrameRef.current(pointerX)))
         if (maxFrameRef.current !== undefined) {
           targetFrame = Math.min(targetFrame, maxFrameRef.current)
@@ -244,8 +289,9 @@ export function TimelinePlayhead({
           setScrubFrameRef.current(targetFrame)
         }
 
-        const visualClientX = getVisiblePlayheadClientX(clientX, coordinateBounds)
-        const pointerTimelineX = visualClientX - coordinateBounds.left + scrollLeft
+        const viewportBounds = scrollContainer?.getBoundingClientRect() ?? coordinateBounds
+        const visualClientX = getVisiblePlayheadClientX(clientX, viewportBounds)
+        const pointerTimelineX = visualClientX - coordinateBounds.left + coordinateScrollOffset
         const maxTimelineX =
           maxFrameRef.current === undefined
             ? undefined
@@ -275,13 +321,12 @@ export function TimelinePlayhead({
 
       const clientX = scrubClientXRef.current
       const scrollContainer = scrubScrollContainerRef.current
+      const coordinateSurface = scrubCoordinateSurfaceRef.current
       const bounds =
-        scrollContainer?.getBoundingClientRect() ??
-        (inRuler
-          ? playheadRef.current?.closest('.timeline-ruler')?.getBoundingClientRect()
-          : playheadRef.current?.closest('.timeline-tracks')?.getBoundingClientRect())
+        coordinateSurface?.getBoundingClientRect() ?? scrollContainer?.getBoundingClientRect()
       if (clientX !== null && bounds) {
-        const pointerX = clientX - bounds.left + (scrollContainer?.scrollLeft ?? 0)
+        const pointerX =
+          clientX - bounds.left + (coordinateSurface ? 0 : (scrollContainer?.scrollLeft ?? 0))
         let frame = Math.max(0, Math.round(pixelsToFrameRef.current(pointerX)))
         if (maxFrameRef.current !== undefined) frame = Math.min(frame, maxFrameRef.current)
         setScrubFrameRef.current(frame)
@@ -291,6 +336,7 @@ export function TimelinePlayhead({
       scrubClientXRef.current = null
       scrubAnimationTimeRef.current = null
       scrubScrollContainerRef.current = null
+      scrubCoordinateSurfaceRef.current = null
       scrubPlayheadElementsRef.current = []
       setPreviewFrameRef.current(null)
       // Keep the shared flag set through the preview-clear notification so the
@@ -316,7 +362,7 @@ export function TimelinePlayhead({
       scrubAnimationTimeRef.current = null
       mainTimelineScrubActiveRef.current = false
     }
-  }, [isDragging, inRuler]) // Stable dependencies - no stale closures
+  }, [isDragging]) // Stable dependencies - no stale closures
 
   return (
     <div

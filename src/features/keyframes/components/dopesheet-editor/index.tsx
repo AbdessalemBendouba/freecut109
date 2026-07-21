@@ -633,20 +633,34 @@ function startDopesheetDrag(
 function getDopesheetDragDelta(
   dragState: DragState,
   event: PointerEvent,
-  effectiveTimelineWidth: number,
-  frameRange: number,
+  pixelsPerFrame: number,
   totalFrames: number,
   snapEnabled: boolean,
   snapFrame: (frame: number) => number,
 ): number {
   const deltaX = event.clientX - dragState.startClientX
-  let deltaFrames = Math.round((deltaX / effectiveTimelineWidth) * frameRange)
+  let deltaFrames = Math.round(deltaX / pixelsPerFrame)
   if (!snapEnabled || event.ctrlKey || event.metaKey) return deltaFrames
   const anchorInitialFrame = dragState.initialFrames.get(dragState.anchorKeyframeId)
   if (anchorInitialFrame === undefined) return deltaFrames
   const anchorCandidate = clampFrame(anchorInitialFrame + deltaFrames, totalFrames)
   deltaFrames += snapFrame(anchorCandidate) - anchorCandidate
   return deltaFrames
+}
+
+function getDopesheetDragPixelsPerFrame(
+  getLivePixelsPerSecond: (() => number) | undefined,
+  fallbackPixelsPerSecond: number,
+  fps: number,
+): number {
+  const livePixelsPerSecond = getLivePixelsPerSecond?.()
+  const pixelsPerSecond =
+    livePixelsPerSecond !== undefined &&
+    Number.isFinite(livePixelsPerSecond) &&
+    livePixelsPerSecond > 0
+      ? livePixelsPerSecond
+      : fallbackPixelsPerSecond
+  return pixelsPerSecond / Math.max(fps, 1)
 }
 
 const TimelineViewportCuller = memo(function TimelineViewportCuller({
@@ -1482,6 +1496,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const timelinePixelsPerSecond = useMemo(
     () => (effectiveTimelineWidth / frameRange) * fps,
     [effectiveTimelineWidth, frameRange, fps],
+  )
+  const getLiveDragPixelsPerFrame = useCallback(
+    () =>
+      getDopesheetDragPixelsPerFrame(getTimelineLivePixelsPerSecond, timelinePixelsPerSecond, fps),
+    [fps, getTimelineLivePixelsPerSecond, timelinePixelsPerSecond],
   )
 
   const frameToX = useCallback(
@@ -2670,8 +2689,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       const deltaFrames = getDopesheetDragDelta(
         dragState,
         event,
-        effectiveTimelineWidth,
-        frameRange,
+        getLiveDragPixelsPerFrame(),
         totalFrames,
         snapEnabled,
         snapFrame,
@@ -2689,14 +2707,21 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       if (!dragState || dragState.pointerId !== event.pointerId) return
 
       if (dragState.started) {
-        const previewFrames = appliedDragPreviewFramesRef.current
+        const deltaFrames = getDopesheetDragDelta(
+          dragState,
+          event,
+          getLiveDragPixelsPerFrame(),
+          totalFrames,
+          snapEnabled,
+          snapFrame,
+        )
+        const preview = buildSelectionFramePreview(dragState.selectedKeyframeIds, deltaFrames)
         if (dragState.duplicateOnCommit) {
-          duplicateSelectionFramePreview(dragState.selectedKeyframeIds, previewFrames)
+          duplicateSelectionFramePreview(dragState.selectedKeyframeIds, preview.previewFrames)
         } else {
-          const externallyHandled =
-            onSelectionFrameDelta?.(dragState.appliedDeltaFrames, 'commit') ?? false
+          const externallyHandled = onSelectionFrameDelta?.(deltaFrames, 'commit') ?? false
           if (!externallyHandled) {
-            commitSelectionFramePreview(dragState.selectedKeyframeIds, previewFrames)
+            commitSelectionFramePreview(dragState.selectedKeyframeIds, preview.previewFrames)
           }
           onDragEnd?.()
         }
@@ -2728,8 +2753,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     onDragEnd,
     onDragCancel,
     onSelectionFrameDelta,
-    effectiveTimelineWidth,
-    frameRange,
+    getLiveDragPixelsPerFrame,
     totalFrames,
     snapEnabled,
     snapFrame,

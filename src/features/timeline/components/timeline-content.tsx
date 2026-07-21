@@ -782,6 +782,7 @@ export const TimelineContent = memo(function TimelineContent({
   // Granular selectors for drag state - avoid subscribing to entire dragState object
   const isDragging = useSelectionStore((s) => !!s.dragState?.isDragging)
   const containerRef = useRef<HTMLDivElement>(null)
+  const rulerCoordinateSurfaceRef = useRef<HTMLDivElement>(null)
   const tracksContainerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(0)
   const marqueeWasActiveRef = useRef(false)
@@ -2008,6 +2009,7 @@ export const TimelineContent = memo(function TimelineContent({
           duration={actualDuration}
           containerWidth={containerWidth}
           initialWidth={timelineWidth}
+          coordinateSurfaceRef={rulerCoordinateSurfaceRef}
         />
 
         <TimelineTrackSectionsSurface
@@ -2040,7 +2042,12 @@ export const TimelineContent = memo(function TimelineContent({
 
         {/* One overlay owns each complete marker across the ruler and tracks. */}
         <TimelinePreviewScrubber inRuler maxFrame={maxTimelineFrame} zIndex={40} />
-        <TimelinePlayhead inRuler maxFrame={maxTimelineFrame} topOffsetPx={IO_LANE_HEIGHT} />
+        <TimelinePlayhead
+          inRuler
+          maxFrame={maxTimelineFrame}
+          topOffsetPx={IO_LANE_HEIGHT}
+          coordinateSurfaceRef={rulerCoordinateSurfaceRef}
+        />
       </div>
 
       {anyOverflow && (

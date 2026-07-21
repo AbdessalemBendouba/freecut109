@@ -1,3 +1,4 @@
+import { createRef } from 'react'
 import { fireEvent, render, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vite-plus/test'
 
@@ -79,6 +80,50 @@ describe('TimelinePlayhead', () => {
       expect(usePlaybackStore.getState().currentFrame).toBe(36)
       expect(usePlaybackStore.getState().previewFrame).toBeNull()
     })
+  })
+
+  it('uses an explicit ruler origin when the unified playhead is its sibling', () => {
+    const rulerRef = createRef<HTMLDivElement>()
+    const { container } = render(
+      <div className="timeline-container">
+        <div ref={rulerRef} className="timeline-ruler" />
+        <TimelinePlayhead inRuler maxFrame={300} coordinateSurfaceRef={rulerRef} />
+      </div>,
+    )
+    const scrollContainer = container.querySelector('.timeline-container') as HTMLDivElement
+    Object.defineProperty(scrollContainer, 'scrollLeft', {
+      configurable: true,
+      value: 100,
+      writable: true,
+    })
+    scrollContainer.getBoundingClientRect = () => ({
+      x: 10,
+      y: 0,
+      left: 10,
+      top: 0,
+      right: 610,
+      bottom: 200,
+      width: 600,
+      height: 200,
+      toJSON: () => ({}),
+    })
+    rulerRef.current!.getBoundingClientRect = () => ({
+      x: -70,
+      y: 0,
+      left: -70,
+      top: 0,
+      right: 530,
+      bottom: 40,
+      width: 600,
+      height: 40,
+      toJSON: () => ({}),
+    })
+
+    const hitArea = container.querySelector('[style*="width: 20px"]') as HTMLDivElement
+    fireEvent.mouseDown(hitArea, { clientX: 130, clientY: 8, button: 0 })
+    fireEvent.mouseUp(document, { clientX: 130, clientY: 8 })
+
+    expect(usePlaybackStore.getState().currentFrame).toBe(60)
   })
 
   it('auto-scrolls at the viewport edge while keeping both playheads cursor-locked', () => {

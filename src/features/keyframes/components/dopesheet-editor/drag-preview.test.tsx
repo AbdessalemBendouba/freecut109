@@ -107,6 +107,45 @@ describe('DopesheetEditor drag preview', () => {
     expect(onDragEnd).toHaveBeenCalledTimes(1)
   })
 
+  it('uses the live timeline scale for drag preview and commit before React rerenders', () => {
+    const onKeyframeMove = vi.fn()
+    const onSelectionFrameDelta = vi.fn(() => true)
+    let livePixelsPerSecond = 60
+
+    render(
+      <DopesheetEditor
+        itemId="item-live-zoom"
+        keyframesByProperty={{
+          x: [{ id: 'kf-live', frame: 20, value: 100, easing: 'linear' }],
+        }}
+        selectedKeyframeIds={new Set(['kf-live'])}
+        width={640}
+        height={240}
+        onKeyframeMove={onKeyframeMove}
+        onSelectionFrameDelta={onSelectionFrameDelta}
+        getTimelineLivePixelsPerSecond={() => livePixelsPerSecond}
+      />,
+    )
+
+    fireEvent.pointerDown(screen.getByTestId('row-keyframe-x-kf-live'), {
+      button: 0,
+      pointerId: 4,
+      clientX: 100,
+    })
+    livePixelsPerSecond = 120
+    act(() => {
+      fireEvent.pointerMove(window, { pointerId: 4, clientX: 140 })
+    })
+    livePixelsPerSecond = 240
+    act(() => {
+      fireEvent.pointerUp(window, { pointerId: 4, clientX: 140 })
+    })
+
+    expect(onSelectionFrameDelta).toHaveBeenCalledWith(10, 'preview')
+    expect(onSelectionFrameDelta).toHaveBeenLastCalledWith(5, 'commit')
+    expect(onKeyframeMove).not.toHaveBeenCalled()
+  })
+
   it('delegates a composition-wide selection drag without double-committing locally', () => {
     const onKeyframeMove = vi.fn()
     const onSelectionFrameDelta = vi.fn(() => true)
