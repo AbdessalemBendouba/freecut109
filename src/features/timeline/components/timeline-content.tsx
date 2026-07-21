@@ -189,7 +189,7 @@ function TrackSectionScrollbarOverlay({
     const clientHeight = element.clientHeight
     const scrollHeight = element.scrollHeight
     const overflowHeight = scrollHeight - clientHeight
-    const railHeight = Math.max(0, height - railInset * 2)
+    const railHeight = Math.max(0, (railRef.current?.clientHeight ?? height) - railInset * 2)
     const thumbHeight =
       overflowHeight > 0
         ? Math.min(railHeight, Math.max(24, (clientHeight / scrollHeight) * railHeight))
@@ -335,7 +335,12 @@ function TrackSectionScrollbarOverlay({
   return (
     <div
       className="relative shrink-0"
-      style={{ height: `${height}px` }}
+      style={{
+        height:
+          section === 'single'
+            ? `${height}px`
+            : `var(--timeline-${section}-pane-height, ${height}px)`,
+      }}
       role="scrollbar"
       aria-label={`${section} track section scrollbar`}
       aria-controls="timeline-track-sections"
@@ -576,7 +581,9 @@ const TimelineTrackSectionsSurface = memo(function TimelineTrackSectionsSurface(
       ref={options.scrollRef}
       data-track-section-scroll={options.section}
       className="min-h-0 overflow-y-auto overflow-x-hidden"
-      style={{ height: `${options.height}px` }}
+      style={{
+        height: `var(--timeline-${options.section}-pane-height, ${options.height}px)`,
+      }}
     >
       <div className="relative min-h-full">
         {options.section === 'video' && options.anchorTrackId && (
@@ -587,7 +594,12 @@ const TimelineTrackSectionsSurface = memo(function TimelineTrackSectionsSurface(
           />
         )}
         {options.section === 'video' && !options.anchorTrackId && (
-          <div aria-hidden="true" style={{ height: `${options.zoneHeight}px` }} />
+          <div
+            aria-hidden="true"
+            style={{
+              height: `var(--timeline-video-zone-height, ${options.zoneHeight}px)`,
+            }}
+          />
         )}
 
         {sectionTracks.map((track, index) => {
@@ -610,7 +622,12 @@ const TimelineTrackSectionsSurface = memo(function TimelineTrackSectionsSurface(
           />
         )}
         {options.section === 'audio' && !options.anchorTrackId && (
-          <div aria-hidden="true" style={{ height: `${options.zoneHeight}px` }} />
+          <div
+            aria-hidden="true"
+            style={{
+              height: `var(--timeline-audio-zone-height, ${options.zoneHeight}px)`,
+            }}
+          />
         )}
       </div>
     </div>
@@ -1948,7 +1965,17 @@ export const TimelineContent = memo(function TimelineContent({
   )
 
   return (
-    <div className="flex flex-1 min-h-0 min-w-0 bg-background/30">
+    <div
+      className="flex flex-1 min-h-0 min-w-0 bg-background/30"
+      style={
+        {
+          '--timeline-video-pane-height': `${videoPaneHeight}px`,
+          '--timeline-audio-pane-height': `${audioPaneHeight}px`,
+          '--timeline-video-zone-height': `${videoZoneHeight}px`,
+          '--timeline-audio-zone-height': `${audioZoneHeight}px`,
+        } as React.CSSProperties
+      }
+    >
       <div
         ref={mergedRef}
         data-timeline-scroll-container
