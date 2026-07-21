@@ -192,6 +192,28 @@ function shouldBreakTranscriptCaption(
   return false
 }
 
+function transcriptCaptionGroupFitsLimits(
+  words: ReturnType<typeof sanitizeTranscriptWord>[],
+): boolean {
+  const first = words[0]
+  const last = words.at(-1)
+  if (!first || !last) return false
+
+  const hasPhraseBreakingGap = words.some((word, index) => {
+    const previous = words[index - 1]
+    return (
+      previous !== undefined && word.start - previous.end >= TRANSCRIPT_CAPTION_BREAK_GAP_SECONDS
+    )
+  })
+
+  return (
+    words.length <= MAX_TRANSCRIPT_CAPTION_WORDS &&
+    joinTranscriptWords(words.map((word) => word.text)).length <= MAX_TRANSCRIPT_CAPTION_CHARS &&
+    last.end - first.start <= MAX_TRANSCRIPT_CAPTION_SECONDS &&
+    !hasPhraseBreakingGap
+  )
+}
+
 function segmentTranscriptForCaptions(segments: TranscriptSegment[]): MediaTranscriptSegment[] {
   const sanitizedBySegment = segments.map((segment) =>
     (segment.words?.map(sanitizeTranscriptWord) ?? []).filter(
@@ -226,9 +248,15 @@ function segmentTranscriptForCaptions(segments: TranscriptSegment[]): MediaTrans
   const previousGroup = captionWordGroups.at(-2)
   if (trailingGroup?.length === 1 && previousGroup) {
     if (previousGroup.length >= 3) {
-      const borrowedWord = previousGroup.pop()
-      if (borrowedWord) trailingGroup.unshift(borrowedWord)
-    } else {
+      const shortenedPreviousGroup = previousGroup.slice(0, -1)
+      const rebalancedTrailingGroup = [previousGroup.at(-1)!, ...trailingGroup]
+      if (
+        transcriptCaptionGroupFitsLimits(shortenedPreviousGroup) &&
+        transcriptCaptionGroupFitsLimits(rebalancedTrailingGroup)
+      ) {
+        captionWordGroups.splice(-2, 2, shortenedPreviousGroup, rebalancedTrailingGroup)
+      }
+    } else if (transcriptCaptionGroupFitsLimits([...previousGroup, ...trailingGroup])) {
       previousGroup.push(...trailingGroup)
       captionWordGroups.pop()
     }

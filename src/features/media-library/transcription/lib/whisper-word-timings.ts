@@ -53,6 +53,10 @@ export function resolveWhisperWordTimings(
     const nextStart = nextKnownStart(rawWords, index, start)
     let end = validTimestamp(rawEnd) && rawEnd > start ? rawEnd : null
     end ??= nextStart ?? Math.min(chunkDuration, start + FALLBACK_WORD_SECONDS)
+    if (end <= start && start === chunkDuration && chunkDuration > 0) {
+      start = Math.max(0, chunkDuration - MIN_WORD_SECONDS)
+      end = chunkDuration
+    }
     if (end <= start && start < chunkDuration) {
       end = Math.min(chunkDuration, start + MIN_WORD_SECONDS)
     }

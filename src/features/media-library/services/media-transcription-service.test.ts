@@ -943,6 +943,36 @@ describe('mediaTranscriptionService.transcribeMedia', () => {
     expect(saved.segments.every((segment) => segment.words!.length >= 2)).toBe(true)
   })
 
+  it('does not merge a trailing one-word caption across a long pause', async () => {
+    const sourceFile = new File(['audio'], 'clip.mp3', { type: 'audio/mpeg' })
+    getMediaMock.mockResolvedValue({
+      id: 'media-1',
+      fileName: 'clip.mp3',
+      mimeType: 'audio/mpeg',
+      codec: 'mp3',
+      fileLastModified: 123,
+    })
+    getMediaFileMock.mockResolvedValue(sourceFile)
+    transcribeCollectMock.mockResolvedValue([
+      {
+        text: 'short phrase isolated',
+        start: 0,
+        end: 10.3,
+        words: [
+          { text: 'short', start: 0, end: 0.2 },
+          { text: 'phrase', start: 0.22, end: 0.5 },
+          { text: 'isolated', start: 10, end: 10.3 },
+        ],
+      },
+    ])
+
+    await mediaTranscriptionService.transcribeMedia('media-1')
+
+    const saved = saveTranscriptMock.mock.calls[0]?.[0] as MediaTranscript
+    expect(saved.segments.map((segment) => segment.text)).toEqual(['short phrase', 'isolated'])
+    expect(saved.segments.every((segment) => segment.end - segment.start <= 2.2)).toBe(true)
+  })
+
   it('keeps timestamped CJK captions as short phrases rather than individual words', async () => {
     const sourceFile = new File(['audio'], 'clip.mp3', { type: 'audio/mpeg' })
     getMediaMock.mockResolvedValue({
