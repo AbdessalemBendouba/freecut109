@@ -2,11 +2,272 @@ import { describe, expect, it } from 'vite-plus/test'
 import type { TimelineItem } from '@/types/timeline'
 import type { SubCompRenderData } from './canvas-item-renderer'
 import {
+  collectPriorityMediaItemIds,
+  collectPriorityMediaItemIdsForFrames,
+  collectPriorityNestedVideoItemIds,
+  resolveCompositionRendererExecutionPolicy,
   resolveRenderedFrameCacheMode,
+  resolveWorkerPredecodeWaitMs,
   resolveVideoPreloadPlan,
+  selectNestedMediaSource,
+  selectRendererPreloadItems,
   selectPreviewVideoSource,
   subCompositionRenderDataHasGpuEffects,
 } from './client-render-engine'
+
+describe('comparison preview resource selection', () => {
+  it('uses nested proxy media for preview consumers and source media otherwise', () => {
+    expect(
+      selectNestedMediaSource({
+        useProxyMedia: true,
+        proxyUrl: 'blob:proxy',
+        sourceUrl: 'blob:source',
+      }),
+    ).toBe('blob:proxy')
+    expect(
+      selectNestedMediaSource({
+        useProxyMedia: false,
+        proxyUrl: 'blob:proxy',
+        sourceUrl: 'blob:source',
+      }),
+    ).toBe('blob:source')
+  })
+
+  it('keeps comparison drawing isolated while enabling lazy worker-backed frames', () => {
+    expect(resolveCompositionRendererExecutionPolicy('comparison')).toEqual({
+      itemRenderMode: 'export',
+      usesSharedPreviewPool: false,
+      usesStrictPreviewDecode: false,
+      allowsPredecodedVideoFrames: true,
+    })
+  })
+
+  it('keeps only exact target dependencies in comparison preload batches', () => {
+    const items = [{ id: 'target' }, { id: 'future' }]
+    expect(
+      selectRendererPreloadItems('comparison', items, new Set(['target']), (item) => item.id),
+    ).toEqual([{ id: 'target' }])
+    expect(
+      selectRendererPreloadItems('export', items, new Set(['target']), (item) => item.id),
+    ).toEqual(items)
+  })
+
+  it('unions exact dependencies for every sibling comparison frame', () => {
+    const firstVideo = {
+      id: 'first-video',
+      type: 'video',
+      trackId: 'track',
+      from: 0,
+      durationInFrames: 10,
+    } as TimelineItem
+    const secondImage = {
+      id: 'second-image',
+      type: 'image',
+      trackId: 'track',
+      from: 10,
+      durationInFrames: 10,
+    } as TimelineItem
+
+    expect(
+      collectPriorityMediaItemIdsForFrames({
+        tracks: [
+          {
+            id: 'track',
+            name: 'Track',
+            order: 0,
+            height: 60,
+            locked: false,
+            visible: true,
+            muted: false,
+            solo: false,
+            items: [firstVideo, secondImage],
+          },
+        ],
+        frames: [5, 15],
+        fps: 30,
+        compositionById: {},
+      }),
+    ).toEqual({
+      video: ['first-video'],
+      image: ['second-image'],
+      lottie: [],
+    })
+  })
+})
+
+describe('collectPriorityNestedVideoItemIds', () => {
+  it('initializes only video leaves visible at the mapped nested frame', () => {
+    const rootWrapper = {
+      id: 'root-wrapper',
+      type: 'composition',
+      trackId: 'root-track',
+      from: 0,
+      durationInFrames: 60,
+      compositionId: 'outer',
+      sourceStart: 10,
+      sourceFps: 60,
+      speed: 2,
+    } as TimelineItem
+    const nestedWrapper = {
+      id: 'nested-wrapper',
+      type: 'composition',
+      trackId: 'outer-track',
+      from: 20,
+      durationInFrames: 60,
+      compositionId: 'inner',
+      sourceStart: 5,
+      sourceFps: 30,
+      speed: 1,
+    } as TimelineItem
+    const visibleVideo = {
+      id: 'visible-video',
+      type: 'video',
+      trackId: 'inner-track',
+      from: 10,
+      durationInFrames: 10,
+    } as TimelineItem
+    const deferredVideo = {
+      id: 'deferred-video',
+      type: 'video',
+      trackId: 'inner-track',
+      from: 20,
+      durationInFrames: 10,
+    } as TimelineItem
+    const hiddenVideo = {
+      id: 'hidden-video',
+      type: 'video',
+      trackId: 'hidden-track',
+      from: 10,
+      durationInFrames: 10,
+    } as TimelineItem
+
+    expect(
+      collectPriorityNestedVideoItemIds({
+        tracks: [
+          {
+            id: 'root-track',
+            name: 'Root',
+            order: 0,
+            height: 60,
+            locked: false,
+            visible: true,
+            muted: false,
+            solo: false,
+            items: [rootWrapper],
+          },
+        ],
+        frame: 5,
+        fps: 30,
+        compositionById: {
+          outer: {
+            id: 'outer',
+            name: 'Outer',
+            fps: 60,
+            width: 1920,
+            height: 1080,
+            durationInFrames: 120,
+            items: [nestedWrapper],
+            tracks: [
+              {
+                id: 'outer-track',
+                name: 'Outer track',
+                order: 0,
+                height: 60,
+                locked: false,
+                visible: true,
+                muted: false,
+                solo: false,
+                items: [nestedWrapper],
+              },
+            ],
+            transitions: [],
+            keyframes: [],
+          },
+          inner: {
+            id: 'inner',
+            name: 'Inner',
+            fps: 30,
+            width: 1920,
+            height: 1080,
+            durationInFrames: 60,
+            items: [visibleVideo, deferredVideo, hiddenVideo],
+            tracks: [
+              {
+                id: 'inner-track',
+                name: 'Visible',
+                order: 0,
+                height: 60,
+                locked: false,
+                visible: true,
+                muted: false,
+                solo: false,
+                items: [visibleVideo, deferredVideo],
+              },
+              {
+                id: 'hidden-track',
+                name: 'Hidden',
+                order: 1,
+                height: 60,
+                locked: false,
+                visible: false,
+                muted: false,
+                solo: false,
+                items: [hiddenVideo],
+              },
+            ],
+            transitions: [],
+            keyframes: [],
+          },
+        },
+      }),
+    ).toEqual(['visible-video'])
+  })
+
+  it('collects exact-frame image and Lottie leaves without unrelated media', () => {
+    const visibleImage = {
+      id: 'visible-image',
+      type: 'image',
+      trackId: 'track',
+      from: 0,
+      durationInFrames: 10,
+    } as TimelineItem
+    const visibleLottie = {
+      id: 'visible-lottie',
+      type: 'lottie',
+      trackId: 'track',
+      from: 0,
+      durationInFrames: 10,
+    } as TimelineItem
+    const futureVideo = {
+      id: 'future-video',
+      type: 'video',
+      trackId: 'track',
+      from: 10,
+      durationInFrames: 10,
+    } as TimelineItem
+
+    expect(
+      collectPriorityMediaItemIds({
+        tracks: [
+          {
+            id: 'track',
+            name: 'Track',
+            order: 0,
+            height: 60,
+            locked: false,
+            visible: true,
+            muted: false,
+            solo: false,
+            items: [visibleImage, visibleLottie, futureVideo],
+          },
+        ],
+        frame: 5,
+        fps: 30,
+        compositionById: {},
+      }),
+    ).toEqual({ video: [], image: ['visible-image'], lottie: ['visible-lottie'] })
+  })
+})
 
 describe('selectPreviewVideoSource', () => {
   it('selects the cached proxy when a compound item still carries its original source', () => {
@@ -16,8 +277,7 @@ describe('selectPreviewVideoSource', () => {
         candidates: ['blob:stored-original', 'blob:scrub-proxy'],
         sourceTime: 42,
         toleranceSeconds: 0.01,
-        getCachedPredecodedBitmap: (src) =>
-          src === 'blob:scrub-proxy' ? proxyBitmap : null,
+        getCachedPredecodedBitmap: (src) => (src === 'blob:scrub-proxy' ? proxyBitmap : null),
       }),
     ).toBe('blob:scrub-proxy')
   })
@@ -60,6 +320,14 @@ describe('resolveVideoPreloadPlan', () => {
       deferredItemIds: [],
     })
   })
+
+  it('keeps comparison sources isolated but defers every non-target decoder', () => {
+    expect(resolveVideoPreloadPlan('comparison', ['target', 'future'], ['target'])).toEqual({
+      priorityItemIds: ['target'],
+      eagerItemIds: [],
+      deferredItemIds: ['future'],
+    })
+  })
 })
 
 describe('resolveRenderedFrameCacheMode', () => {
@@ -79,6 +347,14 @@ describe('resolveRenderedFrameCacheMode', () => {
     expect(resolveRenderedFrameCacheMode({ previousFrame: 100, frame: 101, fps: 30 })).toBe(
       'gpu-only',
     )
+  })
+})
+
+describe('resolveWorkerPredecodeWaitMs', () => {
+  it('does not let an isolated comparison frame hold the shared render queue', () => {
+    expect(resolveWorkerPredecodeWaitMs('comparison', 'skip')).toBeUndefined()
+    expect(resolveWorkerPredecodeWaitMs('preview', 'skip')).toBe(900)
+    expect(resolveWorkerPredecodeWaitMs('export', 'full')).toBeUndefined()
   })
 })
 

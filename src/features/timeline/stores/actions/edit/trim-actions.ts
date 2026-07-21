@@ -11,6 +11,7 @@ import {
 import { getAttachedCaptionItemIds } from '../../../utils/linked-items'
 import { computeClampedSlipDelta } from '../../../utils/slip-utils'
 import { computeSlideContinuitySourceDelta } from '../../../utils/slide-utils'
+import { isMediaItem } from '../../../utils/source-calculations'
 import { clampSlideDeltaToPreserveKeyframes } from '../../../utils/slide-keyframe-constraints'
 import {
   clampRippleTrimDeltaToPreserveEditState,
@@ -696,7 +697,7 @@ export function slideItem(
       )
       if (clampedSlideDelta === 0) return
       const itemFromBefore = item.from
-      const itemSourceStartBefore = item.sourceStart
+      const itemSourceStartBefore = item.sourceStart ?? 0
 
       // For split-contiguous A-B-C chains, preserve source continuity by shifting
       // the slid clip's source window by the same source-space delta as slide.
@@ -743,7 +744,7 @@ export function slideItem(
       const updatedItem = useItemsStore.getState().itemById[id]
       const actualSlideDelta = updatedItem ? updatedItem.from - itemFromBefore : 0
       const actualSourceDelta =
-        updatedItem && itemSourceStartBefore !== undefined && updatedItem.sourceStart !== undefined
+        updatedItem && updatedItem.sourceStart !== undefined
           ? updatedItem.sourceStart - itemSourceStartBefore
           : 0
 
@@ -773,7 +774,7 @@ export function slideItem(
         )
         if (
           actualSourceDelta !== 0 &&
-          (synchronizedCounterpart.type === 'video' || synchronizedCounterpart.type === 'audio') &&
+          isMediaItem(synchronizedCounterpart) &&
           synchronizedCounterpart.sourceEnd !== undefined
         ) {
           itemsStore._updateItem(synchronizedCounterpart.id, {

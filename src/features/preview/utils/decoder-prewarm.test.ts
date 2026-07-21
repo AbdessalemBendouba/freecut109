@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import {
   activePreviewPreseek,
+  backgroundBatchPreseek,
   backgroundPreseek,
   cacheActivePreviewFallbackBitmap,
   disposePrewarmWorker,
@@ -14,6 +15,7 @@ import {
   replaceActivePreviewSourceTargets,
   setActivePreviewRenderTarget,
   settleActivePreviewRenderTarget,
+  waitForInflightPredecodedBitmap,
   warmDecoderPrewarmWorkerPool,
 } from './decoder-prewarm'
 import {
@@ -25,6 +27,7 @@ type MockWorkerMessage = {
   type: string
   id?: string
   timestamp?: number
+  timestamps?: number[]
   generation?: number
   blob?: Blob
   src?: string
@@ -41,12 +44,26 @@ class MockWorker {
   readonly addEventListener = vi.fn()
   readonly terminate = vi.fn()
   readonly postMessage = vi.fn((message: MockWorkerMessage) => {
-    if (
-      (message.type !== 'preseek' && message.type !== 'active_preseek') ||
-      !autoRespondPreseek
-    ) {
+    if (!autoRespondPreseek) return
+
+    if (message.type === 'batch_preseek') {
+      queueMicrotask(() => {
+        this.onmessage?.({
+          data: {
+            type: 'batch_preseek_done',
+            id: message.id,
+            success: true,
+            entries: (message.timestamps ?? []).map((timestamp) => ({
+              timestamp,
+              bitmap: mockBitmap,
+            })),
+          },
+        } as MessageEvent)
+      })
       return
     }
+
+    if (message.type !== 'preseek' && message.type !== 'active_preseek') return
 
     queueMicrotask(() => {
       this.onmessage?.({
@@ -167,6 +184,42 @@ describe('decoder prewarm', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(preseekPosts).toHaveLength(0)
   })
+
+  it('cancels stale comparison batches through their abort signal', async () => {
+    autoRespondPreseek = false
+    registerObjectUrl('blob:comparison', new Blob(['comparison']))
+    const controller = new AbortController()
+
+    const pending = backgroundBatchPreseek('blob:comparison', [1], {
+      signal: controller.signal,
+    })
+    const worker = getGeneralWorkers()[0]!
+    const batchPost = worker.postMessage.mock.calls
+      .map(([message]) => message as MockWorkerMessage)
+      .find((message) => message.type === 'batch_preseek')
+    expect(batchPost?.id).toBeTruthy()
+
+    controller.abort()
+
+    await expect(pending).resolves.toEqual(new Map())
+    expect(worker.postMessage).toHaveBeenCalledWith({
+      type: 'batch_cancel',
+      id: batchPost?.id,
+    })
+  })
+
+  it('exposes comparison batch frames to renderer inflight waits', async () => {
+    registerObjectUrl('blob:comparison-ready', new Blob(['comparison']))
+    const controller = new AbortController()
+
+    const batch = backgroundBatchPreseek('blob:comparison-ready', [3], {
+      signal: controller.signal,
+    })
+    const waited = waitForInflightPredecodedBitmap('blob:comparison-ready', 3, 1 / 240, 100)
+
+    await expect(waited).resolves.toBe(mockBitmap)
+    await expect(batch).resolves.toEqual(new Map([[3, mockBitmap]]))
+  })
   it('warmDecoderPrewarmWorkerPool eagerly spawns the pool exactly once', () => {
     warmDecoderPrewarmWorkerPool()
 
@@ -227,7 +280,8 @@ describe('decoder prewarm', () => {
     expect(activeWorker.terminate).toHaveBeenCalledTimes(1)
 
     await vi.waitFor(() => {
-      const posts = createdWorkers.flatMap((worker) => worker.postMessage.mock.calls)
+      const posts = createdWorkers
+        .flatMap((worker) => worker.postMessage.mock.calls)
         .map(([message]) => message as MockWorkerMessage)
         .filter((message) => message.type === 'active_preseek')
       expect(posts.map((message) => message.timestamp)).toEqual([10, 20, 30])

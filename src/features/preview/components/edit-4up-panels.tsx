@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { EditTwoUpPanelData } from './edit-2up-panels'
-import { VideoFrame, ImageFrame, TypePlaceholder } from './edit-2up-panels'
+import { CompositionFrame, VideoFrame, ImageFrame, TypePlaceholder } from './edit-2up-panels'
 import { useEditOverlayPanelPrewarm } from './use-edit-overlay-panel-prewarm'
 import type { TimelineItem } from '@/types/timeline'
 import {
@@ -77,6 +77,7 @@ export function EditFourUpPanels({
         <CornerThumbnail
           item={topLeftCorner.item}
           sourceTime={topLeftCorner.sourceTime}
+          sourceFrame={topLeftCorner.sourceFrame}
           width={cornerWidth}
           height={cornerHeight}
           position="top-left"
@@ -86,6 +87,7 @@ export function EditFourUpPanels({
         <CornerThumbnail
           item={topRightCorner.item}
           sourceTime={topRightCorner.sourceTime}
+          sourceFrame={topRightCorner.sourceFrame}
           width={cornerWidth}
           height={cornerHeight}
           position="top-right"
@@ -122,17 +124,26 @@ function MainPanel({ data, areaHeight, panelWidth }: MainPanelProps) {
           className="overflow-hidden border border-white/10"
           style={{ width: mediaWidth, height: mediaHeight }}
         >
-          {renderPanelMedia(data.item, data.sourceTime, data.placeholderText, {
-            renderVideo: (videoItem, time) => (
-              <VideoFrame
-                key={`${videoItem.id}:${videoItem.mediaId ?? 'none'}`}
-                item={videoItem}
-                sourceTime={time}
-              />
-            ),
-            renderImage: (imageItem) => <ImageFrame item={imageItem} />,
-            renderPlaceholder: (type, text) => <TypePlaceholder type={type} text={text} />,
-          })}
+          {renderPanelMedia(
+            data.item,
+            data.sourceTime,
+            data.placeholderText,
+            {
+              renderVideo: (videoItem, time) => (
+                <VideoFrame
+                  key={`${videoItem.id}:${videoItem.mediaId ?? 'none'}`}
+                  item={videoItem}
+                  sourceTime={time}
+                />
+              ),
+              renderImage: (imageItem) => <ImageFrame item={imageItem} />,
+              renderComposition: (compositionItem, frame) => (
+                <CompositionFrame item={compositionItem} sourceFrame={frame} />
+              ),
+              renderPlaceholder: (type, text) => <TypePlaceholder type={type} text={text} />,
+            },
+            data.sourceFrame,
+          )}
         </div>
       </div>
       <span className="text-lg font-mono text-white/90 tabular-nums pt-1">{data.timecode}</span>
@@ -143,15 +154,20 @@ function MainPanel({ data, areaHeight, panelWidth }: MainPanelProps) {
 interface CornerThumbnailProps {
   item: TimelineItem
   sourceTime?: number
+  sourceFrame?: number
   width: number
   height: number
   position: 'top-left' | 'top-right'
 }
 
-function CornerThumbnail({ item, sourceTime, width, height, position }: CornerThumbnailProps) {
-  const isVideo = item.type === 'video'
-  const isImage = item.type === 'image'
-
+function CornerThumbnail({
+  item,
+  sourceTime,
+  sourceFrame,
+  width,
+  height,
+  position,
+}: CornerThumbnailProps) {
   const positionClass = position === 'top-left' ? 'left-2 top-2' : 'right-2 top-2'
 
   return (
@@ -159,16 +175,25 @@ function CornerThumbnail({ item, sourceTime, width, height, position }: CornerTh
       className={`absolute ${positionClass} z-40 overflow-hidden border border-white/20 rounded-sm shadow-lg`}
       style={{ width, height }}
     >
-      {isVideo ? (
-        <VideoFrame
-          key={`${item.id}:${item.mediaId ?? 'none'}`}
-          item={item}
-          sourceTime={sourceTime ?? 0}
-        />
-      ) : isImage ? (
-        <ImageFrame item={item} />
-      ) : (
-        <TypePlaceholder type={item.type} text={item.type} />
+      {renderPanelMedia(
+        item,
+        sourceTime,
+        undefined,
+        {
+          renderVideo: (videoItem, time) => (
+            <VideoFrame
+              key={`${videoItem.id}:${videoItem.mediaId ?? 'none'}`}
+              item={videoItem}
+              sourceTime={time}
+            />
+          ),
+          renderImage: (imageItem) => <ImageFrame item={imageItem} />,
+          renderComposition: (compositionItem, frame) => (
+            <CompositionFrame item={compositionItem} sourceFrame={frame} />
+          ),
+          renderPlaceholder: (type, text) => <TypePlaceholder type={type} text={text} />,
+        },
+        sourceFrame,
       )}
     </div>
   )

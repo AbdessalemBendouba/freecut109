@@ -551,10 +551,12 @@ async function batchPreseek(
   timestamps: number[],
   blob?: Blob,
   sourceMetadata?: ObjectUrlSourceMetadata,
+  shouldContinue: () => boolean = () => true,
 ): Promise<Map<number, ImageBitmap>> {
   const results = new Map<number, ImageBitmap>()
+  if (!shouldContinue()) return results
   const state = await getExtractor(src, { blob, sourceMetadata })
-  if (!state || timestamps.length === 0) return results
+  if (!state || timestamps.length === 0 || !shouldContinue()) return results
 
   // Serialize with the single-frame path via drawLock
   const previous = state.drawLock ?? Promise.resolve()
@@ -566,6 +568,7 @@ async function batchPreseek(
       let i = 0
       try {
         for await (const sample of iterator) {
+          if (!shouldContinue()) break
           const timestamp = timestamps[i]
           i++
 
@@ -599,6 +602,8 @@ async function batchPreseek(
   return result
 }
 
+const cancelledBatchRequestIds = new Set<string>()
+
 // Signal worker is alive.
 self.postMessage({ type: 'ready' })
 
@@ -624,6 +629,11 @@ self.onmessage = async (event: MessageEvent) => {
     return
   }
 
+  if (msg.type === 'batch_cancel') {
+    cancelledBatchRequestIds.add(String(msg.id))
+    return
+  }
+
   // Batch preseek: decode multiple timestamps via optimized pipeline
   if (msg.type === 'batch_preseek') {
     if (msg.keyframeTimestamps && !keyframeIndexBySrc.has(msg.src)) {
@@ -631,18 +641,31 @@ self.onmessage = async (event: MessageEvent) => {
     }
     try {
       const sorted = [...msg.timestamps].sort((a: number, b: number) => a - b)
-      const bitmaps = await batchPreseek(msg.src, sorted, msg.blob, msg.sourceMetadata)
+      const requestId = String(msg.id)
+      const bitmaps = await batchPreseek(
+        msg.src,
+        sorted,
+        msg.blob,
+        msg.sourceMetadata,
+        () => !cancelledBatchRequestIds.has(requestId),
+      )
+      const wasCancelled = cancelledBatchRequestIds.delete(requestId)
       const transfer: Transferable[] = []
       const entries: Array<{ timestamp: number; bitmap: ImageBitmap }> = []
       for (const [ts, bitmap] of bitmaps) {
+        if (wasCancelled) {
+          bitmap.close()
+          continue
+        }
         entries.push({ timestamp: ts, bitmap })
         transfer.push(bitmap)
       }
       self.postMessage(
-        { type: 'batch_preseek_done', id: msg.id, success: true, entries },
+        { type: 'batch_preseek_done', id: msg.id, success: !wasCancelled, entries },
         { transfer },
       )
     } catch (error) {
+      cancelledBatchRequestIds.delete(String(msg.id))
       self.postMessage({
         type: 'batch_preseek_done',
         id: msg.id,
@@ -672,9 +695,7 @@ self.onmessage = async (event: MessageEvent) => {
       msg.timestamp,
       msg.blob,
       msg.sourceMetadata,
-      isActivePreviewRequest
-        ? () => activePreviewGeneration === Number(msg.generation)
-        : undefined,
+      isActivePreviewRequest ? () => activePreviewGeneration === Number(msg.generation) : undefined,
     )
     if (isActivePreviewRequest) {
       self.postMessage({

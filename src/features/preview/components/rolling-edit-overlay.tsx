@@ -3,6 +3,7 @@ import { useTimelineStore } from '@/features/preview/deps/timeline-store'
 import { useRollingEditPreviewStore } from '@/features/preview/deps/timeline-edit-preview'
 import { EditTwoUpPanels } from './edit-2up-panels'
 import { getRollingEditPanelFrames } from './rolling-edit-overlay-utils'
+import { resolveEditOverlayVisualItem } from './edit-overlay-visual-item'
 
 interface RollingEditOverlayProps {
   fps: number
@@ -21,9 +22,12 @@ export function RollingEditOverlay({ fps }: RollingEditOverlayProps) {
 
   if (!trimmedItemId || !neighborItemId || !handle) return null
 
-  const trimmedItem = itemsMap.get(trimmedItemId)
-  const neighborItem = itemsMap.get(neighborItemId)
-  if (!trimmedItem || !neighborItem) return null
+  const trimmedOperationItem = itemsMap.get(trimmedItemId)
+  const neighborOperationItem = itemsMap.get(neighborItemId)
+  if (!trimmedOperationItem || !neighborOperationItem) return null
+
+  const trimmedItem = resolveEditOverlayVisualItem(items, trimmedOperationItem)
+  const neighborItem = resolveEditOverlayVisualItem(items, neighborOperationItem)
 
   const { leftItem, rightItem, outInfo, inInfo } = getRollingEditPanelFrames({
     trimmedItem,
@@ -38,12 +42,14 @@ export function RollingEditOverlay({ fps }: RollingEditOverlayProps) {
       leftPanel={{
         item: leftItem,
         sourceTime: outInfo.sourceTime,
+        sourceFrame: outInfo.sourceFrame,
         timecode: outInfo.timecode,
         label: 'OUT',
       }}
       rightPanel={{
         item: rightItem,
         sourceTime: inInfo.sourceTime,
+        sourceFrame: inInfo.sourceFrame,
         timecode: inInfo.timecode,
         label: 'IN',
       }}

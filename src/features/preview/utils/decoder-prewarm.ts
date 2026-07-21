@@ -96,6 +96,7 @@ const pendingBatchRequests = new Map<
   string,
   {
     resolve: (bitmaps: Map<number, ImageBitmap>) => void
+    cancel: () => void
   }
 >()
 
@@ -1166,11 +1167,14 @@ function startBackgroundPreseek(
 export function backgroundBatchPreseek(
   src: string,
   timestamps: number[],
+  options: { signal?: AbortSignal } = {},
 ): Promise<Map<number, ImageBitmap>> {
+  const { signal } = options
+  if (signal?.aborted) return Promise.resolve(new Map())
   const uniqueTimestamps = [...new Set(timestamps)].sort((a, b) => a - b)
   if (uniqueTimestamps.length === 0) return Promise.resolve(new Map())
   // For single timestamps, fall back to the simpler path
-  if (uniqueTimestamps.length === 1) {
+  if (uniqueTimestamps.length === 1 && !signal) {
     return backgroundPreseek(src, uniqueTimestamps[0]!).then((bitmap) => {
       const map = new Map<number, ImageBitmap>()
       if (bitmap) map.set(uniqueTimestamps[0]!, bitmap)
@@ -1190,30 +1194,61 @@ export function backgroundBatchPreseek(
   }
 
   const promise = new Promise<Map<number, ImageBitmap>>((resolve) => {
+    let settled = false
+    let requestPosted = false
+    let requestCancelled = false
+    const settleCaller = (bitmaps: Map<number, ImageBitmap>) => {
+      if (settled) return
+      settled = true
+      resolve(bitmaps)
+    }
     const timeout = setTimeout(() => {
       pendingBatchRequests.delete(id)
       releaseWorker(pw)
-      resolve(new Map())
+      signal?.removeEventListener('abort', cancel)
+      if (requestPosted) pw.worker.postMessage({ type: 'batch_cancel', id })
+      settleCaller(new Map())
     }, 8000)
 
-    pendingBatchRequests.set(id, {
-      resolve: (bitmaps) => {
-        clearTimeout(timeout)
-        releaseWorker(pw)
-        // Cache all returned bitmaps
+    const finishRequest = (bitmaps: Map<number, ImageBitmap>) => {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', cancel)
+      releaseWorker(pw)
+      if (requestCancelled) {
+        for (const bitmap of bitmaps.values()) bitmap.close()
+      } else {
         for (const [ts, bitmap] of bitmaps) {
           cachePredecodedBitmap(src, ts, bitmap)
         }
-        resolve(bitmaps)
-      },
-    })
+      }
+      settleCaller(requestCancelled ? new Map() : bitmaps)
+    }
+    const cancel = () => {
+      if (requestCancelled) return
+      requestCancelled = true
+      if (requestPosted) {
+        pw.worker.postMessage({ type: 'batch_cancel', id })
+      } else {
+        pendingBatchRequests.delete(id)
+        clearTimeout(timeout)
+        releaseWorker(pw)
+      }
+      settleCaller(new Map())
+    }
+    pendingBatchRequests.set(id, { resolve: finishRequest, cancel })
+    signal?.addEventListener('abort', cancel, { once: true })
 
     const w = pw.worker
     const sourceMetadata = getDirectSourceMetadata(src)
     const postRequest = (blob?: Blob) => {
+      if (signal?.aborted) {
+        cancel()
+        return
+      }
       if (!pendingBatchRequests.has(id)) {
         return
       }
+      requestPosted = true
       decoderPrewarmMetrics.workerPosts += 1
       const msg = blob
         ? {
@@ -1269,6 +1304,17 @@ export function backgroundBatchPreseek(
       }
     }
   })
+
+  for (const timestamp of uniqueTimestamps) {
+    const inflightEntry: InflightPreseek = {
+      timestamp,
+      promise: promise.then((bitmaps) => bitmaps.get(timestamp) ?? null),
+    }
+    addInflightPreseek(src, inflightEntry)
+    void inflightEntry.promise.finally(() => {
+      removeInflightPreseek(src, inflightEntry)
+    })
+  }
 
   return promise
 }

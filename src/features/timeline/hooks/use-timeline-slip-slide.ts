@@ -37,6 +37,7 @@ import {
 } from '../utils/transition-utils'
 import {
   applyMovePreview,
+  applySlidePreview,
   applySlipPreview,
   applyTrimEndPreview,
   applyTrimStartPreview,
@@ -1086,28 +1087,44 @@ export function useTimelineSlipSlide(
         const linkedPreviewUpdates: PreviewItemUpdate[] = []
 
         if (synchronizedCounterpart) {
-          linkedPreviewUpdates.push(applyMovePreview(synchronizedCounterpart, clamped))
+          const counterpartContext = slideContext?.participantContexts.find(
+            ({ participant }) => participant.id === synchronizedCounterpart.id,
+          )
+          const leftCounterpart = counterpartContext
+            ? counterpartContext.leftAdjacent
+            : slideContext
+              ? slideContext.leftCounterpart
+              : leftNeighborId
+                ? getMatchingSynchronizedLinkedCounterpart(
+                    allItems,
+                    leftNeighborId,
+                    synchronizedCounterpart.trackId,
+                    synchronizedCounterpart.type,
+                  )
+                : null
+          const rightCounterpart = counterpartContext
+            ? counterpartContext.rightAdjacent
+            : slideContext
+              ? slideContext.rightCounterpart
+              : rightNeighborId
+                ? getMatchingSynchronizedLinkedCounterpart(
+                    allItems,
+                    rightNeighborId,
+                    synchronizedCounterpart.trackId,
+                    synchronizedCounterpart.type,
+                  )
+                : null
 
-          const leftCounterpart = slideContext
-            ? slideContext.leftCounterpart
-            : leftNeighborId
-              ? getMatchingSynchronizedLinkedCounterpart(
-                  allItems,
-                  leftNeighborId,
-                  synchronizedCounterpart.trackId,
-                  synchronizedCounterpart.type,
-                )
-              : null
-          const rightCounterpart = slideContext
-            ? slideContext.rightCounterpart
-            : rightNeighborId
-              ? getMatchingSynchronizedLinkedCounterpart(
-                  allItems,
-                  rightNeighborId,
-                  synchronizedCounterpart.trackId,
-                  synchronizedCounterpart.type,
-                )
-              : null
+          const sourceDelta = computeSlideContinuitySourceDelta(
+            synchronizedCounterpart,
+            leftCounterpart,
+            rightCounterpart,
+            clamped,
+            fps,
+          )
+          linkedPreviewUpdates.push(
+            applySlidePreview(synchronizedCounterpart, clamped, sourceDelta),
+          )
 
           if (leftCounterpart) {
             linkedPreviewUpdates.push(applyTrimEndPreview(leftCounterpart, clamped, fps))

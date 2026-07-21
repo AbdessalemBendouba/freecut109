@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { describe, expect, it } from 'vite-plus/test'
-import type { VideoItem } from '@/types/timeline'
+import type { CompositionItem, VideoItem } from '@/types/timeline'
 import { computeSlideContinuitySourceDelta } from './slide-utils'
 
 function makeVideoItem(overrides: Partial<VideoItem> = {}): VideoItem {
@@ -20,6 +20,27 @@ function makeVideoItem(overrides: Partial<VideoItem> = {}): VideoItem {
     sourceDuration: 500,
     sourceFps: 30,
     speed: 1,
+    ...overrides,
+  }
+}
+
+function makeCompositionItem(overrides: Partial<CompositionItem> = {}): CompositionItem {
+  return {
+    id: 'compound-1',
+    type: 'composition',
+    trackId: 'track-1',
+    from: 0,
+    durationInFrames: 50,
+    label: 'Nested compound',
+    compositionId: 'nested-composition',
+    compositionWidth: 1920,
+    compositionHeight: 1080,
+    originId: 'origin-1',
+    sourceStart: 0,
+    sourceEnd: 200,
+    sourceDuration: 1000,
+    sourceFps: 60,
+    speed: 2,
     ...overrides,
   }
 }
@@ -169,6 +190,24 @@ describe('computeSlideContinuitySourceDelta', () => {
     const delta = computeSlideContinuitySourceDelta(middle, left, right, 10, 30)
     // sourceDelta = round((10/30) * 60 * 2) = 40
     expect(delta).toBe(40)
+  })
+
+  it('applies fps and speed conversion to split composition wrappers', () => {
+    const left = makeCompositionItem({ id: 'left', sourceStart: 0, sourceEnd: 200 })
+    const middle = makeCompositionItem({
+      id: 'middle',
+      from: 50,
+      sourceStart: 200,
+      sourceEnd: 400,
+    })
+    const right = makeCompositionItem({
+      id: 'right',
+      from: 100,
+      sourceStart: 400,
+      sourceEnd: 600,
+    })
+
+    expect(computeSlideContinuitySourceDelta(middle, left, right, 10, 30)).toBe(40)
   })
 
   it('clamps continuously when the full source delta cannot be applied', () => {

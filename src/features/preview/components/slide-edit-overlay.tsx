@@ -3,6 +3,7 @@ import { useTimelineStore } from '@/features/preview/deps/timeline-store'
 import { useSlideEditPreviewStore } from '@/features/preview/deps/timeline-edit-preview'
 import { EditFourUpPanels } from './edit-4up-panels'
 import { getSourceFrameInfo } from './edit-overlay-utils'
+import { resolveEditOverlayVisualItem } from './edit-overlay-visual-item'
 
 interface SlideEditOverlayProps {
   fps: number
@@ -33,8 +34,14 @@ export function SlideEditOverlay({ fps }: SlideEditOverlayProps) {
   const slidItem = itemsMap.get(itemId)
   if (!slidItem) return null
 
-  const leftNeighbor = leftNeighborId ? (itemsMap.get(leftNeighborId) ?? null) : null
-  const rightNeighbor = rightNeighborId ? (itemsMap.get(rightNeighborId) ?? null) : null
+  const leftOperationNeighbor = leftNeighborId ? (itemsMap.get(leftNeighborId) ?? null) : null
+  const rightOperationNeighbor = rightNeighborId ? (itemsMap.get(rightNeighborId) ?? null) : null
+  const leftNeighbor = leftOperationNeighbor
+    ? resolveEditOverlayVisualItem(items, leftOperationNeighbor)
+    : null
+  const rightNeighbor = rightOperationNeighbor
+    ? resolveEditOverlayVisualItem(items, rightOperationNeighbor)
+    : null
 
   // --- Corner thumbnails: current baseline before drag delta ---
   const topLeftCorner = leftNeighbor
@@ -44,6 +51,7 @@ export function SlideEditOverlay({ fps }: SlideEditOverlayProps) {
         return {
           item: leftNeighbor,
           sourceTime: outInfo.sourceTime,
+          sourceFrame: outInfo.sourceFrame,
           timecode: outInfo.timecode,
           label: '',
         }
@@ -56,6 +64,7 @@ export function SlideEditOverlay({ fps }: SlideEditOverlayProps) {
         return {
           item: rightNeighbor,
           sourceTime: inInfo.sourceTime,
+          sourceFrame: inInfo.sourceFrame,
           timecode: inInfo.timecode,
           label: '',
         }
@@ -72,6 +81,7 @@ export function SlideEditOverlay({ fps }: SlideEditOverlayProps) {
         return {
           item: leftNeighbor,
           sourceTime: outInfo.sourceTime,
+          sourceFrame: outInfo.sourceFrame,
           timecode: outInfo.timecode,
           label: 'OUT',
         }
@@ -95,6 +105,7 @@ export function SlideEditOverlay({ fps }: SlideEditOverlayProps) {
         return {
           item: rightNeighbor,
           sourceTime: inInfo.sourceTime,
+          sourceFrame: inInfo.sourceFrame,
           timecode: inInfo.timecode,
           label: 'IN',
         }

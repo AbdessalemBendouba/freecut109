@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { Clock } from './Clock'
 
-describe('Clock hidden tab playback', () => {
+describe('Clock playback timing', () => {
   let nowMs = 0
   let nextRafId = 1
   let rafCallbacks = new Map<number, FrameRequestCallback>()
@@ -89,6 +89,71 @@ describe('Clock hidden tab playback', () => {
     nowMs = 2500
     window.dispatchEvent(new Event('focus'))
     expect(clock.currentFrame).toBe(75)
+
+    clock.dispose()
+  })
+
+  it('keeps advancing when a suspended audio clock resumes after play starts', () => {
+    let audioState: AudioContextState = 'suspended'
+    let audioTime = 40
+    const audioContext = {
+      get state() {
+        return audioState
+      },
+      get currentTime() {
+        return audioTime
+      },
+    } as unknown as AudioContext
+    const clock = new Clock({
+      fps: 30,
+      durationInFrames: 300,
+    })
+
+    nowMs = 1_000_000
+    clock.setAudioContext(audioContext)
+    clock.play()
+    runNextAnimationFrame(1_000_016)
+
+    audioState = 'running'
+    audioTime = 40.02
+    runNextAnimationFrame(1_000_032)
+    expect(clock.currentFrame).toBeGreaterThanOrEqual(0)
+
+    audioTime = 40.52
+    runNextAnimationFrame(1_000_532)
+    expect(clock.currentFrame).toBe(15)
+
+    clock.dispose()
+  })
+
+  it('keeps advancing when the audio clock suspends during playback', () => {
+    let audioState: AudioContextState = 'running'
+    let audioTime = 25
+    const audioContext = {
+      get state() {
+        return audioState
+      },
+      get currentTime() {
+        return audioTime
+      },
+    } as unknown as AudioContext
+    const clock = new Clock({
+      fps: 30,
+      durationInFrames: 300,
+    })
+
+    clock.setAudioContext(audioContext)
+    clock.play()
+    audioTime = 25.5
+    runNextAnimationFrame(500)
+    expect(clock.currentFrame).toBe(15)
+
+    audioState = 'suspended'
+    runNextAnimationFrame(1_000_000)
+    expect(clock.currentFrame).toBe(15)
+
+    runNextAnimationFrame(1_000_500)
+    expect(clock.currentFrame).toBe(30)
 
     clock.dispose()
   })

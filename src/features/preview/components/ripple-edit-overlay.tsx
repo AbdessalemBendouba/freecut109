@@ -4,6 +4,7 @@ import { useTimelineStore } from '@/features/preview/deps/timeline-store'
 import { useRippleEditPreviewStore } from '@/features/preview/deps/timeline-edit-preview'
 import { EditTwoUpPanels } from './edit-2up-panels'
 import { getSourceFrameInfo } from './edit-overlay-utils'
+import { resolveEditOverlayVisualItem } from './edit-overlay-visual-item'
 
 interface RippleEditOverlayProps {
   fps: number
@@ -104,11 +105,13 @@ export function RippleEditOverlay({ fps }: RippleEditOverlayProps) {
 
   if (!trimmedItem || !handle) return null
 
+  const trimmedVisualItem = resolveEditOverlayVisualItem(items, trimmedItem)
+
   // --- End-handle trim ---
   if (handle === 'end') {
     const editPointFrame = trimmedItem.from + trimmedItem.durationInFrames + delta
     const outLocalFrame = Math.max(0, editPointFrame - trimmedItem.from - 1)
-    const outInfo = getSourceFrameInfo(trimmedItem, outLocalFrame, fps)
+    const outInfo = getSourceFrameInfo(trimmedVisualItem, outLocalFrame, fps)
 
     // Check if the next clip is adjacent to the new edit point.
     // If there's a gap between them, IN should show GAP, not the distant clip.
@@ -120,8 +123,9 @@ export function RippleEditOverlay({ fps }: RippleEditOverlayProps) {
       return (
         <EditTwoUpPanels
           leftPanel={{
-            item: trimmedItem,
+            item: trimmedVisualItem,
             sourceTime: outInfo.sourceTime,
+            sourceFrame: outInfo.sourceFrame,
             timecode: outInfo.timecode,
             label: 'OUT',
           }}
@@ -136,19 +140,22 @@ export function RippleEditOverlay({ fps }: RippleEditOverlayProps) {
     }
 
     // B is not edited during a ripple trim of A's end — its content is constant
-    const inInfo = getSourceFrameInfo(nextItem, 0, fps)
+    const nextVisualItem = resolveEditOverlayVisualItem(items, nextItem)
+    const inInfo = getSourceFrameInfo(nextVisualItem, 0, fps)
 
     return (
       <EditTwoUpPanels
         leftPanel={{
-          item: trimmedItem,
+          item: trimmedVisualItem,
           sourceTime: outInfo.sourceTime,
+          sourceFrame: outInfo.sourceFrame,
           timecode: outInfo.timecode,
           label: 'OUT',
         }}
         rightPanel={{
-          item: nextItem,
+          item: nextVisualItem,
           sourceTime: inInfo.sourceTime,
+          sourceFrame: inInfo.sourceFrame,
           timecode: inInfo.timecode,
           label: 'IN',
         }}
@@ -159,7 +166,7 @@ export function RippleEditOverlay({ fps }: RippleEditOverlayProps) {
   // --- Start-handle trim ---
   // IN = trimmed clip at its new first visible frame.
   // trimDelta frames into the original clip's range (negative when extending start).
-  const inInfo = getSourceFrameInfo(trimmedItem, trimDelta, fps)
+  const inInfo = getSourceFrameInfo(trimmedVisualItem, trimDelta, fps)
 
   // Check if the previous clip is adjacent to A's start.
   // In the anchor-from ripple model, A's position doesn't change — only its
@@ -177,8 +184,9 @@ export function RippleEditOverlay({ fps }: RippleEditOverlayProps) {
           placeholderText: 'GAP',
         }}
         rightPanel={{
-          item: trimmedItem,
+          item: trimmedVisualItem,
           sourceTime: inInfo.sourceTime,
+          sourceFrame: inInfo.sourceFrame,
           timecode: inInfo.timecode,
           label: 'IN',
         }}
@@ -188,19 +196,22 @@ export function RippleEditOverlay({ fps }: RippleEditOverlayProps) {
 
   // OUT = previous clip's last frame (not edited, so its content is constant)
   const outLocalFrame = Math.max(0, prevItem.durationInFrames - 1)
-  const outInfo = getSourceFrameInfo(prevItem, outLocalFrame, fps)
+  const prevVisualItem = resolveEditOverlayVisualItem(items, prevItem)
+  const outInfo = getSourceFrameInfo(prevVisualItem, outLocalFrame, fps)
 
   return (
     <EditTwoUpPanels
       leftPanel={{
-        item: prevItem,
+        item: prevVisualItem,
         sourceTime: outInfo.sourceTime,
+        sourceFrame: outInfo.sourceFrame,
         timecode: outInfo.timecode,
         label: 'OUT',
       }}
       rightPanel={{
-        item: trimmedItem,
+        item: trimmedVisualItem,
         sourceTime: inInfo.sourceTime,
+        sourceFrame: inInfo.sourceFrame,
         timecode: inInfo.timecode,
         label: 'IN',
       }}

@@ -31,12 +31,13 @@ export { resolveSourceEditTrackTargets } from '../utils/source-edit-targeting'
 export { getTrackKind } from '../utils/classic-tracks'
 export { createClassicTrack } from '../utils/classic-tracks'
 export { timelineToSourceFrames } from '../utils/source-calculations'
+export { getSynchronizedLinkedItems } from '../utils/linked-items'
 export { useCompositionsStore } from '../stores/compositions-store'
 export type { SubComposition } from '../stores/compositions-store'
 export { useCompositionNavigationStore } from '../stores/composition-navigation-store'
 export {
   buildSubCompositionInput,
-  collectSubCompositionMediaIds,
+  buildSubCompositionPreviewSignature,
 } from '../utils/sub-composition-preview'
 export { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub-throttle'
 export { useWaveform } from '../hooks/use-waveform'

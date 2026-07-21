@@ -20,7 +20,7 @@ import type {
   ImageItem,
   LottieItem,
   ShapeItem,
-  CompositionItem,
+  TimelineTrack,
 } from '@/types/timeline'
 import {
   LottieExportProvider,
@@ -74,10 +74,7 @@ import {
 } from '@/features/export/deps/timeline-compositions'
 import { doesMaskAffectTrack } from '@/shared/utils/mask-scope'
 import type { FrameInvalidationRequest } from '@/shared/utils/frame-invalidation'
-import {
-  collectReachableCompositionIdsFromItems,
-  collectReachableCompositionIdsFromTracks,
-} from '@/features/export/deps/timeline-compositions'
+import { collectReachableCompositionIdsFromTracks } from '@/features/export/deps/timeline-compositions'
 
 // Item renderer
 import {
@@ -105,6 +102,7 @@ import {
 } from './render-path-optimizer'
 import { ReverseVideoFrameCache } from './reverse-video-frame-cache'
 import { resolveReverseConformedVideoItem } from '@/shared/utils/reverse-conform-item'
+import { resolveCompositionSourceFrame } from './render-span'
 import {
   itemHasEnabledGpuEffect,
   isAnimatedImage,
@@ -174,15 +172,184 @@ export { subCompositionRenderDataHasGpuEffects }
 
 export type RenderedFrameCacheMode = 'full' | 'gpu-only' | 'skip'
 
+const ISOLATED_SEEK_WORKER_WAIT_MS = 900
+
 export interface VideoPreloadPlan {
   priorityItemIds: string[]
   eagerItemIds: string[]
   deferredItemIds: string[]
 }
 
-/** Export opens every source up front; preview opens only the bounded priority window. */
+export type CompositionRendererMode = 'export' | 'preview' | 'comparison'
+
+export interface CompositionRendererExecutionPolicy {
+  itemRenderMode: 'export' | 'preview'
+  usesSharedPreviewPool: boolean
+  usesStrictPreviewDecode: boolean
+  allowsPredecodedVideoFrames: boolean
+}
+
+export function resolveCompositionRendererExecutionPolicy(
+  mode: CompositionRendererMode,
+): CompositionRendererExecutionPolicy {
+  const isPreview = mode === 'preview'
+  return {
+    itemRenderMode: isPreview ? 'preview' : 'export',
+    usesSharedPreviewPool: isPreview,
+    usesStrictPreviewDecode: isPreview,
+    allowsPredecodedVideoFrames: mode === 'comparison',
+  }
+}
+
+export function resolveWorkerPredecodeWaitMs(
+  rendererMode: CompositionRendererMode,
+  renderedFrameCacheMode: RenderedFrameCacheMode,
+): number | undefined {
+  // Comparison frames share a serialized render session. A long worker wait
+  // here would let a superseded guide frame block the current drag target.
+  if (rendererMode === 'comparison') return undefined
+  return renderedFrameCacheMode === 'skip' ? ISOLATED_SEEK_WORKER_WAIT_MS : undefined
+}
+
+export interface PriorityMediaItemIds {
+  video: string[]
+  image: string[]
+  lottie: string[]
+}
+
+export function selectRendererPreloadItems<T>(
+  mode: CompositionRendererMode,
+  items: readonly T[],
+  priorityItemIds: ReadonlySet<string>,
+  getItemId: (item: T) => string,
+): T[] {
+  if (mode !== 'comparison') return [...items]
+  return items.filter((item) => priorityItemIds.has(getItemId(item)))
+}
+
+export function selectNestedMediaSource({
+  useProxyMedia,
+  proxyUrl,
+  sourceUrl,
+}: {
+  useProxyMedia: boolean
+  proxyUrl: string | null
+  sourceUrl: string | null
+}): string | null {
+  return (useProxyMedia ? proxyUrl : null) ?? sourceUrl
+}
+
+function selectFirstMediaSource(candidates: Array<string | null | undefined>): string | null {
+  return candidates.find((candidate): candidate is string => !!candidate) ?? null
+}
+
+function selectComparisonVideoSource(
+  item: VideoItem,
+  registeredSource: string | undefined,
+  useProxyMedia: boolean,
+): string | null {
+  return selectFirstMediaSource([
+    registeredSource,
+    useProxyMedia && item.mediaId ? resolveProxyUrl(item.mediaId) : null,
+    item.src,
+    item.mediaId ? blobUrlManager.get(item.mediaId) : null,
+  ])
+}
+
+function selectExportVideoSource(
+  item: VideoItem,
+  registeredSource: string | undefined,
+): string | null {
+  return selectFirstMediaSource([
+    item.mediaId ? blobUrlManager.get(item.mediaId) : null,
+    registeredSource,
+    item.src,
+  ])
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return
+  throw signal.reason ?? new DOMException('Renderer preload aborted', 'AbortError')
+}
+
+function waitForFallbackVideoReady(options: {
+  video: HTMLVideoElement
+  itemId: string
+  signal?: AbortSignal
+  context: 'root' | 'nested'
+}): Promise<void> {
+  const { video, itemId, signal, context } = options
+  throwIfAborted(signal)
+  return new Promise((resolve, reject) => {
+    let settled = false
+    const cleanup = () => {
+      clearTimeout(timeout)
+      video.removeEventListener('loadeddata', onLoaded)
+      video.removeEventListener('error', onError)
+      signal?.removeEventListener('abort', onAbort)
+    }
+    const finish = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve()
+    }
+    const onLoaded = () => finish()
+    const onError = () => {
+      getLog().warn('Fallback video preload failed (non-fatal)', {
+        context,
+        itemId,
+        mediaErrorCode: video.error?.code,
+        mediaErrorMessage: video.error?.message,
+      })
+      finish()
+    }
+    const onAbort = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      try {
+        video.pause()
+      } catch {
+        // The renderer is already being disposed; abort must still reject promptly.
+      }
+      reject(signal?.reason ?? new DOMException('Video preload aborted', 'AbortError'))
+    }
+    const timeout = setTimeout(() => {
+      getLog().warn('Fallback video load timeout', { context, itemId })
+      finish()
+    }, 10000)
+
+    video.addEventListener('loadeddata', onLoaded, { once: true })
+    video.addEventListener('error', onError, { once: true })
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (video.readyState >= 2) finish()
+    else video.load()
+  })
+}
+
+async function resolveRendererMediaSource(
+  item: VideoItem | ImageItem | LottieItem,
+  useProxyMedia: boolean,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  throwIfAborted(signal)
+  if (useProxyMedia && item.type === 'video' && item.mediaId) {
+    const proxyUrl = resolveProxyUrl(item.mediaId)
+    if (proxyUrl) return proxyUrl
+  }
+  if (item.src) return item.src
+  if (!item.mediaId) return null
+  const cachedUrl = blobUrlManager.get(item.mediaId)
+  if (cachedUrl) return cachedUrl
+  const resolvedUrl = await resolveMediaUrl(item.mediaId)
+  throwIfAborted(signal)
+  return resolvedUrl || null
+}
+
+/** Export opens every source up front; interactive renderers initialize misses on demand. */
 export function resolveVideoPreloadPlan(
-  renderMode: 'export' | 'preview',
+  renderMode: CompositionRendererMode,
   allItemIds: Iterable<string>,
   priorityItemIds: Iterable<string>,
 ): VideoPreloadPlan {
@@ -194,8 +361,131 @@ export function resolveVideoPreloadPlan(
   return {
     priorityItemIds: priority,
     eagerItemIds: renderMode === 'export' ? remaining : [],
-    deferredItemIds: renderMode === 'preview' ? remaining : [],
+    deferredItemIds: renderMode === 'export' ? [] : remaining,
   }
+}
+
+function isVisibleAtFrame(
+  item: TimelineItem,
+  frame: number,
+  visibleTrackIds: ReadonlySet<string> | null,
+): boolean {
+  if (visibleTrackIds && !visibleTrackIds.has(item.trackId)) return false
+  return frame >= item.from && frame < item.from + item.durationInFrames
+}
+
+function getPriorityMediaType(item: TimelineItem): keyof PriorityMediaItemIds | null {
+  switch (item.type) {
+    case 'video':
+    case 'image':
+    case 'lottie':
+      return item.type
+    default:
+      return null
+  }
+}
+
+function getVisibleSubCompositionTrackIds(composition: SubComposition): ReadonlySet<string> | null {
+  if (composition.tracks.length === 0) return null
+  return new Set(composition.tracks.filter((track) => track.visible).map((track) => track.id))
+}
+
+export function collectPriorityMediaItemIds({
+  tracks,
+  frame,
+  fps,
+  compositionById,
+}: {
+  tracks: TimelineTrack[]
+  frame: number
+  fps: number
+  compositionById: Record<string, SubComposition | undefined>
+}): PriorityMediaItemIds {
+  const itemIds = {
+    video: new Set<string>(),
+    image: new Set<string>(),
+    lottie: new Set<string>(),
+  }
+
+  const visitItems = (
+    items: TimelineItem[],
+    currentFrame: number,
+    currentFps: number,
+    visibleTrackIds: ReadonlySet<string> | null,
+    path: ReadonlySet<string>,
+  ) => {
+    for (const item of items) {
+      if (!isVisibleAtFrame(item, currentFrame, visibleTrackIds)) continue
+
+      const mediaType = getPriorityMediaType(item)
+      if (mediaType) {
+        itemIds[mediaType].add(item.id)
+        continue
+      }
+      if (item.type !== 'composition' || path.has(item.compositionId)) continue
+
+      const subComposition = compositionById[item.compositionId]
+      if (!subComposition) continue
+      const subFrame = resolveCompositionSourceFrame(
+        item,
+        currentFrame,
+        currentFps,
+        subComposition.fps,
+      )
+      if (subFrame < 0 || subFrame >= subComposition.durationInFrames) continue
+
+      const nextPath = new Set(path)
+      nextPath.add(item.compositionId)
+      const subVisibleTrackIds = getVisibleSubCompositionTrackIds(subComposition)
+      visitItems(subComposition.items, subFrame, subComposition.fps, subVisibleTrackIds, nextPath)
+    }
+  }
+
+  for (const track of tracks) {
+    if (!track.visible) continue
+    visitItems(track.items ?? [], frame, fps, null, new Set())
+  }
+
+  return {
+    video: [...itemIds.video],
+    image: [...itemIds.image],
+    lottie: [...itemIds.lottie],
+  }
+}
+
+export function collectPriorityMediaItemIdsForFrames({
+  tracks,
+  frames,
+  fps,
+  compositionById,
+}: {
+  tracks: TimelineTrack[]
+  frames: readonly number[]
+  fps: number
+  compositionById: Record<string, SubComposition | undefined>
+}): PriorityMediaItemIds {
+  const merged = {
+    video: new Set<string>(),
+    image: new Set<string>(),
+    lottie: new Set<string>(),
+  }
+  for (const frame of frames) {
+    const frameItems = collectPriorityMediaItemIds({ tracks, frame, fps, compositionById })
+    for (const itemId of frameItems.video) merged.video.add(itemId)
+    for (const itemId of frameItems.image) merged.image.add(itemId)
+    for (const itemId of frameItems.lottie) merged.lottie.add(itemId)
+  }
+  return {
+    video: [...merged.video],
+    image: [...merged.image],
+    lottie: [...merged.lottie],
+  }
+}
+
+export function collectPriorityNestedVideoItemIds(
+  options: Parameters<typeof collectPriorityMediaItemIds>[0],
+): string[] {
+  return collectPriorityMediaItemIds(options).video
 }
 
 /**
@@ -315,7 +605,7 @@ export async function createCompositionRenderer(
   canvas: OffscreenCanvas,
   ctx: OffscreenCanvasRenderingContext2D,
   options: {
-    mode?: 'export' | 'preview'
+    mode?: CompositionRendererMode
     getPreviewTransformOverride?: (itemId: string) => Partial<ResolvedTransform> | undefined
     getPreviewEffectsOverride?: (itemId: string) => ItemEffect[] | undefined
     getPreviewCornerPinOverride?: (itemId: string) => TimelineItem['cornerPin'] | undefined
@@ -328,7 +618,11 @@ export async function createCompositionRenderer(
   } = {},
 ) {
   const { fps, transitions = [], backgroundColor = '#000000', keyframes = [] } = composition
-  const renderMode = options.mode ?? 'export'
+  const rendererMode = options.mode ?? 'export'
+  const executionPolicy = resolveCompositionRendererExecutionPolicy(rendererMode)
+  const renderMode = executionPolicy.itemRenderMode
+  const isComparisonMode = rendererMode === 'comparison'
+  const useProxyMedia = options.useProxyMedia === true
   const compositionTracks =
     options.renderText === false
       ? composition.tracks?.map((track) => ({
@@ -342,7 +636,7 @@ export async function createCompositionRenderer(
       items: (track.items ?? []).map((item) =>
         item.type === 'video'
           ? resolveReverseConformedVideoItem(item, fps, {
-              mode: renderMode,
+              mode: isComparisonMode ? 'preview' : renderMode,
               useProxy: options.useProxyMedia,
             })
           : item,
@@ -356,7 +650,7 @@ export async function createCompositionRenderer(
   const getLiveKeyframes = options.getLiveKeyframes
   const domVideoElementProvider = options.domVideoElementProvider
   const hasDom = typeof document !== 'undefined'
-  const previewStrictDecode = renderMode === 'preview'
+  const previewStrictDecode = executionPolicy.usesStrictPreviewDecode
 
   const canvasSettings: CanvasSettings = {
     width: canvas.width,
@@ -491,8 +785,9 @@ export async function createCompositionRenderer(
 
   // === PERFORMANCE OPTIMIZATION: Use mediabunny for video decoding ===
   // VideoFrameExtractor provides precise frame access without seek delays
-  const sharedPreviewExtractorLease =
-    renderMode === 'preview' ? acquireSharedPreviewVideoExtractorPool() : null
+  const sharedPreviewExtractorLease = executionPolicy.usesSharedPreviewPool
+    ? acquireSharedPreviewVideoExtractorPool()
+    : null
   const sharedVideoExtractors =
     sharedPreviewExtractorLease?.pool ??
     new SharedVideoExtractorPool({
@@ -511,7 +806,6 @@ export async function createCompositionRenderer(
   const fallbackVideoBySrc = new Set<string>()
   const fallbackVideoClipIdByItem = new Map<string, string>()
   let fallbackVideoClipCounter = 0
-
   const registerVideoItem = (itemId: string, src: string): void => {
     if (!src) return
     const prevSrc = videoSourceByItemId.get(itemId)
@@ -573,7 +867,7 @@ export async function createCompositionRenderer(
           registerVideoItem(item.id, videoItem.src)
 
           // Also create fallback video element in case mediabunny fails (main thread only).
-          if (hasDom && !previewStrictDecode) {
+          if (hasDom && !previewStrictDecode && !isComparisonMode) {
             bindFallbackVideoElement(item.id, videoItem.src)
           }
         }
@@ -581,11 +875,15 @@ export async function createCompositionRenderer(
     }
   }
 
-  // Pre-load image elements
+  let isDisposed = false
+
+  // Image elements and animated frames are loaded through per-item promises so
+  // comparison panels can warm only the exact target dependencies.
   const imageElements = new Map<string, WorkerLoadedImage>()
   const imageLoadPromises: Promise<void>[] = []
-
-  // Track animated image items for frame extraction (GIF + animated WebP)
+  const imageLoadByKey = new Map<string, Promise<void>>()
+  const animatedImageLoadByKey = new Map<string, Promise<void>>()
+  const imageItems: ImageItem[] = []
   const gifItems: ImageItem[] = []
   const webpItems: ImageItem[] = []
   const gifFramesMap = new Map<string, CachedGifFrames>()
@@ -603,6 +901,141 @@ export async function createCompositionRenderer(
     const live = getLiveItemSnapshot?.(baseItem.id)
     return live && live.type === 'lottie' ? live : baseItem
   }
+  const lottieLoadByKey = new Map<string, Promise<void>>()
+
+  const ensureLottieItemReady = async (baseItem: LottieItem, signal?: AbortSignal) => {
+    if (lottieProvider.get(baseItem.id)) return
+    const item = liveLottieItem(baseItem)
+    const src = await resolveRendererMediaSource(item, false, signal)
+    if (!src || !isRenderableLottieSrc(src)) return
+    const signature = lottieOverrideSignature(item)
+    const key = `${item.id}\u0000${src}\u0000${signature}`
+    const existing = lottieLoadByKey.get(key)
+    if (existing) return existing
+
+    const promise = (async () => {
+      throwIfAborted(signal)
+      const w = item.sourceWidth && item.sourceWidth > 0 ? item.sourceWidth : 512
+      const h = item.sourceHeight && item.sourceHeight > 0 ? item.sourceHeight : 512
+      const spec = await resolveLottieRenderSpec(src, item)
+      throwIfAborted(signal)
+      if (isDisposed) return
+      await lottieProvider.preload(
+        item.id,
+        src,
+        w,
+        h,
+        spec.data ?? undefined,
+        signature,
+        spec.themeData ?? undefined,
+        spec.slots ?? undefined,
+      )
+      throwIfAborted(signal)
+    })().finally(() => {
+      lottieLoadByKey.delete(key)
+    })
+    lottieLoadByKey.set(key, promise)
+    return promise
+  }
+
+  const ensureAnimatedImageReady = async (
+    item: ImageItem,
+    src: string,
+    signal?: AbortSignal,
+  ): Promise<void> => {
+    if (!hasDom || !isAnimatedImage(item) || gifFramesMap.has(item.id)) return
+    const key = `${item.id}\u0000${src}`
+    const existing = animatedImageLoadByKey.get(key)
+    if (existing) return existing
+    const promise = (async () => {
+      throwIfAborted(signal)
+      const mediaId = item.mediaId ?? item.id
+      const frames = isGifFormat(item)
+        ? await gifFrameCache.getGifFrames(mediaId, src)
+        : await gifFrameCache.getWebpFrames(mediaId, src)
+      throwIfAborted(signal)
+      if (!isDisposed) gifFramesMap.set(item.id, frames)
+    })()
+      .catch((error) => {
+        if (!signal?.aborted) {
+          getLog().error('Failed to load animated image frames', { itemId: item.id, error })
+        }
+      })
+      .finally(() => {
+        animatedImageLoadByKey.delete(key)
+      })
+    animatedImageLoadByKey.set(key, promise)
+    return promise
+  }
+
+  const ensureImageItemReady = async (baseItem: ImageItem, signal?: AbortSignal) => {
+    const src = await resolveRendererMediaSource(baseItem, false, signal)
+    if (!src) return
+    const item = baseItem.src === src ? baseItem : ({ ...baseItem, src } as ImageItem)
+    const key = `${item.id}\u0000${src}`
+    let loadPromise = imageLoadByKey.get(key)
+    if (!imageElements.has(item.id) && !loadPromise) {
+      loadPromise = (async () => {
+        throwIfAborted(signal)
+        if (hasDom && typeof Image !== 'undefined') {
+          await new Promise<void>((resolve, reject) => {
+            const img = new Image()
+            img.crossOrigin = 'anonymous'
+            const cleanup = () => signal?.removeEventListener('abort', onAbort)
+            const onAbort = () => {
+              cleanup()
+              img.src = ''
+              reject(signal?.reason ?? new DOMException('Image load aborted', 'AbortError'))
+            }
+            img.onload = () => {
+              cleanup()
+              if (!isDisposed) {
+                imageElements.set(item.id, {
+                  source: img,
+                  width: img.naturalWidth,
+                  height: img.naturalHeight,
+                })
+              }
+              resolve()
+            }
+            img.onerror = () => {
+              cleanup()
+              reject(new Error(`Failed to load image: ${src}`))
+            }
+            signal?.addEventListener('abort', onAbort, { once: true })
+            img.src = src
+          })
+        } else {
+          if (typeof createImageBitmap !== 'function') {
+            throw new Error('WORKER_REQUIRES_MAIN_THREAD:imagebitmap')
+          }
+          const response = await fetch(src, { signal })
+          if (!response.ok) throw new Error(`Failed to load image: ${src}`)
+          const bitmap = await createImageBitmap(await response.blob())
+          throwIfAborted(signal)
+          if (!isDisposed) {
+            imageElements.set(item.id, {
+              source: bitmap,
+              width: bitmap.width,
+              height: bitmap.height,
+            })
+          } else {
+            bitmap.close()
+          }
+        }
+      })()
+        .catch((error) => {
+          if (!signal?.aborted) getLog().error('Failed to load image', { itemId: item.id, error })
+          if (signal?.aborted) throw error
+        })
+        .finally(() => {
+          imageLoadByKey.delete(key)
+        })
+      imageLoadByKey.set(key, loadPromise)
+    }
+    await Promise.all([loadPromise, ensureAnimatedImageReady(item, src, signal)])
+  }
+
   const lottieOverridesAreStale = (): boolean =>
     lottieItems.some(
       (baseItem) =>
@@ -635,56 +1068,21 @@ export async function createCompositionRenderer(
 
   for (const track of tracks) {
     for (const item of track.items ?? []) {
-      if (item.type === 'lottie' && isRenderableLottieSrc((item as LottieItem).src)) {
+      if (item.type === 'lottie' && (item.src || item.mediaId)) {
         lottieItems.push(item as LottieItem)
       }
-      if (item.type === 'image' && (item as ImageItem).src) {
+      if (item.type === 'image' && (item.src || item.mediaId)) {
         const imageItem = item as ImageItem
-
-        // Check if this is a potentially animated image
+        imageItems.push(imageItem)
         if (isAnimatedImage(imageItem)) {
           if (isGifFormat(imageItem)) {
             gifItems.push(imageItem)
           } else {
             webpItems.push(imageItem)
           }
-          // Still load as regular image for fallback
         }
-
-        if (hasDom && typeof Image !== 'undefined') {
-          const img = new Image()
-          img.crossOrigin = 'anonymous'
-          const loadPromise = new Promise<void>((resolve, reject) => {
-            img.onload = () => {
-              imageElements.set(item.id, {
-                source: img,
-                width: img.naturalWidth,
-                height: img.naturalHeight,
-              })
-              resolve()
-            }
-            img.onerror = () => reject(new Error(`Failed to load image: ${imageItem.src}`))
-          })
-          img.src = imageItem.src
-          imageLoadPromises.push(loadPromise)
-        } else {
-          const loadPromise = (async () => {
-            if (typeof createImageBitmap !== 'function') {
-              throw new Error('WORKER_REQUIRES_MAIN_THREAD:imagebitmap')
-            }
-            const response = await fetch(imageItem.src)
-            if (!response.ok) {
-              throw new Error(`Failed to load image: ${imageItem.src}`)
-            }
-            const blob = await response.blob()
-            const bitmap = await createImageBitmap(blob)
-            imageElements.set(item.id, {
-              source: bitmap,
-              width: bitmap.width,
-              height: bitmap.height,
-            })
-          })()
-          imageLoadPromises.push(loadPromise)
+        if (!isComparisonMode) {
+          imageLoadPromises.push(ensureImageItemReady(imageItem))
         }
       }
     }
@@ -712,7 +1110,6 @@ export async function createCompositionRenderer(
   const MEDIABUNNY_DISABLE_THRESHOLD = 4
   const PREWARM_FAILURE_DISABLE_THRESHOLD = 3
   const inFlightInitByItem = new Map<string, Promise<boolean>>()
-  let isDisposed = false
 
   function syncVideoItemRegistration(videoItem: VideoItem): void {
     if (!videoItem.src) return
@@ -772,7 +1169,6 @@ export async function createCompositionRenderer(
     }
   }
   const PREWARM_DECODE_MAX_ITEMS = 6
-  const ISOLATED_SEEK_WORKER_WAIT_MS = 900
   let prewarmCanvas: OffscreenCanvas | HTMLCanvasElement | null = null
   let prewarmCtx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null = null
   let prewarmAttempted = false
@@ -797,30 +1193,36 @@ export async function createCompositionRenderer(
     useMediabunny,
     mediabunnyDisabledItems,
     mediabunnyFailureCountByItem,
-    getResolvedVideoSource: (item, sourceTime, toleranceSeconds) =>
-      renderMode === 'preview'
-        ? selectPreviewVideoSource({
-            candidates: [
-              item.src,
-              item.mediaId ? resolveProxyUrl(item.mediaId) : null,
-              videoSourceByItemId.get(item.id),
-              item.mediaId ? blobUrlManager.get(item.mediaId) : null,
-            ],
-            sourceTime,
-            toleranceSeconds,
-            getCachedPredecodedBitmap: itemRenderContext.getCachedPredecodedBitmap,
-            getCachedActivePreviewFallbackBitmap:
-              itemRenderContext.getCachedActivePreviewFallbackBitmap,
-            isActivePreviewSourceTarget: itemRenderContext.isActivePreviewSourceTarget,
-          })
-        : ((item.mediaId ? blobUrlManager.get(item.mediaId) : null) ??
-          videoSourceByItemId.get(item.id) ??
-          item.src ??
-          null),
+    allowPredecodedVideoFrames: executionPolicy.allowsPredecodedVideoFrames,
+    workerPredecodeWaitMs: undefined,
+    getResolvedVideoSource: (item, sourceTime, toleranceSeconds) => {
+      const registeredSource = videoSourceByItemId.get(item.id)
+      if (renderMode !== 'preview') {
+        return isComparisonMode
+          ? selectComparisonVideoSource(item, registeredSource, useProxyMedia)
+          : selectExportVideoSource(item, registeredSource)
+      }
+      return selectPreviewVideoSource({
+        candidates: [
+          item.src,
+          item.mediaId ? resolveProxyUrl(item.mediaId) : null,
+          registeredSource,
+          item.mediaId ? blobUrlManager.get(item.mediaId) : null,
+        ],
+        sourceTime,
+        toleranceSeconds,
+        getCachedPredecodedBitmap: itemRenderContext.getCachedPredecodedBitmap,
+        getCachedActivePreviewFallbackBitmap:
+          itemRenderContext.getCachedActivePreviewFallbackBitmap,
+        isActivePreviewSourceTarget: itemRenderContext.isActivePreviewSourceTarget,
+      })
+    },
     reverseVideoFrameCache,
     imageElements,
     gifFramesMap,
+    ensureImageItemReady: (item) => ensureImageItemReady(item),
     lottieProvider,
+    ensureLottieItemReady: (item) => ensureLottieItemReady(item),
     keyframesMap,
     adjustmentLayers,
     getPreviewEffectsOverride,
@@ -915,9 +1317,13 @@ export async function createCompositionRenderer(
       maxItems: PREWARM_DECODE_MAX_ITEMS,
     }).map((item) => getCurrentItem(item))
 
-  const initializeMediabunnyForItems = async (itemIds: string[]): Promise<Map<string, boolean>> => {
+  const initializeMediabunnyForItems = async (
+    itemIds: string[],
+    signal?: AbortSignal,
+  ): Promise<Map<string, boolean>> => {
     const itemResult = new Map<string, boolean>()
     if (itemIds.length === 0) return itemResult
+    throwIfAborted(signal)
 
     const bySource = new Map<string, string[]>()
     for (const itemId of itemIds) {
@@ -936,7 +1342,9 @@ export async function createCompositionRenderer(
 
     await Promise.all(
       [...bySource.entries()].map(async ([src, ids]) => {
+        throwIfAborted(signal)
         const success = await sharedVideoExtractors.initSource(src)
+        throwIfAborted(signal)
         if (isDisposed) return
         // Intentional side effect: decode readiness is tracked per shared source,
         // while itemResult only reports back for the explicitly requested ids.
@@ -979,15 +1387,34 @@ export async function createCompositionRenderer(
     return ids
   }
 
-  const ensureVideoItemReady = async (itemId: string): Promise<boolean> => {
+  const registerVideoItemOnDemand = async (
+    itemId: string,
+    item: VideoItem | undefined,
+    signal?: AbortSignal,
+  ): Promise<boolean> => {
+    if (videoExtractors.has(itemId)) return true
+    if (!item) return false
+    const src = await resolveRendererMediaSource(item, useProxyMedia, signal)
+    if (isDisposed || !src) return false
+    registerVideoItem(itemId, src)
+    videoItemsById.set(itemId, item)
+    if (hasDom && !previewStrictDecode) bindFallbackVideoElement(itemId, src)
+    return true
+  }
+
+  const ensureVideoItemReady = async (
+    itemId: string,
+    item?: VideoItem,
+    signal?: AbortSignal,
+  ): Promise<boolean> => {
     if (useMediabunny.has(itemId)) return true
     if (mediabunnyDisabledItems.has(itemId)) return false
-    if (!videoExtractors.has(itemId)) return false
+    if (!(await registerVideoItemOnDemand(itemId, item, signal))) return false
 
     const existing = inFlightInitByItem.get(itemId)
     if (existing) return existing
 
-    const promise = initializeMediabunnyForItems([itemId])
+    const promise = initializeMediabunnyForItems([itemId], signal)
       .then((result) => {
         if (isDisposed) return false
         const ok = result.get(itemId) === true
@@ -1016,7 +1443,7 @@ export async function createCompositionRenderer(
   // Resolve the adapter before returning the preview renderer. The first held
   // scrub may call renderFrame immediately; a fire-and-forget import lets that
   // first frame enter blocking MediaBunny before cancellation is wired.
-  if (renderMode === 'preview') {
+  if (renderMode === 'preview' || isComparisonMode) {
     try {
       const {
         getCachedPredecodedBitmap,
@@ -1029,13 +1456,16 @@ export async function createCompositionRenderer(
         waitForInflightPredecodedBitmap,
       } = await import('@/features/export/deps/preview-contract')
       itemRenderContext.getCachedPredecodedBitmap = getCachedPredecodedBitmap
-      itemRenderContext.getCachedActivePreviewFallbackBitmap = getCachedActivePreviewFallbackBitmap
-      itemRenderContext.isActivePreviewFrameCurrent = isActivePreviewFrameCurrent
-      itemRenderContext.isActivePreviewFrameDecodeReady = isActivePreviewFrameDecodeReady
-      itemRenderContext.isActivePreviewSourceTarget = isActivePreviewSourceTarget
-      itemRenderContext.isActivePreviewFrameSuperseded = isActivePreviewFrameSuperseded
       itemRenderContext.waitForInflightPredecodedBitmap = waitForInflightPredecodedBitmap
-      itemRenderContext.isActivePreviewTargetSuperseded = isActivePreviewTargetSuperseded
+      if (renderMode === 'preview') {
+        itemRenderContext.getCachedActivePreviewFallbackBitmap =
+          getCachedActivePreviewFallbackBitmap
+        itemRenderContext.isActivePreviewFrameCurrent = isActivePreviewFrameCurrent
+        itemRenderContext.isActivePreviewFrameDecodeReady = isActivePreviewFrameDecodeReady
+        itemRenderContext.isActivePreviewSourceTarget = isActivePreviewSourceTarget
+        itemRenderContext.isActivePreviewFrameSuperseded = isActivePreviewFrameSuperseded
+        itemRenderContext.isActivePreviewTargetSuperseded = isActivePreviewTargetSuperseded
+      }
     } catch {
       // Preview can still fall back to its ordinary media path if the optional
       // worker adapter is unavailable in a constrained runtime.
@@ -1057,10 +1487,14 @@ export async function createCompositionRenderer(
     async preload(
       options: {
         priorityFrame?: number
+        priorityFrames?: readonly number[]
         priorityWindowFrames?: number
         onPriorityMediaReady?: () => void
+        signal?: AbortSignal
       } = {},
     ) {
+      const { signal } = options
+      throwIfAborted(signal)
       // Composition items require the compositions store which only exists on main thread.
       // Workers get a fresh, empty Zustand store, so sub-comp data can never be resolved.
       // Bail early to trigger the main-thread fallback path. Use reachability rather than a
@@ -1076,14 +1510,27 @@ export async function createCompositionRenderer(
         throw new Error('WORKER_REQUIRES_MAIN_THREAD:composition')
       }
 
-      const priorityFrame = Number.isFinite(options.priorityFrame)
-        ? Math.round(options.priorityFrame!)
-        : null
+      const priorityFrames = [options.priorityFrame, ...(options.priorityFrames ?? [])]
+        .filter((frame): frame is number => Number.isFinite(frame))
+        .map((frame) => Math.round(frame))
+        .filter((frame, index, frames) => frames.indexOf(frame) === index)
+      const priorityFrame = priorityFrames[0] ?? null
       const priorityWindowFrames = Math.max(4, Math.round(options.priorityWindowFrames ?? fps * 4))
+      const compositionById = useCompositionsStore.getState().compositionById
+      const priorityMediaItemIds = collectPriorityMediaItemIdsForFrames({
+        tracks,
+        frames: priorityFrames,
+        fps,
+        compositionById,
+      })
+      const priorityImageItemIds = new Set(priorityMediaItemIds.image)
+      const priorityLottieItemIds = new Set(priorityMediaItemIds.lottie)
       const prioritizedMainVideoIds =
         priorityFrame === null
           ? []
-          : collectPriorityVideoItemIds(priorityFrame, priorityWindowFrames)
+          : isComparisonMode
+            ? priorityMediaItemIds.video.filter((itemId) => videoItemsById.has(itemId))
+            : collectPriorityVideoItemIds(priorityFrame, priorityWindowFrames)
 
       getLog().debug('Preloading media', {
         videoCount: videoExtractors.size,
@@ -1091,8 +1538,16 @@ export async function createCompositionRenderer(
         imageCount: imageElements.size,
       })
 
-      // Wait for images
-      await Promise.all(imageLoadPromises)
+      const topLevelImageLoads = isComparisonMode
+        ? selectRendererPreloadItems(
+            rendererMode,
+            imageItems,
+            priorityImageItemIds,
+            (item) => item.id,
+          ).map((item) => ensureImageItemReady(item, signal))
+        : imageLoadPromises
+      await Promise.all(topLevelImageLoads)
+      throwIfAborted(signal)
 
       if (!hasDom && (gifItems.length > 0 || webpItems.length > 0)) {
         throw new Error('WORKER_REQUIRES_MAIN_THREAD:animated-image')
@@ -1102,12 +1557,40 @@ export async function createCompositionRenderer(
         throw new Error('WORKER_REQUIRES_MAIN_THREAD:lottie')
       }
 
+      const topLevelLottieItems = isComparisonMode
+        ? selectRendererPreloadItems(
+            rendererMode,
+            lottieItems,
+            priorityLottieItemIds,
+            (item) => item.id,
+          )
+        : lottieItems
+      if (isComparisonMode && hasDom && topLevelLottieItems.length > 0) {
+        await Promise.all(
+          topLevelLottieItems.map((item) =>
+            ensureLottieItemReady(item, signal).catch((error) => {
+              if (signal?.aborted) throw error
+              getLog().error('Failed to preload Lottie', { itemId: item.id, error })
+            }),
+          ),
+        )
+      }
+      throwIfAborted(signal)
+
+      if (isComparisonMode) {
+        await Promise.all(
+          prioritizedMainVideoIds.map((itemId) =>
+            ensureVideoItemReady(itemId, videoItemsById.get(itemId), signal),
+          ),
+        )
+      }
+
       // === Initialize mediabunny video extractors (primary method) ===
       if (prioritizedMainVideoIds.length > 0) {
-        await initializeMediabunnyForItems(prioritizedMainVideoIds)
+        await initializeMediabunnyForItems(prioritizedMainVideoIds, signal)
       }
       const mainVideoPreloadPlan = resolveVideoPreloadPlan(
-        renderMode,
+        rendererMode,
         videoExtractors.keys(),
         prioritizedMainVideoIds,
       )
@@ -1115,8 +1598,9 @@ export async function createCompositionRenderer(
       // a missed source on demand, so opening all remaining project media here only
       // creates decoder/GC churn for clips the user may never visit.
       if (mainVideoPreloadPlan.eagerItemIds.length > 0) {
-        await initializeMediabunnyForItems(mainVideoPreloadPlan.eagerItemIds)
+        await initializeMediabunnyForItems(mainVideoPreloadPlan.eagerItemIds, signal)
       }
+      throwIfAborted(signal)
 
       getLog().info('Video initialization complete', {
         mediabunny: useMediabunny.size,
@@ -1127,99 +1611,47 @@ export async function createCompositionRenderer(
 
       reportPreviewDecodeCoverage(prioritizedMainVideoIds)
 
+      if (isComparisonMode && hasDom) {
+        for (const itemId of prioritizedMainVideoIds) {
+          if (useMediabunny.has(itemId)) continue
+          const src = videoSourceByItemId.get(itemId)
+          if (src) bindFallbackVideoElement(itemId, src)
+        }
+      }
+
       // === Preload ALL fallback video elements ===
       // Load every video element (not just those that failed mediabunny init)
       // so the HTML5 fallback is ready if mediabunny fails mid-export.
       // This is critical for transitions where the outgoing clip's extractor
       // may fail past the source duration boundary.
       const allVideoIds = Array.from(videoElements.keys())
+      const fallbackVideoIds = isComparisonMode ? prioritizedMainVideoIds : allVideoIds
 
-      if (!hasDom && allVideoIds.some((id) => !useMediabunny.has(id))) {
+      if (!hasDom && fallbackVideoIds.some((id) => !useMediabunny.has(id))) {
         throw new Error('WORKER_REQUIRES_MAIN_THREAD:video-fallback')
       }
 
-      if (hasDom && !previewStrictDecode && allVideoIds.length > 0) {
+      if (hasDom && !previewStrictDecode && fallbackVideoIds.length > 0) {
+        const fallbackVideoIdSet = new Set(fallbackVideoIds)
         const uniqueVideoEntries = new Map<HTMLVideoElement, string>()
         for (const [itemId, video] of videoElements.entries()) {
+          if (!fallbackVideoIdSet.has(itemId)) continue
           if (!uniqueVideoEntries.has(video)) {
             uniqueVideoEntries.set(video, itemId)
           }
         }
 
-        const videoLoadPromises = Array.from(uniqueVideoEntries.entries()).map(
-          ([video, itemId]) =>
-            new Promise<void>((resolve) => {
-              const timeout = setTimeout(() => {
-                getLog().warn('Video load timeout', { itemId, src: video.currentSrc || video.src })
-                resolve()
-              }, 10000)
-
-              if (video.readyState >= 2) {
-                clearTimeout(timeout)
-                resolve()
-              } else {
-                video.addEventListener(
-                  'loadeddata',
-                  () => {
-                    clearTimeout(timeout)
-                    resolve()
-                  },
-                  { once: true },
-                )
-                video.addEventListener(
-                  'error',
-                  () => {
-                    clearTimeout(timeout)
-                    // Non-fatal: this is only the HTML5 fallback <video> preload.
-                    // Rendering goes through mediabunny; the fallback is a backup
-                    // for clips whose extractor fails mid-export. A revoked/empty
-                    // blob here (e.g. a blob-URL lifecycle race) doesn't affect the
-                    // exported frames, so warn rather than error.
-                    getLog().warn('Fallback video preload failed (non-fatal)', {
-                      itemId,
-                      mediaErrorCode: video.error?.code,
-                      mediaErrorMessage: video.error?.message,
-                    })
-                    resolve()
-                  },
-                  { once: true },
-                )
-                video.load()
-              }
-            }),
+        const videoLoadPromises = Array.from(uniqueVideoEntries.entries()).map(([video, itemId]) =>
+          waitForFallbackVideoReady({ video, itemId, signal, context: 'root' }),
         )
 
         await Promise.all(videoLoadPromises)
       }
-
-      // Load GIF frames for animated GIFs (main thread only)
-      if (hasDom && gifItems.length > 0) {
-        getLog().debug('Preloading GIF frames', { gifCount: gifItems.length })
-
-        const gifLoadPromises = gifItems.map(async (gifItem) => {
-          try {
-            // Use mediaId if available, otherwise use item id
-            const mediaId = gifItem.mediaId ?? gifItem.id
-            const cachedFrames = await gifFrameCache.getGifFrames(mediaId, gifItem.src)
-            gifFramesMap.set(gifItem.id, cachedFrames)
-            getLog().debug('GIF frames loaded', {
-              itemId: gifItem.id.substring(0, 8),
-              frameCount: cachedFrames.frames.length,
-              totalDuration: cachedFrames.totalDuration,
-            })
-          } catch (err) {
-            getLog().error('Failed to load GIF frames', { itemId: gifItem.id, error: err })
-            // GIF will fallback to static image rendering
-          }
-        })
-
-        await Promise.all(gifLoadPromises)
-        getLog().debug('All GIF frames loaded', { loadedCount: gifFramesMap.size })
-      }
+      throwIfAborted(signal)
 
       // Preload Lottie renderers (main thread only). Each renders into its own
       // OffscreenCanvas at native animation resolution; frames are drawn on demand.
-      if (hasDom && lottieItems.length > 0) {
+      if (!isComparisonMode && hasDom && lottieItems.length > 0) {
         getLog().debug('Preloading Lottie animations', { lottieCount: lottieItems.length })
         await Promise.all(
           lottieItems.map(async (lottieItem) => {
@@ -1256,7 +1688,7 @@ export async function createCompositionRenderer(
       }
 
       // Load animated WebP frames via cache service (main thread only)
-      if (hasDom && webpItems.length > 0) {
+      if (hasDom && webpItems.some((item) => !gifFramesMap.has(item.id))) {
         getLog().debug('Preloading animated WebP frames', { webpCount: webpItems.length })
 
         const webpLoadPromises = webpItems.map(async (webpItem) => {
@@ -1284,44 +1716,19 @@ export async function createCompositionRenderer(
       // sorting, filtering, and linear searches in renderCompositionItem.
       const subCompMediaItems: Array<{ subItem: TimelineItem; src: string }> = []
       const pendingResolutions: Array<{ subItem: TimelineItem; mediaId: string }> = []
-      const prioritySubCompVideoItemIds = new Set<string>()
-      const compositionById = useCompositionsStore.getState().compositionById
-      // Collect priority video item IDs from all depths of nested compositions
-      // whose root-level wrapper falls within the priority scrub window.
-      for (const track of tracks) {
-        for (const item of track.items ?? []) {
-          if (item.type !== 'composition') continue
-          const compItem = item as CompositionItem
-          const subComp = compositionById[compItem.compositionId]
-          if (!subComp) continue
-          const subCompIsPriority =
-            priorityFrame !== null &&
-            compItem.from <= priorityFrame + priorityWindowFrames &&
-            compItem.from + compItem.durationInFrames >= priorityFrame - priorityWindowFrames
-          if (!subCompIsPriority) continue
-          const nestedCompIds = collectReachableCompositionIdsFromItems(
-            subComp.items,
-            compositionById,
-          )
-          const allComps = [
-            subComp,
-            ...nestedCompIds.flatMap((id) => (compositionById[id] ? [compositionById[id]] : [])),
-          ]
-          for (const comp of allComps) {
-            for (const subItem of comp.items) {
-              if (subItem.type === 'video') {
-                prioritySubCompVideoItemIds.add(subItem.id)
-              }
-            }
-          }
-        }
-      }
+      const prioritySubCompVideoItemIds = new Set(priorityMediaItemIds.video)
+      const prioritySubCompMediaItemIds = new Set([
+        ...priorityMediaItemIds.video,
+        ...priorityMediaItemIds.image,
+        ...priorityMediaItemIds.lottie,
+      ])
 
       const reachableCompositionIds = collectReachableCompositionIdsFromTracks(
         tracks,
         compositionById,
       )
       for (const compositionId of reachableCompositionIds) {
+        throwIfAborted(signal)
         const subComp = compositionById[compositionId]
         if (!subComp) {
           getLog().warn('Sub-composition not found in store!', {
@@ -1343,9 +1750,11 @@ export async function createCompositionRenderer(
           if (subItem.type !== 'video' && subItem.type !== 'image' && subItem.type !== 'lottie')
             continue
           if (subItem.mediaId) {
-            const src =
-              (renderMode === 'preview' ? resolveProxyUrl(subItem.mediaId) : null) ??
-              blobUrlManager.get(subItem.mediaId)
+            const src = selectNestedMediaSource({
+              useProxyMedia,
+              proxyUrl: useProxyMedia ? resolveProxyUrl(subItem.mediaId) : null,
+              sourceUrl: blobUrlManager.get(subItem.mediaId),
+            })
             if (src) {
               subCompMediaItems.push({ subItem, src })
             } else {
@@ -1358,20 +1767,52 @@ export async function createCompositionRenderer(
         }
       }
 
-      // Resolve pending sub-comp URLs from OPFS in parallel
-      if (pendingResolutions.length > 0) {
-        getLog().debug('Resolving sub-comp media URLs from OPFS', {
-          count: pendingResolutions.length,
-        })
-        const resolved = await Promise.all(
-          pendingResolutions.map(async ({ subItem, mediaId }) => {
-            const src = await resolveMediaUrl(mediaId)
-            return { subItem, src }
-          }),
+      if (isComparisonMode) {
+        const priorityMedia = selectRendererPreloadItems(
+          rendererMode,
+          subCompMediaItems,
+          prioritySubCompMediaItemIds,
+          ({ subItem }) => subItem.id,
         )
-        for (const { subItem, src } of resolved) {
-          if (src) subCompMediaItems.push({ subItem, src })
+        subCompMediaItems.splice(0, subCompMediaItems.length, ...priorityMedia)
+      }
+
+      const resolvePendingSubCompMedia = async (
+        entries: Array<{ subItem: TimelineItem; mediaId: string }>,
+      ): Promise<Array<{ subItem: TimelineItem; src: string }>> => {
+        throwIfAborted(signal)
+        const resolved = await Promise.all(
+          entries.map(async ({ subItem, mediaId }) => ({
+            subItem,
+            src: await resolveMediaUrl(mediaId),
+          })),
+        )
+        throwIfAborted(signal)
+        return resolved.filter(({ src }) => !!src)
+      }
+      const priorityPendingResolutions = pendingResolutions.filter(({ subItem }) =>
+        prioritySubCompMediaItemIds.has(subItem.id),
+      )
+      const deferredPendingResolutions = pendingResolutions.filter(
+        ({ subItem }) => !prioritySubCompMediaItemIds.has(subItem.id),
+      )
+      subCompMediaItems.push(...(await resolvePendingSubCompMedia(priorityPendingResolutions)))
+
+      let priorityReadyNotified = false
+      const notifyPriorityMediaReady = () => {
+        if (priorityReadyNotified) return
+        priorityReadyNotified = true
+        try {
+          options.onPriorityMediaReady?.()
+        } catch (err) {
+          getLog().warn('onPriorityMediaReady callback threw', { error: err })
         }
+      }
+
+      const resolveDeferredBeforeRegistration = !isComparisonMode && subCompMediaItems.length === 0
+      if (resolveDeferredBeforeRegistration) {
+        notifyPriorityMediaReady()
+        subCompMediaItems.push(...(await resolvePendingSubCompMedia(deferredPendingResolutions)))
       }
 
       if (subCompMediaItems.length > 0) {
@@ -1392,7 +1833,7 @@ export async function createCompositionRenderer(
           prioritySubCompVideoItemIds.has(itemId),
         )
         if (prioritizedSubVideoItemIds.length > 0) {
-          await initializeMediabunnyForItems(prioritizedSubVideoItemIds)
+          await initializeMediabunnyForItems(prioritizedSubVideoItemIds, signal)
         }
 
         // Signal that priority media for the current frame is ready. The
@@ -1400,20 +1841,32 @@ export async function createCompositionRenderer(
         // rest of preload (remaining videos, sub images, GIF/WebP frames)
         // finishes — so the user sees the correct frame faster after
         // exiting a sub-composition.
-        try {
-          options.onPriorityMediaReady?.()
-        } catch (err) {
-          getLog().warn('onPriorityMediaReady callback threw', { error: err })
+        if (!isComparisonMode) notifyPriorityMediaReady()
+
+        const deferredResolvedMedia =
+          isComparisonMode || resolveDeferredBeforeRegistration
+            ? []
+            : await resolvePendingSubCompMedia(deferredPendingResolutions)
+        subCompMediaItems.push(...deferredResolvedMedia)
+        for (const { subItem, src } of deferredResolvedMedia) {
+          if (subItem.type === 'video' && !videoExtractors.has(subItem.id)) {
+            registerVideoItem(subItem.id, src)
+            subVideoItemIds.push(subItem.id)
+            if (hasDom && !previewStrictDecode) {
+              bindFallbackVideoElement(subItem.id, src)
+            }
+          }
         }
 
         const subVideoPreloadPlan = resolveVideoPreloadPlan(
-          renderMode,
+          rendererMode,
           subVideoItemIds,
           prioritizedSubVideoItemIds,
         )
         if (subVideoPreloadPlan.eagerItemIds.length > 0) {
-          await initializeMediabunnyForItems(subVideoPreloadPlan.eagerItemIds)
+          await initializeMediabunnyForItems(subVideoPreloadPlan.eagerItemIds, signal)
         }
+        throwIfAborted(signal)
 
         reportPreviewDecodeCoverage(prioritizedSubVideoItemIds)
 
@@ -1434,210 +1887,39 @@ export async function createCompositionRenderer(
 
             const subVideoLoadPromises = Array.from(uniqueSubVideos.entries()).map(
               ([video, itemId]) =>
-                new Promise<void>((resolve) => {
-                  const timeout = setTimeout(() => {
-                    getLog().warn('Sub-comp video load timeout', { itemId })
-                    resolve()
-                  }, 10000)
-
-                  if (video.readyState >= 2) {
-                    clearTimeout(timeout)
-                    resolve()
-                  } else {
-                    video.addEventListener(
-                      'loadeddata',
-                      () => {
-                        clearTimeout(timeout)
-                        resolve()
-                      },
-                      { once: true },
-                    )
-                    video.addEventListener(
-                      'error',
-                      () => {
-                        clearTimeout(timeout)
-                        getLog().error('Sub-comp video load error', { itemId })
-                        resolve()
-                      },
-                      { once: true },
-                    )
-                    video.load()
-                  }
-                }),
+                waitForFallbackVideoReady({ video, itemId, signal, context: 'nested' }),
             )
             await Promise.all(subVideoLoadPromises)
           }
         }
 
         // Preload sub-comp images
-        const subImagePromises: Promise<void>[] = []
-        const subGifItems: ImageItem[] = []
-        const subWebpItems: ImageItem[] = []
-        const subLottieItems: Array<{
-          id: string
-          src: string
-          w: number
-          h: number
-          animationId?: string
-          themeId?: string
-          textOverrides?: Record<string, string>
-          colorOverrides?: Record<string, string>
-          slotOverrides?: Record<string, number | [number, number]>
-        }> = []
-
-        for (const { subItem, src } of subCompMediaItems) {
-          if (subItem.type === 'lottie' && !lottieProvider.get(subItem.id)) {
-            const lottieItem = subItem as LottieItem
-            subLottieItems.push({
-              id: lottieItem.id,
-              src,
-              w:
-                lottieItem.sourceWidth && lottieItem.sourceWidth > 0 ? lottieItem.sourceWidth : 512,
-              h:
-                lottieItem.sourceHeight && lottieItem.sourceHeight > 0
-                  ? lottieItem.sourceHeight
-                  : 512,
-              animationId: lottieItem.animationId,
-              themeId: lottieItem.themeId,
-              textOverrides: lottieItem.textOverrides,
-              colorOverrides: lottieItem.colorOverrides,
-              slotOverrides: lottieItem.slotOverrides,
-            })
-          }
-          if (subItem.type === 'image' && !imageElements.has(subItem.id)) {
-            const imageItem = subItem as ImageItem
-            const itemWithSrc = { ...imageItem, src } as ImageItem
-            // Check for animated image (GIF or WebP)
-            if (isAnimatedImage(itemWithSrc)) {
-              if (isGifFormat(itemWithSrc)) {
-                subGifItems.push(itemWithSrc)
-              } else {
-                subWebpItems.push(itemWithSrc)
-              }
-            }
-
-            if (hasDom && typeof Image !== 'undefined') {
-              const img = new Image()
-              img.crossOrigin = 'anonymous'
-              subImagePromises.push(
-                new Promise<void>((resolve) => {
-                  img.onload = () => {
-                    imageElements.set(subItem.id, {
-                      source: img,
-                      width: img.naturalWidth,
-                      height: img.naturalHeight,
-                    })
-                    resolve()
-                  }
-                  img.onerror = () => {
-                    getLog().error('Failed to load sub-comp image', { itemId: subItem.id })
-                    resolve()
-                  }
-                }),
-              )
-              img.src = src
-            } else {
-              subImagePromises.push(
-                (async () => {
-                  if (typeof createImageBitmap !== 'function') {
-                    throw new Error('WORKER_REQUIRES_MAIN_THREAD:imagebitmap')
-                  }
-                  const response = await fetch(src)
-                  if (!response.ok) {
-                    getLog().error('Failed to fetch sub-comp image', { itemId: subItem.id })
-                    return
-                  }
-                  const blob = await response.blob()
-                  const bitmap = await createImageBitmap(blob)
-                  imageElements.set(subItem.id, {
-                    source: bitmap,
-                    width: bitmap.width,
-                    height: bitmap.height,
-                  })
-                })(),
-              )
-            }
-          }
-        }
-        await Promise.all(subImagePromises)
-
-        // Load sub-comp GIF frames
-        if (hasDom && subGifItems.length > 0) {
-          const subGifPromises = subGifItems.map(async (gifItem) => {
-            try {
-              const mediaId = gifItem.mediaId ?? gifItem.id
-              const cachedFrames = await gifFrameCache.getGifFrames(mediaId, gifItem.src)
-              gifFramesMap.set(gifItem.id, cachedFrames)
-              getLog().debug('Sub-comp GIF frames loaded', {
-                itemId: gifItem.id.substring(0, 8),
-                frameCount: cachedFrames.frames.length,
-              })
-            } catch (err) {
-              getLog().error('Failed to load sub-comp GIF frames', {
-                itemId: gifItem.id,
-                error: err,
-              })
-            }
-          })
-          await Promise.all(subGifPromises)
-        }
-
-        // Load sub-comp animated WebP frames via cache service
-        if (hasDom && subWebpItems.length > 0) {
-          const subWebpPromises = subWebpItems.map(async (webpItem) => {
-            try {
-              const mediaId = webpItem.mediaId ?? webpItem.id
-              const cachedFrames = await gifFrameCache.getWebpFrames(mediaId, webpItem.src)
-              gifFramesMap.set(webpItem.id, cachedFrames)
-              getLog().debug('Sub-comp animated WebP frames loaded', {
-                itemId: webpItem.id.substring(0, 8),
-                frameCount: cachedFrames.frames.length,
-              })
-            } catch (err) {
-              getLog().error('Failed to load sub-comp WebP frames', {
-                itemId: webpItem.id,
-                error: err,
-              })
-            }
-          })
-          await Promise.all(subWebpPromises)
-        }
+        const subImageItems = subCompMediaItems.flatMap(({ subItem, src }) =>
+          subItem.type === 'image' ? [{ ...subItem, src } as ImageItem] : [],
+        )
+        const subLottieItems = subCompMediaItems.flatMap(({ subItem, src }) =>
+          subItem.type === 'lottie' ? [{ ...subItem, src } as LottieItem] : [],
+        )
+        await Promise.all(subImageItems.map((item) => ensureImageItemReady(item, signal)))
 
         // Preload sub-comp Lottie renderers, applying animation/theme + text/
         // color edits so compound-clip Lotties reflect them on export (parity
         // with preview).
         if (hasDom && subLottieItems.length > 0) {
-          await Promise.all(
-            subLottieItems.map(async (it) => {
-              try {
-                if (!isRenderableLottieSrc(it.src)) return
-                const spec = await resolveLottieRenderSpec(it.src, it)
-                if (isDisposed) return
-                await lottieProvider.preload(
-                  it.id,
-                  it.src,
-                  it.w,
-                  it.h,
-                  spec.data ?? undefined,
-                  lottieOverrideSignature(it),
-                  spec.themeData ?? undefined,
-                  spec.slots ?? undefined,
-                )
-              } catch (err) {
-                getLog().error('Failed to preload sub-comp Lottie', { itemId: it.id, error: err })
-              }
-            }),
-          )
+          await Promise.all(subLottieItems.map((item) => ensureLottieItemReady(item, signal)))
         }
+        throwIfAborted(signal)
+        if (isComparisonMode) notifyPriorityMediaReady()
 
         getLog().debug('Sub-composition media loaded', {
           videos: subCompMediaItems.filter((s) => s.subItem.type === 'video').length,
           images: subCompMediaItems.filter((s) => s.subItem.type === 'image').length,
-          gifs: subGifItems.length,
-          webps: subWebpItems.length,
+          animatedImages: subImageItems.filter(isAnimatedImage).length,
           lotties: subLottieItems.length,
         })
       }
+
+      if (isComparisonMode) notifyPriorityMediaReady()
 
       getLog().debug('All media loaded')
     },
@@ -1687,8 +1969,10 @@ export async function createCompositionRenderer(
       })
       itemRenderContext.captureDecodedVideoFrames =
         Boolean(scrubbingCache && scrubbingFrameCacheActive) && renderedFrameCacheMode !== 'skip'
-      itemRenderContext.workerPredecodeWaitMs =
-        renderedFrameCacheMode === 'skip' ? ISOLATED_SEEK_WORKER_WAIT_MS : undefined
+      itemRenderContext.workerPredecodeWaitMs = resolveWorkerPredecodeWaitMs(
+        rendererMode,
+        renderedFrameCacheMode,
+      )
 
       // Refresh sub-comp render data so edits inside compound clips (effects,
       // items, keyframes) show up during playback. Reference-equality keeps

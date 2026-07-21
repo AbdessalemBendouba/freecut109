@@ -123,7 +123,9 @@ export interface ItemRenderContext {
   useMediabunny: Set<string>
   mediabunnyDisabledItems: Set<string>
   mediabunnyFailureCountByItem: Map<string, number>
-  ensureVideoItemReady?: (itemId: string) => Promise<boolean>
+  ensureVideoItemReady?: (itemId: string, item?: VideoItem) => Promise<boolean>
+  /** Permit isolated comparison renders to consume exact worker-predecoded frames. */
+  allowPredecodedVideoFrames?: boolean
   getCachedPredecodedBitmap?: (
     src: string,
     timestamp: number,
@@ -161,8 +163,10 @@ export interface ItemRenderContext {
   // Image / GIF state
   imageElements: Map<string, WorkerLoadedImage>
   gifFramesMap: Map<string, CachedGifFrames>
+  ensureImageItemReady?: (item: ImageItem) => Promise<void>
   /** Preloaded Lottie renderers keyed by item id; renders a frame on demand. */
   lottieProvider: LottieExportProvider
+  ensureLottieItemReady?: (item: import('@/types/timeline').LottieItem) => Promise<void>
 
   // Keyframes & adjustment layers
   keyframesMap: Map<string, ItemKeyframes>
