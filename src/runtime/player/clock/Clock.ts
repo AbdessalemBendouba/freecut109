@@ -78,6 +78,9 @@ export class Clock {
   // hardware audio clock (AudioContext.currentTime) instead of
   // performance.now(). This eliminates audio-video drift by definition.
   private _audioContext: AudioContext | null = null
+  private _activeTimeSource: AudioContext | null | undefined
+  private _timeSourceOffsetMs = 0
+  private _lastNowMs: number | null = null
 
   // In/out points for range playback
   private _inFrame: number | null = null
@@ -482,10 +485,20 @@ export class Clock {
    */
   private _now(): number {
     const ctx = this._audioContext
-    if (ctx && ctx.state === 'running') {
-      return ctx.currentTime * 1000
+    const nextTimeSource = ctx?.state === 'running' ? ctx : null
+    const rawNow = nextTimeSource ? nextTimeSource.currentTime * 1000 : performance.now()
+
+    if (nextTimeSource !== this._activeTimeSource) {
+      // AudioContext.currentTime and performance.now() have unrelated epochs.
+      // Resume/suspend can switch sources between two animation frames, so map
+      // the new source onto the existing monotonic timeline before using it.
+      this._timeSourceOffsetMs = this._lastNowMs === null ? 0 : this._lastNowMs - rawNow
+      this._activeTimeSource = nextTimeSource
     }
-    return performance.now()
+
+    const normalizedNow = rawNow + this._timeSourceOffsetMs
+    this._lastNowMs = Math.max(this._lastNowMs ?? normalizedNow, normalizedNow)
+    return this._lastNowMs
   }
 
   private _clampFrame(frame: number): number {
