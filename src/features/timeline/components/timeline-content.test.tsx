@@ -190,13 +190,14 @@ describe('TimelineContent playback selection behavior', () => {
   })
 
   it('renders one full-height playhead and one tool-only preview overlay', () => {
-    const { getAllByTestId, getByTestId } = render(
+    const { container, getAllByTestId, getByTestId } = render(
       <TimelineContent duration={10} tracks={[VIDEO_TRACK]} />,
     )
 
     expect(getAllByTestId('unified-timeline-playhead')).toHaveLength(1)
     expect(getAllByTestId('unified-timeline-preview-scrubber')).toHaveLength(1)
     expect(getByTestId('unified-timeline-preview-scrubber')).toBeInTheDocument()
+    expect(container.querySelector('.timeline-container')).toHaveClass('isolate')
   })
 
   it('keeps the selected clip selected after the playhead moves past it', async () => {

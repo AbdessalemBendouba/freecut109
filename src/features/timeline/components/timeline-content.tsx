@@ -1978,7 +1978,7 @@ export const TimelineContent = memo(function TimelineContent({
       <div
         ref={mergedRef}
         data-timeline-scroll-container
-        className="timeline-container relative flex flex-1 flex-col overflow-x-auto overflow-y-hidden"
+        className="timeline-container isolate relative flex flex-1 flex-col overflow-x-auto overflow-y-hidden"
         style={{
           scrollBehavior: 'auto',
           willChange: 'scroll-position',
