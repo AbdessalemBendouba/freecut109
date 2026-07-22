@@ -282,9 +282,9 @@ export const ClipPanel = memo(function ClipPanel() {
   const availableTabs = useMemo(() => {
     const tabs: ClipInspectorTab[] = []
     if (showVideoTab) tabs.push('video')
-    if (showMotionTab) tabs.push('motion')
     if (showSecondTab) tabs.push('audio')
     if (showEffectsTab) tabs.push('effects')
+    if (showMotionTab) tabs.push('motion')
     return tabs
   }, [showMotionTab, showSecondTab, showEffectsTab, showVideoTab])
 
@@ -311,9 +311,8 @@ export const ClipPanel = memo(function ClipPanel() {
     [setClipInspectorTab],
   )
 
-  // Per-tab label + icon. The first slot is Video / Text / Shape and the second
-  // is Audio / Animation depending on the selection; only available tabs are
-  // rendered (no disabled dead tabs).
+  // Per-tab label + icon. Animation is intentionally last so clip setup and
+  // effects precede timing/motion authoring; unavailable tabs are omitted.
   const getTabMeta = (value: ClipInspectorTab): { label: string; icon: LucideIcon } => {
     if (value === 'video') {
       if (isOnlyText) return { label: t('editor.clipPanel.tabText'), icon: Type }
