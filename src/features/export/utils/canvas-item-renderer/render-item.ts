@@ -331,16 +331,14 @@ async function renderItemWithCornerPin(
   const cornerPinTargetRect = resolveCornerPinTargetRect(
     itemW,
     itemH,
-    preCornerPinMasks.length > 0
-      ? undefined
-      : item.type === 'video' || item.type === 'image' || item.type === 'composition'
-        ? {
-            sourceWidth: item.type === 'composition' ? item.compositionWidth : item.sourceWidth,
-            sourceHeight: item.type === 'composition' ? item.compositionHeight : item.sourceHeight,
-            crop: item.crop,
-            fitMode: item.type === 'composition' ? ('fill' as const) : ('contain' as const),
-          }
-        : undefined,
+    item.type === 'video' || item.type === 'image' || item.type === 'composition'
+      ? {
+          sourceWidth: item.type === 'composition' ? item.compositionWidth : item.sourceWidth,
+          sourceHeight: item.type === 'composition' ? item.compositionHeight : item.sourceHeight,
+          crop: item.crop,
+          fitMode: item.type === 'composition' ? ('fill' as const) : ('contain' as const),
+        }
+      : undefined,
   )
   const pinSourceWidth = Math.max(1, Math.round(cornerPinTargetRect.width))
   const pinSourceHeight = Math.max(1, Math.round(cornerPinTargetRect.height))

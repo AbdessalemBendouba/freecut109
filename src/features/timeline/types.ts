@@ -13,6 +13,7 @@ import type {
   ItemKeyframes,
   AnimatableProperty,
   Keyframe,
+  KeyframeRef,
   EasingType,
   EasingConfig,
   VectorAnimatableProperty,
@@ -260,6 +261,7 @@ export interface TimelineActions {
   ) => void
   applyAutoKeyframeOperations: (operations: AutoKeyframeOperation[]) => void
   removeKeyframe: (itemId: string, property: AnimatableProperty, keyframeId: string) => void
+  removeKeyframes: (refs: KeyframeRef[]) => void
   removeKeyframesForItem: (itemId: string) => void
   removeKeyframesForProperty: (itemId: string, property: AnimatableProperty) => void
   getKeyframesForItem: (itemId: string) => ItemKeyframes | undefined

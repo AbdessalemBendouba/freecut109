@@ -79,6 +79,11 @@ function getCropDimensions(item: CropItem): CropDimensions {
   }
 }
 
+function getSharedCropDimension(items: CropItem[], dimension: keyof CropDimensions): number {
+  if (items.length === 0) return 1
+  return Math.min(...items.map((item) => getCropDimensions(item)[dimension]))
+}
+
 function buildCropUpdate(
   crop: CropSettings | undefined,
   edge: CropEdge,
@@ -133,6 +138,19 @@ function getResolvedCropPropertyValue(
 ): number | undefined {
   if (!state) return undefined
   return getCropPropertyValue(state.crop, property, state.dimensions)
+}
+
+function getCropPropertyValuesByItemId(
+  items: CropItem[],
+  statesByItem: ReadonlyMap<string, ResolvedCropState>,
+  property: CropProperty,
+): Record<string, number> {
+  return Object.fromEntries(
+    items.map((item) => [
+      item.id,
+      getResolvedCropPropertyValue(statesByItem.get(item.id), property) ?? 0,
+    ]),
+  )
 }
 
 /**
@@ -228,15 +246,23 @@ export function VideoSection({ items }: VideoSectionProps) {
     (item) => getResolvedCropPropertyValue(resolvedCropStatesByItem.get(item.id), 'cropSoftness'),
     0,
   )
+  const cropValuesByProperty = useMemo(
+    () => ({
+      cropLeft: getCropPropertyValuesByItemId(cropItems, resolvedCropStatesByItem, 'cropLeft'),
+      cropRight: getCropPropertyValuesByItemId(cropItems, resolvedCropStatesByItem, 'cropRight'),
+      cropTop: getCropPropertyValuesByItemId(cropItems, resolvedCropStatesByItem, 'cropTop'),
+      cropBottom: getCropPropertyValuesByItemId(cropItems, resolvedCropStatesByItem, 'cropBottom'),
+      cropSoftness: getCropPropertyValuesByItemId(
+        cropItems,
+        resolvedCropStatesByItem,
+        'cropSoftness',
+      ),
+    }),
+    [cropItems, resolvedCropStatesByItem],
+  )
 
-  const maxSourceWidth = useMemo(
-    () => Math.max(1, ...cropItems.map((item) => getCropDimensions(item).width)),
-    [cropItems],
-  )
-  const maxSourceHeight = useMemo(
-    () => Math.max(1, ...cropItems.map((item) => getCropDimensions(item).height)),
-    [cropItems],
-  )
+  const sharedSourceWidth = useMemo(() => getSharedCropDimension(cropItems, 'width'), [cropItems])
+  const sharedSourceHeight = useMemo(() => getSharedCropDimension(cropItems, 'height'), [cropItems])
   const maxCropSoftness = useMemo(
     () =>
       Math.max(
@@ -599,7 +625,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               onChange={(value) => commitCropEdge('left', value)}
               onLiveChange={(value) => previewCropEdge('left', value)}
               min={0}
-              max={maxSourceWidth}
+              max={sharedSourceWidth}
               step={CROP_STEP}
               unit="px"
               formatValue={formatCropValue}
@@ -610,6 +636,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               itemIds={cropItemIds}
               property="cropLeft"
               currentValue={cropLeft === 'mixed' ? 0 : cropLeft}
+              currentValuesByItemId={cropValuesByProperty.cropLeft}
             />
             <Button
               variant="ghost"
@@ -630,7 +657,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               onChange={(value) => commitCropEdge('right', value)}
               onLiveChange={(value) => previewCropEdge('right', value)}
               min={0}
-              max={maxSourceWidth}
+              max={sharedSourceWidth}
               step={CROP_STEP}
               unit="px"
               formatValue={formatCropValue}
@@ -641,6 +668,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               itemIds={cropItemIds}
               property="cropRight"
               currentValue={cropRight === 'mixed' ? 0 : cropRight}
+              currentValuesByItemId={cropValuesByProperty.cropRight}
             />
             <Button
               variant="ghost"
@@ -661,7 +689,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               onChange={(value) => commitCropEdge('top', value)}
               onLiveChange={(value) => previewCropEdge('top', value)}
               min={0}
-              max={maxSourceHeight}
+              max={sharedSourceHeight}
               step={CROP_STEP}
               unit="px"
               formatValue={formatCropValue}
@@ -672,6 +700,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               itemIds={cropItemIds}
               property="cropTop"
               currentValue={cropTop === 'mixed' ? 0 : cropTop}
+              currentValuesByItemId={cropValuesByProperty.cropTop}
             />
             <Button
               variant="ghost"
@@ -692,7 +721,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               onChange={(value) => commitCropEdge('bottom', value)}
               onLiveChange={(value) => previewCropEdge('bottom', value)}
               min={0}
-              max={maxSourceHeight}
+              max={sharedSourceHeight}
               step={CROP_STEP}
               unit="px"
               formatValue={formatCropValue}
@@ -703,6 +732,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               itemIds={cropItemIds}
               property="cropBottom"
               currentValue={cropBottom === 'mixed' ? 0 : cropBottom}
+              currentValuesByItemId={cropValuesByProperty.cropBottom}
             />
             <Button
               variant="ghost"
@@ -734,6 +764,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               itemIds={cropItemIds}
               property="cropSoftness"
               currentValue={cropSoftness === 'mixed' ? 0 : cropSoftness}
+              currentValuesByItemId={cropValuesByProperty.cropSoftness}
             />
             <Button
               variant="ghost"

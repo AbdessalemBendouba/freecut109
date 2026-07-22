@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
-import type { ShapeItem, TextItem } from '@/types/timeline'
+import type { CompositionItem, ShapeItem, TextItem } from '@/types/timeline'
+import type { EffectSourceMask } from './canvas-effects'
 import type { ItemRenderContext } from './canvas-item-renderer'
 import { TextMeasurementCache } from './canvas-pool'
 import {
@@ -9,8 +10,14 @@ import {
 } from './canvas-item-renderer-test-helpers'
 
 const mockFns = vi.hoisted(() => ({
+  applyMasksMock: vi.fn(),
   drawCornerPinImageMock: vi.fn(),
   renderShapeMock: vi.fn(),
+  resolveCornerPinTargetRectMock: vi.fn(),
+}))
+
+vi.mock('./canvas-masks', () => ({
+  applyMasks: mockFns.applyMasksMock,
 }))
 
 vi.mock('./canvas-shapes', () => ({
@@ -24,6 +31,10 @@ vi.mock('@/features/export/deps/composition-runtime', async () => {
   return {
     ...actual,
     drawCornerPinImage: mockFns.drawCornerPinImageMock,
+    resolveCornerPinTargetRect: (...args: Parameters<typeof actual.resolveCornerPinTargetRect>) => {
+      mockFns.resolveCornerPinTargetRectMock(...args)
+      return actual.resolveCornerPinTargetRect(...args)
+    },
   }
 })
 
@@ -51,8 +62,10 @@ describe('canvas-item-renderer corner pin export path', () => {
   })
 
   beforeEach(() => {
+    mockFns.applyMasksMock.mockReset()
     mockFns.drawCornerPinImageMock.mockReset()
     mockFns.renderShapeMock.mockReset()
+    mockFns.resolveCornerPinTargetRectMock.mockReset()
   })
 
   it('uses the default corner pin mesh when opacity is fully opaque', async () => {
@@ -266,5 +279,55 @@ describe('canvas-item-renderer corner pin export path', () => {
     expect(ctx.translate).toHaveBeenNthCalledWith(1, 550, 320)
     expect(ctx.rotate).toHaveBeenCalledWith((45 * Math.PI) / 180)
     expect(ctx.translate).toHaveBeenNthCalledWith(2, -550, -320)
+  })
+
+  it('keeps cropped compound geometry when a mask is applied before corner pinning', async () => {
+    const item: CompositionItem = {
+      id: 'composition-1',
+      type: 'composition',
+      trackId: 'track-1',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Pinned compound',
+      compositionId: 'nested-1',
+      compositionWidth: 3840,
+      compositionHeight: 2160,
+      crop: { left: 0.25, top: 0.1 },
+      cornerPin: {
+        topLeft: [0, 0],
+        topRight: [20, -10],
+        bottomRight: [8, 12],
+        bottomLeft: [-12, 6],
+      },
+      transform: {
+        x: 0,
+        y: 0,
+        width: 640,
+        height: 360,
+        rotation: 0,
+        opacity: 1,
+      },
+    }
+    const mask: EffectSourceMask = {
+      path: {} as Path2D,
+      inverted: false,
+      feather: 0,
+      opacity: 1,
+      maskType: 'clip',
+    }
+    const ctx = createMockCanvasContext()
+    const rctx = createItemRenderContext()
+    const transform = createItemTransform({ width: 640, height: 360 })
+
+    await renderItem(ctx, item, transform, 1, rctx, 0, undefined, [mask])
+
+    expect(mockFns.applyMasksMock).toHaveBeenCalledTimes(1)
+    expect(mockFns.resolveCornerPinTargetRectMock).toHaveBeenCalledWith(640, 360, {
+      sourceWidth: 3840,
+      sourceHeight: 2160,
+      crop: expect.objectContaining(item.crop),
+      fitMode: 'fill',
+    })
+    expect(mockFns.drawCornerPinImageMock).toHaveBeenCalledTimes(1)
   })
 })
