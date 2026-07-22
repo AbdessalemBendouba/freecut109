@@ -169,6 +169,7 @@ function getSnapshot(): TimelineState & TimelineActions {
       promoteTransformToVector: timelineActions.promoteTransformToVector,
       applyAutoKeyframeOperations: timelineActions.applyAutoKeyframeOperations,
       removeKeyframe: timelineActions.removeKeyframe,
+      removeKeyframes: timelineActions.removeKeyframes,
       removeKeyframesForItem: timelineActions.removeKeyframesForItem,
       removeKeyframesForProperty: timelineActions.removeKeyframesForProperty,
       getKeyframesForItem: timelineActions.getKeyframesForItem,

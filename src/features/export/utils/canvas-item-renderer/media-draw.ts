@@ -4,43 +4,9 @@
  */
 
 import type { VideoItem } from '@/types/timeline'
-import { calculateMediaCropLayout } from '@/shared/utils/media-crop'
+import { calculateMediaCropLayout, type MediaCropFitMode } from '@/shared/utils/media-crop'
 import type { CanvasPool } from '../canvas-pool'
 import type { CanvasSettings } from './types'
-
-/**
- * Calculate draw dimensions for content that should fill the item's transform box.
- * Used by composition items, which scale their authored canvas into the target bounds.
- */
-export function calculateMediaDrawDimensions(
-  sourceWidth: number,
-  sourceHeight: number,
-  transform: { x: number; y: number; width: number; height: number },
-  canvas: CanvasSettings,
-): { x: number; y: number; width: number; height: number } {
-  if (transform.width && transform.height) {
-    return {
-      x: canvas.width / 2 + transform.x - transform.width / 2,
-      y: canvas.height / 2 + transform.y - transform.height / 2,
-      width: transform.width,
-      height: transform.height,
-    }
-  }
-
-  const scaleX = canvas.width / sourceWidth
-  const scaleY = canvas.height / sourceHeight
-  const fitScale = Math.min(scaleX, scaleY)
-
-  const drawWidth = sourceWidth * fitScale
-  const drawHeight = sourceHeight * fitScale
-
-  return {
-    x: (canvas.width - drawWidth) / 2 + transform.x,
-    y: (canvas.height - drawHeight) / 2 + transform.y,
-    width: drawWidth,
-    height: drawHeight,
-  }
-}
 
 export function calculateContainedMediaDrawLayout(
   sourceWidth: number,
@@ -48,6 +14,7 @@ export function calculateContainedMediaDrawLayout(
   transform: { x: number; y: number; width: number; height: number },
   canvas: CanvasSettings,
   crop?: VideoItem['crop'],
+  fitMode: MediaCropFitMode = 'contain',
 ): {
   mediaRect: { x: number; y: number; width: number; height: number }
   viewportRect: { x: number; y: number; width: number; height: number }
@@ -61,6 +28,7 @@ export function calculateContainedMediaDrawLayout(
     transform.width,
     transform.height,
     crop,
+    fitMode,
   )
 
   return {
@@ -194,6 +162,7 @@ export function drawContainedMediaSource(
   crop?: VideoItem['crop'],
   sourceRect?: { x: number; y: number; width: number; height: number },
   canvasPool?: CanvasPool,
+  fitMode: MediaCropFitMode = 'contain',
 ): boolean {
   const drawLayout = calculateContainedMediaDrawLayout(
     sourceWidth,
@@ -201,6 +170,7 @@ export function drawContainedMediaSource(
     transform,
     canvas,
     crop,
+    fitMode,
   )
   if (drawLayout.viewportRect.width <= 0 || drawLayout.viewportRect.height <= 0) {
     return false

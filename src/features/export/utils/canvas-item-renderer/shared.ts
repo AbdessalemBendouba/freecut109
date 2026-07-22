@@ -64,7 +64,7 @@ export function applyAnimatedCropToItem<TItem extends TimelineItem>(
   rctx: ItemRenderContext,
   renderSpan?: RenderTimelineSpan,
 ): TItem {
-  if (item.type !== 'video' && item.type !== 'image') {
+  if (item.type !== 'video' && item.type !== 'image' && item.type !== 'composition') {
     return item
   }
 

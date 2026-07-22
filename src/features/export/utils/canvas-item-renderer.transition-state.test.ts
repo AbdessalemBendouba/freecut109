@@ -1573,6 +1573,7 @@ describe('renderTransitionToGpuTexture', () => {
     } as ShapeItem
     const rightClip = createSubCompositionTransitionClip({
       compositionId: 'sub-comp-1',
+      crop: { left: 0.25 },
     })
     const activeTransition = createActiveTransition({ leftClip, rightClip, progress: 0.5 })
     const leftTexture = createMockGpuTexture()
@@ -1933,7 +1934,8 @@ describe('renderTransitionToGpuTexture', () => {
       expect.objectContaining({
         sourceWidth: 640,
         sourceHeight: 360,
-        destRect: { x: 640, y: 360, width: 640, height: 360 },
+        sourceRect: { x: 160, y: 0, width: 480, height: 360 },
+        destRect: { x: 800, y: 360, width: 480, height: 360 },
       }),
     )
     expect(atlasTextTexture.destroy).not.toHaveBeenCalled()

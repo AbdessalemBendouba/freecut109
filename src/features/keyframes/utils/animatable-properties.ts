@@ -48,8 +48,7 @@ export function getAnimatablePropertiesForItem(item: TimelineItem): AnimatablePr
     case 'composition':
       return [
         ...VISUAL_ANIMATABLE_PROPERTIES,
-        'anchorX',
-        'anchorY',
+        ...VIDEO_ANIMATABLE_PROPERTIES,
         ...AUDIO_ANIMATABLE_PROPERTIES,
         ...effectProperties,
       ]

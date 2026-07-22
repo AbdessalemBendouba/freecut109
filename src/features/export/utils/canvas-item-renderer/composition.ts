@@ -24,7 +24,7 @@ import {
 } from '../render-span'
 import type { CanvasSettings, ItemRenderContext, ItemTransform, SubCompRenderData } from './types'
 import { log } from './shared'
-import { calculateMediaDrawDimensions } from './media-draw'
+import { drawContainedMediaSource } from './media-draw'
 import { resolveSubCompRenderDataForInstance } from './composition-instance'
 
 /**
@@ -291,20 +291,19 @@ export async function renderCompositionItem(
 
     subCtx.drawImage(subContentCanvas, 0, 0)
 
-    // Draw the sub-composition result onto the main canvas at the CompositionItem's position
-    const drawDimensions = calculateMediaDrawDimensions(
+    // Crop the flattened sub-composition in wrapper space before parent-level
+    // effects, masks, and corner pinning are applied.
+    drawContainedMediaSource(
+      ctx,
+      subCanvas,
       subCanvas.width,
       subCanvas.height,
       transform,
       rctx.canvasSettings,
-    )
-
-    ctx.drawImage(
-      subCanvas,
-      drawDimensions.x,
-      drawDimensions.y,
-      drawDimensions.width,
-      drawDimensions.height,
+      item.crop,
+      undefined,
+      rctx.canvasPool,
+      'fill',
     )
   } finally {
     rctx.canvasPool.release(subContentCanvas)

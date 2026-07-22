@@ -1,6 +1,10 @@
 import type React from 'react'
 import type { CropSettings } from '@/types/transform'
-import { calculateMediaCropLayout, type MediaCropLayout } from '@/shared/utils/media-crop'
+import {
+  calculateMediaCropLayout,
+  type MediaCropFitMode,
+  type MediaCropLayout,
+} from '@/shared/utils/media-crop'
 
 interface ContainedMediaLayoutProps {
   sourceWidth: number
@@ -8,6 +12,7 @@ interface ContainedMediaLayoutProps {
   containerWidth: number
   containerHeight: number
   crop?: CropSettings
+  fitMode?: MediaCropFitMode
   children: React.ReactNode
 }
 
@@ -81,6 +86,7 @@ export function ContainedMediaLayout({
   containerWidth,
   containerHeight,
   crop,
+  fitMode = 'contain',
   children,
 }: ContainedMediaLayoutProps) {
   const layout = calculateMediaCropLayout(
@@ -89,6 +95,7 @@ export function ContainedMediaLayout({
     containerWidth,
     containerHeight,
     crop,
+    fitMode,
   )
 
   if (layout.mediaRect.width <= 0 || layout.mediaRect.height <= 0) {

@@ -48,6 +48,28 @@ describe('ContainedMediaLayout', () => {
     expect(style).toContain('mask-image')
   })
 
+  it('preserves fill-fitted compound bounds while applying crop', () => {
+    const { container } = render(
+      <ContainedMediaLayout
+        sourceWidth={1920}
+        sourceHeight={1080}
+        containerWidth={400}
+        containerHeight={400}
+        crop={{ left: 0.1 }}
+        fitMode="fill"
+      >
+        <div data-testid="composition" />
+      </ContainedMediaLayout>,
+    )
+
+    const mediaRect = container.querySelectorAll('div')[1] as HTMLDivElement | undefined
+    expect(mediaRect?.style.left).toBe('0%')
+    expect(mediaRect?.style.top).toBe('0%')
+    expect(mediaRect?.style.width).toBe('100%')
+    expect(mediaRect?.style.height).toBe('100%')
+    expect(mediaRect?.style.maskImage).toContain('linear-gradient')
+  })
+
   it('renders without mask when no crop is set', () => {
     const { container } = render(
       <ContainedMediaLayout

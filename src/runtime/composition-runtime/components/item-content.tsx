@@ -606,7 +606,16 @@ export const ItemContent = React.memo<ItemProps>(
       // Render sub-composition contents inline
       // Pass parent muted so muting the track silences all sub-comp audio
       return (
-        <ItemVisualWrapper item={item} masks={masks}>
+        <ItemVisualWrapper
+          item={item}
+          masks={masks}
+          mediaContent={{
+            fitMode: 'fill',
+            sourceWidth: item.compositionWidth,
+            sourceHeight: item.compositionHeight,
+            crop: item.crop,
+          }}
+        >
           {renderCompositionContent({
             item,
             parentMuted: muted,

@@ -887,7 +887,7 @@ export function GizmoOverlay({
   const handleCropEnd = useCallback(
     (itemId: string, edge: CropEdge, ratio: number) => {
       const item = visualItems.find((candidate) => candidate.id === itemId)
-      if (!item || item.type !== 'video') return
+      if (!item || (item.type !== 'video' && item.type !== 'composition')) return
 
       const currentFrame = usePlaybackStore.getState().currentFrame
       const sourceDimensions = getSourceDimensions(item) ?? {

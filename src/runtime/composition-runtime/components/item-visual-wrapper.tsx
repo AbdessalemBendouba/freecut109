@@ -16,6 +16,7 @@ import { renderSvgMaskPathsToDataUrl } from '../utils/clip-mask-raster'
 import { getRasterizedMaskLayerSettingsList } from '../utils/mask-preview'
 import type { MaskInfo } from './item'
 import type { CropSettings } from '@/types/transform'
+import type { MediaCropFitMode } from '@/shared/utils/media-crop'
 import { ContainedMediaLayout } from './contained-media-layout'
 import { ItemVisualTransformProvider } from '../contexts/item-visual-transform-context'
 
@@ -23,7 +24,7 @@ interface ItemVisualWrapperProps {
   item: TimelineItem
   masks?: MaskInfo[]
   mediaContent?: {
-    fitMode: 'contain'
+    fitMode: MediaCropFitMode
     sourceWidth?: number
     sourceHeight?: number
     crop?: CropSettings
@@ -374,26 +375,32 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
     s.editingItemId === item.id ? s.previewCornerPin : null,
   )
   const effectiveCornerPin = cornerPinPreview ?? item.cornerPin
+  const hasMediaContent = mediaContent !== undefined
+  const mediaFitMode = mediaContent?.fitMode
+  const mediaSourceWidth = mediaContent?.sourceWidth
+  const mediaSourceHeight = mediaContent?.sourceHeight
   const effectiveCrop = state.propertiesPreview?.crop ?? state.animatedCrop ?? mediaContent?.crop
   const cornerPinTargetRect = useMemo(() => {
     if (state.maskType !== null) {
       return resolveCornerPinTargetRect(state.transform.width, state.transform.height)
     }
 
-    if (mediaContent?.fitMode === 'contain') {
+    if (hasMediaContent && mediaFitMode) {
       return resolveCornerPinTargetRect(state.transform.width, state.transform.height, {
-        sourceWidth: mediaContent.sourceWidth ?? state.transform.width,
-        sourceHeight: mediaContent.sourceHeight ?? state.transform.height,
+        sourceWidth: mediaSourceWidth ?? state.transform.width,
+        sourceHeight: mediaSourceHeight ?? state.transform.height,
         crop: effectiveCrop,
+        fitMode: mediaFitMode,
       })
     }
 
     return resolveCornerPinTargetRect(state.transform.width, state.transform.height)
   }, [
     effectiveCrop,
-    mediaContent?.fitMode,
-    mediaContent?.sourceHeight,
-    mediaContent?.sourceWidth,
+    hasMediaContent,
+    mediaFitMode,
+    mediaSourceHeight,
+    mediaSourceWidth,
     state.maskType,
     state.transform.height,
     state.transform.width,
@@ -529,23 +536,23 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
     }
   }, [maskStyle, blendModeCss])
 
-  const effectiveMediaChildren =
-    mediaContent?.fitMode === 'contain' ? (
-      <ContainedMediaLayout
-        sourceWidth={mediaContent.sourceWidth ?? state.transform.width}
-        sourceHeight={mediaContent.sourceHeight ?? state.transform.height}
-        containerWidth={state.transform.width}
-        containerHeight={state.transform.height}
-        crop={effectiveCrop}
-      >
-        {children}
-      </ContainedMediaLayout>
-    ) : (
-      children
-    )
+  const effectiveMediaChildren = mediaContent ? (
+    <ContainedMediaLayout
+      sourceWidth={mediaContent.sourceWidth ?? state.transform.width}
+      sourceHeight={mediaContent.sourceHeight ?? state.transform.height}
+      containerWidth={state.transform.width}
+      containerHeight={state.transform.height}
+      crop={effectiveCrop}
+      fitMode={mediaContent.fitMode}
+    >
+      {children}
+    </ContainedMediaLayout>
+  ) : (
+    children
+  )
 
   const cornerPinFrameStyle = useMemo((): React.CSSProperties => {
-    if (mediaContent?.fitMode === 'contain' && cornerPinStyle) {
+    if (hasMediaContent && cornerPinStyle) {
       return containedMediaStyle
     }
 
@@ -553,22 +560,22 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
       width: '100%',
       height: '100%',
     }
-  }, [containedMediaStyle, cornerPinStyle, mediaContent?.fitMode])
+  }, [containedMediaStyle, cornerPinStyle, hasMediaContent])
 
-  const pinnedMediaBody =
-    mediaContent?.fitMode === 'contain' ? (
-      <ContainedMediaLayout
-        sourceWidth={cornerPinTargetRect.width}
-        sourceHeight={cornerPinTargetRect.height}
-        containerWidth={cornerPinTargetRect.width}
-        containerHeight={cornerPinTargetRect.height}
-        crop={effectiveCrop}
-      >
-        {children}
-      </ContainedMediaLayout>
-    ) : (
-      children
-    )
+  const pinnedMediaBody = mediaContent ? (
+    <ContainedMediaLayout
+      sourceWidth={cornerPinTargetRect.width}
+      sourceHeight={cornerPinTargetRect.height}
+      containerWidth={cornerPinTargetRect.width}
+      containerHeight={cornerPinTargetRect.height}
+      crop={effectiveCrop}
+      fitMode={mediaContent.fitMode}
+    >
+      {children}
+    </ContainedMediaLayout>
+  ) : (
+    children
+  )
 
   const pinnedMediaContent = (
     <div

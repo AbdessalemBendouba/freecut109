@@ -3,7 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { useEditorStore } from '@/shared/state/editor'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useTimelineStore } from '@/features/editor/deps/timeline-store'
-import type { AudioItem, ControllerItem, TimelineItem, VideoItem } from '@/types/timeline'
+import type {
+  AudioItem,
+  CompositionItem,
+  ControllerItem,
+  TimelineItem,
+  VideoItem,
+} from '@/types/timeline'
 import { ClipPanel } from './index'
 
 vi.mock('./layout-section', () => ({
@@ -70,6 +76,18 @@ const AUDIO_ITEM: AudioItem = {
   label: 'clip.wav',
   src: 'blob:audio',
   mediaId: 'media-audio-1',
+}
+
+const COMPOSITION_ITEM: CompositionItem = {
+  id: 'composition-1',
+  type: 'composition',
+  trackId: 'track-1',
+  from: 0,
+  durationInFrames: 90,
+  label: 'Compound clip',
+  compositionId: 'nested-1',
+  compositionWidth: 1920,
+  compositionHeight: 1080,
 }
 
 const NULL_OBJECT: ControllerItem = {
@@ -159,6 +177,14 @@ describe('ClipPanel inspector tabs', () => {
     })
     expect(screen.getByRole('tab', { name: 'Audio' })).toHaveAttribute('data-state', 'active')
     expect(useEditorStore.getState().clipInspectorTab).toBe('audio')
+  })
+
+  it('shows visual media controls for a compound-only selection', () => {
+    resetStores([COMPOSITION_ITEM], [COMPOSITION_ITEM.id])
+
+    render(<ClipPanel />)
+
+    expect(screen.getByText('Video Body')).toBeInTheDocument()
   })
 
   it('embeds the complete motion library as a selected-layer tab in Motion', async () => {

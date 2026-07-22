@@ -17,7 +17,11 @@
 
 import type { TimelineItemCornerPin } from '@/types/timeline'
 import type { CropSettings } from '@/types/transform'
-import { calculateMediaCropLayout, type Rect } from '@/shared/utils/media-crop'
+import {
+  calculateMediaCropLayout,
+  type MediaCropFitMode,
+  type Rect,
+} from '@/shared/utils/media-crop'
 
 export interface CornerPinOffsets {
   topLeft: [number, number]
@@ -30,6 +34,7 @@ export interface CornerPinTargetRectOptions {
   sourceWidth?: number
   sourceHeight?: number
   crop?: CropSettings
+  fitMode?: MediaCropFitMode
 }
 
 export type CornerPinHomography = [
@@ -111,6 +116,7 @@ export function resolveCornerPinTargetRect(
       containerWidth,
       containerHeight,
       options.crop,
+      options.fitMode,
     ).mediaRect
   }
 

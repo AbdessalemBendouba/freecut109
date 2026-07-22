@@ -72,6 +72,13 @@ describe('media-crop', () => {
     })
   })
 
+  it('crops fill-fitted compound output without changing its stretched bounds', () => {
+    const layout = calculateMediaCropLayout(1920, 1080, 400, 400, { left: 0.1, top: 0.25 }, 'fill')
+
+    expect(layout.mediaRect).toEqual({ x: 0, y: 0, width: 400, height: 400 })
+    expect(layout.viewportRect).toEqual({ x: 40, y: 100, width: 360, height: 300 })
+  })
+
   it('round-trips crop ratios through source pixels', () => {
     expect(cropRatioToPixels(0.125, 1920)).toBe(240)
     expect(cropPixelsToRatio(240, 1920)).toBeCloseTo(0.125)
