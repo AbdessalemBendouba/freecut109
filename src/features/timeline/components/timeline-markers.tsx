@@ -32,11 +32,10 @@ import { formatTimecode, formatTimecodeCompact, secondsToFrames } from '@/shared
 import { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub-throttle'
 import { EDITOR_LAYOUT_CSS_VALUES, getEditorLayout } from '@/config/editor-layout'
 import { sanitizeInOutPoints } from '../utils/in-out-points'
-import { pixelsToFrameNow } from '../utils/zoom-conversions'
+import { frameToPixelsNow, pixelsToFrameNow } from '../utils/zoom-conversions'
 import {
   getEdgeScrollDelta,
   getPlayheadEdgeScrollVelocity,
-  getVisiblePlayheadClientX,
 } from '../utils/playhead-edge-scroll'
 
 interface TimelineMarkersProps {
@@ -68,14 +67,12 @@ export const IO_LANE_HEIGHT = 12
 
 function applyMainTimelineScrubVisual({
   scrollContainer,
-  clientX,
   frame,
   maxFrame,
   frameToPixels,
   playheadElements,
 }: {
   scrollContainer: HTMLDivElement | null
-  clientX: number
   frame: number
   maxFrame: number
   frameToPixels: (frame: number) => number
@@ -83,11 +80,17 @@ function applyMainTimelineScrubVisual({
 }): void {
   if (!scrollContainer) return
   const viewportRect = scrollContainer.getBoundingClientRect()
-  const visualClientX = getVisiblePlayheadClientX(clientX, viewportRect)
-  const pointerTimelineX = visualClientX - viewportRect.left + scrollContainer.scrollLeft
+  // Keep the transient visual on the same integer-frame pixel as the committed
+  // playhead. Following the raw pointer here makes a stationary click appear to
+  // shift on release even when both positions resolve to the same frame.
+  const frameTimelineX = Math.round(frameToPixels(frame))
   const visualTimelineX = Math.max(
     scrollContainer.scrollLeft,
-    Math.min(pointerTimelineX, frameToPixels(maxFrame)),
+    Math.min(
+      frameTimelineX,
+      scrollContainer.scrollLeft + Math.max(0, viewportRect.width - 1),
+      Math.round(frameToPixels(maxFrame)),
+    ),
   )
   for (const element of playheadElements) {
     element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
@@ -803,10 +806,9 @@ export const TimelineMarkers = memo(function TimelineMarkers({
 
     applyMainTimelineScrubVisual({
       scrollContainer,
-      clientX: mouseClientX,
       frame,
       maxFrame,
-      frameToPixels: frameToPixelsRef.current,
+      frameToPixels: frameToPixelsNow,
       playheadElements: scrubPlayheadElementsRef.current,
     })
 
@@ -960,10 +962,9 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       setScrubFrameRef.current(frame)
       applyMainTimelineScrubVisual({
         scrollContainer: scrollContainerRef.current,
-        clientX: e.clientX,
         frame,
         maxFrame,
-        frameToPixels: frameToPixelsRef.current,
+        frameToPixels: frameToPixelsNow,
         playheadElements: scrubPlayheadElementsRef.current,
       })
       scrubThrottleStateRef.current = createScrubThrottleState({
@@ -1003,7 +1004,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
       }
       const finalFrame = getFrameFromClientX(scrubMouseClientXRef.current)
       setScrubFrameRef.current(finalFrame)
-      const finalTimelineX = frameToPixelsRef.current(finalFrame)
+      const finalTimelineX = Math.round(frameToPixelsNow(finalFrame))
       for (const element of scrubPlayheadElementsRef.current) {
         element.style.transform = `translate3d(${finalTimelineX}px, 0, 0)`
       }
