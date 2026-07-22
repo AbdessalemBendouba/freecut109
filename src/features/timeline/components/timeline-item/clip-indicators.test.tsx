@@ -39,7 +39,7 @@ describe('ClipIndicators', () => {
     expect(parentClick).not.toHaveBeenCalled()
   })
 
-  it('opens continuous motion without starting the parent clip gesture', () => {
+  it('opens animation controls without starting the parent clip gesture', () => {
     const onMotionOpen = vi.fn()
     const parentPointerDown = vi.fn()
     const parentClick = vi.fn()
@@ -63,7 +63,7 @@ describe('ClipIndicators', () => {
       </div>,
     )
 
-    const button = screen.getByRole('button', { name: 'Has continuous motion' })
+    const button = screen.getByRole('button', { name: 'Open animation controls' })
 
     fireEvent.pointerDown(button, { button: 0 })
     expect(onMotionOpen).not.toHaveBeenCalled()

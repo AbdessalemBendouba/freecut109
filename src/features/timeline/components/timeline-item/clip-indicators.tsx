@@ -1,6 +1,6 @@
 import { memo, type SyntheticEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link2Off, Diamond, Waves } from 'lucide-react'
+import { Link2Off, Diamond, WandSparkles } from 'lucide-react'
 import { cn } from '@/shared/ui/cn'
 import { EDITOR_LAYOUT_CSS_VALUES } from '@/config/editor-layout'
 
@@ -11,7 +11,7 @@ interface ClipIndicatorsProps {
   hasKeyframes: boolean
   /** Whether this clip is targeted by the Edit keyframe panel. */
   keyframesExpanded: boolean
-  /** Whether the item has procedural motion (modulators / audio pulse) */
+  /** Whether the item has live animation (procedural layers, modifiers, or text motion). */
   hasMotion: boolean
   /** Current playback speed (1 = normal) */
   currentSpeed: number
@@ -32,7 +32,7 @@ interface ClipIndicatorsProps {
   isShape: boolean
   /** Opens or closes the selected clip's Edit keyframe panel. */
   onKeyframesToggle?: () => void
-  /** Selects this clip and opens its live-motion controls in the inspector. */
+  /** Selects this clip and opens its Animation controls in the inspector. */
   onMotionOpen?: () => void
 }
 
@@ -164,7 +164,7 @@ const ClipLabelIndicators = memo(function ClipLabelIndicators({
             onMotionOpen?.()
           }}
         >
-          <Waves className="w-3 h-3 text-sky-400" />
+          <WandSparkles className="w-3 h-3 text-sky-400" />
         </button>
       )}
       {isShapeMask && (

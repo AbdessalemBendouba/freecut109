@@ -428,8 +428,17 @@ function mapSubCompItemToWrapperWindow(params: {
  *
  * Supports nested compound clips, but prevents circular composition references.
  */
-export function createPreComp(name?: string, itemIds?: string[]): TimelineItem | null {
-  return execute(
+interface CreatePreCompOptions {
+  editorKind?: SubComposition['editorKind']
+  openAfterCreate?: boolean
+}
+
+export function createPreComp(
+  name?: string,
+  itemIds?: string[],
+  options: CreatePreCompOptions = {},
+): TimelineItem | null {
+  const created = execute(
     'CREATE_PRE_COMP',
     () => {
       const { items, tracks } = useItemsStore.getState()
@@ -547,11 +556,12 @@ export function createPreComp(name?: string, itemIds?: string[]): TimelineItem |
         id: compositionId,
         name: compName,
         editorKind:
-          activeCompositionId !== null &&
+          options.editorKind ??
+          (activeCompositionId !== null &&
           useCompositionsStore.getState().getComposition(activeCompositionId)?.editorKind ===
             'composite-2d'
             ? 'composite-2d'
-            : 'sequence',
+            : 'sequence'),
         items: subCompItems,
         tracks: subCompTracks,
         transitions: subCompTransitions,
@@ -700,8 +710,27 @@ export function createPreComp(name?: string, itemIds?: string[]): TimelineItem |
 
       return compositionItem ?? compositionAudioItem ?? null
     },
-    { name },
+    { name, editorKind: options.editorKind },
   )
+
+  if (options.openAfterCreate && created?.compositionId) {
+    openComposition(created.compositionId, created.label, created.id)
+  }
+
+  return created
+}
+
+/**
+ * Promote editorial clips into a layer-based Motion composition.
+ *
+ * The selected clips keep their existing animation inside the new composition;
+ * the returned wrapper is the simple clip-level animation surface in Edit.
+ */
+export function createMotionClip(name?: string, itemIds?: string[]): TimelineItem | null {
+  return createPreComp(name, itemIds, {
+    editorKind: 'composite-2d',
+    openAfterCreate: true,
+  })
 }
 
 /**

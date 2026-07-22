@@ -137,13 +137,18 @@ function trimAttachedCaptionsToClipBounds(clipIds: Iterable<string>): string[] {
   return [...captionUpdates.map((update) => update.id), ...captionIdsToRemove]
 }
 
-function applySynchronizedTrim(id: string, handle: 'start' | 'end', trimAmount: number): void {
+function applySynchronizedTrim(
+  id: string,
+  handle: 'start' | 'end',
+  trimAmount: number,
+  forceLinked: boolean,
+): void {
   const itemsStore = useItemsStore.getState()
   const itemsBefore = itemsStore.items
   const synchronizedItems = getSynchronizedLinkedItemsForEdit(
     itemsBefore,
     id,
-    isLinkedSelectionEnabled(),
+    forceLinked || isLinkedSelectionEnabled(),
   )
   const anchorBefore = synchronizedItems.find((item) => item.id === id)
   if (!anchorBefore) return
@@ -188,21 +193,29 @@ function applySynchronizedTrim(id: string, handle: 'start' | 'end', trimAmount: 
   useTimelineSettingsStore.getState().markDirty()
 }
 
-export function trimItemStart(id: string, trimAmount: number): void {
+export function trimItemStart(
+  id: string,
+  trimAmount: number,
+  options: { forceLinked?: boolean } = {},
+): void {
   execute(
     'TRIM_ITEM_START',
     () => {
-      applySynchronizedTrim(id, 'start', trimAmount)
+      applySynchronizedTrim(id, 'start', trimAmount, options.forceLinked === true)
     },
     { id, trimAmount },
   )
 }
 
-export function trimItemEnd(id: string, trimAmount: number): void {
+export function trimItemEnd(
+  id: string,
+  trimAmount: number,
+  options: { forceLinked?: boolean } = {},
+): void {
   execute(
     'TRIM_ITEM_END',
     () => {
-      applySynchronizedTrim(id, 'end', trimAmount)
+      applySynchronizedTrim(id, 'end', trimAmount, options.forceLinked === true)
     },
     { id, trimAmount },
   )
@@ -221,7 +234,7 @@ export function trimItemBreakingTransition(
         useTransitionsStore.getState()._removeTransitions(transitionIdsToRemove)
       }
 
-      applySynchronizedTrim(id, handle, trimAmount)
+      applySynchronizedTrim(id, handle, trimAmount, false)
     },
     {
       id,

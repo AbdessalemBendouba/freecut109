@@ -789,6 +789,79 @@ describe('DopesheetEditor playhead overlay', () => {
     })
   })
 
+  it('scales the Edit settle handoff into the narrower rendered axis', () => {
+    const scrollContainer = document.createElement('div')
+    scrollContainer.scrollLeft = 500
+    const timelineScrollContainerRef = { current: scrollContainer }
+    const mainViewportWidth = 393
+    const renderedAxisWidth = 391
+    const basePixelsPerSecond = (mainViewportWidth / 100) * 30
+
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        totalFrames={300}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        clampViewportToContent={false}
+        presentation="classic"
+        fps={30}
+        width={640}
+        height={240}
+        timelineScrollContainerRef={timelineScrollContainerRef}
+        timelinePanBaseScrollLeft={100}
+        timelinePanBasePixelsPerSecond={basePixelsPerSecond}
+        getTimelineLivePixelsPerSecond={() => basePixelsPerSecond}
+      />,
+    )
+
+    const transform = screen
+      .getByTestId('dopesheet-editor-root')
+      .style.getPropertyValue('--dopesheet-live-axis-transform')
+    const translatedPixels = Number.parseFloat(
+      transform.match(/translate3d\(([-\d.]+)px/)?.[1] ?? 'NaN',
+    )
+
+    expect(translatedPixels).toBeCloseTo(
+      ((100 - scrollContainer.scrollLeft) * renderedAxisWidth) / mainViewportWidth,
+    )
+    expect(transform).toContain('scaleX(1)')
+  })
+
+  it('uses the linked Edit viewport width as the authoritative settled axis', () => {
+    const scrollContainer = document.createElement('div')
+    scrollContainer.scrollLeft = 500
+    const timelineScrollContainerRef = { current: scrollContainer }
+    const mainViewportWidth = 393
+    const basePixelsPerSecond = (mainViewportWidth / 100) * 30
+
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        totalFrames={300}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        clampViewportToContent={false}
+        presentation="classic"
+        fps={30}
+        width={640}
+        height={240}
+        timelineScrollContainerRef={timelineScrollContainerRef}
+        timelinePanBaseScrollLeft={100}
+        timelinePanBasePixelsPerSecond={basePixelsPerSecond}
+        linkedTimelineViewportWidth={mainViewportWidth}
+        getTimelineLivePixelsPerSecond={() => basePixelsPerSecond}
+      />,
+    )
+
+    expect(screen.getByTestId('dopesheet-editor-root')).toHaveStyle({
+      '--dopesheet-live-axis-transform': 'translate3d(-401px, 0, 0) scaleX(1)',
+    })
+    expect(screen.getByTestId('dopesheet-playhead-clip')).toHaveStyle({ left: '248px' })
+  })
+
   it('pre-renders ruler marks around the linked viewport for immediate pans', () => {
     const scrollContainer = document.createElement('div')
     const timelineScrollContainerRef = { current: scrollContainer }

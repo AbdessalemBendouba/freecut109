@@ -150,6 +150,7 @@ import {
   resolveTransform,
 } from '@/features/editor/deps/composition-runtime'
 import { wouldCreateTransformParentCycle } from '@/shared/utils/transform-parenting'
+import { getLinkedAudioCompanion } from '@/shared/utils/linked-media'
 import {
   beginTextMotionEdit,
   commitTextMotionEdit,
@@ -484,24 +485,24 @@ const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({
             </div>
             <div className="relative h-7 min-w-0 flex-1 overflow-hidden">
               <div data-motion-viewport-surface className="absolute inset-0 overflow-hidden">
-              <div
-                data-testid={`motion-text-procedural-band-${band.slot}`}
-                data-motion-span-drag-visual
-                data-from-frame={previewFromFrame}
-                data-to-frame={previewToFrame}
-                className="absolute top-1/2 h-4 -translate-y-1/2 touch-none cursor-ew-resize rounded-sm border border-sky-300/45 bg-sky-400/10 transition-[border-color,background-color] hover:border-sky-200/80 hover:bg-sky-400/20 active:border-sky-100"
-                style={{
-                  left: `${left}%`,
-                  width: `${Math.max(0.5, width)}%`,
-                  backgroundImage: PROCEDURAL_HATCH,
-                }}
-                title={`${band.presetId} · drag to change duration · ${previewDuration}f · ${band.unitCount} units`}
-                onPointerDown={(event) => beginDurationDrag(event, band)}
-                onPointerMove={moveDurationDrag}
-                onPointerUp={endDurationDrag}
-                onPointerCancel={cancelDurationDrag}
-                onClick={openAnimationInspector}
-              />
+                <div
+                  data-testid={`motion-text-procedural-band-${band.slot}`}
+                  data-motion-span-drag-visual
+                  data-from-frame={previewFromFrame}
+                  data-to-frame={previewToFrame}
+                  className="absolute top-1/2 h-4 -translate-y-1/2 touch-none cursor-ew-resize rounded-sm border border-sky-300/45 bg-sky-400/10 transition-[border-color,background-color] hover:border-sky-200/80 hover:bg-sky-400/20 active:border-sky-100"
+                  style={{
+                    left: `${left}%`,
+                    width: `${Math.max(0.5, width)}%`,
+                    backgroundImage: PROCEDURAL_HATCH,
+                  }}
+                  title={`${band.presetId} · drag to change duration · ${previewDuration}f · ${band.unitCount} units`}
+                  onPointerDown={(event) => beginDurationDrag(event, band)}
+                  onPointerMove={moveDurationDrag}
+                  onPointerUp={endDurationDrag}
+                  onPointerCancel={cancelDurationDrag}
+                  onClick={openAnimationInspector}
+                />
               </div>
             </div>
           </div>
@@ -902,23 +903,13 @@ function buildMotionSelectionRetimePreview(
   const localFrameByStorageKey = new Map<string, number>()
   for (const update of updates.scalar) {
     localFrameByStorageKey.set(
-      getMotionRetimeStorageKey(
-        update.itemId,
-        'scalar',
-        update.property,
-        update.keyframeId,
-      ),
+      getMotionRetimeStorageKey(update.itemId, 'scalar', update.property, update.keyframeId),
       update.frame,
     )
   }
   for (const update of updates.vector) {
     localFrameByStorageKey.set(
-      getMotionRetimeStorageKey(
-        update.itemId,
-        'vector',
-        update.property,
-        update.keyframeId,
-      ),
+      getMotionRetimeStorageKey(update.itemId, 'vector', update.property, update.keyframeId),
       update.frame,
     )
   }
@@ -969,8 +960,7 @@ function applyMotionSelectionRetimeVisuals(
       entry.storage.keyframeId,
     )
     const initialAbsoluteFrame = item.from + entry.initialFrame
-    const absoluteFrame =
-      preview.absoluteFrameByStorageKey.get(storageKey) ?? initialAbsoluteFrame
+    const absoluteFrame = preview.absoluteFrameByStorageKey.get(storageKey) ?? initialAbsoluteFrame
     offsetPxByReferenceKey.set(
       getMotionRetimeReferenceKey(entry.ref.itemId, entry.ref.keyframeId),
       ((absoluteFrame - initialAbsoluteFrame) / visibleFrameRange) * drag.rulerWidth,
@@ -979,15 +969,14 @@ function applyMotionSelectionRetimeVisuals(
   for (const visual of drag.keyframeVisuals) {
     const absoluteFrame =
       preview.absoluteFrameByStorageKey.get(visual.storageKey) ?? visual.initialAbsoluteFrame
-    const offsetPx = ((absoluteFrame - visual.initialAbsoluteFrame) / visibleFrameRange) * drag.rulerWidth
+    const offsetPx =
+      ((absoluteFrame - visual.initialAbsoluteFrame) / visibleFrameRange) * drag.rulerWidth
     visual.element.style.transform = `translate3d(${offsetPx}px, 0, 0)`
     visual.element.style.willChange = 'transform'
   }
   for (const visual of drag.connectorVisuals) {
-    const nextLeft =
-      visual.initialLeft + (offsetPxByReferenceKey.get(visual.fromReferenceKey) ?? 0)
-    const nextRight =
-      visual.initialRight + (offsetPxByReferenceKey.get(visual.toReferenceKey) ?? 0)
+    const nextLeft = visual.initialLeft + (offsetPxByReferenceKey.get(visual.fromReferenceKey) ?? 0)
+    const nextRight = visual.initialRight + (offsetPxByReferenceKey.get(visual.toReferenceKey) ?? 0)
     visual.element.style.left = `${Math.min(nextLeft, nextRight)}px`
     visual.element.style.width = `${Math.abs(nextRight - nextLeft)}px`
     visual.element.style.willChange = 'left, width'
@@ -1083,23 +1072,13 @@ function hasMotionSelectionRetimeChanges(
     updates.scalar.some(
       (update) =>
         initialFrameByStorageKey.get(
-          getMotionRetimeStorageKey(
-            update.itemId,
-            'scalar',
-            update.property,
-            update.keyframeId,
-          ),
+          getMotionRetimeStorageKey(update.itemId, 'scalar', update.property, update.keyframeId),
         ) !== update.frame,
     ) ||
     updates.vector.some(
       (update) =>
         initialFrameByStorageKey.get(
-          getMotionRetimeStorageKey(
-            update.itemId,
-            'vector',
-            update.property,
-            update.keyframeId,
-          ),
+          getMotionRetimeStorageKey(update.itemId, 'vector', update.property, update.keyframeId),
         ) !== update.frame,
     )
   )
@@ -1727,10 +1706,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         : [],
     [itemKeyframes, properties, supportsVectorTransform],
   )
-  const positionDimensionsSeparated = isMotionVectorRowSeparated(
-    itemKeyframes,
-    POSITION_VECTOR_ROW,
-  )
+  const positionDimensionsSeparated = isMotionVectorRowSeparated(itemKeyframes, POSITION_VECTOR_ROW)
   const hiddenPropertyRows = useMemo<AnimatableProperty[]>(
     () => motionVectorRows.map((row) => row.secondary),
     [motionVectorRows],
@@ -1940,8 +1916,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           }).vectorProperty
       clearKeyframeSelection()
       setVectorDimensionsSeparated(item.id, 'position', false, {
-        vectorProperty:
-          nextVectorProperty.keyframes.length > 0 ? nextVectorProperty : undefined,
+        vectorProperty: nextVectorProperty.keyframes.length > 0 ? nextVectorProperty : undefined,
       })
     },
     [
@@ -1976,9 +1951,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
 
       const needsBake = separated
         ? motionVectorSeparationNeedsBake(
-            itemKeyframes?.vectorProperties?.find(
-              (candidate) => candidate.property === 'position',
-            ),
+            itemKeyframes?.vectorProperties?.find((candidate) => candidate.property === 'position'),
           )
         : !canCombineMotionVectorRowWithoutBake(itemKeyframes, POSITION_VECTOR_ROW)
       if (!needsBake) {
@@ -2432,10 +2405,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         disabled && 'opacity-60',
       )}
       style={{
-        height: getMotionDopesheetLaneHeight(
-          paneMode,
-          laneContentHeight + expressionDockHeight,
-        ),
+        height: getMotionDopesheetLaneHeight(paneMode, laneContentHeight + expressionDockHeight),
       }}
       onPointerEnter={() => setKeyframeEditorShortcutScopeActive(true)}
       onPointerLeave={() => setKeyframeEditorShortcutScopeActive(false)}
@@ -2473,9 +2443,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
               ? (property) => onRemovePropertyExpression(item.id, property)
               : undefined
           }
-          onExpressionDockHeightChange={
-            paneMode === 'lanes' ? setExpressionDockHeight : undefined
-          }
+          onExpressionDockHeightChange={paneMode === 'lanes' ? setExpressionDockHeight : undefined}
           propertyLinkSourceLabels={propertyLinkSourceLabels}
           onPropertyLinkPointerDown={propertyLinkHandlers.onPointerDown}
           onRemovePropertyLink={propertyLinkHandlers.onRemove}
@@ -3163,8 +3131,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           element,
           edgeInset,
           usableWidth,
-          frame:
-            baseViewport.startFrame + ((leftPx - edgeInset) / usableWidth) * baseRange,
+          frame: baseViewport.startFrame + ((leftPx - edgeInset) / usableWidth) * baseRange,
           frameSpan: hasInlineWidth ? (widthPx / usableWidth) * baseRange : null,
           left: element.style.left,
           width: element.style.width,
@@ -3230,8 +3197,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
 
       for (const grid of preview.grids) {
         const firstX = Math.round(
-          grid.edgeInset +
-            ((grid.frames[0]! - viewport.startFrame) / nextRange) * grid.usableWidth,
+          grid.edgeInset + ((grid.frames[0]! - viewport.startFrame) / nextRange) * grid.usableWidth,
         )
         const shadows: string[] = []
         for (let index = 1; index < grid.frames.length; index += 1) {
@@ -3268,9 +3234,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         preview.playhead.element.style.transform = `translate3d(${playheadX}px, 0, 0)`
       }
       for (const label of preview.rulerLabels) {
-        const frame = Math.round(
-          viewport.startFrame + (label.index / RULER_DIVISIONS) * nextRange,
-        )
+        const frame = Math.round(viewport.startFrame + (label.index / RULER_DIVISIONS) * nextRange)
         label.element.textContent = formatFrameTime(frame, fps)
       }
       if (preview.navigator) {
@@ -3400,10 +3364,31 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     [itemById, motionSelectionDragState],
   )
   const trackById = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks])
+  const hiddenLinkedAudioItemIds = useMemo(() => {
+    const hidden = new Set<string>()
+    for (const item of items) {
+      const companion = getLinkedAudioCompanion(items, item)
+      if (companion) hidden.add(companion.id)
+    }
+    return hidden
+  }, [items])
+  const expandMotionLayerItemIds = useCallback(
+    (itemIds: readonly string[]): string[] => {
+      const expanded = new Set(itemIds)
+      for (const itemId of itemIds) {
+        const item = items.find((candidate) => candidate.id === itemId)
+        if (!item) continue
+        const companion = getLinkedAudioCompanion(items, item)
+        if (companion) expanded.add(companion.id)
+      }
+      return [...expanded]
+    },
+    [items],
+  )
   const layerEntries = useMemo<LayerEntry[]>(
     () =>
       items
-        .filter((item) => item.type !== 'subtitle')
+        .filter((item) => item.type !== 'subtitle' && !hiddenLinkedAudioItemIds.has(item.id))
         .map((item) => ({ item, track: trackById.get(item.trackId) }))
         .sort(
           (a, b) =>
@@ -3412,7 +3397,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
             a.item.from - b.item.from ||
             a.item.id.localeCompare(b.item.id),
         ),
-    [items, trackById],
+    [hiddenLinkedAudioItemIds, items, trackById],
   )
   const activeCurveItem = activeInlineCurve
     ? (items.find((item) => item.id === activeInlineCurve.itemId) ?? null)
@@ -3495,9 +3480,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           motionScrollAreaRef.current,
           motionSelectionDragState,
         ),
-        rangeVisual: captureMotionSelectionRetimeRangeVisual(
-          motionSelectionRetimeRangeRef.current,
-        ),
+        rangeVisual: captureMotionSelectionRetimeRangeVisual(motionSelectionRetimeRangeRef.current),
       }
       event.currentTarget.setPointerCapture?.(event.pointerId)
     },
@@ -3551,22 +3534,19 @@ export const CompositingTimeline = memo(function CompositingTimeline({
     [flushSelectionRetimePreview],
   )
 
-  const cancelSelectionRetime = useCallback(
-    (event: ReactPointerEvent<HTMLButtonElement>) => {
-      const drag = selectionRetimeDragRef.current
-      if (!drag || drag.pointerId !== event.pointerId) return
-      event.preventDefault()
-      event.stopPropagation()
-      if (selectionRetimeAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(selectionRetimeAnimationFrameRef.current)
-        selectionRetimeAnimationFrameRef.current = null
-      }
-      pendingSelectionRetimeFrameRef.current = null
-      restoreMotionSelectionRetimeVisuals(drag, true)
-      selectionRetimeDragRef.current = null
-    },
-    [],
-  )
+  const cancelSelectionRetime = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = selectionRetimeDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (selectionRetimeAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(selectionRetimeAnimationFrameRef.current)
+      selectionRetimeAnimationFrameRef.current = null
+    }
+    pendingSelectionRetimeFrameRef.current = null
+    restoreMotionSelectionRetimeVisuals(drag, true)
+    selectionRetimeDragRef.current = null
+  }, [])
 
   const nudgeSelectionRetime = useCallback(
     (edge: 'start' | 'end', deltaFrames: number) => {
@@ -3670,9 +3650,17 @@ export const CompositingTimeline = memo(function CompositingTimeline({
 
   const updateLayerTrack = useCallback(
     (trackId: string, updates: Partial<TimelineTrack>) => {
-      setTracks(tracks.map((track) => (track.id === trackId ? { ...track, ...updates } : track)))
+      const targetTrackIds = new Set([trackId])
+      const item = items.find((candidate) => candidate.trackId === trackId)
+      if (item) {
+        const companion = getLinkedAudioCompanion(items, item)
+        if (companion) targetTrackIds.add(companion.trackId)
+      }
+      setTracks(
+        tracks.map((track) => (targetTrackIds.has(track.id) ? { ...track, ...updates } : track)),
+      )
     },
-    [tracks],
+    [items, tracks],
   )
 
   const selectLayer = useCallback(
@@ -3796,22 +3784,21 @@ export const CompositingTimeline = memo(function CompositingTimeline({
 
   const copyLayers = useCallback(
     (itemIds: string[]) => {
-      const itemIdSet = new Set(itemIds)
+      const itemIdSet = new Set(expandMotionLayerItemIds(itemIds))
       const copiedItems = items.filter((item) => itemIdSet.has(item.id))
       if (copiedItems.length === 0) return
       useClipboardStore
         .getState()
         .copyItems(copiedItems, usePlaybackStore.getState().currentFrame, 'copy')
-      toast.success(
-        copiedItems.length === 1 ? 'Copied layer' : `Copied ${copiedItems.length} layers`,
-      )
+      toast.success(itemIds.length === 1 ? 'Copied layer' : `Copied ${itemIds.length} layers`)
     },
-    [items],
+    [expandMotionLayerItemIds, items],
   )
 
   const duplicateLayers = useCallback(
     (itemIds: string[], sourceGroup?: TimelineTrack) => {
-      const sourceItems = itemIds
+      const expandedItemIds = expandMotionLayerItemIds(itemIds)
+      const sourceItems = expandedItemIds
         .map((itemId) => items.find((item) => item.id === itemId))
         .filter((item): item is TimelineItem => Boolean(item))
       if (sourceItems.length === 0) return
@@ -3860,9 +3847,19 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         sourceItems.map((item) => item.id),
         positions,
       )
-      selectItems(duplicatedItems.map((item) => item.id))
+      const duplicatedHiddenAudioIds = new Set(
+        duplicatedItems.flatMap((item) => {
+          const companion = getLinkedAudioCompanion(duplicatedItems, item)
+          return companion ? [companion.id] : []
+        }),
+      )
+      selectItems(
+        duplicatedItems
+          .filter((item) => !duplicatedHiddenAudioIds.has(item.id))
+          .map((item) => item.id),
+      )
     },
-    [items, selectItems, trackById, tracks],
+    [expandMotionLayerItemIds, items, selectItems, trackById, tracks],
   )
 
   const pasteLayers = useCallback(
@@ -3874,6 +3871,17 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       const maxOrder = Math.max(-1, ...tracks.map((track) => track.order))
       const newTracks: TimelineTrack[] = []
       const newItems: TimelineItem[] = []
+      const pastedLinkedGroupIds = new Map<string, string>()
+      for (const itemData of clipboard.items) {
+        if (!itemData.linkedGroupId || pastedLinkedGroupIds.has(itemData.linkedGroupId)) continue
+        const hasLinkedPair = clipboard.items.some(
+          (candidate) =>
+            candidate.linkedGroupId === itemData.linkedGroupId &&
+            ((candidate.type === 'audio' && itemData.type === 'video') ||
+              (candidate.type === 'video' && itemData.type === 'audio')),
+        )
+        if (hasLinkedPair) pastedLinkedGroupIds.set(itemData.linkedGroupId, crypto.randomUUID())
+      }
       for (const [index, itemData] of clipboard.items.entries()) {
         if (
           activeCompositionId &&
@@ -3915,25 +3923,43 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           originId: itemId,
           trackId,
           from: Math.max(0, pasteFrame + itemData.from),
-          linkedGroupId: undefined,
+          linkedGroupId: itemData.linkedGroupId
+            ? pastedLinkedGroupIds.get(itemData.linkedGroupId)
+            : undefined,
         } as TimelineItem)
       }
       if (newItems.length === 0) return
       addItemsOnNewTracks(newItems, [...tracks, ...newTracks])
-      selectItems(newItems.map((item) => item.id))
-      toast.success(newItems.length === 1 ? 'Pasted layer' : `Pasted ${newItems.length} layers`)
+      const pastedHiddenAudioIds = new Set(
+        newItems.flatMap((item) => {
+          const companion = getLinkedAudioCompanion(newItems, item)
+          return companion ? [companion.id] : []
+        }),
+      )
+      const visiblePastedItems = newItems.filter((item) => !pastedHiddenAudioIds.has(item.id))
+      selectItems(visiblePastedItems.map((item) => item.id))
+      toast.success(
+        visiblePastedItems.length === 1
+          ? 'Pasted layer'
+          : `Pasted ${visiblePastedItems.length} layers`,
+      )
     },
     [activeCompositionId, compositionById, selectItems, trackById, tracks],
   )
 
   const deleteLayers = useCallback(
     (itemIds: string[], trackIds: string[]) => {
-      removeItems(itemIds)
-      const removedTrackIds = new Set(trackIds)
+      const expandedItemIds = expandMotionLayerItemIds(itemIds)
+      removeItems(expandedItemIds)
+      const expandedItemIdSet = new Set(expandedItemIds)
+      const removedTrackIds = new Set([
+        ...trackIds,
+        ...items.filter((item) => expandedItemIdSet.has(item.id)).map((item) => item.trackId),
+      ])
       setTracks(tracks.filter((track) => !removedTrackIds.has(track.id)))
       selectItems([])
     },
-    [selectItems, tracks],
+    [expandMotionLayerItemIds, items, selectItems, tracks],
   )
 
   const beginSpanDrag = useCallback(
@@ -3944,7 +3970,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       const lane = event.currentTarget.parentElement
       const laneWidth = lane?.getBoundingClientRect().width ?? 0
       if (laneWidth <= 0) return
-      const itemIdSet = new Set(itemIds)
+      const itemIdSet = new Set(expandMotionLayerItemIds(itemIds))
       const dragItems = items
         .filter((item) => itemIdSet.has(item.id))
         .map((item) => ({
@@ -3984,7 +4010,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       spanDragRef.current = next
       event.currentTarget.setPointerCapture?.(event.pointerId)
     },
-    [items, pause, selectItems, selectLayer],
+    [expandMotionLayerItemIds, items, pause, selectItems, selectLayer],
   )
 
   const moveSpanDrag = useCallback(
@@ -4131,9 +4157,9 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       spanTrimRef.current = null
       if (!commit || trim.deltaFrames === 0) return
       if (trim.handle === 'start') {
-        trimItemStart(trim.itemId, trim.deltaFrames)
+        trimItemStart(trim.itemId, trim.deltaFrames, { forceLinked: true })
       } else {
-        trimItemEnd(trim.itemId, trim.deltaFrames)
+        trimItemEnd(trim.itemId, trim.deltaFrames, { forceLinked: true })
       }
     },
     [],
@@ -4540,9 +4566,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         0,
         Math.min(
           durationInFrames - 1,
-          Math.round(
-            viewport.startFrame + ((clientX - rect.left) / rect.width) * frameRange,
-          ),
+          Math.round(viewport.startFrame + ((clientX - rect.left) / rect.width) * frameRange),
         ),
       )
     },
@@ -4561,14 +4585,11 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       const rect = surface.getBoundingClientRect()
       const visibleRange = Math.max(1, viewport.endFrame - viewport.startFrame)
       const velocity =
-        visibleRange < durationInFrames
-          ? getMotionPlayheadEdgeScrollVelocity(clientX, rect)
-          : 0
+        visibleRange < durationInFrames ? getMotionPlayheadEdgeScrollVelocity(clientX, rect) : 0
       let keepScrolling = false
       if (velocity !== 0 && rect.width > 0) {
         const previousTimestamp = scrubAnimationTimeRef.current ?? timestamp - 1000 / 60
-        const elapsedSeconds =
-          Math.min(32, Math.max(0, timestamp - previousTimestamp)) / 1000
+        const elapsedSeconds = Math.min(32, Math.max(0, timestamp - previousTimestamp)) / 1000
         scrubAnimationTimeRef.current = timestamp
         const nextViewport = panMotionTimeViewport(
           viewport,
@@ -4597,8 +4618,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
         // Keep the drag visual locked to the pointer. The preview frame remains
         // integer-quantized, which otherwise produces a visible sawtooth while
         // the viewport itself advances by fractional frames.
-        const playheadProgress =
-          rect.width > 0 ? (clientX - rect.left) / rect.width : undefined
+        const playheadProgress = rect.width > 0 ? (clientX - rect.left) / rect.width : undefined
         previewMotionTimeViewport(viewport, playheadProgress)
       }
 
@@ -4761,9 +4781,10 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       }
       const surface = playheadScrubSurfaceRef.current
       const finalViewport = playheadScrubViewportRef.current ?? timeViewportRef.current
-      const pointerFrame = surface && event.type !== 'pointercancel'
-        ? frameFromClientX(event.clientX, surface, finalViewport)
-        : null
+      const pointerFrame =
+        surface && event.type !== 'pointercancel'
+          ? frameFromClientX(event.clientX, surface, finalViewport)
+          : null
       const finalFrame = pointerFrame ?? latestScrubFrameRef.current
       latestScrubFrameRef.current = null
       scrubAnimationTimeRef.current = null
@@ -5015,37 +5036,39 @@ export const CompositingTimeline = memo(function CompositingTimeline({
               onPointerCancel={endPlayheadScrub}
             >
               <div data-motion-viewport-surface className="absolute inset-0 overflow-hidden">
-              {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
-                <div
-                  key={tick}
-                  data-motion-static-x
-                  className="pointer-events-none absolute inset-y-0 border-l border-border/45"
-                  style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
-                />
-              ))}
-              {!activeInlineCurve && row.items.length > 0 && (
-                <button
-                  type="button"
-                  data-testid={`motion-group-span-${row.track.id}`}
-                  disabled={row.track.locked}
-                  onPointerDown={(event) => !row.track.locked && beginSpanDrag(event, groupItemIds)}
-                  onPointerMove={moveSpanDrag}
-                  onPointerUp={endSpanDrag}
-                  onPointerCancel={cancelSpanDrag}
-                  className={cn(
-                    'absolute top-1/2 h-6 -translate-y-1/2 touch-none rounded-sm border border-timeline-motion-segment/80 bg-timeline-motion-segment/70 px-1 text-left text-[9px] text-foreground',
-                    row.track.locked
-                      ? 'cursor-not-allowed opacity-55'
-                      : 'cursor-grab active:cursor-grabbing',
-                  )}
-                  style={{
-                    left: `${frameToMotionPercent(groupFrom)}%`,
-                    width: `${Math.max(0.6, ((groupEnd - groupFrom) / visibleFrameRange) * 100)}%`,
-                  }}
-                >
-                  <span className="block truncate">{row.track.name}</span>
-                </button>
-              )}
+                {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
+                  <div
+                    key={tick}
+                    data-motion-static-x
+                    className="pointer-events-none absolute inset-y-0 border-l border-border/45"
+                    style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
+                  />
+                ))}
+                {!activeInlineCurve && row.items.length > 0 && (
+                  <button
+                    type="button"
+                    data-testid={`motion-group-span-${row.track.id}`}
+                    disabled={row.track.locked}
+                    onPointerDown={(event) =>
+                      !row.track.locked && beginSpanDrag(event, groupItemIds)
+                    }
+                    onPointerMove={moveSpanDrag}
+                    onPointerUp={endSpanDrag}
+                    onPointerCancel={cancelSpanDrag}
+                    className={cn(
+                      'absolute top-1/2 h-6 -translate-y-1/2 touch-none rounded-sm border border-timeline-motion-segment/80 bg-timeline-motion-segment/70 px-1 text-left text-[9px] text-foreground',
+                      row.track.locked
+                        ? 'cursor-not-allowed opacity-55'
+                        : 'cursor-grab active:cursor-grabbing',
+                    )}
+                    style={{
+                      left: `${frameToMotionPercent(groupFrom)}%`,
+                      width: `${Math.max(0.6, ((groupEnd - groupFrom) / visibleFrameRange) * 100)}%`,
+                    }}
+                  >
+                    <span className="block truncate">{row.track.name}</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -5222,37 +5245,37 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                   onPointerUp={endPlayheadScrub}
                   onPointerCancel={endPlayheadScrub}
                 >
-                {Array.from({ length: RULER_DIVISIONS + 1 }, (_, index) => {
-                  const frame = Math.round(
-                    timeViewport.startFrame + (index / RULER_DIVISIONS) * visibleFrameRange,
-                  )
-                  return (
-                    <div
-                      key={index}
-                      className="absolute inset-y-0 border-l border-border/70"
-                      style={{ left: `${(index / RULER_DIVISIONS) * 100}%` }}
+                  {Array.from({ length: RULER_DIVISIONS + 1 }, (_, index) => {
+                    const frame = Math.round(
+                      timeViewport.startFrame + (index / RULER_DIVISIONS) * visibleFrameRange,
+                    )
+                    return (
+                      <div
+                        key={index}
+                        className="absolute inset-y-0 border-l border-border/70"
+                        style={{ left: `${(index / RULER_DIVISIONS) * 100}%` }}
                       >
                         <span
                           data-motion-ruler-label-index={index}
                           className="ml-1 text-[9px] tabular-nums text-muted-foreground"
                         >
-                        {formatFrameTime(frame, fps)}
-                      </span>
-                    </div>
-                  )
-                })}
-                <MotionSelectionRetimeRange
-                  range={motionSelectionTimeRange}
-                  viewport={timeViewport}
-                  durationInFrames={durationInFrames}
-                  frameToPercent={frameToMotionPercent}
-                  onBegin={beginSelectionRetime}
-                  onMove={moveSelectionRetime}
-                  onEnd={endSelectionRetime}
-                  onCancel={cancelSelectionRetime}
-                  onNudge={nudgeSelectionRetime}
-                  rangeRef={motionSelectionRetimeRangeRef}
-                />
+                          {formatFrameTime(frame, fps)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                  <MotionSelectionRetimeRange
+                    range={motionSelectionTimeRange}
+                    viewport={timeViewport}
+                    durationInFrames={durationInFrames}
+                    frameToPercent={frameToMotionPercent}
+                    onBegin={beginSelectionRetime}
+                    onMove={moveSelectionRetime}
+                    onEnd={endSelectionRetime}
+                    onCancel={cancelSelectionRetime}
+                    onNudge={nudgeSelectionRetime}
+                    rangeRef={motionSelectionRetimeRangeRef}
+                  />
                 </div>
               </div>
             </div>
@@ -5664,9 +5687,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                             </Select>
                           </div>
                         </div>
-                        <div
-                          className="relative min-w-0 flex-1 cursor-default overflow-hidden"
-                        >
+                        <div className="relative min-w-0 flex-1 cursor-default overflow-hidden">
                           <div
                             data-motion-timeline-lane
                             data-motion-viewport-surface
@@ -5676,96 +5697,96 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                             onPointerUp={endPlayheadScrub}
                             onPointerCancel={endPlayheadScrub}
                           >
-                          {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
-                            <div
-                              key={tick}
-                              data-motion-static-x
-                              className="pointer-events-none absolute inset-y-0 border-l border-border/45"
-                              style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
-                            />
-                          ))}
-                          {!activeInlineCurve ? (
-                            <button
-                              type="button"
-                              data-testid={`motion-layer-span-${item.id}`}
-                              data-motion-span-drag-visual
-                              disabled={isLayerLocked}
-                              onPointerDown={(event) =>
-                                !isLayerLocked &&
-                                beginSpanDrag(
-                                  event,
-                                  selected && !(event.metaKey || event.ctrlKey || event.shiftKey)
-                                    ? selectedItemIds
-                                    : [item.id],
-                                )
-                              }
-                              onPointerMove={moveSpanDrag}
-                              onPointerUp={endSpanDrag}
-                              onPointerCancel={cancelSpanDrag}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                              }}
-                              className={cn(
-                                'absolute top-1/2 h-5 -translate-y-1/2 touch-none rounded-sm border px-1 text-left text-[9px] shadow-sm transition-colors',
-                                isLayerLocked
-                                  ? 'cursor-not-allowed opacity-55'
-                                  : 'cursor-grab active:cursor-grabbing',
-                                selected
-                                  ? 'border-foreground/80 bg-timeline-motion-segment/90 text-foreground'
-                                  : 'border-timeline-motion-segment/80 bg-timeline-motion-segment/70 text-foreground hover:bg-timeline-motion-segment/85',
-                              )}
-                              style={{
-                                left: `${frameToMotionPercent(item.from)}%`,
-                                width: `${Math.max(0.6, (item.durationInFrames / visibleFrameRange) * 100)}%`,
-                              }}
-                              title={`${item.from}–${item.from + item.durationInFrames - 1}`}
-                            >
-                              {!isLayerLocked ? (
-                                <>
-                                  <span
-                                    role="slider"
-                                    aria-label={`Trim ${item.label || item.type} start`}
-                                    aria-valuemin={0}
-                                    aria-valuemax={item.from + item.durationInFrames - 1}
-                                    aria-valuenow={item.from}
-                                    tabIndex={-1}
-                                    data-testid={`motion-trim-start-${item.id}`}
-                                    onPointerDown={(event) => beginSpanTrim(event, item, 'start')}
-                                    onPointerMove={moveSpanTrim}
-                                    onPointerUp={endSpanTrim}
-                                    onPointerCancel={cancelSpanTrim}
-                                    className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
-                                  />
-                                  <span
-                                    role="slider"
-                                    aria-label={`Trim ${item.label || item.type} end`}
-                                    aria-valuemin={item.from + 1}
-                                    aria-valuemax={durationInFrames}
-                                    aria-valuenow={item.from + item.durationInFrames}
-                                    tabIndex={-1}
-                                    data-testid={`motion-trim-end-${item.id}`}
-                                    onPointerDown={(event) => beginSpanTrim(event, item, 'end')}
-                                    onPointerMove={moveSpanTrim}
-                                    onPointerUp={endSpanTrim}
-                                    onPointerCancel={cancelSpanTrim}
-                                    className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
-                                  />
-                                </>
-                              ) : null}
-                              <span className="pointer-events-none block truncate px-1.5">
-                                {item.label || item.type}
-                              </span>
-                              {hasProceduralMotion ? (
-                                <span
-                                  data-testid={`motion-procedural-badge-${item.id}`}
-                                  className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-sm border border-sky-300/45 bg-sky-950/75 px-1 font-mono text-[8px] font-semibold text-sky-200"
-                                  title={t('timeline.clipIndicators.hasMotion')}
-                                >
-                                  ƒx
+                            {Array.from({ length: RULER_DIVISIONS + 1 }, (_, tick) => (
+                              <div
+                                key={tick}
+                                data-motion-static-x
+                                className="pointer-events-none absolute inset-y-0 border-l border-border/45"
+                                style={{ left: `${(tick / RULER_DIVISIONS) * 100}%` }}
+                              />
+                            ))}
+                            {!activeInlineCurve ? (
+                              <button
+                                type="button"
+                                data-testid={`motion-layer-span-${item.id}`}
+                                data-motion-span-drag-visual
+                                disabled={isLayerLocked}
+                                onPointerDown={(event) =>
+                                  !isLayerLocked &&
+                                  beginSpanDrag(
+                                    event,
+                                    selected && !(event.metaKey || event.ctrlKey || event.shiftKey)
+                                      ? selectedItemIds
+                                      : [item.id],
+                                  )
+                                }
+                                onPointerMove={moveSpanDrag}
+                                onPointerUp={endSpanDrag}
+                                onPointerCancel={cancelSpanDrag}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                }}
+                                className={cn(
+                                  'absolute top-1/2 h-5 -translate-y-1/2 touch-none rounded-sm border px-1 text-left text-[9px] shadow-sm transition-colors',
+                                  isLayerLocked
+                                    ? 'cursor-not-allowed opacity-55'
+                                    : 'cursor-grab active:cursor-grabbing',
+                                  selected
+                                    ? 'border-foreground/80 bg-timeline-motion-segment/90 text-foreground'
+                                    : 'border-timeline-motion-segment/80 bg-timeline-motion-segment/70 text-foreground hover:bg-timeline-motion-segment/85',
+                                )}
+                                style={{
+                                  left: `${frameToMotionPercent(item.from)}%`,
+                                  width: `${Math.max(0.6, (item.durationInFrames / visibleFrameRange) * 100)}%`,
+                                }}
+                                title={`${item.from}–${item.from + item.durationInFrames - 1}`}
+                              >
+                                {!isLayerLocked ? (
+                                  <>
+                                    <span
+                                      role="slider"
+                                      aria-label={`Trim ${item.label || item.type} start`}
+                                      aria-valuemin={0}
+                                      aria-valuemax={item.from + item.durationInFrames - 1}
+                                      aria-valuenow={item.from}
+                                      tabIndex={-1}
+                                      data-testid={`motion-trim-start-${item.id}`}
+                                      onPointerDown={(event) => beginSpanTrim(event, item, 'start')}
+                                      onPointerMove={moveSpanTrim}
+                                      onPointerUp={endSpanTrim}
+                                      onPointerCancel={cancelSpanTrim}
+                                      className="absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
+                                    />
+                                    <span
+                                      role="slider"
+                                      aria-label={`Trim ${item.label || item.type} end`}
+                                      aria-valuemin={item.from + 1}
+                                      aria-valuemax={durationInFrames}
+                                      aria-valuenow={item.from + item.durationInFrames}
+                                      tabIndex={-1}
+                                      data-testid={`motion-trim-end-${item.id}`}
+                                      onPointerDown={(event) => beginSpanTrim(event, item, 'end')}
+                                      onPointerMove={moveSpanTrim}
+                                      onPointerUp={endSpanTrim}
+                                      onPointerCancel={cancelSpanTrim}
+                                      className="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize touch-none bg-foreground/10 opacity-70 hover:bg-foreground/25 hover:opacity-100"
+                                    />
+                                  </>
+                                ) : null}
+                                <span className="pointer-events-none block truncate px-1.5">
+                                  {item.label || item.type}
                                 </span>
-                              ) : null}
-                            </button>
-                          ) : null}
+                                {hasProceduralMotion ? (
+                                  <span
+                                    data-testid={`motion-procedural-badge-${item.id}`}
+                                    className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-sm border border-sky-300/45 bg-sky-950/75 px-1 font-mono text-[8px] font-semibold text-sky-200"
+                                    title={t('timeline.clipIndicators.hasMotion')}
+                                  >
+                                    ƒx
+                                  </span>
+                                ) : null}
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       </div>

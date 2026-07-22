@@ -4,6 +4,7 @@ import { useTimelineViewportStore } from '../stores/timeline-viewport-store'
 import { useTimelineStore } from '../stores/timeline-store'
 import { useItemsStore } from '../stores/items-store'
 import { useZoomStore } from '../stores/zoom-store'
+import { notifyTimelineLiveScroll } from '@/shared/timeline/live-scroll-sync'
 import { getTimelineWidth } from '../utils/timeline-layout'
 import { perfMarkRender } from '@/shared/logging/perf-marks'
 import { cn } from '@/shared/ui/cn'
@@ -210,6 +211,12 @@ export function TimelineNavigator({
       if (!node) return
       node.scrollLeft = nextScrollLeft
       liveScrollLeftRef.current = node.scrollLeft
+      // The Edit keyframe lane lives outside this native scroller. Publish the
+      // navigator's zoom/pan geometry in the same RAF as the DOM write so it can
+      // update its compositor transform before paint instead of waiting for the
+      // browser's later native scroll event. This is intentionally imperative:
+      // no React/store update is added to the pointer hot path.
+      notifyTimelineLiveScroll(node)
     },
     [scrollContainerRef],
   )

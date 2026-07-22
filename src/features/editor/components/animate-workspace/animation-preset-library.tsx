@@ -9,7 +9,18 @@ import {
   type ReactNode,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, ListFilter, Plus, Search, Trash2, WandSparkles, X } from 'lucide-react'
+import {
+  ChevronDown,
+  Clock3,
+  ExternalLink,
+  Layers3,
+  ListFilter,
+  Plus,
+  Search,
+  Trash2,
+  WandSparkles,
+  X,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import { useShallow } from 'zustand/react/shallow'
 import type { CanvasSettings } from '@/types/transform'
@@ -57,8 +68,11 @@ import {
   bakeMotionToKeyframes,
   captureAnimationFromItem,
   getPresetCompatibility,
+  createMotionClip,
+  openComposition,
   useItemsStore,
   useKeyframesStore,
+  useCompositionsStore,
   type MotionPresetClear,
   type MotionPresetVectorApply,
 } from '@/features/editor/deps/timeline-store'
@@ -115,6 +129,15 @@ const TEXT_SLOT_BY_MOTION_CATEGORY: Partial<Record<MotionPresetCategory, TextMot
   entrance: 'in',
   exit: 'out',
 }
+
+const EDIT_QUICK_PRESET_IDS = new Set([
+  'fade-in',
+  'slide-in-left',
+  'pop-in',
+  'fade-out',
+  'slide-out-right',
+  'pulse',
+])
 
 function isTimelineItem(item: TimelineItem | undefined): item is TimelineItem {
   return Boolean(item)
@@ -253,12 +276,8 @@ const ContinuousMotionRow = memo(function ContinuousMotionRow({
               max={2}
               step={0.05}
               formatValue={(value) => `${Math.round(value * 100)}%`}
-              onChange={(value) =>
-                onCommitEdit({ channelGains: { [property]: value } })
-              }
-              onLiveChange={(value) =>
-                onLiveEdit({ channelGains: { [property]: value } })
-              }
+              onChange={(value) => onCommitEdit({ channelGains: { [property]: value } })}
+              onLiveChange={(value) => onLiveEdit({ channelGains: { [property]: value } })}
             />
           ))}
         </div>
@@ -482,14 +501,21 @@ const AppliedMotionRow = memo(function AppliedMotionRow({
 export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
   canvas,
   embedded = false,
+  variant = 'full',
+  itemIds,
 }: {
   canvas: CanvasSettings
   /** Fill the shared Motion inspector rather than rendering a standalone sidebar. */
   embedded?: boolean
+  /** Edit exposes a compact clip-level surface; Motion keeps the full authoring library. */
+  variant?: 'full' | 'edit'
+  /** Optional explicit targets, used to omit linked audio from clip-level animation. */
+  itemIds?: string[]
 }) {
   const { t } = useTranslation()
   const projectId = useProjectStore((s) => s.currentProject?.id ?? null)
-  const selectedItemIds = useSelectionStore((s) => s.selectedItemIds)
+  const storeSelectedItemIds = useSelectionStore((s) => s.selectedItemIds)
+  const selectedItemIds = itemIds ?? storeSelectedItemIds
   const selectedItems = useItemsStore(
     useShallow(
       useCallback(
@@ -555,15 +581,13 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
 
   const canCapture = Boolean(
     selectedItem &&
-      (selectedItemKeyframes?.properties.some((property) => property.keyframes.length > 0) ||
-        selectedItemKeyframes?.vectorProperties?.some(
-          (property) => property.keyframes.length > 0,
-        ) ||
-        selectedItem.motionModifiers?.some(
-          (modifier) => modifier.enabled && modifier.amplitude > 0,
-        ) ||
-        selectedItem.motionLayers?.some((layer) => layer.enabled && layer.tracks.length > 0) ||
-        (selectedItem.type === 'text' && selectedItem.textMotion)),
+    (selectedItemKeyframes?.properties.some((property) => property.keyframes.length > 0) ||
+      selectedItemKeyframes?.vectorProperties?.some((property) => property.keyframes.length > 0) ||
+      selectedItem.motionModifiers?.some(
+        (modifier) => modifier.enabled && modifier.amplitude > 0,
+      ) ||
+      selectedItem.motionLayers?.some((layer) => layer.enabled && layer.tracks.length > 0) ||
+      (selectedItem.type === 'text' && selectedItem.textMotion)),
   )
 
   const handleSave = useCallback(
@@ -1148,10 +1172,7 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
         keyframeCount: number
       }
     >()
-    const add = (
-      propertyLabel: string,
-      source: import('@/types/keyframe').Keyframe['source'],
-    ) => {
+    const add = (propertyLabel: string, source: import('@/types/keyframe').Keyframe['source']) => {
       if (!source) return
       const current = applications.get(source.applicationId) ?? {
         source,
@@ -1236,12 +1257,196 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
     [selectedItemIds],
   )
 
-  const handleMotionGeneratorSettingsChange = useCallback(
-    (settings: MotionGeneratorSettings) => {
-      motionGeneratorSettingsRef.current = settings
-    },
+  const handleMotionGeneratorSettingsChange = useCallback((settings: MotionGeneratorSettings) => {
+    motionGeneratorSettingsRef.current = settings
+  }, [])
+
+  const editQuickPresets = useMemo(
+    () => MOTION_PRESETS.filter((preset) => EDIT_QUICK_PRESET_IDS.has(preset.id)),
     [],
   )
+  const selectedCompositionKind = useCompositionsStore((state) =>
+    selectedItem?.type === 'composition'
+      ? state.compositionById[selectedItem.compositionId]?.editorKind
+      : undefined,
+  )
+  const isMotionClip =
+    selectedItems.length === 1 &&
+    selectedItem?.type === 'composition' &&
+    selectedCompositionKind === 'composite-2d'
+  const handleOpenTiming = useCallback(() => {
+    if (selectedItems.length !== 1 || !selectedItem) return
+    useSelectionStore.getState().setKeyframeLanesExpanded(selectedItem.id, true)
+  }, [selectedItem, selectedItems.length])
+  const handleMotionClip = useCallback(() => {
+    if (isMotionClip && selectedItem?.type === 'composition') {
+      openComposition(selectedItem.compositionId, selectedItem.label, selectedItem.id)
+      return
+    }
+    if (selectedItems.length === 0) return
+    const baseName = selectedItem?.label?.trim() || t('editor.editAnimation.untitledClip')
+    createMotionClip(
+      `${baseName} Motion`,
+      selectedItems.map((item) => item.id),
+    )
+  }, [isMotionClip, selectedItem, selectedItems, t])
+
+  if (variant === 'edit') {
+    return (
+      <TooltipProvider delayDuration={300}>
+        <div className="flex flex-col gap-4" data-testid="edit-animation-panel">
+          <section className="flex flex-col gap-2">
+            <div>
+              <h3 className="text-xs font-medium">{t('editor.editAnimation.quickTitle')}</h3>
+              <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
+                {t('editor.editAnimation.quickHint')}
+              </p>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5">
+              {editQuickPresets.map((preset) => {
+                const disabledReason = motionReason(preset)
+                const label = t(`editor.motionPresets.items.${preset.labelKey}`)
+                return (
+                  <Tooltip key={preset.id}>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        disabled={disabledReason !== null}
+                        onClick={() => handleApplyMotion(preset)}
+                        className={cn(
+                          'group flex min-h-14 flex-col items-center gap-1 rounded-md border border-border/60 p-1.5 text-[10px]',
+                          disabledReason
+                            ? 'cursor-not-allowed text-muted-foreground/40'
+                            : 'text-muted-foreground hover:border-border hover:bg-secondary/40 hover:text-foreground',
+                        )}
+                      >
+                        <MotionPresetThumbnail thumbnail={preset.thumbnail} />
+                        <span className="w-full truncate text-center">{label}</span>
+                      </button>
+                    </TooltipTrigger>
+                    {disabledReason ? <TooltipContent>{disabledReason}</TooltipContent> : null}
+                  </Tooltip>
+                )
+              })}
+            </div>
+          </section>
+
+          <Separator />
+
+          <section className="flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-medium">{t('editor.animateStages.appliedTitle')}</h3>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  {hasAnyAnimation
+                    ? t('editor.editAnimation.appliedHint')
+                    : t('editor.editAnimation.noneApplied')}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 shrink-0 gap-1 px-2 text-[10px]"
+                disabled={selectedItems.length !== 1}
+                onClick={handleOpenTiming}
+              >
+                <Clock3 className="h-3 w-3" />
+                {t('editor.editAnimation.editTiming')}
+              </Button>
+            </div>
+            {hasAnyAnimation ? (
+              <div className="flex flex-col gap-1 rounded-md border border-border/60 bg-secondary/20 p-2">
+                {manualKeyframeSummary.keyframeCount > 0 ? (
+                  <AppliedMotionRow
+                    label={t('editor.animateStages.manualKeyframes')}
+                    detail={`${manualKeyframeSummary.properties.join(', ')} · ${t('editor.animateStages.keyframeCount', { count: manualKeyframeSummary.keyframeCount })}`}
+                    removeLabel={t('editor.animateStages.removeManualKeyframes')}
+                    onRemove={handleRemoveManualKeyframes}
+                  />
+                ) : null}
+                {keyframeApplications.map((application) => (
+                  <AppliedMotionRow
+                    key={application.source.applicationId}
+                    label={application.source.presetName}
+                    detail={`${t('editor.animateStages.generatedKeyframes')} · ${t('editor.animateStages.keyframeCount', { count: application.keyframeCount })}`}
+                    removeLabel={t('editor.animateStages.removePresetApplication', {
+                      name: application.source.presetName,
+                    })}
+                    onRemove={() => handleRemovePresetApplication(application.source.applicationId)}
+                  />
+                ))}
+                <AppliedContinuousMotionControls
+                  items={selectedItems}
+                  canvas={canvas}
+                  variant="rows"
+                  showBakeAction
+                />
+                {activeTextMotion.map(({ slot, effect }) => (
+                  <AppliedMotionRow
+                    key={slot}
+                    label={t(getTextMotionPreset(effect.presetId).labelKey)}
+                    detail={`${t('editor.animateStages.scopeText')} · ${t(`textMotion.slots.${slot}`)} · ${t('editor.animateStages.liveBadge')}`}
+                    removeLabel={t('textMotion.removePreset', {
+                      name: t(getTextMotionPreset(effect.presetId).labelKey),
+                    })}
+                    onRemove={() => handleRemoveTextMotion(slot)}
+                  />
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          {selectedTextItems.length > 0 ? (
+            <>
+              <Separator />
+              <section className="flex flex-col gap-2">
+                <div>
+                  <h3 className="text-xs font-medium">{t('textMotion.sectionTitle')}</h3>
+                  <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
+                    {t('editor.editAnimation.textHint')}
+                  </p>
+                </div>
+                <TextMotionSlotRows items={selectedTextItems} />
+              </section>
+            </>
+          ) : null}
+
+          <Separator />
+
+          <section className="rounded-md border border-border/60 bg-secondary/20 p-2.5">
+            <div className="flex items-start gap-2">
+              <Layers3 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <h3 className="text-xs font-medium">{t('editor.editAnimation.motionClipTitle')}</h3>
+                <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground">
+                  {isMotionClip
+                    ? t('editor.editAnimation.motionClipOpenHint')
+                    : t('editor.editAnimation.motionClipCreateHint')}
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="mt-2 h-7 gap-1.5 px-2 text-[10px]"
+                  onClick={handleMotionClip}
+                >
+                  {isMotionClip ? (
+                    <ExternalLink className="h-3 w-3" />
+                  ) : (
+                    <Layers3 className="h-3 w-3" />
+                  )}
+                  {isMotionClip
+                    ? t('editor.editAnimation.openInMotion')
+                    : t('editor.editAnimation.createMotionClip')}
+                </Button>
+              </div>
+            </div>
+          </section>
+        </div>
+      </TooltipProvider>
+    )
+  }
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -1402,10 +1607,7 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
               </div>
             </div>
 
-            <MotionPresetControls
-              onSettingsChange={handleMotionGeneratorSettingsChange}
-              t={t}
-            />
+            <MotionPresetControls onSettingsChange={handleMotionGeneratorSettingsChange} t={t} />
 
             {MOTION_PRESET_CATEGORIES.map((category) => {
               const textSlot = TEXT_SLOT_BY_MOTION_CATEGORY[category]
@@ -1473,9 +1675,7 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
                           settings={modulatorSettingsByType.get(modulator.id) ?? null}
                           onApply={() => handleApplyModulator(modulator)}
                           onRemove={() => handleRemoveModulator(modulator)}
-                          onLiveEdit={(settings) =>
-                            handleModulatorLiveEdit(modulator.id, settings)
-                          }
+                          onLiveEdit={(settings) => handleModulatorLiveEdit(modulator.id, settings)}
                           onCommitEdit={(settings) =>
                             handleModulatorCommitEdit(modulator.id, settings)
                           }

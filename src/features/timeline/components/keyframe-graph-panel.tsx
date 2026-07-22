@@ -1165,7 +1165,10 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       const scrollLeft =
         timelineScrollContainerRef?.current?.scrollLeft ??
         useTimelineViewportStore.getState().scrollLeft
-      return (globalFrame / editTimelineFps) * pixelsPerSecond - scrollLeft
+      // Match TimelinePlayhead's whole-pixel frame position exactly. Keeping
+      // the lower line sub-pixel while the main line rounds makes an otherwise
+      // synchronized playhead look faintly doubled at some zoom levels.
+      return Math.round((globalFrame / editTimelineFps) * pixelsPerSecond) - scrollLeft
     },
     [editTimelineFps, editTimelinePixelsPerSecond, timelineScrollContainerRef],
   )
@@ -3095,6 +3098,9 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   }
                   timelinePanBasePixelsPerSecond={
                     surface === 'edit' ? editTimelinePixelsPerSecond : undefined
+                  }
+                  linkedTimelineViewportWidth={
+                    surface === 'edit' ? editTimelineViewportWidth : undefined
                   }
                   getTimelineLivePixelsPerSecond={
                     surface === 'edit' ? getEditTimelineLivePixelsPerSecond : undefined

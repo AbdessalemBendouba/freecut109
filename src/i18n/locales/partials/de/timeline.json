@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "Hat Keyframes",
-      "hasMotion": "Hat kontinuierliche Bewegung",
+      "hasMotion": "Animationssteuerung öffnen",
       "mask": "Maske",
       "mediaMissing": "Medien fehlt",
       "preparingReversed": "Vorbereiten ruckwarts",

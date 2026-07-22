@@ -56,3 +56,7 @@ export {
   captureAnimationFromItem,
   getPresetCompatibility,
 } from '@/features/timeline/deps/keyframe-editors'
+export {
+  createMotionClip,
+  openComposition,
+} from '@/features/timeline/stores/actions/composition-actions'

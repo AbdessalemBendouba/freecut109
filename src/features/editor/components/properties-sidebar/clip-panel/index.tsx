@@ -30,6 +30,7 @@ import type { SelectionState, SelectionActions } from '@/shared/state/selection'
 import type { TimelineState, TimelineActions } from '@/features/editor/deps/timeline-store'
 import type { TransformProperties } from '@/types/transform'
 import type { TimelineItem, VideoItem, CompositionItem } from '@/types/timeline'
+import { getLinkedAudioCompanion } from '@/shared/utils/linked-media'
 
 import { LayoutSection } from './layout-section'
 import { FillSection } from './fill-section'
@@ -55,17 +56,9 @@ const LazyTextEffectsSection = lazy(() =>
 const LazyTextStyleSection = lazy(() =>
   import('./text-section').then((module) => ({ default: module.TextStyleSection })),
 )
-const LazyTextAnimationSection = lazy(() =>
-  import('./text-section').then((module) => ({ default: module.TextAnimationSection })),
-)
 const LazyAnimationPresetLibrary = lazy(() =>
   import('../../animate-workspace/animation-preset-library').then((module) => ({
     default: module.AnimationPresetLibrary,
-  })),
-)
-const LazyAppliedContinuousMotionControls = lazy(() =>
-  import('../../animate-workspace/applied-continuous-motion-controls').then((module) => ({
-    default: module.AppliedContinuousMotionControls,
   })),
 )
 
@@ -167,6 +160,20 @@ export const ClipPanel = memo(function ClipPanel() {
       ),
     ),
   )
+  const audioPanelItems = useItemsStore(
+    useShallow(
+      useCallback(
+        (state) =>
+          selectedItemIds.flatMap((itemId) => {
+            const item = state.itemById[itemId]
+            if (!item || (item.type !== 'video' && item.type !== 'audio')) return []
+            if (item.type === 'audio') return [item]
+            return [getLinkedAudioCompanion(state.items, item) ?? item]
+          }),
+        [selectedItemIds],
+      ),
+    ),
+  )
   // Canvas settings
   const canvas = useMemo(
     () => ({
@@ -261,27 +268,16 @@ export const ClipPanel = memo(function ClipPanel() {
     [updateItemsTransform],
   )
 
-  // Determine which categories should be visible. For a pure-text selection the
-  // three slots are repurposed: Text (value 'video'), Animation ('audio'),
-  // Effects — so the middle slot is available even though text has no audio.
+  // Edit always exposes one clip-level Animation surface. Motion uses the same
+  // tab id for its full authoring library, preserving inspector state while the
+  // user-facing concepts remain distinct.
   const showVideoTab = layoutFillItems.length > 0
   const showAudioTab = hasAudioItems
-  const hasAppliedContinuousMotion = useMemo(
-    () =>
-      selectedItems.some(
-        (item) =>
-          item.motionModifiers?.some((modifier) => modifier.enabled) ||
-          item.motionLayers?.some((layer) => layer.enabled) ||
-          item.effects?.some((effect) => effect.audioPulse?.enabled),
-      ),
-    [selectedItems],
-  )
   const showFullMotionLibrary = workspace === 'motion' && hasVisualItems
-  const showMotionTab = showFullMotionLibrary || (hasVisualItems && hasAppliedContinuousMotion)
-  // Motion's library already includes the text-motion stage, so a text layer
-  // gets one purposeful Motion surface instead of adjacent Animation/Motion tabs.
-  const showSecondTab = showAudioTab || (isOnlyText && !showMotionTab)
+  const showMotionTab = hasVisualItems
+  const showSecondTab = showAudioTab
   const showEffectsTab = visualItems.length > 0
+  const visualItemIds = useMemo(() => visualItems.map((item) => item.id), [visualItems])
 
   const availableTabs = useMemo(() => {
     const tabs: ClipInspectorTab[] = []
@@ -331,11 +327,16 @@ export const ClipPanel = memo(function ClipPanel() {
       return { label: t('editor.clipPanel.tabVideo'), icon: Film }
     }
     if (value === 'audio') {
-      if (isOnlyText) return { label: t('editor.clipPanel.tabAnimation'), icon: WandSparkles }
       return { label: t('editor.clipPanel.tabAudio'), icon: Volume2 }
     }
     if (value === 'motion') {
-      return { label: t('toolbar.workspaces.motion'), icon: WandSparkles }
+      return {
+        label:
+          workspace === 'motion'
+            ? t('toolbar.workspaces.motion')
+            : t('editor.clipPanel.tabAnimation'),
+        icon: WandSparkles,
+      }
     }
     return { label: t('editor.clipPanel.tabEffects'), icon: Sparkles }
   }
@@ -434,10 +435,11 @@ export const ClipPanel = memo(function ClipPanel() {
                   </Suspense>
                 ) : (
                   <Suspense fallback={<div className="h-24 rounded-md bg-muted/20" />}>
-                    <LazyAppliedContinuousMotionControls
-                      items={selectedItems}
+                    <LazyAnimationPresetLibrary
                       canvas={canvas}
-                      showBakeAction
+                      embedded
+                      variant="edit"
+                      itemIds={visualItemIds}
                     />
                   </Suspense>
                 )}
@@ -446,21 +448,13 @@ export const ClipPanel = memo(function ClipPanel() {
           ) : null}
         </TabsContent>
 
-        {/* Second slot: Audio (gain/fades) normally; Animation (motion text)
-            for a pure-text selection, which has no audio. */}
+        {/* Audio stays media-specific; text animation lives in Animation. */}
         <TabsContent value="audio" className="space-y-4 mt-3">
-          {isOnlyText
-            ? activeTab === 'audio' && (
-                <Suspense fallback={null}>
-                  <LazyTextAnimationSection items={selectedItems} canvas={canvas} />
-                </Suspense>
-              )
-            : hasAudioItems &&
-              activeTab === 'audio' && (
-                <Suspense fallback={null}>
-                  <LazyAudioSection items={selectedItems} />
-                </Suspense>
-              )}
+          {hasAudioItems && activeTab === 'audio' && (
+            <Suspense fallback={null}>
+              <LazyAudioSection items={audioPanelItems} />
+            </Suspense>
+          )}
         </TabsContent>
 
         {/* Effects Tab - clip effects plus text styling and animation */}

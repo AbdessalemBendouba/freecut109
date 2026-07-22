@@ -166,6 +166,20 @@
         "layer": "Add layer"
       }
     },
+    "editAnimation": {
+      "quickTitle": "Quick animate",
+      "quickHint": "Add a ready-made clip animation. It stays editable in the timing lane.",
+      "appliedHint": "Everything currently moving on this clip.",
+      "noneApplied": "No animation applied yet.",
+      "editTiming": "Edit timing",
+      "textHint": "Animate characters, words, lines, or the whole text clip.",
+      "motionClipTitle": "Motion Clip",
+      "motionClipCreateHint": "Promote this clip to a layered composition for advanced animation.",
+      "motionClipOpenHint": "This clip is a layered Motion composition.",
+      "createMotionClip": "Create Motion Clip",
+      "openInMotion": "Open in Motion",
+      "untitledClip": "Untitled clip"
+    },
     "motionGenerator": {
       "title": "Generator",
       "intensity": "Intensity",

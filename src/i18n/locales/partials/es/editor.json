@@ -166,6 +166,20 @@
         "layer": "Añadir capa"
       }
     },
+    "editAnimation": {
+      "quickTitle": "Animación rápida",
+      "quickHint": "Añade una animación preparada al clip. Podrás editarla en la línea de tiempo.",
+      "appliedHint": "Todo lo que se mueve actualmente en este clip.",
+      "noneApplied": "Todavía no se ha aplicado ninguna animación.",
+      "editTiming": "Editar tiempos",
+      "textHint": "Anima caracteres, palabras, líneas o todo el clip de texto.",
+      "motionClipTitle": "Clip de Motion",
+      "motionClipCreateHint": "Convierte este clip en una composición por capas para animación avanzada.",
+      "motionClipOpenHint": "Este clip es una composición de Motion por capas.",
+      "createMotionClip": "Crear clip de Motion",
+      "openInMotion": "Abrir en Motion",
+      "untitledClip": "Clip sin título"
+    },
     "motionGenerator": {
       "title": "Generador",
       "intensity": "Intensidad",

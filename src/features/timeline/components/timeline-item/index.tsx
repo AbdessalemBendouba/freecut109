@@ -180,7 +180,11 @@ export const TimelineItem = memo(function TimelineItem({
     (itemKeyframes?.vectorProperties?.some((property) => property.keyframes.length > 0) ?? false)
   const hasMotion =
     (item.motionModifiers?.some((modifier) => modifier.enabled) ?? false) ||
-    (item.effects?.some((effect) => effect.audioPulse?.enabled) ?? false)
+    (item.motionLayers?.some((layer) => layer.enabled) ?? false) ||
+    (item.effects?.some((effect) => effect.audioPulse?.enabled) ?? false) ||
+    (item.type === 'text' &&
+      item.textMotion !== undefined &&
+      Object.values(item.textMotion).some((effect) => effect !== undefined))
   const caption = useCaptionDialogState({
     item,
     isBroken,

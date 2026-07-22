@@ -33,7 +33,11 @@ vi.mock('./gif-section', () => ({
 }))
 
 vi.mock('./audio-section', () => ({
-  AudioSection: () => <div>Audio Body</div>,
+  AudioSection: ({ items }: { items: TimelineItem[] }) => (
+    <div data-testid="audio-body" data-item-ids={items.map((item) => item.id).join(',')}>
+      Audio Body
+    </div>
+  ),
 }))
 
 vi.mock('./text-section', () => ({
@@ -47,14 +51,18 @@ vi.mock('./shape-section', () => ({
 }))
 
 vi.mock('../../animate-workspace/animation-preset-library', () => ({
-  AnimationPresetLibrary: ({ embedded }: { embedded?: boolean }) => (
-    <div data-testid="motion-library-mock" data-embedded={String(embedded)} />
-  ),
-}))
-
-vi.mock('../../animate-workspace/applied-continuous-motion-controls', () => ({
-  AppliedContinuousMotionControls: ({ showBakeAction }: { showBakeAction?: boolean }) => (
-    <div data-testid="applied-motion-mock" data-bake={String(showBakeAction)} />
+  AnimationPresetLibrary: ({
+    embedded,
+    variant,
+  }: {
+    embedded?: boolean
+    variant?: 'full' | 'edit'
+  }) => (
+    <div
+      data-testid="motion-library-mock"
+      data-embedded={String(embedded)}
+      data-variant={variant ?? 'full'}
+    />
   ),
 }))
 
@@ -109,7 +117,7 @@ const NULL_OBJECT: ControllerItem = {
 
 const TRANSFORM_REFERENCE = { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }
 
-function activateTab(name: 'Audio' | 'Effects' | 'Motion' | 'Video') {
+function activateTab(name: 'Animation' | 'Audio' | 'Effects' | 'Motion' | 'Video') {
   const tab = screen.getByRole('tab', { name })
   fireEvent.mouseDown(tab, { button: 0, ctrlKey: false })
   fireEvent.focus(tab)
@@ -208,7 +216,7 @@ describe('ClipPanel inspector tabs', () => {
     expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
   })
 
-  it('opens compact applied-motion controls for an animated clip in Edit', async () => {
+  it('opens the compact clip-level Animation surface for an animated clip in Edit', async () => {
     const animatedVideo: VideoItem = {
       ...VIDEO_ITEM,
       motionModifiers: [
@@ -227,20 +235,28 @@ describe('ClipPanel inspector tabs', () => {
 
     render(<ClipPanel />)
 
-    activateTab('Motion')
+    activateTab('Animation')
 
-    expect(await screen.findByTestId('applied-motion-mock')).toHaveAttribute(
-      'data-bake',
-      'true',
-    )
-    expect(screen.queryByTestId('motion-library-mock')).not.toBeInTheDocument()
+    expect(await screen.findByTestId('motion-library-mock')).toHaveAttribute('data-variant', 'edit')
     expect(useEditorStore.getState().clipInspectorTab).toBe('motion')
   })
 
-  it('does not add a Motion tab to an ordinary Edit clip', () => {
+  it('always exposes Animation for an ordinary visual clip in Edit', () => {
     render(<ClipPanel />)
 
+    expect(screen.getByRole('tab', { name: 'Animation' })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Motion' })).not.toBeInTheDocument()
+  })
+
+  it('edits the hidden linked-audio companion through the visual clip Audio tab', () => {
+    const linkedVideo: VideoItem = { ...VIDEO_ITEM, linkedGroupId: 'av-1' }
+    const linkedAudio: AudioItem = { ...AUDIO_ITEM, linkedGroupId: 'av-1' }
+    resetStores([linkedVideo, linkedAudio], [linkedVideo.id])
+
+    render(<ClipPanel />)
+    activateTab('Audio')
+
+    expect(screen.getByTestId('audio-body')).toHaveAttribute('data-item-ids', linkedAudio.id)
   })
 
   it('hides parenting from an ordinary unparented clip in Edit', () => {

@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "有关键帧",
-      "hasMotion": "具有连续运动",
+      "hasMotion": "打开动画控制",
       "mask": "遮罩",
       "mediaMissing": "媒体缺失",
       "preparingReversed": "正在准备反向播放",

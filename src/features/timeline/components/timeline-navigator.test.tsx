@@ -8,6 +8,7 @@ import { useTimelineSettingsStore } from '../stores/timeline-settings-store'
 import { useItemsStore } from '../stores/items-store'
 import { useZoomStore } from '../stores/zoom-store'
 import { ZOOM_MIN } from '../constants'
+import { TIMELINE_LIVE_SCROLL_EVENT } from '@/shared/timeline/live-scroll-sync'
 
 const perfMarkMocks = vi.hoisted(() => ({ mark: vi.fn() }))
 
@@ -197,6 +198,47 @@ describe('timeline navigator interaction', () => {
 
     expect(useZoomStore.getState().level).not.toBe(1)
     expect(thumb.style.width).toBe(previewWidth)
+
+    clientWidthSpy.mockRestore()
+    animationFrameSpy.mockRestore()
+  })
+
+  it('publishes navigator pan and zoom geometry before each drag frame paints', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(400)
+    const scrollContainer = document.createElement('div')
+    scrollContainer.scrollLeft = 120
+    const liveViewportChange = vi.fn()
+    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, liveViewportChange)
+
+    const { getByTestId } = render(
+      <TimelineNavigator
+        actualDuration={10}
+        timelineWidth={1000}
+        scrollContainerRef={{ current: scrollContainer }}
+      />,
+    )
+
+    fireEvent.mouseDown(getByTestId('timeline-navigator-thumb'), { clientX: 200 })
+    fireEvent.mouseMove(window, { clientX: 230 })
+    act(() => frameCallbacks.shift()?.(0))
+    expect(liveViewportChange).toHaveBeenCalledTimes(1)
+    fireEvent.mouseUp(window)
+
+    liveViewportChange.mockClear()
+    fireEvent.mouseDown(getByTestId('timeline-navigator-right-handle'), { clientX: 250 })
+    fireEvent.mouseMove(window, { clientX: 280 })
+    act(() => frameCallbacks.shift()?.(16))
+    expect(liveViewportChange).toHaveBeenCalledTimes(1)
+    fireEvent.mouseUp(window)
 
     clientWidthSpy.mockRestore()
     animationFrameSpy.mockRestore()
