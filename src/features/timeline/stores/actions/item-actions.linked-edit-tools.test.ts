@@ -212,6 +212,34 @@ describe('linked edit tools', () => {
     expect(itemById['caption-after']).toBeUndefined()
   })
 
+  it('parks keyframes beyond a shortened clip instead of deleting them', () => {
+    useItemsStore.getState().setItems([makeVideoItem(), makeAudioItem()])
+    useKeyframesStore.getState().setKeyframes([
+      {
+        itemId: 'video-1',
+        properties: [
+          {
+            property: 'opacity',
+            keyframes: [
+              { id: 'visible', frame: 10, value: 0, easing: 'linear' },
+              { id: 'parked', frame: 55, value: 1, easing: 'linear' },
+            ],
+          },
+        ],
+      },
+    ])
+
+    trimItemEnd('video-1', -10)
+
+    expect(useItemsStore.getState().itemById['video-1']?.durationInFrames).toBe(50)
+    expect(
+      useKeyframesStore
+        .getState()
+        .getAllKeyframesForProperty('video-1', 'opacity')
+        .map((keyframe) => keyframe.frame),
+    ).toEqual([10, 55])
+  })
+
   it('trims only the targeted clip when linked selection is off', () => {
     useEditorStore.setState({ linkedSelectionEnabled: false })
     useItemsStore.getState().setItems([makeVideoItem(), makeAudioItem()])

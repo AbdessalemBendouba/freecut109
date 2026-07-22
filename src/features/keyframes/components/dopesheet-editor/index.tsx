@@ -26,6 +26,7 @@ import {
   LineChart,
   Link2,
   Lock,
+  Scissors,
   Sparkles,
   Timer,
   Unlink,
@@ -209,6 +210,10 @@ interface DopesheetEditorProps {
   itemFrom?: number
   /** Total duration in frames */
   totalFrames?: number
+  /** Stored keyframes currently parked beyond the item's visible out point. */
+  trimmedKeyframeCount?: number
+  /** Destructively consolidate parked keyframes to the visible item bounds. */
+  onTrimAnimation?: () => void
   /** Timeline FPS used for ruler display */
   fps?: number
   /** Width of the editor */
@@ -217,6 +222,10 @@ interface DopesheetEditorProps {
   height?: number
   /** Callback when keyframe is moved */
   onKeyframeMove?: (ref: KeyframeRef, newFrame: number, newValue: number) => void
+  /** Commit a multi-key retime atomically when lane identities may change. */
+  onKeyframesMove?: (
+    entries: Array<{ ref: KeyframeRef; newFrame: number; newValue: number }>,
+  ) => void
   /** Callback when bezier handles are moved in graph view */
   onBezierHandleMove?: (ref: KeyframeRef, bezier: BezierControlPoints) => void
   /**
@@ -753,10 +762,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   globalFrame = null,
   itemFrom = 0,
   totalFrames = 300,
+  trimmedKeyframeCount = 0,
+  onTrimAnimation,
   fps = 30,
   width = 600,
   height = 260,
   onKeyframeMove,
+  onKeyframesMove,
   onBezierHandleMove,
   onSegmentEasingChange,
   onSelectionChange,
@@ -2052,9 +2064,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         isPropertyLocked,
         itemId,
         onKeyframeMove,
+        onKeyframesMove,
       })
     },
-    [isPropertyLocked, itemId, onKeyframeMove],
+    [isPropertyLocked, itemId, onKeyframeMove, onKeyframesMove],
   )
   const duplicateSelectionFramePreview = useCallback(
     (selectionIds: Iterable<string>, previewFrames: Record<string, number> | null) => {
@@ -4810,6 +4823,23 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 count: visibleKeyframes.length,
               })}
             </span>
+            {trimmedKeyframeCount > 0 && onTrimAnimation ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-1.5 text-[10px] text-amber-300 hover:text-amber-200"
+                onClick={onTrimAnimation}
+                title={t('timeline.keyframeEditor.trimAnimationHint', {
+                  count: trimmedKeyframeCount,
+                })}
+              >
+                <Scissors className="h-3 w-3" />
+                {t('timeline.keyframeEditor.trimmedKeyframes', {
+                  count: trimmedKeyframeCount,
+                })}
+              </Button>
+            ) : null}
             <DopesheetHeaderFrameInputs
               disabled={disabled}
               inputsEnabled={

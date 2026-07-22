@@ -84,6 +84,43 @@ describe('selection frame actions', () => {
     )
   })
 
+  it('commits a multi-key retime through one atomic callback', () => {
+    const onKeyframeMove = vi.fn()
+    const onKeyframesMove = vi.fn()
+
+    expect(
+      commitSelectionFramePreview({
+        selectionIds: ['kf-1', 'kf-2', 'kf-3'],
+        previewFrames: { 'kf-1': 24, 'kf-2': 34, 'kf-3': 16 },
+        keyframeMetaById,
+        isPropertyLocked: () => false,
+        itemId: 'item-1',
+        onKeyframeMove,
+        onKeyframesMove,
+      }),
+    ).toBe(true)
+
+    expect(onKeyframeMove).not.toHaveBeenCalled()
+    expect(onKeyframesMove).toHaveBeenCalledOnce()
+    expect(onKeyframesMove).toHaveBeenCalledWith([
+      {
+        ref: { itemId: 'item-1', property: 'x', keyframeId: 'kf-1' },
+        newFrame: 24,
+        newValue: 100,
+      },
+      {
+        ref: { itemId: 'item-1', property: 'x', keyframeId: 'kf-2' },
+        newFrame: 34,
+        newValue: 140,
+      },
+      {
+        ref: { itemId: 'item-1', property: 'y', keyframeId: 'kf-3' },
+        newFrame: 16,
+        newValue: 200,
+      },
+    ])
+  })
+
   it('duplicates only movable previewed keyframes', () => {
     const onDuplicateKeyframes = vi.fn()
 

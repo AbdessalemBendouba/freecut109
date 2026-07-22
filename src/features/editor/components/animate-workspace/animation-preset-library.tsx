@@ -64,6 +64,7 @@ import {
   removeMotionModifierFromItems,
   removePresetKeyframeApplication,
   removeManualKeyframes,
+  trimAnimationToItemBounds,
   removeTextMotionEffect,
   bakeMotionToKeyframes,
   captureAnimationFromItem,
@@ -72,6 +73,7 @@ import {
   openComposition,
   useItemsStore,
   useKeyframesStore,
+  useTimelineCommandStore,
   useCompositionsStore,
   type MotionPresetClear,
   type MotionPresetVectorApply,
@@ -92,6 +94,7 @@ import {
   updateMotionModifierSettings,
   createMotionAnimationLayer,
   buildBakeMotionPlan,
+  countTrimmedKeyframes,
   resolveAnimatedTransform,
   type MotionPreset,
   type MotionPresetCategory,
@@ -1210,6 +1213,13 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
     }
     return { properties: [...properties], keyframeCount }
   }, [selectedItemKeyframes, t])
+  const trimmedKeyframeCount = useMemo(
+    () =>
+      selectedItem
+        ? countTrimmedKeyframes(selectedItemKeyframes, selectedItem.durationInFrames)
+        : 0,
+    [selectedItem, selectedItemKeyframes],
+  )
   const activeModulators = useMemo(
     () => MOTION_MODULATORS.filter((modulator) => activeModulatorIds.has(modulator.id)),
     [activeModulatorIds],
@@ -1241,6 +1251,33 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
     if (!selectedItem) return
     removeManualKeyframes(selectedItem.id)
   }, [selectedItem])
+
+  const handleTrimAnimation = useCallback(() => {
+    if (!selectedItem) return
+    const itemId = selectedItem.id
+    const removedCount = trimAnimationToItemBounds(itemId)
+    if (removedCount === 0) return
+    toast.success(
+      t('timeline.keyframeEditor.trimAnimationToast', {
+        count: removedCount,
+      }),
+      {
+        action: {
+          label: t('timeline.header.undo'),
+          onClick: () => {
+            const commandStore = useTimelineCommandStore.getState()
+            const latest = commandStore.undoStack.at(-1)
+            if (
+              latest?.command.type === 'TRIM_ANIMATION_TO_BOUNDS' &&
+              latest.command.payload?.itemId === itemId
+            ) {
+              commandStore.undo()
+            }
+          },
+        },
+      },
+    )
+  }, [selectedItem, t])
 
   const handleRemovePresetApplication = useCallback(
     (applicationId: string) => {
@@ -1363,6 +1400,16 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
                     detail={`${manualKeyframeSummary.properties.join(', ')} · ${t('editor.animateStages.keyframeCount', { count: manualKeyframeSummary.keyframeCount })}`}
                     removeLabel={t('editor.animateStages.removeManualKeyframes')}
                     onRemove={handleRemoveManualKeyframes}
+                  />
+                ) : null}
+                {trimmedKeyframeCount > 0 ? (
+                  <AppliedMotionRow
+                    label={t('timeline.keyframeEditor.trimmedKeyframesLabel')}
+                    detail={t('timeline.keyframeEditor.trimmedKeyframesDetail', {
+                      count: trimmedKeyframeCount,
+                    })}
+                    removeLabel={t('timeline.keyframeEditor.trimAnimation')}
+                    onRemove={handleTrimAnimation}
                   />
                 ) : null}
                 {keyframeApplications.map((application) => (

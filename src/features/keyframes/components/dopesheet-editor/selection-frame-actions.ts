@@ -31,6 +31,9 @@ interface CommitSelectionFramePreviewArgs {
   isPropertyLocked: (property: AnimatableProperty) => boolean
   itemId: string
   onKeyframeMove?: (ref: KeyframeRef, newFrame: number, newValue: number) => void
+  onKeyframesMove?: (
+    entries: Array<{ ref: KeyframeRef; newFrame: number; newValue: number }>,
+  ) => void
 }
 
 interface DuplicateSelectionFramePreviewArgs {
@@ -118,12 +121,13 @@ export function commitSelectionFramePreview({
   isPropertyLocked,
   itemId,
   onKeyframeMove,
+  onKeyframesMove,
 }: CommitSelectionFramePreviewArgs): boolean {
-  if (!onKeyframeMove || !previewFrames) {
+  if ((!onKeyframeMove && !onKeyframesMove) || !previewFrames) {
     return false
   }
 
-  let hasChanges = false
+  const entries: Array<{ ref: KeyframeRef; newFrame: number; newValue: number }> = []
   for (const keyframeId of selectionIds) {
     const nextFrame = previewFrames[keyframeId]
     if (nextFrame === undefined) {
@@ -135,11 +139,22 @@ export function commitSelectionFramePreview({
       continue
     }
 
-    onKeyframeMove({ itemId, property: meta.property, keyframeId }, nextFrame, meta.keyframe.value)
-    hasChanges = true
+    entries.push({
+      ref: { itemId, property: meta.property, keyframeId },
+      newFrame: nextFrame,
+      newValue: meta.keyframe.value,
+    })
   }
 
-  return hasChanges
+  if (entries.length === 0) return false
+  if (onKeyframesMove) {
+    onKeyframesMove(entries)
+  } else {
+    for (const entry of entries) {
+      onKeyframeMove?.(entry.ref, entry.newFrame, entry.newValue)
+    }
+  }
+  return true
 }
 
 export function duplicateSelectionFramePreview({

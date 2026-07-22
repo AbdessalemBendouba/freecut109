@@ -29,6 +29,7 @@ export {
   applyMotionPresetKeyframes,
   removePresetKeyframeApplication,
   removeManualKeyframes,
+  trimAnimationToItemBounds,
 } from '@/features/timeline/stores/actions/keyframe-actions'
 export type {
   MotionPresetClear,

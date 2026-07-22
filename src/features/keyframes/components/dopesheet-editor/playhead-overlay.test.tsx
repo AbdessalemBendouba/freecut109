@@ -862,6 +862,25 @@ describe('DopesheetEditor playhead overlay', () => {
     expect(screen.getByTestId('dopesheet-playhead-clip')).toHaveStyle({ left: '248px' })
   })
 
+  it('offers explicit cleanup when keyframes are parked beyond the clip', () => {
+    const onTrimAnimation = vi.fn()
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        presentation="classic"
+        width={640}
+        height={240}
+        trimmedKeyframeCount={2}
+        onTrimAnimation={onTrimAnimation}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '2 trimmed' }))
+    expect(onTrimAnimation).toHaveBeenCalledOnce()
+  })
+
   it('pre-renders ruler marks around the linked viewport for immediate pans', () => {
     const scrollContainer = document.createElement('div')
     const timelineScrollContainerRef = { current: scrollContainer }

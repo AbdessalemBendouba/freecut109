@@ -128,6 +128,88 @@ describe('buildVectorPromotionPlan', () => {
     ])
   })
 
+  it('preserves shared preset provenance when promoting authored axes', () => {
+    const source = {
+      applicationId: 'application-1',
+      kind: 'built-in-preset' as const,
+      presetId: 'slide-out-right',
+      presetName: 'Slide Out Right',
+    }
+    const itemKeyframes: ItemKeyframes = {
+      itemId: 'item-1',
+      properties: [
+        {
+          property: 'x',
+          keyframes: [{ id: 'x1', frame: 12, value: 100, easing: 'linear', source }],
+        },
+        {
+          property: 'y',
+          keyframes: [{ id: 'y1', frame: 12, value: 20, easing: 'linear', source }],
+        },
+      ],
+    }
+
+    const plan = buildVectorPromotionPlan({
+      property: 'position',
+      itemKeyframes,
+      baseTransform: base,
+      createId: () => 'position-key',
+    })
+
+    expect(plan.vectorProperty.keyframes[0]?.source).toEqual(source)
+  })
+
+  it('does not claim preset provenance when authored axes come from different applications', () => {
+    const itemKeyframes: ItemKeyframes = {
+      itemId: 'item-1',
+      properties: [
+        {
+          property: 'x',
+          keyframes: [
+            {
+              id: 'x1',
+              frame: 12,
+              value: 100,
+              easing: 'linear',
+              source: {
+                applicationId: 'application-1',
+                kind: 'built-in-preset',
+                presetId: 'slide-out-right',
+                presetName: 'Slide Out Right',
+              },
+            },
+          ],
+        },
+        {
+          property: 'y',
+          keyframes: [
+            {
+              id: 'y1',
+              frame: 12,
+              value: 20,
+              easing: 'linear',
+              source: {
+                applicationId: 'application-2',
+                kind: 'built-in-preset',
+                presetId: 'fade-in',
+                presetName: 'Fade In',
+              },
+            },
+          ],
+        },
+      ],
+    }
+
+    const plan = buildVectorPromotionPlan({
+      property: 'position',
+      itemKeyframes,
+      baseTransform: base,
+      createId: () => 'position-key',
+    })
+
+    expect(plan.vectorProperty.keyframes[0]?.source).toBeUndefined()
+  })
+
   it('creates a playhead key from the base transform when no scalar lanes exist', () => {
     const plan = buildVectorPromotionPlan({
       property: 'position',

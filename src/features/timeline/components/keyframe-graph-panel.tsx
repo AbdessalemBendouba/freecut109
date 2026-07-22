@@ -44,6 +44,8 @@ import {
   isTextAnimatableProperty,
   buildEasingConfig,
   buildVectorPromotionPlan,
+  remapLegacyVectorPromotionIdentities,
+  countTrimmedKeyframes,
   resolveAnimatedTransform,
   resolveExpressionReferenceValue,
 } from '@/features/timeline/deps/keyframes'
@@ -1363,8 +1365,52 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       }))
     }
 
+    if (surface === 'edit') {
+      const duration = selectedItemForEditor.durationInFrames
+      for (const property of Object.keys(result) as AnimatableProperty[]) {
+        result[property] = (result[property] ?? []).filter(
+          (keyframe) => keyframe.frame < duration,
+        )
+      }
+    }
+
     return result
-  }, [allAvailableProperties, canvas, selectedItemForEditor, selectedItemKeyframes])
+  }, [allAvailableProperties, canvas, selectedItemForEditor, selectedItemKeyframes, surface])
+
+  const trimmedKeyframeCount = useMemo(
+    () =>
+      selectedItemForEditor
+        ? countTrimmedKeyframes(selectedItemKeyframes, selectedItemForEditor.durationInFrames)
+        : 0,
+    [selectedItemForEditor, selectedItemKeyframes],
+  )
+
+  const handleTrimAnimation = useCallback(() => {
+    if (!selectedItemForEditor) return
+    const itemId = selectedItemForEditor.id
+    const removedCount = timelineActions.trimAnimationToItemBounds(itemId)
+    if (removedCount === 0) return
+    toast.success(
+      t('timeline.keyframeEditor.trimAnimationToast', {
+        count: removedCount,
+      }),
+      {
+        action: {
+          label: t('timeline.header.undo'),
+          onClick: () => {
+            const commandStore = useTimelineCommandStore.getState()
+            const latest = commandStore.undoStack.at(-1)
+            if (
+              latest?.command.type === 'TRIM_ANIMATION_TO_BOUNDS' &&
+              latest.command.payload?.itemId === itemId
+            ) {
+              commandStore.undo()
+            }
+          },
+        },
+      },
+    )
+  }, [selectedItemForEditor, t])
 
   // Selected keyframe IDs for the current item
   const selectedKeyframeIds = useMemo(() => {
@@ -1680,6 +1726,20 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       })
       if (!promotion) return null
 
+      const identityRemap = remapLegacyVectorPromotionIdentities({
+        itemId: selectedItemForEditor.id,
+        property: proxy.property,
+        vectorKeyframes: promotion.plan.vectorProperty.keyframes,
+        keyframesByProperty,
+        selectedKeyframes: useKeyframeSelectionStore.getState().selectedKeyframes,
+      })
+      for (const [legacyEditorId, promotedStoredId] of identityRemap.storedIdByLegacyEditorId) {
+        promotedVectorDragIdsRef.current.set(
+          `${proxy.property}:${legacyEditorId}`,
+          promotedStoredId,
+        )
+      }
+
       useKeyframesStore
         .getState()
         ._replaceScalarPropertiesWithVectorProperty(
@@ -1688,16 +1748,21 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
           promotion.plan.removeScalarProperties,
         )
       promotedVectorDragIdsRef.current.set(dragKey, promotion.keyframe.id)
-      selectKeyframe({
-        itemId: selectedItemForEditor.id,
-        property: ref.property,
-        keyframeId: getEditorVectorKeyframeId(promotion.keyframe.id, proxy.axis),
-      })
+      if (identityRemap.selectedKeyframes.length > 0) {
+        selectKeyframes(identityRemap.selectedKeyframes)
+      } else {
+        selectKeyframe({
+          itemId: selectedItemForEditor.id,
+          property: ref.property,
+          keyframeId: getEditorVectorKeyframeId(promotion.keyframe.id, proxy.axis),
+        })
+      }
       return { ...proxy, keyframe: promotion.keyframe }
     },
     [
       keyframesByProperty,
       selectKeyframe,
+      selectKeyframes,
       selectedItemForEditor,
       selectedItemKeyframes,
       vectorBaseTransform,
@@ -1973,6 +2038,139 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       ensureVectorKeyframeForLiveEdit,
       selectedItemKeyframes,
       transitionBlockedRanges,
+    ],
+  )
+
+  const handleKeyframesMove = useCallback(
+    (entries: Array<{ ref: KeyframeRef; newFrame: number; newValue: number }>) => {
+      if (!selectedItemForEditor || !vectorBaseTransform || entries.length === 0) return
+
+      const storedIdByDragKey = new Map(promotedVectorDragIdsRef.current)
+      let remappedSelection = useKeyframeSelectionStore.getState().selectedKeyframes
+      let selectionChanged = false
+
+      // Promote every legacy vector lane before applying any frame updates.
+      // Otherwise promoting the next selected legacy key replaces the lane and
+      // resets the key that was just moved earlier in the same drag commit.
+      for (const { ref } of entries) {
+        const proxy = getVectorProxy(ref.property)
+        if (!proxy) continue
+
+        const dragKey = `${proxy.property}:${ref.keyframeId}`
+        const storedId =
+          storedIdByDragKey.get(dragKey) ?? getStoredVectorKeyframeId(ref.keyframeId, proxy.axis)
+        const currentItemKeyframes =
+          useKeyframesStore.getState().keyframesByItemId[selectedItemForEditor.id]
+        if (findStoredVectorKeyframe(currentItemKeyframes, proxy.property, storedId)) continue
+
+        const previewKeyframe = keyframesByProperty[ref.property]?.find(
+          (keyframe) => keyframe.id === ref.keyframeId,
+        )
+        if (!previewKeyframe) continue
+        const promotion = buildLegacyVectorPromotionAtFrame({
+          property: proxy.property,
+          itemKeyframes: currentItemKeyframes,
+          baseTransform: vectorBaseTransform,
+          frame: previewKeyframe.frame,
+        })
+        if (!promotion) continue
+
+        const identityRemap = remapLegacyVectorPromotionIdentities({
+          itemId: selectedItemForEditor.id,
+          property: proxy.property,
+          vectorKeyframes: promotion.plan.vectorProperty.keyframes,
+          keyframesByProperty,
+          selectedKeyframes: remappedSelection,
+        })
+        for (const [legacyEditorId, promotedStoredId] of identityRemap.storedIdByLegacyEditorId) {
+          const mappedDragKey = `${proxy.property}:${legacyEditorId}`
+          storedIdByDragKey.set(mappedDragKey, promotedStoredId)
+          promotedVectorDragIdsRef.current.set(mappedDragKey, promotedStoredId)
+        }
+        remappedSelection = identityRemap.selectedKeyframes
+        selectionChanged = true
+        useKeyframesStore
+          .getState()
+          ._replaceScalarPropertiesWithVectorProperty(
+            selectedItemForEditor.id,
+            promotion.plan.vectorProperty,
+            promotion.plan.removeScalarProperties,
+          )
+      }
+
+      if (selectionChanged) selectKeyframes(remappedSelection)
+
+      const vectorUpdates = new Map<
+        string,
+        {
+          property: VectorAnimatableProperty
+          keyframeId: string
+          frame: number
+          value: { x: number; y: number }
+        }
+      >()
+      const currentItemKeyframes =
+        useKeyframesStore.getState().keyframesByItemId[selectedItemForEditor.id]
+
+      for (const { ref, newFrame, newValue } of entries) {
+        const proxy = getVectorProxy(ref.property)
+        if (!proxy) {
+          const currentKeyframe = currentItemKeyframes?.properties
+            .find((property) => property.property === ref.property)
+            ?.keyframes.find((keyframe) => keyframe.id === ref.keyframeId)
+          const clampedFrame = clampFrameToBlockedRanges(
+            Math.max(0, Math.round(newFrame)),
+            currentKeyframe?.frame ?? newFrame,
+            transitionBlockedRanges,
+          )
+          _updateKeyframe(ref.itemId, ref.property, ref.keyframeId, {
+            frame: clampedFrame,
+            value: newValue,
+          })
+          continue
+        }
+
+        const dragKey = `${proxy.property}:${ref.keyframeId}`
+        const storedId =
+          storedIdByDragKey.get(dragKey) ?? getStoredVectorKeyframeId(ref.keyframeId, proxy.axis)
+        const currentKeyframe = findStoredVectorKeyframe(
+          currentItemKeyframes,
+          proxy.property,
+          storedId,
+        )
+        if (!currentKeyframe) continue
+
+        const updateKey = `${proxy.property}:${storedId}`
+        const pending = vectorUpdates.get(updateKey)
+        const clampedFrame = clampFrameToBlockedRanges(
+          Math.max(0, Math.round(newFrame)),
+          currentKeyframe.frame,
+          transitionBlockedRanges,
+        )
+        vectorUpdates.set(updateKey, {
+          property: proxy.property,
+          keyframeId: storedId,
+          frame: clampedFrame,
+          value: { ...(pending?.value ?? currentKeyframe.value), [proxy.axis]: newValue },
+        })
+      }
+
+      for (const update of vectorUpdates.values()) {
+        useKeyframesStore
+          .getState()
+          ._updateVectorKeyframe(selectedItemForEditor.id, update.property, update.keyframeId, {
+            frame: update.frame,
+            value: update.value,
+          })
+      }
+    },
+    [
+      _updateKeyframe,
+      keyframesByProperty,
+      selectKeyframes,
+      selectedItemForEditor,
+      transitionBlockedRanges,
+      vectorBaseTransform,
     ],
   )
 
@@ -3076,10 +3274,13 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   globalFrame={currentFrame}
                   itemFrom={selectedItemForEditor.from}
                   totalFrames={selectedItemForEditor.durationInFrames}
+                  trimmedKeyframeCount={surface === 'edit' ? trimmedKeyframeCount : 0}
+                  onTrimAnimation={surface === 'edit' ? handleTrimAnimation : undefined}
                   fps={surface === 'edit' ? editTimelineFps : canvas.fps}
                   width={editorWidth}
                   height={editorHeight}
                   onKeyframeMove={handleKeyframeMove}
+                  onKeyframesMove={handleKeyframesMove}
                   onBezierHandleMove={handleBezierHandleMove}
                   onSegmentEasingChange={handleSegmentEasingChange}
                   onSelectionChange={handleSelectionChange}
