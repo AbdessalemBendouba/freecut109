@@ -1229,7 +1229,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             filterKeyframedOnly &&
             !keyframedPropertyIds.has(property) &&
             !linkedTransformPropertyIds.has(property) &&
-            !(propertyFilter === 'keyframed' && proceduralBandByProperty.has(property))
+            !proceduralBandByProperty.has(property)
           )
             return false
           return true
@@ -1241,7 +1241,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       linkedTransformPropertyIds,
       proceduralBandByProperty,
       propertyGroupIdByProperty,
-      propertyFilter,
       filterKeyframedOnly,
       visibleGroups,
     ],
@@ -2379,6 +2378,22 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       }
     },
     [onDragEnd, onPropertyValueCommit, onPropertyValuePreview],
+  )
+
+  const handleValueScrubCancel = useCallback(
+    (event: React.PointerEvent<HTMLInputElement>, property: AnimatableProperty) => {
+      const scrub = valueScrubRef.current
+      if (!scrub || scrub.pointerId !== event.pointerId || scrub.property !== property) return
+      valueScrubRef.current = null
+      if (!scrub.didDrag) return
+
+      event.preventDefault()
+      const restoredDisplay = formatPropertyValue(property, scrub.startValue)
+      valueDraftAtFocusRef.current[property] = restoredDisplay
+      setValueDrafts((previous) => ({ ...previous, [property]: restoredDisplay }))
+      onDragCancel?.()
+    },
+    [formatPropertyValue, onDragCancel],
   )
 
   const nudgeSelectedKeyframes = useCallback(
@@ -3775,6 +3790,25 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                     (!row.controls.hasKeyframeAtCurrentFrame && isCurrentFrameBlocked),
                   linked: !!propertyLink,
                   allowCreateOnBlur: autoKeyEnabledByProperty[row.property] ?? false,
+                  onScrubStart: (axis) => {
+                    const scrubProperty =
+                      axis === 'y'
+                        ? (compoundSecondaryProperties[row.property] ?? row.property)
+                        : row.property
+                    activateProperty(scrubProperty)
+                    onDragStart?.()
+                  },
+                  onScrubPreview: onPropertyValuePreview
+                    ? (axis, value) => {
+                        const scrubProperty =
+                          axis === 'y'
+                            ? (compoundSecondaryProperties[row.property] ?? row.property)
+                            : row.property
+                        onPropertyValuePreview(scrubProperty, value)
+                      }
+                    : undefined,
+                  onScrubEnd: onPropertyValuePreview ? () => onDragEnd?.() : undefined,
+                  onScrubCancel: onPropertyValuePreview ? () => onDragCancel?.() : undefined,
                 }}
               />
             ) : (
@@ -3785,7 +3819,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 onPointerDown={(event) => handleValueScrubStart(event, row.property)}
                 onPointerMove={(event) => handleValueScrubMove(event, row.property)}
                 onPointerUp={(event) => handleValueScrubEnd(event, row.property)}
-                onPointerCancel={(event) => handleValueScrubEnd(event, row.property)}
+                onPointerCancel={(event) => handleValueScrubCancel(event, row.property)}
                 onFocus={() => {
                   activateProperty(row.property)
                   setEditingValueProperty(row.property)
@@ -3875,7 +3909,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 })}
               />
             )}
-            <div className="flex items-center gap-0 rounded-sm border border-border/70 bg-background/85 px-0">
+            <div className="flex w-[60px] shrink-0 items-center gap-0 rounded-sm border border-border/70 bg-background/85 px-0">
               <Button
                 type="button"
                 variant="ghost"
@@ -3996,6 +4030,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       axisConstraintByProperty,
       canClearRow,
       compoundPropertyRows,
+      compoundSecondaryProperties,
       autoKeyEnabledByProperty,
       disabled,
       formatPropertyValue,
@@ -4007,6 +4042,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       handleRowValueChange,
       handleRowValueCommit,
       handleValueScrubEnd,
+      handleValueScrubCancel,
       handleValueScrubMove,
       handleValueScrubStart,
       itemId,
@@ -4015,7 +4051,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onAddKeyframe,
       onNavigateToKeyframe,
       onCurveVisibilityChange,
+      onDragCancel,
+      onDragEnd,
+      onDragStart,
       onPropertyValueCommit,
+      onPropertyValuePreview,
       resolvedPropertyLinks,
       resolvedPropertyLinkSourceLabels,
       beginPropertyLink,
@@ -4628,6 +4668,12 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onRulerPointerLeave={handleRulerPointerLeave}
       rulerTickElements={rulerTickElements}
       reservedRightGutterWidth={reservedScrollbarGutterWidth}
+      propertyFilter={filterKeyframedOnly ? 'keyframed' : 'all'}
+      onPropertyFilterChange={
+        presentation === 'classic' && propertyFilter === undefined
+          ? (filter) => setShowKeyframedOnly(filter === 'keyframed')
+          : undefined
+      }
     />
   )
   // Standalone cells begin after their 1px border. A linked Edit axis pulls its

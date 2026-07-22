@@ -112,4 +112,130 @@ describe('CompoundPropertyInputs', () => {
     expect(screen.getByLabelText('Scale X')).toBeInTheDocument()
     expect(screen.getByLabelText('Scale Y')).toBeInTheDocument()
   })
+
+  it('scrubs either axis horizontally with live preview and one drag boundary', () => {
+    const onCommit = vi.fn()
+    const onScrubStart = vi.fn()
+    const onScrubPreview = vi.fn()
+    const onScrubEnd = vi.fn()
+    render(
+      <CompoundPropertyInputs
+        config={{
+          label: 'Position',
+          value: { x: 10, y: 20 },
+          unit: 'px',
+          onCommit,
+          onScrubStart,
+          onScrubPreview,
+          onScrubEnd,
+          scrubStep: 1,
+          decimals: 0,
+        }}
+      />,
+    )
+
+    const x = screen.getByLabelText('Position X')
+    fireEvent.pointerDown(x, { button: 0, pointerId: 7, clientX: 100 })
+    fireEvent.pointerMove(x, { pointerId: 7, clientX: 120 })
+    fireEvent.pointerUp(x, { pointerId: 7, clientX: 120 })
+
+    expect(onScrubStart).toHaveBeenCalledOnce()
+    expect(onScrubStart).toHaveBeenCalledWith('x')
+    expect(onScrubPreview).toHaveBeenLastCalledWith('x', 30)
+    expect(onScrubEnd).toHaveBeenCalledWith('x', 30)
+    expect(onCommit).not.toHaveBeenCalled()
+  })
+
+  it('cancels a scrub without committing its preview or undo boundary', () => {
+    const onScrubPreview = vi.fn()
+    const onScrubEnd = vi.fn()
+    const onScrubCancel = vi.fn()
+    render(
+      <CompoundPropertyInputs
+        config={{
+          label: 'Position',
+          value: { x: 10, y: 20 },
+          unit: 'px',
+          scrubStep: 1,
+          decimals: 0,
+          onCommit: vi.fn(),
+          onScrubStart: vi.fn(),
+          onScrubPreview,
+          onScrubEnd,
+          onScrubCancel,
+        }}
+      />,
+    )
+
+    const x = screen.getByLabelText('Position X')
+    fireEvent.pointerDown(x, { button: 0, pointerId: 9, clientX: 100 })
+    fireEvent.pointerMove(x, { pointerId: 9, clientX: 120 })
+    expect(x).toHaveValue('30')
+
+    fireEvent.pointerCancel(x, { pointerId: 9 })
+
+    expect(x).toHaveValue('10')
+    expect(onScrubPreview).toHaveBeenLastCalledWith('x', 30)
+    expect(onScrubCancel).toHaveBeenCalledOnce()
+    expect(onScrubEnd).not.toHaveBeenCalled()
+  })
+
+  it('rounds typed Position values to whole pixels', () => {
+    const onCommit = vi.fn()
+    render(
+      <CompoundPropertyInputs
+        config={{
+          label: 'Position',
+          value: { x: 10, y: 20 },
+          unit: 'px',
+          decimals: 0,
+          scrubStep: 1,
+          onCommit,
+        }}
+      />,
+    )
+
+    const x = screen.getByLabelText('Position X')
+    fireEvent.change(x, { target: { value: '42.6' } })
+    fireEvent.keyDown(x, { key: 'Enter' })
+
+    expect(onCommit).toHaveBeenCalledWith('x', 43, { allowCreate: true })
+    expect(x).toHaveValue('43')
+  })
+
+  it('gives compact compound inputs enough width for both values', () => {
+    render(
+      <CompoundPropertyInputs
+        config={{
+          label: 'Position',
+          value: { x: 10, y: 20 },
+          unit: 'px',
+          onCommit: vi.fn(),
+        }}
+      />,
+    )
+
+    expect(screen.getByTestId('compound-property-inputs')).toHaveClass('w-[132px]')
+  })
+
+  it('commits a horizontal scrub on release when live preview is unavailable', () => {
+    const onCommit = vi.fn()
+    render(
+      <CompoundPropertyInputs
+        config={{
+          label: 'Position',
+          value: { x: 10, y: 20 },
+          unit: 'px',
+          onCommit,
+        }}
+      />,
+    )
+
+    const y = screen.getByLabelText('Position Y')
+    fireEvent.pointerDown(y, { button: 0, pointerId: 8, clientX: 100 })
+    fireEvent.pointerMove(y, { pointerId: 8, clientX: 120 })
+    fireEvent.pointerUp(y, { pointerId: 8, clientX: 120 })
+
+    expect(onCommit).toHaveBeenCalledWith('y', 20.2, { allowCreate: true })
+  })
 })

@@ -25,4 +25,24 @@ describe('getScrubbedPropertyValue', () => {
       }).value,
     ).toBe(1)
   })
+
+  it('supports a one-unit-per-pixel position scrub step', () => {
+    expect(
+      getScrubbedPropertyValue({
+        startValue: 10,
+        deltaX: 20,
+        decimals: 0,
+        step: 1,
+      }),
+    ).toEqual({ value: 30, display: '30' })
+    expect(
+      getScrubbedPropertyValue({
+        startValue: 10,
+        deltaX: 20,
+        decimals: 0,
+        step: 1,
+        shiftKey: true,
+      }).value,
+    ).toBe(12)
+  })
 })

@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
 import { DopesheetEditor } from './index'
+import { PROPERTY_COLUMN_WIDTH } from './dopesheet-constants'
 import {
   mainTimelineScrubActiveRef,
   mainTimelineScrubHandoffFrameRef,
@@ -692,9 +693,9 @@ describe('DopesheetEditor playhead overlay', () => {
     const ruler = screen.getByTestId('dopesheet-ruler')
     const mainSkimmer = screen.getByTestId('timeline-preview-scrubber')
     vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
-      x: 248,
+      x: PROPERTY_COLUMN_WIDTH,
       y: 0,
-      left: 248,
+      left: PROPERTY_COLUMN_WIDTH,
       top: 0,
       right: 640,
       bottom: 22,
@@ -859,7 +860,9 @@ describe('DopesheetEditor playhead overlay', () => {
     expect(screen.getByTestId('dopesheet-editor-root')).toHaveStyle({
       '--dopesheet-live-axis-transform': 'translate3d(-401px, 0, 0) scaleX(1)',
     })
-    expect(screen.getByTestId('dopesheet-playhead-clip')).toHaveStyle({ left: '248px' })
+    expect(screen.getByTestId('dopesheet-playhead-clip')).toHaveStyle({
+      left: `${PROPERTY_COLUMN_WIDTH}px`,
+    })
   })
 
   it('offers explicit cleanup when keyframes are parked beyond the clip', () => {
