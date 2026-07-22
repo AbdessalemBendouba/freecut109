@@ -38,4 +38,39 @@ describe('ClipIndicators', () => {
     expect(onKeyframesToggle).toHaveBeenCalledTimes(1)
     expect(parentClick).not.toHaveBeenCalled()
   })
+
+  it('opens continuous motion without starting the parent clip gesture', () => {
+    const onMotionOpen = vi.fn()
+    const parentPointerDown = vi.fn()
+    const parentClick = vi.fn()
+
+    render(
+      <div onPointerDown={parentPointerDown} onClick={parentClick}>
+        <ClipIndicators
+          hasKeyframes={false}
+          keyframesExpanded={false}
+          hasMotion
+          currentSpeed={1}
+          isReversed={false}
+          isStretching={false}
+          stretchFeedback={null}
+          isBroken={false}
+          hasMediaId={false}
+          isMask={false}
+          isShape={false}
+          onMotionOpen={onMotionOpen}
+        />
+      </div>,
+    )
+
+    const button = screen.getByRole('button', { name: 'Has continuous motion' })
+
+    fireEvent.pointerDown(button, { button: 0 })
+    expect(onMotionOpen).not.toHaveBeenCalled()
+    expect(parentPointerDown).not.toHaveBeenCalled()
+
+    fireEvent.click(button, { detail: 1 })
+    expect(onMotionOpen).toHaveBeenCalledTimes(1)
+    expect(parentClick).not.toHaveBeenCalled()
+  })
 })

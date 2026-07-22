@@ -32,6 +32,8 @@ interface ClipIndicatorsProps {
   isShape: boolean
   /** Opens or closes the selected clip's Edit keyframe panel. */
   onKeyframesToggle?: () => void
+  /** Selects this clip and opens its live-motion controls in the inspector. */
+  onMotionOpen?: () => void
 }
 
 function stopClipIndicatorEvent(event: SyntheticEvent): void {
@@ -105,6 +107,7 @@ interface ClipLabelIndicatorsProps {
   isReversed: boolean
   reverseConformStatus?: ReverseConformStatus
   onKeyframesToggle?: () => void
+  onMotionOpen?: () => void
 }
 
 function hasClipLabelIndicators({
@@ -136,6 +139,7 @@ const ClipLabelIndicators = memo(function ClipLabelIndicators({
   isReversed,
   reverseConformStatus,
   onKeyframesToggle,
+  onMotionOpen,
 }: ClipLabelIndicatorsProps) {
   const { t } = useTranslation()
 
@@ -148,9 +152,20 @@ const ClipLabelIndicators = memo(function ClipLabelIndicators({
         <KeyframeIndicator expanded={keyframesExpanded} onToggle={onKeyframesToggle} />
       )}
       {hasMotion && (
-        <span title={t('timeline.clipIndicators.hasMotion')}>
+        <button
+          type="button"
+          className="pointer-events-auto rounded-sm p-0.5 text-sky-400 hover:bg-sky-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sky-400"
+          title={t('timeline.clipIndicators.hasMotion')}
+          aria-label={t('timeline.clipIndicators.hasMotion')}
+          onPointerDown={stopClipIndicatorEvent}
+          onMouseDown={stopClipIndicatorEvent}
+          onClick={(event) => {
+            stopClipIndicatorEvent(event)
+            onMotionOpen?.()
+          }}
+        >
           <Waves className="w-3 h-3 text-sky-400" />
-        </span>
+        </button>
       )}
       {isShapeMask && (
         <span
@@ -204,6 +219,7 @@ export const ClipIndicators = memo(function ClipIndicators({
   isMask,
   isShape,
   onKeyframesToggle,
+  onMotionOpen,
 }: ClipIndicatorsProps) {
   const { t } = useTranslation()
   const showSpeedBadge = Math.abs(currentSpeed - 1) > 0.005 && !isStretching
@@ -217,6 +233,7 @@ export const ClipIndicators = memo(function ClipIndicators({
     isReversed,
     reverseConformStatus,
     onKeyframesToggle,
+    onMotionOpen,
   }
 
   return (

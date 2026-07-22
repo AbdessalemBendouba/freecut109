@@ -52,6 +52,12 @@ vi.mock('../../animate-workspace/animation-preset-library', () => ({
   ),
 }))
 
+vi.mock('../../animate-workspace/applied-continuous-motion-controls', () => ({
+  AppliedContinuousMotionControls: ({ showBakeAction }: { showBakeAction?: boolean }) => (
+    <div data-testid="applied-motion-mock" data-bake={String(showBakeAction)} />
+  ),
+}))
+
 vi.mock('@/features/editor/deps/effects-contract', () => ({
   EffectsSection: () => <div>Effects Body</div>,
 }))
@@ -200,6 +206,41 @@ describe('ClipPanel inspector tabs', () => {
     )
     expect(useEditorStore.getState().clipInspectorTab).toBe('motion')
     expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
+  })
+
+  it('opens compact applied-motion controls for an animated clip in Edit', async () => {
+    const animatedVideo: VideoItem = {
+      ...VIDEO_ITEM,
+      motionModifiers: [
+        {
+          id: 'float-drift-1',
+          type: 'float-drift',
+          enabled: true,
+          amplitude: 1,
+          frequency: 0.5,
+          phaseFrames: 0,
+          seed: 7,
+        },
+      ],
+    }
+    resetStores([animatedVideo], [animatedVideo.id])
+
+    render(<ClipPanel />)
+
+    activateTab('Motion')
+
+    expect(await screen.findByTestId('applied-motion-mock')).toHaveAttribute(
+      'data-bake',
+      'true',
+    )
+    expect(screen.queryByTestId('motion-library-mock')).not.toBeInTheDocument()
+    expect(useEditorStore.getState().clipInspectorTab).toBe('motion')
+  })
+
+  it('does not add a Motion tab to an ordinary Edit clip', () => {
+    render(<ClipPanel />)
+
+    expect(screen.queryByRole('tab', { name: 'Motion' })).not.toBeInTheDocument()
   })
 
   it('hides parenting from an ordinary unparented clip in Edit', () => {

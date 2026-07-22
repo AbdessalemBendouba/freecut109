@@ -51,8 +51,6 @@ import {
   beginMotionModifierEdit,
   commitMotionModifierEdit,
   removeMotionModifierFromItems,
-  removeAudioPulseFromItems,
-  removeMotionLayerFromItems,
   removePresetKeyframeApplication,
   removeManualKeyframes,
   removeTextMotionEffect,
@@ -96,6 +94,7 @@ import { MotionPresetThumbnail } from './motion-preset-thumbnail'
 import { SaveAnimationPresetDialog } from './save-animation-preset-dialog'
 import { TextMotionSlotRows } from '../text-motion/text-motion-slot-rows'
 import { filterAnimationPresetCandidates } from './animation-preset-filter'
+import { AppliedContinuousMotionControls } from './applied-continuous-motion-controls'
 
 // Every transform/opacity property any built-in motion preset can write. In
 // Replace mode we clear these (within the new preset's frame window) so a fresh
@@ -1230,24 +1229,12 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
     [selectedItem],
   )
 
-  const handleRemoveMotionLayer = useCallback(
-    (layerId: string) => {
-      if (!selectedItem) return
-      removeMotionLayerFromItems([selectedItem.id], layerId)
-    },
-    [selectedItem],
-  )
-
   const handleRemoveTextMotion = useCallback(
     (slot: TextMotionSlot) => {
       removeTextMotionEffect(selectedItemIds, slot)
     },
     [selectedItemIds],
   )
-
-  const handleRemoveAudioPulse = useCallback(() => {
-    removeAudioPulseFromItems(selectedItemIds)
-  }, [selectedItemIds])
 
   const handleMotionGeneratorSettingsChange = useCallback(
     (settings: MotionGeneratorSettings) => {
@@ -1363,30 +1350,11 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
                       }
                     />
                   ))}
-                  {activeMotionLayers.map((layer) => (
-                    <AppliedMotionRow
-                      key={layer.id}
-                      label={layer.name}
-                      detail={`${t('editor.animateStages.additiveLayer')} · ${layer.tracks
-                        .map((track) => getKeyframePropertyLabel(t, track.property))
-                        .join(', ')}`}
-                      removeLabel={t('editor.animateStages.removeMotionLayer', {
-                        name: layer.name,
-                      })}
-                      onRemove={() => handleRemoveMotionLayer(layer.id)}
-                    />
-                  ))}
-                  {activeModulators.map((modulator) => (
-                    <AppliedMotionRow
-                      key={modulator.id}
-                      label={t(`editor.motionGenerator.modulators.${modulator.labelKey}`)}
-                      detail={`${t('editor.animateStages.scopeLayer')} · ${t('editor.animateStages.liveBadge')}`}
-                      removeLabel={t('editor.animateStages.removeModulator', {
-                        name: t(`editor.motionGenerator.modulators.${modulator.labelKey}`),
-                      })}
-                      onRemove={() => handleRemoveModulator(modulator)}
-                    />
-                  ))}
+                  <AppliedContinuousMotionControls
+                    items={selectedItems}
+                    canvas={canvas}
+                    variant="rows"
+                  />
                   {activeTextMotion.map(({ slot, effect }) => (
                     <AppliedMotionRow
                       key={slot}
@@ -1398,14 +1366,6 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
                       onRemove={() => handleRemoveTextMotion(slot)}
                     />
                   ))}
-                  {hasAudioPulse ? (
-                    <AppliedMotionRow
-                      label={t('editor.animateStages.audioPulseChip')}
-                      detail={t('editor.animateStages.liveBadge')}
-                      removeLabel={t('editor.animateStages.removeAudioPulse')}
-                      onRemove={handleRemoveAudioPulse}
-                    />
-                  ) : null}
                 </div>
               </section>
             )}

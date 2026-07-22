@@ -63,6 +63,11 @@ const LazyAnimationPresetLibrary = lazy(() =>
     default: module.AnimationPresetLibrary,
   })),
 )
+const LazyAppliedContinuousMotionControls = lazy(() =>
+  import('../../animate-workspace/applied-continuous-motion-controls').then((module) => ({
+    default: module.AppliedContinuousMotionControls,
+  })),
+)
 
 /**
  * Check if an item is a GIF (image with .gif extension)
@@ -261,7 +266,18 @@ export const ClipPanel = memo(function ClipPanel() {
   // Effects — so the middle slot is available even though text has no audio.
   const showVideoTab = layoutFillItems.length > 0
   const showAudioTab = hasAudioItems
-  const showMotionTab = workspace === 'motion' && hasVisualItems
+  const hasAppliedContinuousMotion = useMemo(
+    () =>
+      selectedItems.some(
+        (item) =>
+          item.motionModifiers?.some((modifier) => modifier.enabled) ||
+          item.motionLayers?.some((layer) => layer.enabled) ||
+          item.effects?.some((effect) => effect.audioPulse?.enabled),
+      ),
+    [selectedItems],
+  )
+  const showFullMotionLibrary = workspace === 'motion' && hasVisualItems
+  const showMotionTab = showFullMotionLibrary || (hasVisualItems && hasAppliedContinuousMotion)
   // Motion's library already includes the text-motion stage, so a text layer
   // gets one purposeful Motion surface instead of adjacent Animation/Motion tabs.
   const showSecondTab = showAudioTab || (isOnlyText && !showMotionTab)
@@ -336,13 +352,15 @@ export const ClipPanel = memo(function ClipPanel() {
     return null
   }
 
+  const motionUsesFullHeight = activeTab === 'motion' && showFullMotionLibrary
+
   return (
-    <div className={cn(activeTab === 'motion' ? 'h-full min-h-0' : 'space-y-3')}>
+    <div className={cn(motionUsesFullHeight ? 'h-full min-h-0' : 'space-y-3')}>
       {/* Tabbed sections */}
       <Tabs
         value={activeTab}
         onValueChange={handleTabChange}
-        className={cn('w-full', activeTab === 'motion' && 'flex h-full min-h-0 flex-col')}
+        className={cn('w-full', motionUsesFullHeight && 'flex h-full min-h-0 flex-col')}
       >
         <TabsList className={cn('grid h-8 w-full shrink-0', tabGridColsClass)}>
           {availableTabs.map((value) => {
@@ -410,9 +428,19 @@ export const ClipPanel = memo(function ClipPanel() {
           {showMotionTab && activeTab === 'motion' ? (
             <div className="flex h-full min-h-0 flex-col">
               <div className="min-h-0 flex-1">
-                <Suspense fallback={<div className="h-full rounded-md bg-muted/20" />}>
-                  <LazyAnimationPresetLibrary canvas={canvas} embedded />
-                </Suspense>
+                {showFullMotionLibrary ? (
+                  <Suspense fallback={<div className="h-full rounded-md bg-muted/20" />}>
+                    <LazyAnimationPresetLibrary canvas={canvas} embedded />
+                  </Suspense>
+                ) : (
+                  <Suspense fallback={<div className="h-24 rounded-md bg-muted/20" />}>
+                    <LazyAppliedContinuousMotionControls
+                      items={selectedItems}
+                      canvas={canvas}
+                      showBakeAction
+                    />
+                  </Suspense>
+                )}
               </div>
             </div>
           ) : null}

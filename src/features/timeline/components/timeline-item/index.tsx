@@ -1084,6 +1084,11 @@ export const TimelineItem = memo(function TimelineItem({
                 onKeyframesToggle={() => {
                   useSelectionStore.getState().toggleKeyframeLanes(item.id)
                 }}
+                onMotionOpen={() => {
+                  useSelectionStore.getState().selectItems([item.id])
+                  useEditorStore.getState().setRightSidebarOpen(true)
+                  useEditorStore.getState().setClipInspectorTab('motion')
+                }}
               />
             )}
           </div>
