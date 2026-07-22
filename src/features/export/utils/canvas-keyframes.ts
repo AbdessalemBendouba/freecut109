@@ -109,14 +109,29 @@ interface CanvasRenderSettings {
   getPreviewTransform?: (itemId: string) => Partial<ResolvedTransform> | undefined
 }
 
+function isDefinedDimension(value: number | undefined): value is number {
+  return value !== undefined
+}
+
+function getFirstDefinedDimension(...values: Array<number | undefined>): number {
+  return Math.max(1, values.find(isDefinedDimension) ?? 1)
+}
+
 function getCropSourceDimensions(
   item: TimelineItem,
   canvas: Pick<CanvasRenderSettings, 'width' | 'height'>,
 ): { width: number; height: number } | null {
   if (item.type === 'video' || item.type === 'image') {
     return {
-      width: Math.max(1, item.sourceWidth ?? item.transform?.width ?? canvas.width),
-      height: Math.max(1, item.sourceHeight ?? item.transform?.height ?? canvas.height),
+      width: getFirstDefinedDimension(item.sourceWidth, item.transform?.width, canvas.width),
+      height: getFirstDefinedDimension(item.sourceHeight, item.transform?.height, canvas.height),
+    }
+  }
+
+  if (item.type === 'composition') {
+    return {
+      width: Math.max(1, item.compositionWidth),
+      height: Math.max(1, item.compositionHeight),
     }
   }
 

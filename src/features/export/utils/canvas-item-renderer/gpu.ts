@@ -56,11 +56,7 @@ import {
   log,
   resolveItemTransform,
 } from './shared'
-import {
-  calculateContainedMediaDrawLayout,
-  calculateMediaDrawDimensions,
-  hasCropFeather,
-} from './media-draw'
+import { calculateContainedMediaDrawLayout, hasCropFeather } from './media-draw'
 import {
   createSubCompositionRenderContext,
   findSubCompOcclusionCutoffOrder,
@@ -68,14 +64,136 @@ import {
 } from './composition'
 import { resolveVideoParticipantSourceTime } from './video'
 
+type GpuParticipantRenderOptions = { clear?: boolean; blend?: boolean }
+
+function renderGpuShapeParticipantToTexture(
+  prepared: PreparedGpuMediaParticipant,
+  rctx: ItemRenderContext,
+  outputTexture: GPUTexture,
+  options?: GpuParticipantRenderOptions,
+): boolean {
+  const { media, participant } = prepared
+  if (media.kind !== 'shape') return false
+
+  return (
+    rctx.gpuShapePipeline?.renderShapeToTexture(outputTexture, {
+      outputWidth: rctx.canvasSettings.width,
+      outputHeight: rctx.canvasSettings.height,
+      transformRect: prepared.transformRect,
+      rotationRad: prepared.rotationRad,
+      opacity: participant.transform.opacity,
+      shapeType: media.item.shapeType,
+      fillColor: media.fillColor,
+      strokeColor: media.strokeColor,
+      strokeWidth: media.item.strokeWidth,
+      cornerRadius: media.item.cornerRadius,
+      direction: media.item.direction,
+      points: media.item.points,
+      innerRadius: media.item.innerRadius,
+      trimPathStart: media.item.trimPathStart,
+      trimPathEnd: media.item.trimPathEnd,
+      trimPathOffset: media.item.trimPathOffset,
+      taperStartWidth: media.item.taperStartWidth,
+      taperEndWidth: media.item.taperEndWidth,
+      taperStartLength: media.item.taperStartLength,
+      taperEndLength: media.item.taperEndLength,
+      aspectRatioLocked: participant.item.transform?.aspectRatioLocked,
+      pathVertices: media.pathVertices,
+      pathClosed: media.item.pathClosed,
+      clear: options?.clear,
+      blend: options?.blend,
+    }) ?? false
+  )
+}
+
+function renderGpuTextureParticipantToTexture(
+  prepared: PreparedGpuMediaParticipant,
+  rctx: ItemRenderContext,
+  outputTexture: GPUTexture,
+  options?: GpuParticipantRenderOptions,
+): boolean {
+  const { media, participant } = prepared
+  if (media.kind !== 'text' && media.kind !== 'composition') return false
+
+  const isComposition = media.kind === 'composition'
+  return (
+    rctx.gpuMediaPipeline?.renderTextureToTexture(media.texture, outputTexture, {
+      sourceWidth: media.sourceWidth,
+      sourceHeight: media.sourceHeight,
+      outputWidth: rctx.canvasSettings.width,
+      outputHeight: rctx.canvasSettings.height,
+      sourceRect: isComposition
+        ? prepared.sourceRect
+        : { x: 0, y: 0, width: media.sourceWidth, height: media.sourceHeight },
+      destRect: prepared.destRect,
+      transformRect: prepared.transformRect,
+      featherPixels: isComposition ? prepared.featherPixels : undefined,
+      cornerRadius: prepared.cornerRadius,
+      cornerPin: prepared.cornerPin,
+      opacity: participant.transform.opacity,
+      rotationRad: prepared.rotationRad,
+      clear: options?.clear,
+      blend: options?.blend,
+    }) ?? false
+  )
+}
+
+function renderGpuSourceParticipantToTexture(
+  prepared: PreparedGpuMediaParticipant,
+  rctx: ItemRenderContext,
+  outputTexture: GPUTexture,
+  options?: GpuParticipantRenderOptions,
+): boolean {
+  const { media, participant } = prepared
+  if (media.kind !== 'media') return false
+
+  return (
+    rctx.gpuMediaPipeline?.renderSourceToTexture(media.source, outputTexture, {
+      sourceWidth: media.sourceWidth,
+      sourceHeight: media.sourceHeight,
+      outputWidth: rctx.canvasSettings.width,
+      outputHeight: rctx.canvasSettings.height,
+      sourceRect: prepared.sourceRect,
+      destRect: prepared.destRect,
+      transformRect: prepared.transformRect,
+      featherPixels: prepared.featherPixels,
+      cornerRadius: prepared.cornerRadius,
+      cornerPin: prepared.cornerPin,
+      opacity: participant.transform.opacity,
+      rotationRad: prepared.rotationRad,
+      flipX: prepared.flipX,
+      flipY: prepared.flipY,
+      clear: options?.clear,
+      blend: options?.blend,
+    }) ?? false
+  )
+}
+
+function renderPreparedGpuParticipantToTexture(
+  prepared: PreparedGpuMediaParticipant,
+  rctx: ItemRenderContext,
+  outputTexture: GPUTexture,
+  options?: GpuParticipantRenderOptions,
+): boolean {
+  switch (prepared.media.kind) {
+    case 'shape':
+      return renderGpuShapeParticipantToTexture(prepared, rctx, outputTexture, options)
+    case 'text':
+    case 'composition':
+      return renderGpuTextureParticipantToTexture(prepared, rctx, outputTexture, options)
+    case 'media':
+      return renderGpuSourceParticipantToTexture(prepared, rctx, outputTexture, options)
+  }
+}
+
 export async function renderGpuMediaParticipantToTexture(
   prepared: PreparedGpuMediaParticipant,
   rctx: ItemRenderContext,
   gpuTexturePool: Pick<GpuTexturePool, 'acquire' | 'release'>,
   outputTexture: GPUTexture,
-  options?: { clear?: boolean; blend?: boolean },
+  options?: GpuParticipantRenderOptions,
 ): Promise<boolean> {
-  const { participant, media } = prepared
+  const { participant } = prepared
 
   const mediaOutputTexture =
     participant.effects.length > 0
@@ -83,69 +201,12 @@ export async function renderGpuMediaParticipantToTexture(
       : outputTexture
 
   try {
-    const renderedMedia =
-      media.kind === 'shape'
-        ? (rctx.gpuShapePipeline?.renderShapeToTexture(mediaOutputTexture, {
-            outputWidth: rctx.canvasSettings.width,
-            outputHeight: rctx.canvasSettings.height,
-            transformRect: prepared.transformRect,
-            rotationRad: prepared.rotationRad,
-            opacity: participant.transform.opacity,
-            shapeType: media.item.shapeType,
-            fillColor: media.fillColor,
-            strokeColor: media.strokeColor,
-            strokeWidth: media.item.strokeWidth,
-            cornerRadius: media.item.cornerRadius,
-            direction: media.item.direction,
-            points: media.item.points,
-            innerRadius: media.item.innerRadius,
-            trimPathStart: media.item.trimPathStart,
-            trimPathEnd: media.item.trimPathEnd,
-            trimPathOffset: media.item.trimPathOffset,
-            taperStartWidth: media.item.taperStartWidth,
-            taperEndWidth: media.item.taperEndWidth,
-            taperStartLength: media.item.taperStartLength,
-            taperEndLength: media.item.taperEndLength,
-            aspectRatioLocked: participant.item.transform?.aspectRatioLocked,
-            pathVertices: media.pathVertices,
-            pathClosed: media.item.pathClosed,
-            clear: options?.clear,
-            blend: options?.blend,
-          }) ?? false)
-        : media.kind === 'text' || media.kind === 'composition'
-          ? (rctx.gpuMediaPipeline?.renderTextureToTexture(media.texture, mediaOutputTexture, {
-              sourceWidth: media.sourceWidth,
-              sourceHeight: media.sourceHeight,
-              outputWidth: rctx.canvasSettings.width,
-              outputHeight: rctx.canvasSettings.height,
-              sourceRect: { x: 0, y: 0, width: media.sourceWidth, height: media.sourceHeight },
-              destRect: prepared.destRect,
-              transformRect: prepared.transformRect,
-              cornerRadius: prepared.cornerRadius,
-              cornerPin: prepared.cornerPin,
-              opacity: participant.transform.opacity,
-              rotationRad: prepared.rotationRad,
-              clear: options?.clear,
-              blend: options?.blend,
-            }) ?? false)
-          : (rctx.gpuMediaPipeline?.renderSourceToTexture(media.source, mediaOutputTexture, {
-              sourceWidth: media.sourceWidth,
-              sourceHeight: media.sourceHeight,
-              outputWidth: rctx.canvasSettings.width,
-              outputHeight: rctx.canvasSettings.height,
-              sourceRect: prepared.sourceRect,
-              destRect: prepared.destRect,
-              transformRect: prepared.transformRect,
-              featherPixels: prepared.featherPixels,
-              cornerRadius: prepared.cornerRadius,
-              cornerPin: prepared.cornerPin,
-              opacity: participant.transform.opacity,
-              rotationRad: prepared.rotationRad,
-              flipX: prepared.flipX,
-              flipY: prepared.flipY,
-              clear: options?.clear,
-              blend: options?.blend,
-            }) ?? false)
+    const renderedMedia = renderPreparedGpuParticipantToTexture(
+      prepared,
+      rctx,
+      mediaOutputTexture,
+      options,
+    )
     if (!renderedMedia) return false
     if (mediaOutputTexture === outputTexture) return true
     if (!rctx.gpuPipeline) return false
@@ -495,37 +556,13 @@ export async function prepareGpuMediaParticipant(
     }
   }
 
-  if (media.kind === 'composition') {
-    const transformRect = calculateMediaDrawDimensions(
-      media.sourceWidth,
-      media.sourceHeight,
-      participant.transform,
-      rctx.canvasSettings,
-    )
-    if (transformRect.width <= 0 || transformRect.height <= 0) {
-      media.close?.()
-      return null
-    }
-    return {
-      participant,
-      media,
-      sourceRect: { x: 0, y: 0, width: media.sourceWidth, height: media.sourceHeight },
-      destRect: transformRect,
-      transformRect,
-      featherPixels: { left: 0, right: 0, top: 0, bottom: 0 },
-      cornerRadius: participant.transform.cornerRadius,
-      rotationRad: (participant.transform.rotation * Math.PI) / 180,
-      flipX: false,
-      flipY: false,
-    }
-  }
-
   const layout = calculateContainedMediaDrawLayout(
     media.sourceWidth,
     media.sourceHeight,
     participant.transform,
     rctx.canvasSettings,
     media.item.crop,
+    media.kind === 'composition' ? 'fill' : 'contain',
   )
   if (layout.viewportRect.width <= 0 || layout.viewportRect.height <= 0) {
     media.close?.()
@@ -1465,7 +1502,7 @@ function logGpuTextTextureCacheEvent(
 }
 
 function resolveGpuMediaCornerPin(
-  item: ImageItem | VideoItem | TextItem,
+  item: CompositionItem | ImageItem | VideoItem | TextItem,
   mediaRect: GpuMediaRect,
 ): NonNullable<GpuMediaRenderParams['cornerPin']> | undefined {
   if (!hasCornerPin(item.cornerPin)) return undefined

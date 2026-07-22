@@ -111,7 +111,7 @@ export function TransformGizmo({
   }, [animatedTransform, isTransformInteracting, previewTransform, item, itemPreview])
 
   const sourceDimensions = useMemo(() => {
-    if (item.type !== 'video') return null
+    if (item.type !== 'video' && item.type !== 'composition') return null
     return (
       getSourceDimensions(item) ?? {
         width: Math.max(1, currentTransform.width),
@@ -135,12 +135,14 @@ export function TransformGizmo({
       currentTransform.width,
       currentTransform.height,
       currentCrop,
+      item.type === 'composition' ? 'fill' : 'contain',
     )
   }, [
     currentCrop,
     currentTransform.height,
     currentTransform.width,
     item.cornerPin,
+    item.type,
     sourceDimensions,
   ])
 

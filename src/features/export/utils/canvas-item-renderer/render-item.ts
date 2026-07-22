@@ -333,11 +333,12 @@ async function renderItemWithCornerPin(
     itemH,
     preCornerPinMasks.length > 0
       ? undefined
-      : item.type === 'video' || item.type === 'image'
+      : item.type === 'video' || item.type === 'image' || item.type === 'composition'
         ? {
-            sourceWidth: item.sourceWidth,
-            sourceHeight: item.sourceHeight,
+            sourceWidth: item.type === 'composition' ? item.compositionWidth : item.sourceWidth,
+            sourceHeight: item.type === 'composition' ? item.compositionHeight : item.sourceHeight,
             crop: item.crop,
+            fitMode: item.type === 'composition' ? ('fill' as const) : ('contain' as const),
           }
         : undefined,
   )

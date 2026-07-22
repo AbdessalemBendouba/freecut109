@@ -32,6 +32,8 @@ export interface MediaCropLayout {
   featherPixels: CropInsets
 }
 
+export type MediaCropFitMode = 'contain' | 'fill'
+
 const MAX_EDGE_SUM = 0.999
 
 function clamp01(value: number): number {
@@ -181,13 +183,17 @@ export function calculateMediaCropLayout(
   containerWidth: number,
   containerHeight: number,
   crop?: CropSettings,
+  fitMode: MediaCropFitMode = 'contain',
 ): MediaCropLayout {
-  const mediaRect = calculateContainedRect(
-    sourceWidth,
-    sourceHeight,
-    containerWidth,
-    containerHeight,
-  )
+  const mediaRect =
+    fitMode === 'fill'
+      ? {
+          x: 0,
+          y: 0,
+          width: Math.max(0, containerWidth),
+          height: Math.max(0, containerHeight),
+        }
+      : calculateContainedRect(sourceWidth, sourceHeight, containerWidth, containerHeight)
   const resolvedCrop = resolveCropSettings(crop)
 
   const cropPixels: CropInsets = {

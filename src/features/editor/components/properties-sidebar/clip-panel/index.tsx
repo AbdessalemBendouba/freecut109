@@ -91,6 +91,7 @@ function computeItemTypeInfo(items: TimelineItem[]) {
       types.has('lottie') ||
       types.has('controller'),
     hasVideoItems: types.has('video'),
+    hasCompositionItems: types.has('composition'),
     hasLottieItems: types.has('lottie'),
     hasGifItems,
     hasAudioItems: types.has('video') || types.has('audio'),
@@ -178,6 +179,7 @@ export const ClipPanel = memo(function ClipPanel() {
   const {
     hasVisualItems,
     hasVideoItems,
+    hasCompositionItems,
     hasLottieItems,
     hasGifItems,
     hasAudioItems,
@@ -369,7 +371,7 @@ export const ClipPanel = memo(function ClipPanel() {
                 />
               )}
               <CompositionControlsSection items={selectedItems} />
-              {hasVideoItems && <VideoSection items={selectedItems} />}
+              {(hasVideoItems || hasCompositionItems) && <VideoSection items={selectedItems} />}
               {paintableLayoutItems.length > 0 && (
                 <FillSection
                   items={paintableLayoutItems}

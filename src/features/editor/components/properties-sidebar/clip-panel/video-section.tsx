@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Crop, RotateCcw, Video } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
-import type { TimelineItem, VideoItem, AudioItem } from '@/types/timeline'
+import type { TimelineItem, VideoItem, AudioItem, CompositionItem } from '@/types/timeline'
 import type { CropSettings } from '@/types/transform'
 import type { ItemKeyframes } from '@/types/keyframe'
 import {
@@ -52,6 +52,7 @@ interface VideoSectionProps {
 type CropEdge = 'left' | 'right' | 'top' | 'bottom'
 type CropProperty = 'cropLeft' | 'cropRight' | 'cropTop' | 'cropBottom' | 'cropSoftness'
 type CropDimensions = { width: number; height: number }
+type CropItem = VideoItem | CompositionItem
 type ResolvedCropState = {
   crop: CropSettings | undefined
   dimensions: CropDimensions
@@ -64,7 +65,14 @@ const CROP_EDGE_PROPERTY: Record<CropEdge, Exclude<CropProperty, 'cropSoftness'>
   bottom: 'cropBottom',
 }
 
-function getCropDimensions(item: VideoItem): CropDimensions {
+function getCropDimensions(item: CropItem): CropDimensions {
+  if (item.type === 'composition') {
+    return {
+      width: Math.max(1, item.compositionWidth),
+      height: Math.max(1, item.compositionHeight),
+    }
+  }
+
   return {
     width: Math.max(1, item.sourceWidth ?? item.transform?.width ?? DEFAULT_PROJECT_WIDTH),
     height: Math.max(1, item.sourceHeight ?? item.transform?.height ?? DEFAULT_PROJECT_HEIGHT),
@@ -99,7 +107,7 @@ function buildCropSoftnessUpdate(
 }
 
 function getResolvedCropState(
-  item: VideoItem,
+  item: CropItem,
   currentFrame: number,
   itemKeyframes: ItemKeyframes | null | undefined,
 ): ResolvedCropState {
@@ -148,7 +156,15 @@ export function VideoSection({ items }: VideoSectionProps) {
     [items],
   )
 
-  const itemIds = useMemo(() => videoItems.map((item) => item.id), [videoItems])
+  const cropItems = useMemo(
+    () =>
+      items.filter(
+        (item): item is CropItem => item.type === 'video' || item.type === 'composition',
+      ),
+    [items],
+  )
+  const videoItemIds = useMemo(() => videoItems.map((item) => item.id), [videoItems])
+  const cropItemIds = useMemo(() => cropItems.map((item) => item.id), [cropItems])
 
   const rateStretchableIds = useMemo(
     () =>
@@ -162,72 +178,75 @@ export function VideoSection({ items }: VideoSectionProps) {
 
   const itemKeyframes = useKeyframesStore(
     useShallow(
-      useCallback((s) => itemIds.map((itemId) => s.keyframesByItemId[itemId] ?? null), [itemIds]),
+      useCallback(
+        (s) => cropItemIds.map((itemId) => s.keyframesByItemId[itemId] ?? null),
+        [cropItemIds],
+      ),
     ),
   )
   const keyframesByItemId = useMemo(() => {
     const map = new Map<string, (typeof itemKeyframes)[number]>()
-    for (const [index, itemId] of itemIds.entries()) {
+    for (const [index, itemId] of cropItemIds.entries()) {
       map.set(itemId, itemKeyframes[index] ?? null)
     }
     return map
-  }, [itemIds, itemKeyframes])
+  }, [cropItemIds, itemKeyframes])
 
   const resolvedCropStatesByItem = useMemo(() => {
     const map = new Map<string, ResolvedCropState>()
-    for (const item of videoItems) {
+    for (const item of cropItems) {
       map.set(item.id, getResolvedCropState(item, currentFrame, keyframesByItemId.get(item.id)))
     }
     return map
-  }, [currentFrame, keyframesByItemId, videoItems])
+  }, [cropItems, currentFrame, keyframesByItemId])
 
   const speed = getMixedValue(videoItems, (item) => item.speed, 1)
   const fadeIn = getMixedValue(videoItems, (item) => item.fadeIn, 0)
   const fadeOut = getMixedValue(videoItems, (item) => item.fadeOut, 0)
   const cropLeft = getMixedValue(
-    videoItems,
+    cropItems,
     (item) => getResolvedCropPropertyValue(resolvedCropStatesByItem.get(item.id), 'cropLeft'),
     0,
   )
   const cropRight = getMixedValue(
-    videoItems,
+    cropItems,
     (item) => getResolvedCropPropertyValue(resolvedCropStatesByItem.get(item.id), 'cropRight'),
     0,
   )
   const cropTop = getMixedValue(
-    videoItems,
+    cropItems,
     (item) => getResolvedCropPropertyValue(resolvedCropStatesByItem.get(item.id), 'cropTop'),
     0,
   )
   const cropBottom = getMixedValue(
-    videoItems,
+    cropItems,
     (item) => getResolvedCropPropertyValue(resolvedCropStatesByItem.get(item.id), 'cropBottom'),
     0,
   )
   const cropSoftness = getMixedValue(
-    videoItems,
+    cropItems,
     (item) => getResolvedCropPropertyValue(resolvedCropStatesByItem.get(item.id), 'cropSoftness'),
     0,
   )
 
   const maxSourceWidth = useMemo(
-    () => Math.max(1, ...videoItems.map((item) => getCropDimensions(item).width)),
-    [videoItems],
+    () => Math.max(1, ...cropItems.map((item) => getCropDimensions(item).width)),
+    [cropItems],
   )
   const maxSourceHeight = useMemo(
-    () => Math.max(1, ...videoItems.map((item) => getCropDimensions(item).height)),
-    [videoItems],
+    () => Math.max(1, ...cropItems.map((item) => getCropDimensions(item).height)),
+    [cropItems],
   )
   const maxCropSoftness = useMemo(
     () =>
       Math.max(
         1,
-        ...videoItems.map((item) => {
+        ...cropItems.map((item) => {
           const dimensions = getCropDimensions(item)
           return Math.max(1, getCropSoftnessReferenceDimension(dimensions.width, dimensions.height))
         }),
       ),
-    [videoItems],
+    [cropItems],
   )
   const speedDragSnapshotRef = useRef<ReturnType<typeof captureSnapshot> | null>(null)
 
@@ -295,45 +314,45 @@ export function VideoSection({ items }: VideoSectionProps) {
   const handleFadeInLiveChange = useCallback(
     (value: number) => {
       const previews: Record<string, { fadeIn: number }> = {}
-      itemIds.forEach((id) => {
+      videoItemIds.forEach((id) => {
         previews[id] = { fadeIn: value }
       })
       setPropertiesPreviewNew(previews)
     },
-    [itemIds, setPropertiesPreviewNew],
+    [setPropertiesPreviewNew, videoItemIds],
   )
 
   const handleFadeInChange = useCallback(
     (value: number) => {
-      itemIds.forEach((id) => updateItem(id, { fadeIn: value }))
+      videoItemIds.forEach((id) => updateItem(id, { fadeIn: value }))
       commitPreviewClear()
     },
-    [itemIds, updateItem, commitPreviewClear],
+    [videoItemIds, updateItem, commitPreviewClear],
   )
 
   const handleFadeOutLiveChange = useCallback(
     (value: number) => {
       const previews: Record<string, { fadeOut: number }> = {}
-      itemIds.forEach((id) => {
+      videoItemIds.forEach((id) => {
         previews[id] = { fadeOut: value }
       })
       setPropertiesPreviewNew(previews)
     },
-    [itemIds, setPropertiesPreviewNew],
+    [setPropertiesPreviewNew, videoItemIds],
   )
 
   const handleFadeOutChange = useCallback(
     (value: number) => {
-      itemIds.forEach((id) => updateItem(id, { fadeOut: value }))
+      videoItemIds.forEach((id) => updateItem(id, { fadeOut: value }))
       commitPreviewClear()
     },
-    [itemIds, updateItem, commitPreviewClear],
+    [videoItemIds, updateItem, commitPreviewClear],
   )
 
   const previewCropEdge = useCallback(
     (edge: CropEdge, pixels: number) => {
-      const previews: Record<string, { crop: VideoItem['crop'] }> = {}
-      videoItems.forEach((item) => {
+      const previews: Record<string, { crop: CropItem['crop'] }> = {}
+      cropItems.forEach((item) => {
         const cropState = resolvedCropStatesByItem.get(item.id)
         if (!cropState) return
         previews[item.id] = {
@@ -342,7 +361,7 @@ export function VideoSection({ items }: VideoSectionProps) {
       })
       setPropertiesPreviewNew(previews)
     },
-    [resolvedCropStatesByItem, setPropertiesPreviewNew, videoItems],
+    [cropItems, resolvedCropStatesByItem, setPropertiesPreviewNew],
   )
 
   const commitCropEdge = useCallback(
@@ -351,7 +370,7 @@ export function VideoSection({ items }: VideoSectionProps) {
       const snappedPixels = snapCropPixels(pixels)
       const autoOps: AutoKeyframeOperation[] = []
 
-      videoItems.forEach((item) => {
+      cropItems.forEach((item) => {
         const operation = getAutoKeyframeOperation(
           item,
           keyframesByItemId.get(item.id) ?? undefined,
@@ -381,14 +400,14 @@ export function VideoSection({ items }: VideoSectionProps) {
       currentFrame,
       keyframesByItemId,
       updateItem,
-      videoItems,
+      cropItems,
     ],
   )
 
   const previewCropSoftness = useCallback(
     (pixels: number) => {
-      const previews: Record<string, { crop: VideoItem['crop'] }> = {}
-      videoItems.forEach((item) => {
+      const previews: Record<string, { crop: CropItem['crop'] }> = {}
+      cropItems.forEach((item) => {
         const cropState = resolvedCropStatesByItem.get(item.id)
         if (!cropState) return
         previews[item.id] = {
@@ -397,7 +416,7 @@ export function VideoSection({ items }: VideoSectionProps) {
       })
       setPropertiesPreviewNew(previews)
     },
-    [resolvedCropStatesByItem, setPropertiesPreviewNew, videoItems],
+    [cropItems, resolvedCropStatesByItem, setPropertiesPreviewNew],
   )
 
   const commitCropSoftness = useCallback(
@@ -405,7 +424,7 @@ export function VideoSection({ items }: VideoSectionProps) {
       const snappedPixels = snapCropPixels(pixels)
       const autoOps: AutoKeyframeOperation[] = []
 
-      videoItems.forEach((item) => {
+      cropItems.forEach((item) => {
         const operation = getAutoKeyframeOperation(
           item,
           keyframesByItemId.get(item.id) ?? undefined,
@@ -435,31 +454,31 @@ export function VideoSection({ items }: VideoSectionProps) {
       currentFrame,
       keyframesByItemId,
       updateItem,
-      videoItems,
+      cropItems,
     ],
   )
 
   const resetCropEdge = useCallback(
     (edge: CropEdge) => {
       const property = CROP_EDGE_PROPERTY[edge]
-      const needsUpdate = videoItems.some((item) => {
+      const needsUpdate = cropItems.some((item) => {
         const cropState = resolvedCropStatesByItem.get(item.id)
         return Math.abs(getResolvedCropPropertyValue(cropState, property) ?? 0) > CROP_TOLERANCE
       })
       if (!needsUpdate) return
       commitCropEdge(edge, 0)
     },
-    [commitCropEdge, resolvedCropStatesByItem, videoItems],
+    [commitCropEdge, cropItems, resolvedCropStatesByItem],
   )
 
   const resetCropSoftness = useCallback(() => {
-    const needsUpdate = videoItems.some((item) => {
+    const needsUpdate = cropItems.some((item) => {
       const cropState = resolvedCropStatesByItem.get(item.id)
       return Math.abs(getResolvedCropPropertyValue(cropState, 'cropSoftness') ?? 0) > CROP_TOLERANCE
     })
     if (!needsUpdate) return
     commitCropSoftness(0)
-  }, [commitCropSoftness, resolvedCropStatesByItem, videoItems])
+  }, [commitCropSoftness, cropItems, resolvedCropStatesByItem])
 
   const resetSpeedWithRipple = useTimelineStore(
     (s: TimelineState & TimelineActions) => s.resetSpeedWithRipple,
@@ -473,102 +492,104 @@ export function VideoSection({ items }: VideoSectionProps) {
     const currentItems = useTimelineStore.getState().items
     const needsUpdate = currentItems.some(
       (item: TimelineItem) =>
-        itemIds.includes(item.id) && ((item as VideoItem).fadeIn ?? 0) > tolerance,
+        videoItemIds.includes(item.id) && ((item as VideoItem).fadeIn ?? 0) > tolerance,
     )
     if (needsUpdate) {
-      itemIds.forEach((id) => updateItem(id, { fadeIn: 0 }))
+      videoItemIds.forEach((id) => updateItem(id, { fadeIn: 0 }))
     }
-  }, [itemIds, updateItem])
+  }, [updateItem, videoItemIds])
 
   const handleResetFadeOut = useCallback(() => {
     const tolerance = 0.01
     const currentItems = useTimelineStore.getState().items
     const needsUpdate = currentItems.some(
       (item: TimelineItem) =>
-        itemIds.includes(item.id) && ((item as VideoItem).fadeOut ?? 0) > tolerance,
+        videoItemIds.includes(item.id) && ((item as VideoItem).fadeOut ?? 0) > tolerance,
     )
     if (needsUpdate) {
-      itemIds.forEach((id) => updateItem(id, { fadeOut: 0 }))
+      videoItemIds.forEach((id) => updateItem(id, { fadeOut: 0 }))
     }
-  }, [itemIds, updateItem])
+  }, [updateItem, videoItemIds])
 
-  if (videoItems.length === 0) return null
+  if (cropItems.length === 0) return null
 
   return (
     <>
-      <PropertySection title={t('editor.videoSection.playback')} icon={Video} defaultOpen={true}>
-        <PropertyRow label={t('editor.videoSection.speed')}>
-          <div className="flex items-center gap-1 w-full">
-            <SliderInput
-              value={speed}
-              onChange={commitSpeedChange}
-              onLiveChange={handleSpeedLiveChange}
-              min={MIN_SPEED}
-              max={MAX_SPEED}
-              step={0.01}
-              unit="x"
-              className="flex-1 min-w-0"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 flex-shrink-0"
-              onClick={handleResetSpeed}
-              title={t('editor.videoSection.resetSpeed')}
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </Button>
-          </div>
-        </PropertyRow>
+      {videoItems.length > 0 && (
+        <PropertySection title={t('editor.videoSection.playback')} icon={Video} defaultOpen={true}>
+          <PropertyRow label={t('editor.videoSection.speed')}>
+            <div className="flex items-center gap-1 w-full">
+              <SliderInput
+                value={speed}
+                onChange={commitSpeedChange}
+                onLiveChange={handleSpeedLiveChange}
+                min={MIN_SPEED}
+                max={MAX_SPEED}
+                step={0.01}
+                unit="x"
+                className="flex-1 min-w-0"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 flex-shrink-0"
+                onClick={handleResetSpeed}
+                title={t('editor.videoSection.resetSpeed')}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </PropertyRow>
 
-        <PropertyRow label={t('editor.videoSection.fadeIn')}>
-          <div className="flex items-center gap-1 w-full">
-            <SliderInput
-              value={fadeIn}
-              onChange={handleFadeInChange}
-              onLiveChange={handleFadeInLiveChange}
-              min={0}
-              max={5}
-              step={0.1}
-              unit="s"
-              className="flex-1 min-w-0"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 flex-shrink-0"
-              onClick={handleResetFadeIn}
-              title={t('editor.videoSection.resetToZero')}
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </Button>
-          </div>
-        </PropertyRow>
+          <PropertyRow label={t('editor.videoSection.fadeIn')}>
+            <div className="flex items-center gap-1 w-full">
+              <SliderInput
+                value={fadeIn}
+                onChange={handleFadeInChange}
+                onLiveChange={handleFadeInLiveChange}
+                min={0}
+                max={5}
+                step={0.1}
+                unit="s"
+                className="flex-1 min-w-0"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 flex-shrink-0"
+                onClick={handleResetFadeIn}
+                title={t('editor.videoSection.resetToZero')}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </PropertyRow>
 
-        <PropertyRow label={t('editor.videoSection.fadeOut')}>
-          <div className="flex items-center gap-1 w-full">
-            <SliderInput
-              value={fadeOut}
-              onChange={handleFadeOutChange}
-              onLiveChange={handleFadeOutLiveChange}
-              min={0}
-              max={5}
-              step={0.1}
-              unit="s"
-              className="flex-1 min-w-0"
-            />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 flex-shrink-0"
-              onClick={handleResetFadeOut}
-              title={t('editor.videoSection.resetToZero')}
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </Button>
-          </div>
-        </PropertyRow>
-      </PropertySection>
+          <PropertyRow label={t('editor.videoSection.fadeOut')}>
+            <div className="flex items-center gap-1 w-full">
+              <SliderInput
+                value={fadeOut}
+                onChange={handleFadeOutChange}
+                onLiveChange={handleFadeOutLiveChange}
+                min={0}
+                max={5}
+                step={0.1}
+                unit="s"
+                className="flex-1 min-w-0"
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 flex-shrink-0"
+                onClick={handleResetFadeOut}
+                title={t('editor.videoSection.resetToZero')}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+          </PropertyRow>
+        </PropertySection>
+      )}
 
       <PropertySection title={t('editor.videoSection.cropping')} icon={Crop} defaultOpen={true}>
         <PropertyRow label={t('editor.videoSection.cropLeft')}>
@@ -586,7 +607,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               className="flex-1 min-w-0"
             />
             <KeyframeToggle
-              itemIds={itemIds}
+              itemIds={cropItemIds}
               property="cropLeft"
               currentValue={cropLeft === 'mixed' ? 0 : cropLeft}
             />
@@ -617,7 +638,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               className="flex-1 min-w-0"
             />
             <KeyframeToggle
-              itemIds={itemIds}
+              itemIds={cropItemIds}
               property="cropRight"
               currentValue={cropRight === 'mixed' ? 0 : cropRight}
             />
@@ -648,7 +669,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               className="flex-1 min-w-0"
             />
             <KeyframeToggle
-              itemIds={itemIds}
+              itemIds={cropItemIds}
               property="cropTop"
               currentValue={cropTop === 'mixed' ? 0 : cropTop}
             />
@@ -679,7 +700,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               className="flex-1 min-w-0"
             />
             <KeyframeToggle
-              itemIds={itemIds}
+              itemIds={cropItemIds}
               property="cropBottom"
               currentValue={cropBottom === 'mixed' ? 0 : cropBottom}
             />
@@ -710,7 +731,7 @@ export function VideoSection({ items }: VideoSectionProps) {
               className="flex-1 min-w-0"
             />
             <KeyframeToggle
-              itemIds={itemIds}
+              itemIds={cropItemIds}
               property="cropSoftness"
               currentValue={cropSoftness === 'mixed' ? 0 : cropSoftness}
             />

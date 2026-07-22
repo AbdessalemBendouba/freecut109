@@ -38,7 +38,7 @@ describe('getAnimatablePropertiesForItem', () => {
     ])
   })
 
-  it('includes anchor properties for composition items', () => {
+  it('includes anchor and crop properties for composition items', () => {
     expect(
       getAnimatablePropertiesForItem({
         ...createItem('composition'),
@@ -56,6 +56,11 @@ describe('getAnimatablePropertiesForItem', () => {
       'cornerRadius',
       'anchorX',
       'anchorY',
+      'cropLeft',
+      'cropRight',
+      'cropTop',
+      'cropBottom',
+      'cropSoftness',
       'volume',
     ])
   })

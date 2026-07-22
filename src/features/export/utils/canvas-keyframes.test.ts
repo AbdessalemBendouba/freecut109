@@ -110,8 +110,7 @@ describe('canvas-keyframes transform parenting', () => {
       height: 1080,
       fps: 30,
       getExpressionItem: (itemId) => items.get(itemId),
-      getExpressionKeyframes: (itemId) =>
-        itemId === parent.id ? parentKeyframes : undefined,
+      getExpressionKeyframes: (itemId) => (itemId === parent.id ? parentKeyframes : undefined),
     })
     expect(resolved.x).toBeCloseTo(60)
   })
@@ -268,6 +267,36 @@ describe('canvas-keyframes crop animation', () => {
     })
 
     expect(crop?.left).toBeCloseTo(0.05, 5)
+  })
+
+  it('uses authored compound dimensions for crop keyframes', () => {
+    const item: CompositionItem = {
+      id: 'composition-crop-1',
+      type: 'composition',
+      compositionId: 'sub-comp-1',
+      compositionWidth: 1280,
+      compositionHeight: 720,
+      trackId: 'track-1',
+      from: 0,
+      durationInFrames: 90,
+      label: 'Compound clip',
+    }
+    const keyframes: ItemKeyframes = {
+      itemId: item.id,
+      properties: [
+        {
+          property: 'cropTop',
+          keyframes: [
+            { id: 'k1', frame: 0, value: 0, easing: 'linear' },
+            { id: 'k2', frame: 10, value: 360, easing: 'linear' },
+          ],
+        },
+      ],
+    }
+
+    const crop = getAnimatedCrop(item, keyframes, 5, { width: 1920, height: 1080 })
+
+    expect(crop?.top).toBeCloseTo(0.25, 5)
   })
 })
 

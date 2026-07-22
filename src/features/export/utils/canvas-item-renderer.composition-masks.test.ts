@@ -123,6 +123,47 @@ describe('canvas-item-renderer composition masks', () => {
     mockFns.rotatePathMock.mockClear()
   })
 
+  it('crops the flattened composition output in wrapper space', async () => {
+    const compositionItem: CompositionItem = {
+      id: 'cropped-comp-item',
+      type: 'composition',
+      compositionId: 'cropped-sub-comp',
+      trackId: 'track-parent',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Cropped composition',
+      compositionWidth: 640,
+      compositionHeight: 360,
+    }
+    const subData: SubCompRenderData = {
+      fps: 30,
+      durationInFrames: 60,
+      sortedTracks: [],
+      keyframesMap: new Map(),
+    }
+    const { rootCtx, rctx, transform } = createCompositionMaskRenderHarness({
+      compositionItem,
+      subData,
+    })
+    rctx.keyframesMap.set(compositionItem.id, {
+      itemId: compositionItem.id,
+      properties: [
+        {
+          property: 'cropLeft',
+          keyframes: [
+            { id: 'crop-start', frame: 0, value: 0, easing: 'linear' },
+            { id: 'crop-end', frame: 30, value: 320, easing: 'linear' },
+          ],
+        },
+      ],
+    })
+
+    await renderItem(rootCtx, compositionItem, transform, 15, rctx)
+
+    expect(rootCtx.rect).toHaveBeenCalledWith(480, 180, 480, 360)
+    expect(rootCtx.drawImage).toHaveBeenCalledWith(expect.anything(), 320, 180, 640, 360)
+  })
+
   it('resolves nested shape properties from the sub-composition keyframes', async () => {
     const subContentItem: ShapeItem = {
       id: 'animated-sub-shape',
