@@ -33,10 +33,8 @@ import { createScrubThrottleState, shouldCommitScrubFrame } from '../utils/scrub
 import { EDITOR_LAYOUT_CSS_VALUES, getEditorLayout } from '@/config/editor-layout'
 import { sanitizeInOutPoints } from '../utils/in-out-points'
 import { frameToPixelsNow, pixelsToFrameNow } from '../utils/zoom-conversions'
-import {
-  getEdgeScrollDelta,
-  getPlayheadEdgeScrollVelocity,
-} from '../utils/playhead-edge-scroll'
+import { getEdgeScrollDelta, getPlayheadEdgeScrollVelocity } from '../utils/playhead-edge-scroll'
+import { drawTimelineRulerViewportCanvas } from './timeline-ruler-viewport-canvas'
 
 interface TimelineMarkersProps {
   duration: number // Total timeline duration in seconds
@@ -403,6 +401,9 @@ export const TimelineMarkers = memo(function TimelineMarkers({
   const selectMarker = useSelectionStore((s) => s.selectMarker)
 
   const containerRef = useRef<HTMLDivElement>(null)
+  const rulerCanvasRef = useRef<HTMLCanvasElement>(null)
+  // Kept as a fallback for non-layout test environments that do not mount the
+  // viewport canvas. The product path always uses rulerCanvasRef.
   const tilesContainerRef = useRef<HTMLDivElement>(null)
   const canvasPoolRef = useRef<Map<number, HTMLCanvasElement>>(new Map())
   // Bitmap cache keyed by "tileIndex-pps-fps-displayWidth" for instant reuse
@@ -597,6 +598,24 @@ export const TimelineMarkers = memo(function TimelineMarkers({
    *  - initial mount
    */
   const syncRulerScroll = useCallback(() => {
+    const rulerCanvas = rulerCanvasRef.current
+    if (rulerCanvas) {
+      // Remove any legacy pooled nodes retained across a hot reload before the
+      // viewport-canvas path took ownership of the ruler.
+      canvasPoolRef.current.forEach((canvas) => canvas.remove())
+      canvasPoolRef.current.clear()
+      clearLabelPool(labelPoolRef.current)
+      drawTimelineRulerViewportCanvas({
+        canvas: rulerCanvas,
+        scrollLeft: scrollLeftRef.current,
+        viewportWidth: viewportWidthRef.current,
+        canvasHeight: canvasHeightRef.current,
+        pixelsPerSecond: useZoomStore.getState().pixelsPerSecond,
+        fps: fpsRef.current,
+      })
+      return
+    }
+
     const tilesContainer = tilesContainerRef.current
     const labelsContainer = labelsContainerRef.current
     if (!tilesContainer) return
@@ -1061,18 +1080,23 @@ export const TimelineMarkers = memo(function TimelineMarkers({
     >
       {/* Tiled canvas container (tick lines only) — below the IO lane */}
       <div
-        ref={tilesContainerRef}
-        className="absolute left-0 right-0 bottom-0"
-        style={{ top: IO_LANE_HEIGHT, pointerEvents: 'none' }}
-      />
+        className="absolute left-0 right-0 bottom-0 pointer-events-none"
+        style={{ top: IO_LANE_HEIGHT }}
+      >
+        <canvas
+          ref={rulerCanvasRef}
+          data-main-timeline-ruler-canvas
+          aria-hidden="true"
+          className="sticky left-0 block pointer-events-none"
+          style={{
+            width: viewportWidth || undefined,
+            height: canvasHeight,
+            contain: 'layout paint',
+          }}
+        />
+      </div>
 
       {/* Imperative label pool — managed by syncRulerScroll, zero React re-renders on scroll */}
-      <div
-        ref={labelsContainerRef}
-        className="absolute left-0 right-0 bottom-0 overflow-hidden pointer-events-none"
-        style={{ top: IO_LANE_HEIGHT, contain: 'layout style paint' }}
-      />
-
       {/* IO lane backdrop + divider so the in/out bar reads as its own track
           rather than floating over the ruler ticks. */}
       <div

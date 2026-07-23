@@ -74,7 +74,7 @@ import { useZoomStore } from '../stores/zoom-store'
 import { perfMarkRender } from '@/shared/logging/perf-marks'
 import { notifyTimelineLiveScroll } from '@/shared/timeline/live-scroll-sync'
 import { getTextMotionTimelineBands } from '@/shared/timeline/text-motion-timeline'
-import { useSettledTimelineScrollLeft } from './use-settled-timeline-scroll-left'
+import { useSettledTimelineGeometry } from './use-settled-timeline-scroll-left'
 import { getContentBoundedEdgeScrollLeft } from '../utils/timeline-layout'
 import type {
   AnimatableProperty,
@@ -1549,12 +1549,15 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
   const editTimelineViewportWidth = useTimelineViewportStore((state) => state.viewportWidth)
   // The expensive editor tree follows settled geometry. Live wheel zoom is
   // applied by the dopesheet root's compositor axis transform instead.
-  const editTimelinePixelsPerSecond = useZoomStore((state) => state.contentPixelsPerSecond)
+  const editTimelineContentPixelsPerSecond = useZoomStore((state) => state.contentPixelsPerSecond)
   const editTimelineFps = useTimelineSettingsStore((state) => state.fps)
-  const editTimelineScrollLeft = useSettledTimelineScrollLeft(
+  const editTimelineGeometry = useSettledTimelineGeometry(
     timelineScrollContainerRef,
     surface === 'edit' && isOpen,
+    editTimelineContentPixelsPerSecond,
   )
+  const editTimelineScrollLeft = editTimelineGeometry.scrollLeft
+  const editTimelinePixelsPerSecond = editTimelineGeometry.pixelsPerSecond
   const editTimelineFrameViewport = useMemo(() => {
     if (
       surface !== 'edit' ||

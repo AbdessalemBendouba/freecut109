@@ -75,6 +75,7 @@ import { useElementSize } from './use-element-size'
 import { addWindowPointerListeners } from './dopesheet-pointer-listeners'
 import { DopesheetHeaderFrameInputs } from './dopesheet-header-frame-inputs'
 import { DopesheetRulerHeader } from './dopesheet-ruler-header'
+import { DopesheetLiveRulerCanvas } from './dopesheet-live-ruler-canvas'
 import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
 import { perfMarkRender } from '@/shared/logging/perf-marks'
 import {
@@ -3445,6 +3446,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   )
 
   const rulerTickElements = useMemo(() => {
+    if (hasLinkedTimelineAxis) return null
+
     const firstTick = ticks[0]
     const lastTick = ticks[ticks.length - 1]
     const minorTickLayer =
@@ -3479,20 +3482,24 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             className="pointer-events-none absolute bottom-0 h-2 border-l border-white/30"
             style={{ left: Math.round(frameToX(frame)) }}
           >
-            <span
-              className="absolute bottom-[7px] left-1 whitespace-nowrap text-[10px] text-muted-foreground"
-              style={{
-                transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
-                transformOrigin: '0 50%',
-              }}
-            >
+            <span className="absolute bottom-[7px] left-1 whitespace-nowrap text-[10px] text-muted-foreground">
               {formatRulerTick(frame)}
             </span>
           </div>
         ))}
       </>
     )
-  }, [ticks, frameToX, formatRulerTick])
+  }, [hasLinkedTimelineAxis, ticks, frameToX, formatRulerTick])
+  const liveRulerCanvas =
+    hasLinkedTimelineAxis && timelineScrollContainerRef ? (
+      <DopesheetLiveRulerCanvas
+        scrollContainerRef={timelineScrollContainerRef}
+        getLivePixelsPerSecond={getTimelineLivePixelsPerSecond}
+        fallbackPixelsPerSecond={timelinePixelsPerSecond}
+        fps={fps}
+        rulerUnit={graphRulerUnit}
+      />
+    ) : null
   const renderPropertyRowContent = useCallback(
     (row: DopesheetPropertyRow, options?: { classic?: boolean; indented?: boolean }) => {
       const classic = options?.classic ?? false
@@ -4785,6 +4792,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onRulerPointerUp={handleRulerPointerUp}
       onRulerPointerLeave={handleRulerPointerLeave}
       rulerTickElements={rulerTickElements}
+      liveRulerCanvas={liveRulerCanvas}
       reservedRightGutterWidth={reservedScrollbarGutterWidth}
       propertyFilter={filterKeyframedOnly ? 'keyframed' : 'all'}
       onPropertyFilterChange={

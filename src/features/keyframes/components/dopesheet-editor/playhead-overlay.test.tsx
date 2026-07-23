@@ -743,10 +743,8 @@ describe('DopesheetEditor playhead overlay', () => {
 
     const rulerSurface = screen
       .getByTestId('dopesheet-ruler')
-      .querySelector('[data-motion-ruler-surface]')
-    expect(rulerSurface).toHaveStyle({
-      transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
-    })
+      .querySelector<HTMLElement>('[data-motion-ruler-surface]')
+    expect(rulerSurface?.style.transform).not.toContain('scaleX')
 
     scrollContainer.scrollLeft = 65
     scrollContainer.dispatchEvent(new Event(TIMELINE_LIVE_SCROLL_EVENT))
