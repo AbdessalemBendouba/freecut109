@@ -38,6 +38,7 @@ import {
   Unlock,
 } from 'lucide-react'
 import { cn } from '@/shared/ui/cn'
+import { hasEnabledProceduralMotion } from '@/shared/timeline/procedural-motion'
 import { PlayheadMarks } from '@/shared/ui/playhead-marks'
 import {
   ContextMenu,
@@ -207,6 +208,124 @@ const POSITION_VECTOR_ROW = MOTION_VECTOR_ROW_DEFINITIONS.find(
 const MAX_DIMENSION_BAKE_FRAMES = 10_000
 const PROCEDURAL_HATCH =
   'repeating-linear-gradient(45deg, rgba(56,189,248,0.55) 0 2px, transparent 2px 5px)'
+
+type ClipboardTimelineItem = Omit<TimelineItem, 'id'>
+type CompositionById = Parameters<typeof wouldCreateCompositionCycle>[0]['compositionById']
+
+function clipboardHasLinkedPair(
+  items: ClipboardTimelineItem[],
+  item: ClipboardTimelineItem,
+): boolean {
+  if (!item.linkedGroupId) return false
+  return items.some(
+    (candidate) =>
+      candidate.linkedGroupId === item.linkedGroupId &&
+      ((candidate.type === 'audio' && item.type === 'video') ||
+        (candidate.type === 'video' && item.type === 'audio')),
+  )
+}
+
+function createPastedLinkedGroupIds(items: ClipboardTimelineItem[]): Map<string, string> {
+  const result = new Map<string, string>()
+  for (const item of items) {
+    if (!item.linkedGroupId || result.has(item.linkedGroupId)) continue
+    if (clipboardHasLinkedPair(items, item)) result.set(item.linkedGroupId, crypto.randomUUID())
+  }
+  return result
+}
+
+function wouldSkipPastedComposition(
+  item: ClipboardTimelineItem,
+  activeCompositionId: string | null,
+  compositionById: CompositionById,
+): boolean {
+  if (!activeCompositionId || !('compositionId' in item)) return false
+  if (typeof item.compositionId !== 'string') return false
+  return wouldCreateCompositionCycle({
+    parentCompositionId: activeCompositionId,
+    insertedCompositionId: item.compositionId,
+    compositionById,
+  })
+}
+
+function createPastedLayerTrack(params: {
+  item: ClipboardTimelineItem
+  sourceTrack: TimelineTrack | undefined
+  trackId: string
+  order: number
+  parentTrackId: string | undefined
+}): TimelineTrack {
+  const fallback: TimelineTrack = {
+    id: params.trackId,
+    name: params.item.label || params.item.type,
+    kind: params.item.type === 'audio' ? 'audio' : 'video',
+    order: params.order,
+    height: LAYER_ROW_HEIGHT,
+    locked: false,
+    syncLock: true,
+    visible: true,
+    muted: false,
+    solo: false,
+    items: [],
+  }
+  return {
+    ...(params.sourceTrack ?? fallback),
+    id: params.trackId,
+    name: `${params.sourceTrack?.name ?? params.item.label ?? params.item.type} copy`,
+    order: params.order,
+    parentTrackId: params.parentTrackId,
+    isGroup: false,
+    items: [],
+  }
+}
+
+function createPastedLayer(params: {
+  item: ClipboardTimelineItem
+  index: number
+  pasteFrame: number
+  maxOrder: number
+  parentTrackId: string | undefined
+  activeCompositionId: string | null
+  compositionById: CompositionById
+  trackById: Map<string, TimelineTrack>
+  linkedGroupIds: Map<string, string>
+}): { track: TimelineTrack; item: TimelineItem } | null {
+  if (wouldSkipPastedComposition(params.item, params.activeCompositionId, params.compositionById)) {
+    return null
+  }
+  const trackId = crypto.randomUUID()
+  const itemId = crypto.randomUUID()
+  return {
+    track: createPastedLayerTrack({
+      item: params.item,
+      sourceTrack: params.trackById.get(params.item.trackId),
+      trackId,
+      order: params.maxOrder + params.index + 1,
+      parentTrackId: params.parentTrackId,
+    }),
+    item: {
+      ...params.item,
+      id: itemId,
+      originId: itemId,
+      trackId,
+      from: Math.max(0, params.pasteFrame + params.item.from),
+      linkedGroupId: params.item.linkedGroupId
+        ? params.linkedGroupIds.get(params.item.linkedGroupId)
+        : undefined,
+    } as TimelineItem,
+  }
+}
+
+function getVisibleLinkedItems(items: TimelineItem[]): TimelineItem[] {
+  const hiddenAudioIds = new Set(
+    items.flatMap((item) => {
+      const companion = getLinkedAudioCompanion(items, item)
+      return companion ? [companion.id] : []
+    }),
+  )
+  return items.filter((item) => !hiddenAudioIds.has(item.id))
+}
+
 interface MotionTimeViewport {
   startFrame: number
   endFrame: number
@@ -2420,6 +2539,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       {shouldRenderMotionDopesheet(paneSize.width, paneMode, isNearScrollViewport) ? (
         <DopesheetEditor
           itemId={item.id}
+          motionModifiers={item.motionModifiers}
+          hasProceduralMotion={hasEnabledProceduralMotion(item)}
           keyframesByProperty={keyframesByProperty}
           propertyValues={propertyValues}
           preExpressionPropertyValues={preExpressionPropertyValues}
@@ -3869,74 +3990,26 @@ export const CompositingTimeline = memo(function CompositingTimeline({
 
       const pasteFrame = usePlaybackStore.getState().currentFrame
       const maxOrder = Math.max(-1, ...tracks.map((track) => track.order))
-      const newTracks: TimelineTrack[] = []
-      const newItems: TimelineItem[] = []
-      const pastedLinkedGroupIds = new Map<string, string>()
-      for (const itemData of clipboard.items) {
-        if (!itemData.linkedGroupId || pastedLinkedGroupIds.has(itemData.linkedGroupId)) continue
-        const hasLinkedPair = clipboard.items.some(
-          (candidate) =>
-            candidate.linkedGroupId === itemData.linkedGroupId &&
-            ((candidate.type === 'audio' && itemData.type === 'video') ||
-              (candidate.type === 'video' && itemData.type === 'audio')),
-        )
-        if (hasLinkedPair) pastedLinkedGroupIds.set(itemData.linkedGroupId, crypto.randomUUID())
-      }
-      for (const [index, itemData] of clipboard.items.entries()) {
-        if (
-          activeCompositionId &&
-          'compositionId' in itemData &&
-          typeof itemData.compositionId === 'string' &&
-          wouldCreateCompositionCycle({
-            parentCompositionId: activeCompositionId,
-            insertedCompositionId: itemData.compositionId,
-            compositionById,
-          })
-        ) {
-          continue
-        }
-        const sourceTrack = trackById.get(itemData.trackId)
-        const trackId = crypto.randomUUID()
-        const itemId = crypto.randomUUID()
-        newTracks.push({
-          ...(sourceTrack ?? {
-            name: itemData.label || itemData.type,
-            kind: itemData.type === 'audio' ? 'audio' : 'video',
-            height: LAYER_ROW_HEIGHT,
-            locked: false,
-            syncLock: true,
-            visible: true,
-            muted: false,
-            solo: false,
-            items: [],
-          }),
-          id: trackId,
-          name: `${sourceTrack?.name ?? itemData.label ?? itemData.type} copy`,
-          order: maxOrder + index + 1,
+      const pastedLinkedGroupIds = createPastedLinkedGroupIds(clipboard.items)
+      const pastedLayers = clipboard.items.flatMap((item, index) => {
+        const pasted = createPastedLayer({
+          item,
+          index,
+          pasteFrame,
+          maxOrder,
           parentTrackId,
-          isGroup: false,
-          items: [],
-        } as TimelineTrack)
-        newItems.push({
-          ...itemData,
-          id: itemId,
-          originId: itemId,
-          trackId,
-          from: Math.max(0, pasteFrame + itemData.from),
-          linkedGroupId: itemData.linkedGroupId
-            ? pastedLinkedGroupIds.get(itemData.linkedGroupId)
-            : undefined,
-        } as TimelineItem)
-      }
+          activeCompositionId,
+          compositionById,
+          trackById,
+          linkedGroupIds: pastedLinkedGroupIds,
+        })
+        return pasted ? [pasted] : []
+      })
+      const newTracks = pastedLayers.map((layer) => layer.track)
+      const newItems = pastedLayers.map((layer) => layer.item)
       if (newItems.length === 0) return
       addItemsOnNewTracks(newItems, [...tracks, ...newTracks])
-      const pastedHiddenAudioIds = new Set(
-        newItems.flatMap((item) => {
-          const companion = getLinkedAudioCompanion(newItems, item)
-          return companion ? [companion.id] : []
-        }),
-      )
-      const visiblePastedItems = newItems.filter((item) => !pastedHiddenAudioIds.has(item.id))
+      const visiblePastedItems = getVisibleLinkedItems(newItems)
       selectItems(visiblePastedItems.map((item) => item.id))
       toast.success(
         visiblePastedItems.length === 1

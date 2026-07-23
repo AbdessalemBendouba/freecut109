@@ -58,8 +58,7 @@ function AxisInput({
         if (applied === false) setDraft(value.toFixed(decimals))
         else setDraft(quantized.toFixed(decimals))
       }
-    }
-    else setDraft(value.toFixed(decimals))
+    } else setDraft(value.toFixed(decimals))
   }
 
   return (
@@ -170,11 +169,7 @@ export interface CompoundPropertyInputConfig {
     linked: boolean
     onChange: (linked: boolean) => void
   }
-  onCommit: (
-    axis: 'x' | 'y',
-    value: number,
-    options: { allowCreate: boolean },
-  ) => boolean | void
+  onCommit: (axis: 'x' | 'y', value: number, options: { allowCreate: boolean }) => boolean | void
   onScrubStart?: (axis: 'x' | 'y') => void
   onScrubPreview?: (axis: 'x' | 'y', value: number) => void
   onScrubEnd?: (axis: 'x' | 'y', value: number) => void
@@ -183,6 +178,41 @@ export interface CompoundPropertyInputConfig {
   scrubStep?: number
   /** Display and typed-value precision. Position uses 0 for whole pixels. */
   decimals?: number
+}
+
+function createCompoundAxisCallbacks(config: CompoundPropertyInputConfig, axis: 'x' | 'y') {
+  return {
+    onCommit: (value: number, options: { allowCreate: boolean }) =>
+      config.onCommit(axis, value, options),
+    onScrubStart: config.onScrubStart ? () => config.onScrubStart?.(axis) : undefined,
+    onScrubPreview: config.onScrubPreview
+      ? (value: number) => config.onScrubPreview?.(axis, value)
+      : undefined,
+    onScrubEnd: config.onScrubEnd ? (value: number) => config.onScrubEnd?.(axis, value) : undefined,
+    onScrubCancel: config.onScrubCancel ? () => config.onScrubCancel?.(axis) : undefined,
+  }
+}
+
+function CompoundAxisInput({
+  axis,
+  config,
+}: {
+  axis: 'x' | 'y'
+  config: CompoundPropertyInputConfig
+}) {
+  return (
+    <AxisInput
+      axis={axis}
+      value={config.value[axis]}
+      unit={config.unit}
+      propertyLabel={config.label}
+      disabled={config.disabled ?? false}
+      allowCreateOnBlur={config.allowCreateOnBlur ?? false}
+      {...createCompoundAxisCallbacks(config, axis)}
+      scrubStep={config.scrubStep}
+      decimals={config.decimals}
+    />
+  )
 }
 
 export function CompoundPropertyInputs({
@@ -196,16 +226,16 @@ export function CompoundPropertyInputs({
     <div
       className={`flex shrink-0 items-center overflow-hidden rounded-sm border border-border/70 ${
         spacious ? 'w-[192px]' : 'w-[132px]'
-      } ${
-        config.linked ? 'border-orange-500/50 text-orange-400' : ''
-      }`}
+      } ${config.linked ? 'border-orange-500/50 text-orange-400' : ''}`}
       data-testid="compound-property-inputs"
     >
       {config.axisLink ? (
         <button
           type="button"
           className="flex h-5 w-5 shrink-0 items-center justify-center border-r border-border/70 text-muted-foreground hover:text-foreground"
-          aria-label={config.axisLink.linked ? `Unlink ${config.label} axes` : `Link ${config.label} axes`}
+          aria-label={
+            config.axisLink.linked ? `Unlink ${config.label} axes` : `Link ${config.label} axes`
+          }
           aria-pressed={config.axisLink.linked}
           onClick={() => config.axisLink?.onChange(!config.axisLink.linked)}
         >
@@ -222,40 +252,8 @@ export function CompoundPropertyInputs({
           data-testid="compound-property-axis-link-spacer"
         />
       ) : null}
-      <AxisInput
-        axis="x"
-        value={config.value.x}
-        unit={config.unit}
-        propertyLabel={config.label}
-        disabled={config.disabled ?? false}
-        allowCreateOnBlur={config.allowCreateOnBlur ?? false}
-        onCommit={(value, options) => config.onCommit('x', value, options)}
-        onScrubStart={config.onScrubStart ? () => config.onScrubStart?.('x') : undefined}
-        onScrubPreview={
-          config.onScrubPreview ? (value) => config.onScrubPreview?.('x', value) : undefined
-        }
-        onScrubEnd={config.onScrubEnd ? (value) => config.onScrubEnd?.('x', value) : undefined}
-        onScrubCancel={config.onScrubCancel ? () => config.onScrubCancel?.('x') : undefined}
-        scrubStep={config.scrubStep}
-        decimals={config.decimals}
-      />
-      <AxisInput
-        axis="y"
-        value={config.value.y}
-        unit={config.unit}
-        propertyLabel={config.label}
-        disabled={config.disabled ?? false}
-        allowCreateOnBlur={config.allowCreateOnBlur ?? false}
-        onCommit={(value, options) => config.onCommit('y', value, options)}
-        onScrubStart={config.onScrubStart ? () => config.onScrubStart?.('y') : undefined}
-        onScrubPreview={
-          config.onScrubPreview ? (value) => config.onScrubPreview?.('y', value) : undefined
-        }
-        onScrubEnd={config.onScrubEnd ? (value) => config.onScrubEnd?.('y', value) : undefined}
-        onScrubCancel={config.onScrubCancel ? () => config.onScrubCancel?.('y') : undefined}
-        scrubStep={config.scrubStep}
-        decimals={config.decimals}
-      />
+      <CompoundAxisInput axis="x" config={config} />
+      <CompoundAxisInput axis="y" config={config} />
     </div>
   )
 }

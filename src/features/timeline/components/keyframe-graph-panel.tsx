@@ -23,16 +23,8 @@ import { toast } from 'sonner'
 import { useShallow } from 'zustand/react/shallow'
 import { cn } from '@/shared/ui/cn'
 import { Button } from '@/components/ui/button'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { MotionBakeConfirmationDialog } from '@/shared/ui/motion-bake-confirmation-dialog'
+import { hasEnabledProceduralMotion } from '@/shared/timeline/procedural-motion'
 import { ErrorBoundary } from '@/app/error-boundary'
 import {
   getCropPropertyValue,
@@ -608,6 +600,413 @@ interface VectorEditorRow {
   keyframes: NonNullable<ItemKeyframes['vectorProperties']>[number]['keyframes']
   currentKeyframeId?: string
   persisted: boolean
+}
+
+function getPersistedVectorLane(
+  itemKeyframes: ItemKeyframes | null | undefined,
+  property: VectorAnimatableProperty,
+) {
+  return itemKeyframes?.vectorProperties?.find((candidate) => candidate.property === property)
+}
+
+function getVectorEditorLane(
+  property: VectorAnimatableProperty,
+  itemKeyframes: ItemKeyframes | null | undefined,
+  baseTransform: ResolvedTransform,
+) {
+  return (
+    getPersistedVectorLane(itemKeyframes, property) ??
+    buildVectorPromotionPlan({
+      property,
+      itemKeyframes: itemKeyframes ?? undefined,
+      baseTransform,
+      createId: (frame) => `legacy-${property}-${frame}`,
+    }).vectorProperty
+  )
+}
+
+function addVectorProxyKeyframes(
+  result: Partial<Record<AnimatableProperty, Keyframe[]>>,
+  itemKeyframes: ItemKeyframes | null | undefined,
+  baseTransform: ResolvedTransform,
+) {
+  const lanes = {
+    position: getVectorEditorLane('position', itemKeyframes, baseTransform),
+    scale: getVectorEditorLane('scale', itemKeyframes, baseTransform),
+    anchor: getVectorEditorLane('anchor', itemKeyframes, baseTransform),
+  }
+  result.x = resolveEditorScalarLane(itemKeyframes, 'position', 'x', 'x', lanes.position.keyframes)
+  result.y = resolveEditorScalarLane(itemKeyframes, 'position', 'y', 'y', lanes.position.keyframes)
+  result.width = resolveEditorScalarLane(
+    itemKeyframes,
+    'scale',
+    'width',
+    'x',
+    lanes.scale.keyframes,
+  )
+  result.height = resolveEditorScalarLane(
+    itemKeyframes,
+    'scale',
+    'height',
+    'y',
+    lanes.scale.keyframes,
+  )
+  result.anchorX = resolveEditorScalarLane(
+    itemKeyframes,
+    'anchor',
+    'anchorX',
+    'x',
+    lanes.anchor.keyframes,
+  )
+  result.anchorY = resolveEditorScalarLane(
+    itemKeyframes,
+    'anchor',
+    'anchorY',
+    'y',
+    lanes.anchor.keyframes,
+  )
+}
+
+function trimEditorKeyframesToDuration(
+  result: Partial<Record<AnimatableProperty, Keyframe[]>>,
+  duration: number,
+) {
+  for (const property of Object.keys(result) as AnimatableProperty[]) {
+    result[property] = result[property]?.filter((keyframe) => keyframe.frame < duration) ?? []
+  }
+}
+
+function buildEditorKeyframesByProperty(params: {
+  properties: AnimatableProperty[]
+  item: TimelineItem | null
+  itemKeyframes: ItemKeyframes | null | undefined
+  canvas: CanvasSettings
+  trimToItemBounds: boolean
+}): Partial<Record<AnimatableProperty, Keyframe[]>> {
+  if (!params.item) return {}
+  const stored = new Map(
+    (params.itemKeyframes?.properties ?? []).map((property) => [
+      property.property,
+      property.keyframes,
+    ]),
+  )
+  const result = Object.fromEntries(
+    params.properties.map((property) => [property, stored.get(property) ?? []]),
+  ) as Partial<Record<AnimatableProperty, Keyframe[]>>
+  if (supportsVectorTransform(params.item)) {
+    addVectorProxyKeyframes(
+      result,
+      params.itemKeyframes,
+      resolveTransform(params.item, params.canvas, getSourceDimensions(params.item)),
+    )
+  }
+  if (params.trimToItemBounds) trimEditorKeyframesToDuration(result, params.item.durationInFrames)
+  return result
+}
+
+function buildVectorControlRows(params: {
+  itemKeyframes: ItemKeyframes | null | undefined
+  base: ResolvedTransform
+  resolved: ResolvedTransform
+  preExpression: ResolvedTransform
+  relativeFrame: number
+  t: TFunction
+}): VectorEditorRow[] {
+  const positionLane = getVectorEditorLane('position', params.itemKeyframes, params.base)
+  const scaleLane = getVectorEditorLane('scale', params.itemKeyframes, params.base)
+  const anchorLane = getVectorEditorLane('anchor', params.itemKeyframes, params.base)
+  return [
+    {
+      property: 'position',
+      proxyProperty: 'x',
+      secondaryProxyProperty: 'y',
+      label: params.t('editor.layoutSection.position', { defaultValue: 'Position' }),
+      value: { x: params.resolved.x, y: params.resolved.y },
+      preExpressionValue: { x: params.preExpression.x, y: params.preExpression.y },
+      unit: 'px',
+      keyframes: positionLane.keyframes,
+      currentKeyframeId: positionLane.keyframes.find(
+        (keyframe) => keyframe.frame === params.relativeFrame,
+      )?.id,
+      persisted: Boolean(getPersistedVectorLane(params.itemKeyframes, 'position')),
+    },
+    {
+      property: 'scale',
+      proxyProperty: 'width',
+      secondaryProxyProperty: 'height',
+      label: params.t('editor.textProperties.scale', { defaultValue: 'Scale' }),
+      value: {
+        x: toScalePercent(params.resolved.width, params.base.width),
+        y: toScalePercent(params.resolved.height, params.base.height),
+      },
+      preExpressionValue: {
+        x: toScalePercent(params.preExpression.width, params.base.width),
+        y: toScalePercent(params.preExpression.height, params.base.height),
+      },
+      unit: '%',
+      keyframes: scaleLane.keyframes,
+      currentKeyframeId: scaleLane.keyframes.find(
+        (keyframe) => keyframe.frame === params.relativeFrame,
+      )?.id,
+      persisted: Boolean(getPersistedVectorLane(params.itemKeyframes, 'scale')),
+    },
+    {
+      property: 'anchor',
+      proxyProperty: 'anchorX',
+      secondaryProxyProperty: 'anchorY',
+      label: params.t('editor.layoutSection.anchor', { defaultValue: 'Anchor' }),
+      value: { x: params.resolved.anchorX, y: params.resolved.anchorY },
+      preExpressionValue: {
+        x: params.preExpression.anchorX,
+        y: params.preExpression.anchorY,
+      },
+      unit: 'px',
+      keyframes: anchorLane.keyframes,
+      currentKeyframeId: anchorLane.keyframes.find(
+        (keyframe) => keyframe.frame === params.relativeFrame,
+      )?.id,
+      persisted: Boolean(getPersistedVectorLane(params.itemKeyframes, 'anchor')),
+    },
+  ]
+}
+
+function filterVectorControlRows(
+  rows: VectorEditorRow[],
+  itemKeyframes: ItemKeyframes | null | undefined,
+  surface: KeyframeGraphPanelProps['surface'],
+  positionDimensionsSeparated: boolean,
+): VectorEditorRow[] {
+  if (surface !== 'edit') return rows
+  const explicitlySeparated = new Set(itemKeyframes?.separatedVectorProperties ?? [])
+  return rows.filter(
+    (row) =>
+      !explicitlySeparated.has(row.property) &&
+      !(row.property === 'position' && positionDimensionsSeparated),
+  )
+}
+
+function recordPromotedVectorDragIds(
+  dragIds: Map<string, string>,
+  property: VectorAnimatableProperty,
+  identityRemap: ReturnType<typeof remapLegacyVectorPromotionIdentities>,
+) {
+  for (const [legacyEditorId, promotedStoredId] of identityRemap.storedIdByLegacyEditorId) {
+    dragIds.set(`${property}:${legacyEditorId}`, promotedStoredId)
+  }
+}
+
+function selectPromotedVectorKeyframe(params: {
+  identityRemap: ReturnType<typeof remapLegacyVectorPromotionIdentities>
+  itemId: string
+  ref: KeyframeRef
+  proxy: NonNullable<ReturnType<typeof getEditableVectorProxy>>
+  promotedKeyframe: VectorKeyframe
+  selectKeyframes: (refs: KeyframeRef[]) => void
+  selectKeyframe: (ref: KeyframeRef) => void
+}) {
+  if (params.identityRemap.selectedKeyframes.length > 0) {
+    params.selectKeyframes(params.identityRemap.selectedKeyframes)
+    return
+  }
+  params.selectKeyframe({
+    itemId: params.itemId,
+    property: params.ref.property,
+    keyframeId: getEditorVectorKeyframeId(params.promotedKeyframe.id, params.proxy.axis),
+  })
+}
+
+function hasPositionDimensionAuthoringConflict(
+  itemKeyframes: ItemKeyframes | undefined,
+  separated: boolean,
+): boolean {
+  const blockedProperties = separated
+    ? new Set<DirectLinkableProperty>(['position'])
+    : new Set<DirectLinkableProperty>(['x', 'y'])
+  if (
+    getDirectPropertyLinks(itemKeyframes).some((link) => blockedProperties.has(link.targetProperty))
+  ) {
+    return true
+  }
+  return (
+    itemKeyframes?.expressions?.some(
+      (expression) =>
+        expression.type === 'expression' && blockedProperties.has(expression.targetProperty),
+    ) ?? false
+  )
+}
+
+function buildSeparatedPositionProperties(
+  itemKeyframes: ItemKeyframes | undefined,
+  baseTransform: ResolvedTransform,
+): PropertyKeyframes[] | null {
+  const vectorProperty = buildVectorPromotionPlan({
+    property: 'position',
+    itemKeyframes,
+    baseTransform,
+  }).vectorProperty
+  if (vectorProperty.keyframes.some((keyframe) => keyframe.temporalEase || keyframe.spatial)) {
+    return null
+  }
+  return (['x', 'y'] as const).map((property) => ({
+    property,
+    keyframes: vectorProperty.keyframes.map((keyframe) => ({
+      id: crypto.randomUUID(),
+      frame: keyframe.frame,
+      value: keyframe.value[property],
+      easing: keyframe.easing,
+      easingConfig: keyframe.easingConfig,
+      source: keyframe.source,
+    })),
+  }))
+}
+
+type KeyframeMoveEntry = { ref: KeyframeRef; newFrame: number; newValue: number }
+
+interface PendingVectorMove {
+  property: VectorAnimatableProperty
+  keyframeId: string
+  frame: number
+  value: { x: number; y: number }
+}
+
+function promoteLegacyVectorEntryForMove(params: {
+  entry: KeyframeMoveEntry
+  itemId: string
+  itemKeyframes: ItemKeyframes | null | undefined
+  baseTransform: ResolvedTransform
+  keyframesByProperty: Partial<Record<AnimatableProperty, Keyframe[]>>
+  selectedKeyframes: KeyframeRef[]
+  storedIdByDragKey: Map<string, string>
+  promotedDragIds: Map<string, string>
+}): ReturnType<typeof remapLegacyVectorPromotionIdentities> | null {
+  const { ref } = params.entry
+  const proxy = getEditableVectorProxy(ref.property, params.itemKeyframes)
+  if (!proxy) return null
+  const dragKey = `${proxy.property}:${ref.keyframeId}`
+  const storedId =
+    params.storedIdByDragKey.get(dragKey) ?? getStoredVectorKeyframeId(ref.keyframeId, proxy.axis)
+  const currentItemKeyframes = useKeyframesStore.getState().keyframesByItemId[params.itemId]
+  if (findStoredVectorKeyframe(currentItemKeyframes, proxy.property, storedId)) return null
+  const previewKeyframe = params.keyframesByProperty[ref.property]?.find(
+    (keyframe) => keyframe.id === ref.keyframeId,
+  )
+  if (!previewKeyframe) return null
+  const promotion = buildLegacyVectorPromotionAtFrame({
+    property: proxy.property,
+    itemKeyframes: currentItemKeyframes,
+    baseTransform: params.baseTransform,
+    frame: previewKeyframe.frame,
+  })
+  if (!promotion) return null
+  const identityRemap = remapLegacyVectorPromotionIdentities({
+    itemId: params.itemId,
+    property: proxy.property,
+    vectorKeyframes: promotion.plan.vectorProperty.keyframes,
+    keyframesByProperty: params.keyframesByProperty,
+    selectedKeyframes: params.selectedKeyframes,
+  })
+  recordPromotedVectorDragIds(params.storedIdByDragKey, proxy.property, identityRemap)
+  recordPromotedVectorDragIds(params.promotedDragIds, proxy.property, identityRemap)
+  useKeyframesStore
+    .getState()
+    ._replaceScalarPropertiesWithVectorProperty(
+      params.itemId,
+      promotion.plan.vectorProperty,
+      promotion.plan.removeScalarProperties,
+    )
+  return identityRemap
+}
+
+function applyScalarKeyframeMove(
+  entry: KeyframeMoveEntry,
+  itemKeyframes: ItemKeyframes | undefined,
+  blockedRanges: ReturnType<typeof getTransitionBlockedRanges>,
+  updateKeyframe: (
+    itemId: string,
+    property: AnimatableProperty,
+    keyframeId: string,
+    updates: { frame: number; value: number },
+  ) => void,
+) {
+  const { ref, newFrame, newValue } = entry
+  const currentKeyframe = itemKeyframes?.properties
+    .find((property) => property.property === ref.property)
+    ?.keyframes.find((keyframe) => keyframe.id === ref.keyframeId)
+  updateKeyframe(ref.itemId, ref.property, ref.keyframeId, {
+    frame: clampFrameToBlockedRanges(
+      Math.max(0, Math.round(newFrame)),
+      currentKeyframe?.frame ?? newFrame,
+      blockedRanges,
+    ),
+    value: newValue,
+  })
+}
+
+function queueVectorKeyframeMove(params: {
+  entry: KeyframeMoveEntry
+  proxy: NonNullable<ReturnType<typeof getEditableVectorProxy>>
+  itemKeyframes: ItemKeyframes | undefined
+  blockedRanges: ReturnType<typeof getTransitionBlockedRanges>
+  storedIdByDragKey: Map<string, string>
+  pendingMoves: Map<string, PendingVectorMove>
+}) {
+  const { ref, newFrame, newValue } = params.entry
+  const dragKey = `${params.proxy.property}:${ref.keyframeId}`
+  const storedId =
+    params.storedIdByDragKey.get(dragKey) ??
+    getStoredVectorKeyframeId(ref.keyframeId, params.proxy.axis)
+  const currentKeyframe = findStoredVectorKeyframe(
+    params.itemKeyframes,
+    params.proxy.property,
+    storedId,
+  )
+  if (!currentKeyframe) return
+  const updateKey = `${params.proxy.property}:${storedId}`
+  const pending = params.pendingMoves.get(updateKey)
+  params.pendingMoves.set(updateKey, {
+    property: params.proxy.property,
+    keyframeId: storedId,
+    frame: clampFrameToBlockedRanges(
+      Math.max(0, Math.round(newFrame)),
+      currentKeyframe.frame,
+      params.blockedRanges,
+    ),
+    value: { ...(pending?.value ?? currentKeyframe.value), [params.proxy.axis]: newValue },
+  })
+}
+
+function applyKeyframeMoveEntry(params: {
+  entry: KeyframeMoveEntry
+  itemKeyframes: ItemKeyframes | undefined
+  selectedItemKeyframes: ItemKeyframes | null | undefined
+  blockedRanges: ReturnType<typeof getTransitionBlockedRanges>
+  storedIdByDragKey: Map<string, string>
+  pendingMoves: Map<string, PendingVectorMove>
+  updateKeyframe: (
+    itemId: string,
+    property: AnimatableProperty,
+    keyframeId: string,
+    updates: { frame: number; value: number },
+  ) => void
+}) {
+  const proxy = getEditableVectorProxy(params.entry.ref.property, params.selectedItemKeyframes)
+  if (!proxy) {
+    applyScalarKeyframeMove(
+      params.entry,
+      params.itemKeyframes,
+      params.blockedRanges,
+      params.updateKeyframe,
+    )
+    return
+  }
+  queueVectorKeyframeMove({
+    entry: params.entry,
+    proxy,
+    itemKeyframes: params.itemKeyframes,
+    blockedRanges: params.blockedRanges,
+    storedIdByDragKey: params.storedIdByDragKey,
+    pendingMoves: params.pendingMoves,
+  })
 }
 
 function clampFrameToBlockedRanges(
@@ -1270,10 +1669,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
 
   // The edited clip can be baked when it carries any procedural motion.
   const canBakeProceduralMotion =
-    !!selectedItemForEditor &&
-    ((selectedItemForEditor.motionModifiers?.some((modifier) => modifier.enabled) ?? false) ||
-      (selectedItemForEditor.motionLayers?.some((layer) => layer.enabled) ?? false) ||
-      (selectedItemForEditor.effects?.some((effect) => effect.audioPulse?.enabled) ?? false))
+    !!selectedItemForEditor && hasEnabledProceduralMotion(selectedItemForEditor)
   const [bakeDialogOpen, setBakeDialogOpen] = useState(false)
 
   const handleBakeProceduralMotion = useCallback(() => {
@@ -1309,95 +1705,17 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
   }, [availableProperties, selectedProperty, surface])
 
   // Build keyframes by property for the graph editor
-  const keyframesByProperty = useMemo(() => {
-    if (!selectedItemForEditor) return {}
-
-    const keyframesByPropertyMap = new Map<AnimatableProperty, Keyframe[]>(
-      (selectedItemKeyframes?.properties ?? []).map((property) => [
-        property.property,
-        property.keyframes,
-      ]),
-    )
-    const result: Partial<Record<AnimatableProperty, Keyframe[]>> = {}
-
-    for (const property of allAvailableProperties) {
-      result[property] = keyframesByPropertyMap.get(property) ?? []
-    }
-
-    if (supportsVectorTransform(selectedItemForEditor)) {
-      const baseTransform = resolveTransform(
-        selectedItemForEditor,
+  const keyframesByProperty = useMemo(
+    () =>
+      buildEditorKeyframesByProperty({
+        properties: allAvailableProperties,
+        item: selectedItemForEditor,
+        itemKeyframes: selectedItemKeyframes,
         canvas,
-        getSourceDimensions(selectedItemForEditor),
-      )
-      const getEditorLane = (property: VectorAnimatableProperty) =>
-        selectedItemKeyframes?.vectorProperties?.find(
-          (candidate) => candidate.property === property,
-        ) ??
-        buildVectorPromotionPlan({
-          property,
-          itemKeyframes: selectedItemKeyframes ?? undefined,
-          baseTransform,
-          createId: (frame) => `legacy-${property}-${frame}`,
-        }).vectorProperty
-      const position = getEditorLane('position')
-      const scale = getEditorLane('scale')
-      const anchor = getEditorLane('anchor')
-      result.x = resolveEditorScalarLane(
-        selectedItemKeyframes,
-        'position',
-        'x',
-        'x',
-        position.keyframes,
-      )
-      result.y = resolveEditorScalarLane(
-        selectedItemKeyframes,
-        'position',
-        'y',
-        'y',
-        position.keyframes,
-      )
-      result.width = resolveEditorScalarLane(
-        selectedItemKeyframes,
-        'scale',
-        'width',
-        'x',
-        scale.keyframes,
-      )
-      result.height = resolveEditorScalarLane(
-        selectedItemKeyframes,
-        'scale',
-        'height',
-        'y',
-        scale.keyframes,
-      )
-      result.anchorX = resolveEditorScalarLane(
-        selectedItemKeyframes,
-        'anchor',
-        'anchorX',
-        'x',
-        anchor.keyframes,
-      )
-      result.anchorY = resolveEditorScalarLane(
-        selectedItemKeyframes,
-        'anchor',
-        'anchorY',
-        'y',
-        anchor.keyframes,
-      )
-    }
-
-    if (surface === 'edit') {
-      const duration = selectedItemForEditor.durationInFrames
-      for (const property of Object.keys(result) as AnimatableProperty[]) {
-        result[property] = (result[property] ?? []).filter(
-          (keyframe) => keyframe.frame < duration,
-        )
-      }
-    }
-
-    return result
-  }, [allAvailableProperties, canvas, selectedItemForEditor, selectedItemKeyframes, surface])
+        trimToItemBounds: surface === 'edit',
+      }),
+    [allAvailableProperties, canvas, selectedItemForEditor, selectedItemKeyframes, surface],
+  )
 
   const trimmedKeyframeCount = useMemo(
     () =>
@@ -1559,84 +1877,18 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
 
   const vectorControlRows = useMemo<VectorEditorRow[]>(() => {
     if (!vectorBaseTransform || !vectorResolvedTransform || !vectorPreExpressionTransform) return []
-    const getPersistedLane = (property: VectorAnimatableProperty) =>
-      selectedItemKeyframes?.vectorProperties?.find((candidate) => candidate.property === property)
-    const getEditorLane = (property: VectorAnimatableProperty) =>
-      getPersistedLane(property) ??
-      buildVectorPromotionPlan({
-        property,
-        itemKeyframes: selectedItemKeyframes ?? undefined,
-        baseTransform: vectorBaseTransform,
-        createId: (frame) => `legacy-${property}-${frame}`,
-      }).vectorProperty
-    const positionLane = getEditorLane('position')
-    const scaleLane = getEditorLane('scale')
-    const anchorLane = getEditorLane('anchor')
-    const rows: VectorEditorRow[] = [
-      {
-        property: 'position',
-        proxyProperty: 'x',
-        secondaryProxyProperty: 'y',
-        label: t('editor.layoutSection.position', { defaultValue: 'Position' }),
-        value: { x: vectorResolvedTransform.x, y: vectorResolvedTransform.y },
-        preExpressionValue: {
-          x: vectorPreExpressionTransform.x,
-          y: vectorPreExpressionTransform.y,
-        },
-        unit: 'px',
-        keyframes: positionLane.keyframes,
-        currentKeyframeId: positionLane.keyframes.find(
-          (keyframe) => keyframe.frame === relativeFrame,
-        )?.id,
-        persisted: Boolean(getPersistedLane('position')),
-      },
-      {
-        property: 'scale',
-        proxyProperty: 'width',
-        secondaryProxyProperty: 'height',
-        label: t('editor.textProperties.scale', { defaultValue: 'Scale' }),
-        value: {
-          x: toScalePercent(vectorResolvedTransform.width, vectorBaseTransform.width),
-          y: toScalePercent(vectorResolvedTransform.height, vectorBaseTransform.height),
-        },
-        preExpressionValue: {
-          x: toScalePercent(vectorPreExpressionTransform.width, vectorBaseTransform.width),
-          y: toScalePercent(vectorPreExpressionTransform.height, vectorBaseTransform.height),
-        },
-        unit: '%',
-        keyframes: scaleLane.keyframes,
-        currentKeyframeId: scaleLane.keyframes.find((keyframe) => keyframe.frame === relativeFrame)
-          ?.id,
-        persisted: Boolean(getPersistedLane('scale')),
-      },
-      {
-        property: 'anchor',
-        proxyProperty: 'anchorX',
-        secondaryProxyProperty: 'anchorY',
-        label: t('editor.layoutSection.anchor', { defaultValue: 'Anchor' }),
-        value: {
-          x: vectorResolvedTransform.anchorX,
-          y: vectorResolvedTransform.anchorY,
-        },
-        preExpressionValue: {
-          x: vectorPreExpressionTransform.anchorX,
-          y: vectorPreExpressionTransform.anchorY,
-        },
-        unit: 'px',
-        keyframes: anchorLane.keyframes,
-        currentKeyframeId: anchorLane.keyframes.find((keyframe) => keyframe.frame === relativeFrame)
-          ?.id,
-        persisted: Boolean(getPersistedLane('anchor')),
-      },
-    ]
-    if (surface !== 'edit') return rows
-    const explicitlySeparated = new Set(
-      selectedItemKeyframes?.separatedVectorProperties ?? [],
-    )
-    return rows.filter(
-      (row) =>
-        !explicitlySeparated.has(row.property) &&
-        !(row.property === 'position' && positionDimensionsSeparated),
+    return filterVectorControlRows(
+      buildVectorControlRows({
+        itemKeyframes: selectedItemKeyframes,
+        base: vectorBaseTransform,
+        resolved: vectorResolvedTransform,
+        preExpression: vectorPreExpressionTransform,
+        relativeFrame,
+        t,
+      }),
+      selectedItemKeyframes,
+      surface,
+      positionDimensionsSeparated,
     )
   }, [
     positionDimensionsSeparated,
@@ -1767,12 +2019,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
         keyframesByProperty,
         selectedKeyframes: useKeyframeSelectionStore.getState().selectedKeyframes,
       })
-      for (const [legacyEditorId, promotedStoredId] of identityRemap.storedIdByLegacyEditorId) {
-        promotedVectorDragIdsRef.current.set(
-          `${proxy.property}:${legacyEditorId}`,
-          promotedStoredId,
-        )
-      }
+      recordPromotedVectorDragIds(promotedVectorDragIdsRef.current, proxy.property, identityRemap)
 
       useKeyframesStore
         .getState()
@@ -1782,15 +2029,15 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
           promotion.plan.removeScalarProperties,
         )
       promotedVectorDragIdsRef.current.set(dragKey, promotion.keyframe.id)
-      if (identityRemap.selectedKeyframes.length > 0) {
-        selectKeyframes(identityRemap.selectedKeyframes)
-      } else {
-        selectKeyframe({
-          itemId: selectedItemForEditor.id,
-          property: ref.property,
-          keyframeId: getEditorVectorKeyframeId(promotion.keyframe.id, proxy.axis),
-        })
-      }
+      selectPromotedVectorKeyframe({
+        identityRemap,
+        itemId: selectedItemForEditor.id,
+        ref,
+        proxy,
+        promotedKeyframe: promotion.keyframe,
+        selectKeyframes,
+        selectKeyframe,
+      })
       return { ...proxy, keyframe: promotion.keyframe }
     },
     [
@@ -1962,19 +2209,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     (separated: boolean) => {
       if (!selectedItemForEditor || !vectorBaseTransform) return
       const itemKeyframes = useKeyframesStore.getState().keyframesByItemId[selectedItemForEditor.id]
-      const blockedProperties = separated
-        ? new Set<DirectLinkableProperty>(['position'])
-        : new Set<DirectLinkableProperty>(['x', 'y'])
-      const hasBlockedAuthoring =
-        getDirectPropertyLinks(itemKeyframes).some((link) =>
-          blockedProperties.has(link.targetProperty),
-        ) ||
-        itemKeyframes?.expressions?.some(
-          (expression) =>
-            expression.type === 'expression' &&
-            blockedProperties.has(expression.targetProperty),
-        )
-      if (hasBlockedAuthoring) {
+      if (hasPositionDimensionAuthoringConflict(itemKeyframes, separated)) {
         toast.error(
           separated
             ? 'Remove the Position link or expression before separating dimensions'
@@ -1984,26 +2219,14 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       }
 
       if (separated) {
-        const vectorProperty = buildVectorPromotionPlan({
-          property: 'position',
+        const scalarProperties = buildSeparatedPositionProperties(
           itemKeyframes,
-          baseTransform: vectorBaseTransform,
-        }).vectorProperty
-        if (vectorProperty?.keyframes.some((keyframe) => keyframe.temporalEase || keyframe.spatial)) {
+          vectorBaseTransform,
+        )
+        if (!scalarProperties) {
           toast.error('Separate this advanced Position animation in the Motion workspace')
           return
         }
-        const scalarProperties: PropertyKeyframes[] = (['x', 'y'] as const).map((property) => ({
-          property,
-          keyframes: vectorProperty.keyframes.map((keyframe) => ({
-            id: crypto.randomUUID(),
-            frame: keyframe.frame,
-            value: keyframe.value[property],
-            easing: keyframe.easing,
-            easingConfig: keyframe.easingConfig,
-            source: keyframe.source,
-          })),
-        }))
         clearKeyframeSelection()
         timelineActions.setVectorDimensionsSeparated(selectedItemForEditor.id, 'position', true, {
           scalarProperties,
@@ -2049,8 +2272,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
             x: {
               label: t('editor.layoutSection.position', { defaultValue: 'Position' }),
               constrained: !positionDimensionsSeparated,
-              onChange: (constrained: boolean) =>
-                handlePositionDimensionModeChange(!constrained),
+              onChange: (constrained: boolean) => handlePositionDimensionModeChange(!constrained),
             },
             width: {
               label: t('editor.textProperties.scale', { defaultValue: 'Scale' }),
@@ -2116,9 +2338,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     valueScrubCreatedKeyframesRef.current.clear()
     promotedVectorDragIdsRef.current.clear()
     dragSnapshotRef.current = captureSnapshot()
-    dragSelectionSnapshotRef.current = [
-      ...useKeyframeSelectionStore.getState().selectedKeyframes,
-    ]
+    dragSelectionSnapshotRef.current = [...useKeyframeSelectionStore.getState().selectedKeyframes]
   }, [])
 
   // Handle drag end - commit undo entry with pre-captured snapshot
@@ -2194,7 +2414,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
   )
 
   const handleKeyframesMove = useCallback(
-    (entries: Array<{ ref: KeyframeRef; newFrame: number; newValue: number }>) => {
+    (entries: KeyframeMoveEntry[]) => {
       if (!selectedItemForEditor || !vectorBaseTransform || entries.length === 0) return
 
       const storedIdByDragKey = new Map(promotedVectorDragIdsRef.current)
@@ -2204,106 +2424,37 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       // Promote every legacy vector lane before applying any frame updates.
       // Otherwise promoting the next selected legacy key replaces the lane and
       // resets the key that was just moved earlier in the same drag commit.
-      for (const { ref } of entries) {
-        const proxy = getEditableVectorProxy(ref.property, selectedItemKeyframes)
-        if (!proxy) continue
-
-        const dragKey = `${proxy.property}:${ref.keyframeId}`
-        const storedId =
-          storedIdByDragKey.get(dragKey) ?? getStoredVectorKeyframeId(ref.keyframeId, proxy.axis)
-        const currentItemKeyframes =
-          useKeyframesStore.getState().keyframesByItemId[selectedItemForEditor.id]
-        if (findStoredVectorKeyframe(currentItemKeyframes, proxy.property, storedId)) continue
-
-        const previewKeyframe = keyframesByProperty[ref.property]?.find(
-          (keyframe) => keyframe.id === ref.keyframeId,
-        )
-        if (!previewKeyframe) continue
-        const promotion = buildLegacyVectorPromotionAtFrame({
-          property: proxy.property,
-          itemKeyframes: currentItemKeyframes,
-          baseTransform: vectorBaseTransform,
-          frame: previewKeyframe.frame,
-        })
-        if (!promotion) continue
-
-        const identityRemap = remapLegacyVectorPromotionIdentities({
+      for (const entry of entries) {
+        const identityRemap = promoteLegacyVectorEntryForMove({
+          entry,
           itemId: selectedItemForEditor.id,
-          property: proxy.property,
-          vectorKeyframes: promotion.plan.vectorProperty.keyframes,
+          itemKeyframes: selectedItemKeyframes,
+          baseTransform: vectorBaseTransform,
           keyframesByProperty,
           selectedKeyframes: remappedSelection,
+          storedIdByDragKey,
+          promotedDragIds: promotedVectorDragIdsRef.current,
         })
-        for (const [legacyEditorId, promotedStoredId] of identityRemap.storedIdByLegacyEditorId) {
-          const mappedDragKey = `${proxy.property}:${legacyEditorId}`
-          storedIdByDragKey.set(mappedDragKey, promotedStoredId)
-          promotedVectorDragIdsRef.current.set(mappedDragKey, promotedStoredId)
-        }
+        if (!identityRemap) continue
         remappedSelection = identityRemap.selectedKeyframes
         selectionChanged = true
-        useKeyframesStore
-          .getState()
-          ._replaceScalarPropertiesWithVectorProperty(
-            selectedItemForEditor.id,
-            promotion.plan.vectorProperty,
-            promotion.plan.removeScalarProperties,
-          )
       }
 
       if (selectionChanged) selectKeyframes(remappedSelection)
 
-      const vectorUpdates = new Map<
-        string,
-        {
-          property: VectorAnimatableProperty
-          keyframeId: string
-          frame: number
-          value: { x: number; y: number }
-        }
-      >()
+      const vectorUpdates = new Map<string, PendingVectorMove>()
       const currentItemKeyframes =
         useKeyframesStore.getState().keyframesByItemId[selectedItemForEditor.id]
 
-      for (const { ref, newFrame, newValue } of entries) {
-        const proxy = getEditableVectorProxy(ref.property, selectedItemKeyframes)
-        if (!proxy) {
-          const currentKeyframe = currentItemKeyframes?.properties
-            .find((property) => property.property === ref.property)
-            ?.keyframes.find((keyframe) => keyframe.id === ref.keyframeId)
-          const clampedFrame = clampFrameToBlockedRanges(
-            Math.max(0, Math.round(newFrame)),
-            currentKeyframe?.frame ?? newFrame,
-            transitionBlockedRanges,
-          )
-          _updateKeyframe(ref.itemId, ref.property, ref.keyframeId, {
-            frame: clampedFrame,
-            value: newValue,
-          })
-          continue
-        }
-
-        const dragKey = `${proxy.property}:${ref.keyframeId}`
-        const storedId =
-          storedIdByDragKey.get(dragKey) ?? getStoredVectorKeyframeId(ref.keyframeId, proxy.axis)
-        const currentKeyframe = findStoredVectorKeyframe(
-          currentItemKeyframes,
-          proxy.property,
-          storedId,
-        )
-        if (!currentKeyframe) continue
-
-        const updateKey = `${proxy.property}:${storedId}`
-        const pending = vectorUpdates.get(updateKey)
-        const clampedFrame = clampFrameToBlockedRanges(
-          Math.max(0, Math.round(newFrame)),
-          currentKeyframe.frame,
-          transitionBlockedRanges,
-        )
-        vectorUpdates.set(updateKey, {
-          property: proxy.property,
-          keyframeId: storedId,
-          frame: clampedFrame,
-          value: { ...(pending?.value ?? currentKeyframe.value), [proxy.axis]: newValue },
+      for (const entry of entries) {
+        applyKeyframeMoveEntry({
+          entry,
+          itemKeyframes: currentItemKeyframes,
+          selectedItemKeyframes,
+          blockedRanges: transitionBlockedRanges,
+          storedIdByDragKey,
+          pendingMoves: vectorUpdates,
+          updateKeyframe: _updateKeyframe,
         })
       }
 
@@ -3388,6 +3539,8 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
               <ErrorBoundary level="component">
                 <DopesheetEditor
                   itemId={selectedItemForEditor.id}
+                  motionModifiers={selectedItemForEditor.motionModifiers}
+                  hasProceduralMotion={canBakeProceduralMotion}
                   frameViewport={editTimelineFrameViewport}
                   clampViewportToContent={surface !== 'edit'}
                   viewportInteractionEnabled={surface !== 'edit'}
@@ -3527,22 +3680,11 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
 
       {placement === 'top' && resizeHandle}
       {propertyLinkDrag ? <PropertyLinkPickWhipOverlay drag={propertyLinkDrag} /> : null}
-      <AlertDialog open={bakeDialogOpen} onOpenChange={setBakeDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('editor.motionGenerator.bakeConfirmTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('editor.motionGenerator.bakeConfirmDescription')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleBakeProceduralMotion}>
-              {t('editor.motionGenerator.bakeConfirmAction')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <MotionBakeConfirmationDialog
+        open={bakeDialogOpen}
+        onOpenChange={setBakeDialogOpen}
+        onConfirm={handleBakeProceduralMotion}
+      />
     </div>
   )
 })

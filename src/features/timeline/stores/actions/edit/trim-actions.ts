@@ -11,6 +11,7 @@ import {
 import { getAttachedCaptionItemIds } from '../../../utils/linked-items'
 import { computeClampedSlipDelta } from '../../../utils/slip-utils'
 import { computeSlideContinuitySourceDelta } from '../../../utils/slide-utils'
+import { clampSlideDeltaToPreserveKeyframes } from '../../../utils/slide-keyframe-constraints'
 import { isMediaItem } from '../../../utils/source-calculations'
 import {
   clampRippleTrimDeltaToPreserveEditState,
@@ -715,6 +716,23 @@ export function slideItem(
           timelineFps,
         )
       }
+      clampedSlideDelta = clampSlideDeltaToPreserveKeyframes(
+        clampedSlideDelta,
+        [
+          { item, leftNeighbor, rightNeighbor },
+          ...(synchronizedCounterpart
+            ? [
+                {
+                  item: synchronizedCounterpart,
+                  leftNeighbor: cpLeftAdj,
+                  rightNeighbor: cpRightAdj,
+                },
+              ]
+            : []),
+        ],
+        transitions,
+        useKeyframesStore.getState().keyframesByItemId,
+      )
       if (clampedSlideDelta === 0) return
       const itemFromBefore = item.from
       const itemSourceStartBefore = item.sourceStart ?? 0

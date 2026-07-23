@@ -48,6 +48,7 @@ import type {
   DirectPropertyLink,
   PropertyExpression,
 } from '@/types/keyframe'
+import type { MotionModifier } from '@/types/motion'
 import {
   areDirectLinkPropertiesCompatible,
   isDirectLinkableProperty,
@@ -122,7 +123,7 @@ import { DopesheetPlayheadLine } from './dopesheet-playhead-line'
 import {
   getEdgeScrollDelta,
   getPlayheadEdgeScrollVelocity,
-} from '@/features/keyframes/deps/timeline'
+} from '@/features/keyframes/deps/timeline-playhead'
 import {
   DRAG_THRESHOLD,
   EMPTY_AUTO_KEY_ENABLED_BY_PROPERTY,
@@ -157,7 +158,6 @@ import {
 } from '@/features/keyframes/utils/color-keyframes'
 import { constrainSelectedKeyframeDelta } from '@/features/keyframes/utils/frame-move-constraints'
 import { useAutoKeyframeStore } from '../../stores/auto-keyframe-store'
-import { useItemsStore } from '@/features/keyframes/deps/timeline'
 import {
   getProceduralBands,
   type ProceduralPreviewInput,
@@ -380,6 +380,10 @@ interface DopesheetEditorProps {
   transitionBlockedRanges?: BlockedFrameRange[]
   /** Procedural generator inputs for dashed ghost curves in the graph. */
   proceduralPreview?: ProceduralPreviewInput
+  /** Motion modifiers used to render procedural bands in the sheet. */
+  motionModifiers?: MotionModifier[]
+  /** Whether the edited clip has any enabled procedural motion source. */
+  hasProceduralMotion?: boolean
   /** Whether the edited clip carries bakeable procedural motion. */
   canBakeMotion?: boolean
   /** Flatten the clip's procedural motion into editable keyframes. */
@@ -683,6 +687,30 @@ function getDopesheetDragPixelsPerFrame(
   return pixelsPerSecond / Math.max(fps, 1)
 }
 
+function getLiveDopesheetAxisTransform(params: {
+  basePixelsPerSecond: number
+  livePixelsPerSecond: number
+  timelinePixelsPerSecond: number
+  baseScrollLeft: number
+  scrollLeft: number
+  classic: boolean
+  linked: boolean
+}) {
+  const scale =
+    params.basePixelsPerSecond > 0 && params.livePixelsPerSecond > 0
+      ? params.livePixelsPerSecond / params.basePixelsPerSecond
+      : 1
+  const scrollPixelScale =
+    params.classic && params.basePixelsPerSecond > 0
+      ? params.timelinePixelsPerSecond / params.basePixelsPerSecond
+      : 1
+  const originOffset = params.linked ? -1 : 0
+  return {
+    scale,
+    panX: originOffset + scrollPixelScale * (scale * params.baseScrollLeft - params.scrollLeft),
+  }
+}
+
 function getLiveRulerFrame({
   viewportX,
   fallbackFrame,
@@ -830,6 +858,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   onNavigateToKeyframe,
   transitionBlockedRanges = [],
   proceduralPreview,
+  motionModifiers,
+  hasProceduralMotion = false,
   canBakeMotion = false,
   onBakeMotion,
   disabled = false,
@@ -1160,11 +1190,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       ),
     [availableProperties, keyframesByProperty],
   )
-  const itemMotionModifiers = useItemsStore((s) => s.itemById[itemId]?.motionModifiers)
   const proceduralBandByProperty = useMemo(
-    () =>
-      getProceduralBands(itemMotionModifiers, proceduralDurationInFrames, proceduralFrameOffset),
-    [itemMotionModifiers, proceduralDurationInFrames, proceduralFrameOffset],
+    () => getProceduralBands(motionModifiers, proceduralDurationInFrames, proceduralFrameOffset),
+    [motionModifiers, proceduralDurationInFrames, proceduralFrameOffset],
   )
   const {
     graphVisibleProperties,
@@ -1538,24 +1566,21 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     const syncLiveAxis = () => {
       const basePixelsPerSecond = timelinePanBasePixelsPerSecond ?? timelinePixelsPerSecond
       const livePixelsPerSecond = getTimelineLivePixelsPerSecond?.() ?? basePixelsPerSecond
-      const scale =
-        basePixelsPerSecond > 0 && livePixelsPerSecond > 0
-          ? livePixelsPerSecond / basePixelsPerSecond
-          : 1
       // Keep the fallback width path continuous if the linked viewport has not
       // been measured yet. Once linkedTimelineViewportWidth is available this
       // ratio is exactly one because both surfaces share the same pixel axis.
-      const scrollPixelScale =
-        presentation === 'classic' && basePixelsPerSecond > 0
-          ? timelinePixelsPerSecond / basePixelsPerSecond
-          : 1
       // The linked grid cells keep their visual left border, whose padding-box
       // origin is one pixel to the right. Pull their compositor surfaces back
       // over that border so the lower and main timeline share the same origin.
-      const linkedAxisOriginOffset = hasLinkedTimelineAxis ? -1 : 0
-      const nextPanX =
-        linkedAxisOriginOffset +
-        scrollPixelScale * (scale * timelinePanBaseScrollLeft - scrollContainer.scrollLeft)
+      const { scale, panX: nextPanX } = getLiveDopesheetAxisTransform({
+        basePixelsPerSecond,
+        livePixelsPerSecond,
+        timelinePixelsPerSecond,
+        baseScrollLeft: timelinePanBaseScrollLeft,
+        scrollLeft: scrollContainer.scrollLeft,
+        classic: presentation === 'classic',
+        linked: hasLinkedTimelineAxis,
+      })
       if (
         Math.abs(nextPanX - livePanXRef.current) < 0.01 &&
         Math.abs(scale - liveScaleRef.current) < 0.0001
@@ -4643,14 +4668,6 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const showEmptyGuidance = !hasPropertyFilters
   // A clip can be animated by procedural modulators / audio pulse yet have no
   // keyframes — the sheet would otherwise look empty and "unanimated".
-  const hasProceduralMotion = useItemsStore((s) => {
-    const target = s.itemById[itemId]
-    if (!target) return false
-    return (
-      (target.motionModifiers?.some((modifier) => modifier.enabled) ?? false) ||
-      (target.effects?.some((effect) => effect.audioPulse?.enabled) ?? false)
-    )
-  })
   const proceduralHint =
     showEmptyGuidance && hasProceduralMotion
       ? t('timeline.keyframeEditor.proceduralMotionHint')

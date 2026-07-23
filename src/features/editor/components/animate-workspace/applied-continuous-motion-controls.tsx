@@ -12,16 +12,7 @@ import type { CanvasSettings } from '@/types/transform'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Separator } from '@/components/ui/separator'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { MotionBakeConfirmationDialog } from '@/shared/ui/motion-bake-confirmation-dialog'
 import { SliderInput } from '@/shared/ui/property-controls'
 import {
   applyMotionModifierToItems,
@@ -160,12 +151,8 @@ const AppliedModifierRow = memo(function AppliedModifierRow({
                 max={2}
                 step={0.05}
                 formatValue={(value) => `${Math.round(value * 100)}%`}
-                onChange={(value) =>
-                  onCommitEdit({ channelGains: { [property]: value } })
-                }
-                onLiveChange={(value) =>
-                  onLiveEdit({ channelGains: { [property]: value } })
-                }
+                onChange={(value) => onCommitEdit({ channelGains: { [property]: value } })}
+                onLiveChange={(value) => onLiveEdit({ channelGains: { [property]: value } })}
               />
             ))}
           </div>
@@ -381,22 +368,11 @@ export const AppliedContinuousMotionControls = memo(function AppliedContinuousMo
           </Button>
         ) : null}
       </section>
-      <AlertDialog open={bakeDialogOpen} onOpenChange={setBakeDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('editor.motionGenerator.bakeConfirmTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('editor.motionGenerator.bakeConfirmDescription')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleBakeMotion}>
-              {t('editor.motionGenerator.bakeConfirmAction')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <MotionBakeConfirmationDialog
+        open={bakeDialogOpen}
+        onOpenChange={setBakeDialogOpen}
+        onConfirm={handleBakeMotion}
+      />
     </>
   )
 })

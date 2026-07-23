@@ -40,16 +40,7 @@ import { Separator } from '@/components/ui/separator'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+import { MotionBakeConfirmationDialog } from '@/shared/ui/motion-bake-confirmation-dialog'
 import { SliderInput } from '@/shared/ui/property-controls'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useProjectStore } from '@/features/editor/deps/projects'
@@ -1856,22 +1847,11 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
           existingNames={presets.map((preset) => preset.name)}
           onSave={handleSave}
         />
-        <AlertDialog open={bakeDialogOpen} onOpenChange={setBakeDialogOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t('editor.motionGenerator.bakeConfirmTitle')}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {t('editor.motionGenerator.bakeConfirmDescription')}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-              <AlertDialogAction onClick={handleBakeMotion}>
-                {t('editor.motionGenerator.bakeConfirmAction')}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <MotionBakeConfirmationDialog
+          open={bakeDialogOpen}
+          onOpenChange={setBakeDialogOpen}
+          onConfirm={handleBakeMotion}
+        />
       </div>
     </TooltipProvider>
   )
