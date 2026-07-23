@@ -1087,7 +1087,7 @@ export const TimelineMarkers = memo(function TimelineMarkers({
           ref={rulerCanvasRef}
           data-main-timeline-ruler-canvas
           aria-hidden="true"
-          className="sticky left-0 block pointer-events-none"
+          className="sticky left-0 block pointer-events-none text-[10px] text-muted-foreground"
           style={{
             width: viewportWidth || undefined,
             height: canvasHeight,

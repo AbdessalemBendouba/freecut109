@@ -318,10 +318,6 @@ export const TextMotionTimelineRows = memo(function TextMotionTimelineRows({
             data-motion-viewport-edge-inset={0}
             data-motion-viewport-axis-width={axisWidth}
             className="absolute inset-0"
-            style={{
-              transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
-              transformOrigin: '0 0',
-            }}
           >
             <div
               aria-hidden
@@ -335,6 +331,9 @@ export const TextMotionTimelineRows = memo(function TextMotionTimelineRows({
               data-testid={`edit-text-motion-band-${band.slot}`}
               data-from-frame={previewFrom}
               data-to-frame={previewTo}
+              data-dopesheet-from-frame={previewFrom}
+              data-dopesheet-to-frame={previewTo}
+              data-dopesheet-min-width={3}
               aria-label={title}
               aria-disabled={disabled}
               title={title}
@@ -383,15 +382,11 @@ export const TextMotionTimelineRows = memo(function TextMotionTimelineRows({
                   band.slot === 'loop'
                     ? {
                         left: loopHandleLeft,
-                        transform:
-                          'translateX(-50%) scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
-                        transformOrigin: 'center',
+                        transform: 'translateX(-50%)',
                       }
-                    : {
-                        transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
-                        transformOrigin: band.slot === 'out' ? 'left center' : 'right center',
-                      }
+                    : undefined
                 }
+                data-dopesheet-relative-frame={band.slot === 'loop' ? loopHandleFrame : undefined}
                 onPointerDown={(event) => beginDurationDrag(event, band)}
                 onPointerMove={moveDurationDrag}
                 onPointerUp={(event) => finishDurationDrag(event, true)}

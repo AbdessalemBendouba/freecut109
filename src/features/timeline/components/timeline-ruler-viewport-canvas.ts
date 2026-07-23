@@ -101,7 +101,8 @@ export function drawTimelineRulerViewportCanvas({
   }
 
   context.fillStyle = 'rgba(255, 255, 255, 0.60)'
-  context.font = '12px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+  const styles = getComputedStyle(canvas)
+  context.font = `${styles.fontWeight} ${styles.fontSize} ${styles.fontFamily}`
   context.textBaseline = 'top'
   for (let index = firstIndex; index <= lastIndex; index++) {
     const timeInSeconds = index * markerConfig.intervalInSeconds

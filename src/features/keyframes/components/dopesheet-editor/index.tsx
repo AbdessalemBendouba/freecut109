@@ -76,6 +76,7 @@ import { addWindowPointerListeners } from './dopesheet-pointer-listeners'
 import { DopesheetHeaderFrameInputs } from './dopesheet-header-frame-inputs'
 import { DopesheetRulerHeader } from './dopesheet-ruler-header'
 import { DopesheetLiveRulerCanvas } from './dopesheet-live-ruler-canvas'
+import { syncDopesheetLivePixelGeometry } from './dopesheet-live-pixel-geometry'
 import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
 import { perfMarkRender } from '@/shared/logging/perf-marks'
 import {
@@ -709,30 +710,6 @@ function getDopesheetDragPixelsPerFrame(
   return pixelsPerSecond / Math.max(fps, 1)
 }
 
-function getLiveDopesheetAxisTransform(params: {
-  basePixelsPerSecond: number
-  livePixelsPerSecond: number
-  timelinePixelsPerSecond: number
-  baseScrollLeft: number
-  scrollLeft: number
-  classic: boolean
-  linked: boolean
-}) {
-  const scale =
-    params.basePixelsPerSecond > 0 && params.livePixelsPerSecond > 0
-      ? params.livePixelsPerSecond / params.basePixelsPerSecond
-      : 1
-  const scrollPixelScale =
-    params.classic && params.basePixelsPerSecond > 0
-      ? params.timelinePixelsPerSecond / params.basePixelsPerSecond
-      : 1
-  const originOffset = params.linked ? -1 : 0
-  return {
-    scale,
-    panX: originOffset + scrollPixelScale * (scale * params.baseScrollLeft - params.scrollLeft),
-  }
-}
-
 function getLiveRulerFrame({
   viewportX,
   fallbackFrame,
@@ -1015,8 +992,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     })
   }, [])
   const pickWhipRootRef = useRef<HTMLDivElement>(null)
-  const livePanXRef = useRef(0)
-  const liveScaleRef = useRef(Number.NaN)
+  const syncLivePixelGeometryRef = useRef<() => void>(() => {})
   const insertExpressionReference = useCallback(
     (origin: ExpressionReferenceDragOrigin, candidate: ExpressionReferenceCandidate) => {
       const reference = `prop(${JSON.stringify(candidate.itemId)}, ${JSON.stringify(candidate.property)})`
@@ -1592,60 +1568,70 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   useLayoutEffect(() => {
     const scrollContainer = timelineScrollContainerRef?.current
     const root = pickWhipRootRef.current
-    if (!scrollContainer || !root || timelinePanBaseScrollLeft === undefined) return
-
-    const syncLiveAxis = () => {
-      const basePixelsPerSecond = timelinePanBasePixelsPerSecond ?? timelinePixelsPerSecond
-      const livePixelsPerSecond = getTimelineLivePixelsPerSecond?.() ?? basePixelsPerSecond
-      // Keep the fallback width path continuous if the linked viewport has not
-      // been measured yet. Once linkedTimelineViewportWidth is available this
-      // ratio is exactly one because both surfaces share the same pixel axis.
-      // The linked grid cells keep their visual left border, whose padding-box
-      // origin is one pixel to the right. Pull their compositor surfaces back
-      // over that border so the lower and main timeline share the same origin.
-      const { scale, panX: nextPanX } = getLiveDopesheetAxisTransform({
-        basePixelsPerSecond,
-        livePixelsPerSecond,
-        timelinePixelsPerSecond,
-        baseScrollLeft: timelinePanBaseScrollLeft,
-        scrollLeft: scrollContainer.scrollLeft,
-        classic: presentation === 'classic',
-        linked: hasLinkedTimelineAxis,
-      })
-      if (
-        Math.abs(nextPanX - livePanXRef.current) < 0.01 &&
-        Math.abs(scale - liveScaleRef.current) < 0.0001
-      ) {
-        return
-      }
-      livePanXRef.current = nextPanX
-      liveScaleRef.current = scale
-      root.style.setProperty(
-        '--dopesheet-live-axis-transform',
-        `translate3d(${nextPanX}px, 0, 0) scaleX(${scale})`,
-      )
-      root.style.setProperty('--dopesheet-live-axis-inverse-scale', `${1 / scale}`)
+    if (!scrollContainer || !root || timelinePanBaseScrollLeft === undefined) {
+      syncLivePixelGeometryRef.current = () => {}
+      return
     }
-    syncLiveAxis()
-    scrollContainer.addEventListener('scroll', syncLiveAxis, { passive: true })
-    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLiveAxis)
+
+    let scrollFrame: number | null = null
+    const syncLiveGeometry = () => {
+      const pixelsPerSecond =
+        getTimelineLivePixelsPerSecond?.() ??
+        timelinePanBasePixelsPerSecond ??
+        timelinePixelsPerSecond
+      syncDopesheetLivePixelGeometry({
+        root,
+        pixelsPerSecond,
+        fps,
+        scrollLeft: scrollContainer.scrollLeft,
+        itemFrom,
+        // Linked Edit cells retain a one-pixel left border. Their absolutely
+        // positioned contents begin just inside it, so compensate without
+        // transforming or scaling the surface.
+        originOffset: hasLinkedTimelineAxis ? -1 : 0,
+      })
+    }
+    const scheduleScrollSync = () => {
+      if (scrollFrame !== null) return
+      scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = null
+        syncLiveGeometry()
+      })
+    }
+    const syncLiveEvent = () => {
+      if (scrollFrame !== null) {
+        cancelAnimationFrame(scrollFrame)
+        scrollFrame = null
+      }
+      syncLiveGeometry()
+    }
+
+    syncLivePixelGeometryRef.current = syncLiveGeometry
+    syncLiveGeometry()
+    scrollContainer.addEventListener('scroll', scheduleScrollSync, { passive: true })
+    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLiveEvent)
     return () => {
-      scrollContainer.removeEventListener('scroll', syncLiveAxis)
-      scrollContainer.removeEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLiveAxis)
-      livePanXRef.current = 0
-      liveScaleRef.current = Number.NaN
-      root.style.removeProperty('--dopesheet-live-axis-transform')
-      root.style.removeProperty('--dopesheet-live-axis-inverse-scale')
+      if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
+      scrollContainer.removeEventListener('scroll', scheduleScrollSync)
+      scrollContainer.removeEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLiveEvent)
+      syncLivePixelGeometryRef.current = () => {}
     }
   }, [
+    fps,
     getTimelineLivePixelsPerSecond,
     hasLinkedTimelineAxis,
-    presentation,
+    itemFrom,
     timelinePanBasePixelsPerSecond,
     timelinePanBaseScrollLeft,
     timelinePixelsPerSecond,
     timelineScrollContainerRef,
   ])
+  useLayoutEffect(() => {
+    // React may add drag previews or filtered rows without changing the live
+    // axis inputs. Bring those new nodes onto the same current pixel axis before
+    // the browser paints them.
+    syncLivePixelGeometryRef.current()
+  })
 
   const frameToX = useCallback(
     (frame: number) => getFrameAxisX(frame, viewport, effectiveTimelineWidth, timelineEdgeInset),
