@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
 import { DopesheetEditor } from './index'
+import { PROPERTY_COLUMN_WIDTH } from './dopesheet-constants'
 import {
   mainTimelineScrubActiveRef,
   mainTimelineScrubHandoffFrameRef,
@@ -692,9 +693,9 @@ describe('DopesheetEditor playhead overlay', () => {
     const ruler = screen.getByTestId('dopesheet-ruler')
     const mainSkimmer = screen.getByTestId('timeline-preview-scrubber')
     vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
-      x: 248,
+      x: PROPERTY_COLUMN_WIDTH,
       y: 0,
-      left: 248,
+      left: PROPERTY_COLUMN_WIDTH,
       top: 0,
       right: 640,
       bottom: 22,
@@ -787,6 +788,100 @@ describe('DopesheetEditor playhead overlay', () => {
       '--dopesheet-live-axis-transform': 'translate3d(-45px, 0, 0) scaleX(0.75)',
       '--dopesheet-live-axis-inverse-scale': `${1 / 0.75}`,
     })
+  })
+
+  it('scales the Edit settle handoff into the narrower rendered axis', () => {
+    const scrollContainer = document.createElement('div')
+    scrollContainer.scrollLeft = 500
+    const timelineScrollContainerRef = { current: scrollContainer }
+    const mainViewportWidth = 393
+    const renderedAxisWidth = 391
+    const basePixelsPerSecond = (mainViewportWidth / 100) * 30
+
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        totalFrames={300}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        clampViewportToContent={false}
+        presentation="classic"
+        fps={30}
+        width={640}
+        height={240}
+        timelineScrollContainerRef={timelineScrollContainerRef}
+        timelinePanBaseScrollLeft={100}
+        timelinePanBasePixelsPerSecond={basePixelsPerSecond}
+        getTimelineLivePixelsPerSecond={() => basePixelsPerSecond}
+      />,
+    )
+
+    const transform = screen
+      .getByTestId('dopesheet-editor-root')
+      .style.getPropertyValue('--dopesheet-live-axis-transform')
+    const translatedPixels = Number.parseFloat(
+      transform.match(/translate3d\(([-\d.]+)px/)?.[1] ?? 'NaN',
+    )
+
+    expect(translatedPixels).toBeCloseTo(
+      ((100 - scrollContainer.scrollLeft) * renderedAxisWidth) / mainViewportWidth,
+    )
+    expect(transform).toContain('scaleX(1)')
+  })
+
+  it('uses the linked Edit viewport width as the authoritative settled axis', () => {
+    const scrollContainer = document.createElement('div')
+    scrollContainer.scrollLeft = 500
+    const timelineScrollContainerRef = { current: scrollContainer }
+    const mainViewportWidth = 393
+    const basePixelsPerSecond = (mainViewportWidth / 100) * 30
+
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        totalFrames={300}
+        frameViewport={{ startFrame: 0, endFrame: 100 }}
+        clampViewportToContent={false}
+        presentation="classic"
+        fps={30}
+        width={640}
+        height={240}
+        timelineScrollContainerRef={timelineScrollContainerRef}
+        timelinePanBaseScrollLeft={100}
+        timelinePanBasePixelsPerSecond={basePixelsPerSecond}
+        linkedTimelineViewportWidth={mainViewportWidth}
+        getTimelineLivePixelsPerSecond={() => basePixelsPerSecond}
+      />,
+    )
+
+    expect(screen.getByTestId('dopesheet-editor-root')).toHaveStyle({
+      '--dopesheet-live-axis-transform': 'translate3d(-401px, 0, 0) scaleX(1)',
+    })
+    expect(screen.getByTestId('dopesheet-playhead-clip')).toHaveStyle({
+      left: `${PROPERTY_COLUMN_WIDTH}px`,
+    })
+  })
+
+  it('offers explicit cleanup when keyframes are parked beyond the clip', () => {
+    const onTrimAnimation = vi.fn()
+    render(
+      <DopesheetEditor
+        itemId="item-1"
+        keyframesByProperty={{ x: [] }}
+        currentFrame={0}
+        presentation="classic"
+        width={640}
+        height={240}
+        trimmedKeyframeCount={2}
+        onTrimAnimation={onTrimAnimation}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '2 trimmed' }))
+    expect(onTrimAnimation).toHaveBeenCalledOnce()
   })
 
   it('pre-renders ruler marks around the linked viewport for immediate pans', () => {

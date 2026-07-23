@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "Has images cles",
-      "hasMotion": "A un mouvement continu",
+      "hasMotion": "Ouvrir les commandes d’animation",
       "mask": "Masque",
       "mediaMissing": "Media manquant",
       "preparingReversed": "Preparation inverse",
@@ -243,6 +243,12 @@
       "presetNameRequired": "Le nom du préréglage est requis",
       "springTension": "Tension",
       "springFriction": "Friction",
+      "trimmedKeyframes": "{{count}} rognées",
+      "trimmedKeyframesLabel": "Images clés rognées",
+      "trimmedKeyframesDetail": "{{count}} images clés sont hors du clip.",
+      "trimAnimation": "Rogner l’animation",
+      "trimAnimationHint": "Conserver la valeur à la fin du clip et supprimer {{count}} images clés rognées.",
+      "trimAnimationToast": "{{count}} images clés rognées supprimées.",
       "springMass": "Masse"
     },
     "markerName": "Marqueur {{index}}",

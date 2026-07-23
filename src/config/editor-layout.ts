@@ -5,7 +5,7 @@
  *
  * Prefer changing presets here before editing one-off component sizes.
  */
-export const EDIT_DOPESHEET_COLUMN_WIDTH = 248
+const EDIT_DOPESHEET_COLUMN_WIDTH = 288
 
 const EDITOR_DENSITY_PRESETS = {
   compact: {

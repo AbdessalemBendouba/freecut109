@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "キーフレームあり",
-      "hasMotion": "連続モーションあり",
+      "hasMotion": "アニメーションコントロールを開く",
       "mask": "マスク",
       "mediaMissing": "メディアが見つかりません",
       "preparingReversed": "逆再生を準備中",
@@ -243,6 +243,12 @@
       "presetNameRequired": "プリセット名を入力してください",
       "springTension": "テンション",
       "springFriction": "摩擦",
+      "trimmedKeyframes": "トリム済み {{count}} 個",
+      "trimmedKeyframesLabel": "トリムされたキーフレーム",
+      "trimmedKeyframesDetail": "{{count}} 個のキーフレームがクリップ範囲外にあります。",
+      "trimAnimation": "アニメーションをトリム",
+      "trimAnimationHint": "クリップ終端の値を保持し、範囲外の {{count}} 個のキーフレームを削除します。",
+      "trimAnimationToast": "範囲外のキーフレームを {{count}} 個削除しました。",
       "springMass": "質量"
     },
     "markerName": "マーカー {{index}}",

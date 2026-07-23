@@ -42,11 +42,11 @@ const page = {
       ],
     },
     {
-      title: 'Motion text',
+      title: 'Text animation',
       blocks: [
         {
           kind: 'paragraph',
-          text: 'In the **Text Animation** section (in text properties or the selected layer’s **Motion** library) each character, word, or line can animate independently. Motion is evaluated at render time, so there are no keyframes to manage.',
+          text: 'In the **Text Animation** section (in text properties or the selected layer’s **Motion** library), each character, word, or line can animate independently. Text animation stays live and procedural, so there are no layer keyframes to manage.',
         },
         {
           kind: 'steps',

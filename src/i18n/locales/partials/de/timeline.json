@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "Hat Keyframes",
-      "hasMotion": "Hat kontinuierliche Bewegung",
+      "hasMotion": "Animationssteuerung öffnen",
       "mask": "Maske",
       "mediaMissing": "Medien fehlt",
       "preparingReversed": "Vorbereiten ruckwarts",
@@ -243,6 +243,12 @@
       "presetNameRequired": "Ein Vorlagenname ist erforderlich",
       "springTension": "Spannung",
       "springFriction": "Reibung",
+      "trimmedKeyframes": "{{count}} getrimmt",
+      "trimmedKeyframesLabel": "Getrimmte Keyframes",
+      "trimmedKeyframesDetail": "{{count}} Keyframes liegen außerhalb des Clips.",
+      "trimAnimation": "Animation trimmen",
+      "trimAnimationHint": "Wert am Clipende beibehalten und {{count}} getrimmte Keyframes entfernen.",
+      "trimAnimationToast": "{{count}} getrimmte Keyframes entfernt.",
       "springMass": "Masse"
     },
     "markerName": "Marker {{index}}",

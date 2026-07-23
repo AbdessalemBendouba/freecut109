@@ -166,6 +166,20 @@
         "layer": "添加动画层"
       }
     },
+    "editAnimation": {
+      "quickTitle": "快速动画",
+      "quickHint": "为剪辑添加现成动画，并可在时间轨中继续编辑。",
+      "appliedHint": "此剪辑当前正在运动的所有内容。",
+      "noneApplied": "尚未应用动画。",
+      "editTiming": "编辑时间",
+      "textHint": "为字符、单词、行或整个文字剪辑添加动画。",
+      "motionClipTitle": "Motion 剪辑",
+      "motionClipCreateHint": "将此剪辑提升为分层合成，以进行高级动画编辑。",
+      "motionClipOpenHint": "此剪辑是一个分层 Motion 合成。",
+      "createMotionClip": "创建 Motion 剪辑",
+      "openInMotion": "在 Motion 中打开",
+      "untitledClip": "未命名剪辑"
+    },
     "motionGenerator": {
       "title": "生成器",
       "intensity": "强度",

@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "Ana kareler var",
-      "hasMotion": "Sürekli harekete sahip",
+      "hasMotion": "Animasyon kontrollerini aç",
       "mask": "Maske",
       "mediaMissing": "Medya eksik",
       "preparingReversed": "Ters oynatma hazırlanıyor",
@@ -239,6 +239,12 @@
       "presetNameRequired": "Hazır ayar adı gerekli",
       "springTension": "Gerilim",
       "springFriction": "Sürtünme",
+      "trimmedKeyframes": "{{count}} kırpılmış",
+      "trimmedKeyframesLabel": "Kırpılmış anahtar kareler",
+      "trimmedKeyframesDetail": "{{count}} anahtar kare klibin dışında.",
+      "trimAnimation": "Animasyonu kırp",
+      "trimAnimationHint": "Klip sonundaki değeri korur ve {{count}} kırpılmış anahtar kareyi kaldırır.",
+      "trimAnimationToast": "{{count}} kırpılmış anahtar kare kaldırıldı.",
       "springMass": "Kütle"
     },
     "markerName": "İşaretçi {{index}}",

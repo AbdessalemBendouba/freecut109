@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "Tem keyframes",
-      "hasMotion": "Tem movimento contínuo",
+      "hasMotion": "Abrir controles de animação",
       "mask": "Mascara",
       "mediaMissing": "Midia ausente",
       "preparingReversed": "Preparando reverso",
@@ -243,6 +243,12 @@
       "presetNameRequired": "O nome da predefinição é obrigatório",
       "springTension": "Tensão",
       "springFriction": "Fricção",
+      "trimmedKeyframes": "{{count}} aparados",
+      "trimmedKeyframesLabel": "Quadros-chave aparados",
+      "trimmedKeyframesDetail": "{{count}} quadros-chave estão fora do clipe.",
+      "trimAnimation": "Aparar animação",
+      "trimAnimationHint": "Mantém o valor no fim do clipe e remove {{count}} quadros-chave aparados.",
+      "trimAnimationToast": "{{count}} quadros-chave aparados foram removidos.",
       "springMass": "Massa"
     },
     "markerName": "Marcador {{index}}",

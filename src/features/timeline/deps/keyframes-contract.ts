@@ -7,7 +7,14 @@ export type { AutoKeyframeOperation } from '@/features/keyframes/utils/auto-keyf
 export { getCropPropertyValue } from '@/features/keyframes/utils/animated-crop-resolver'
 export { interpolatePropertyValue } from '@/features/keyframes/utils/interpolation'
 export { sampleVectorSpeedGraph } from '@/features/keyframes/utils/vector-interpolation'
-export { buildVectorPromotionPlan } from '@/features/keyframes/utils/vector-promotion'
+export {
+  cleanupTrimmedKeyframes,
+  countTrimmedKeyframes,
+} from '@/features/keyframes/utils/trimmed-keyframes'
+export {
+  buildVectorPromotionPlan,
+  remapLegacyVectorPromotionIdentities,
+} from '@/features/keyframes/utils/vector-promotion'
 export {
   resolveAnimatedTransform,
   resolveExpressionReferenceValue,

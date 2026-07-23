@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "Has Keyframes",
-      "hasMotion": "Has continuous motion",
+      "hasMotion": "Open animation controls",
       "mask": "Mask",
       "mediaMissing": "Media Missing",
       "preparingReversed": "Preparing Reversed",
@@ -243,6 +243,12 @@
       "presetNameRequired": "Preset name is required",
       "springTension": "Tension",
       "springFriction": "Friction",
+      "trimmedKeyframes": "{{count}} trimmed",
+      "trimmedKeyframesLabel": "Trimmed keyframes",
+      "trimmedKeyframesDetail": "{{count}} keyframes are outside the clip.",
+      "trimAnimation": "Trim animation",
+      "trimAnimationHint": "Keep the value at the clip end and remove {{count}} trimmed keyframes.",
+      "trimAnimationToast": "Removed {{count}} trimmed keyframes.",
       "springMass": "Mass"
     },
     "markerName": "Marker {{index}}",

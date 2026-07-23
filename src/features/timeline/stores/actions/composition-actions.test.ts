@@ -18,6 +18,7 @@ import { useCompositionsStore } from '../compositions-store'
 import { useCompositionNavigationStore } from '../composition-navigation-store'
 import { useEditorStore } from '@/shared/state/editor'
 import {
+  createMotionClip,
   createPreComp,
   deleteCompoundClips,
   dissolvePreComp,
@@ -91,6 +92,37 @@ describe('composition-actions split wrappers', () => {
       sourceDuration: 60,
     })
     expect(audioWrapper?.linkedGroupId).toBe(visualWrapper?.linkedGroupId)
+  })
+
+  it('promotes a clip and its animation into a Motion composition', () => {
+    setDefaultRootTimelineTracks()
+    const video = makeVideoItem({
+      motionModifiers: [
+        {
+          id: 'drift-1',
+          type: 'float-drift',
+          enabled: true,
+          amplitude: 1,
+          frequency: 0.5,
+          phaseFrames: 0,
+          seed: 4,
+        },
+      ],
+    })
+    useItemsStore.getState().setItems([video, makeAudioItem()])
+    useSelectionStore.getState().selectItems([video.id])
+
+    const created = createMotionClip('clip.mp4 Motion')
+
+    expect(created).toMatchObject({ type: 'composition', label: 'clip.mp4 Motion' })
+    const composition = useCompositionsStore
+      .getState()
+      .getComposition(created && 'compositionId' in created ? created.compositionId! : '')
+    expect(composition?.editorKind).toBe('composite-2d')
+    expect(composition?.items.find((item) => item.type === 'video')?.motionModifiers).toEqual(
+      video.motionModifiers,
+    )
+    expect(useEditorStore.getState().workspace).toBe('motion')
   })
 
   it('dissolves linked compound wrappers back to original tracks', () => {

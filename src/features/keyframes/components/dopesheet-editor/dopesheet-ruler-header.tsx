@@ -11,6 +11,8 @@ interface DopesheetRulerHeaderProps {
   onRulerPointerLeave: (event: ReactPointerEvent<HTMLDivElement>) => void
   rulerTickElements: ReactNode
   reservedRightGutterWidth?: number
+  propertyFilter?: 'all' | 'keyframed'
+  onPropertyFilterChange?: (filter: 'all' | 'keyframed') => void
 }
 
 export function DopesheetRulerHeader({
@@ -22,16 +24,48 @@ export function DopesheetRulerHeader({
   onRulerPointerLeave,
   rulerTickElements,
   reservedRightGutterWidth = 0,
+  propertyFilter = 'all',
+  onPropertyFilterChange,
 }: DopesheetRulerHeaderProps) {
   const { t } = useTranslation()
 
   return (
     <div className="grid border-b border-border bg-muted/25" style={propertyGridStyle}>
       <div
-        className="px-1 flex items-center text-[10px] font-medium text-muted-foreground"
+        className="flex items-center justify-between gap-2 px-1 text-[10px] font-medium text-muted-foreground"
         style={{ height: RULER_HEIGHT }}
       >
-        {t('timeline.keyframeEditor.property')}
+        <span>{t('timeline.keyframeEditor.property')}</span>
+        {onPropertyFilterChange ? (
+          <div
+            role="group"
+            aria-label={t('timeline.keyframeEditor.propertyVisibility')}
+            className="flex h-[18px] shrink-0 items-center rounded border border-border/70 bg-background/70 p-px"
+          >
+            {(['keyframed', 'all'] as const).map((filter) => {
+              const selected = propertyFilter === filter
+              return (
+                <button
+                  key={filter}
+                  type="button"
+                  aria-pressed={selected}
+                  className={`h-4 rounded px-1.5 text-[9px] leading-none transition-colors ${
+                    selected
+                      ? 'bg-accent text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                  onClick={() => onPropertyFilterChange(filter)}
+                >
+                  {t(
+                    filter === 'keyframed'
+                      ? 'timeline.keyframeEditor.animatedProperties'
+                      : 'timeline.keyframeEditor.allProperties',
+                  )}
+                </button>
+              )
+            })}
+          </div>
+        ) : null}
       </div>
       <div
         data-testid="dopesheet-ruler"

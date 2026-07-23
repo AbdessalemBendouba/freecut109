@@ -27,9 +27,16 @@ import {
   useKeyframeSelectionStore,
   useTimelineCommandStore,
   openComposition,
+  trimItemEnd,
 } from '@/features/editor/deps/timeline-motion'
 import { useMediaLibraryStore } from '@/features/editor/deps/media-library-contract'
-import type { ControllerItem, ShapeItem, TimelineItem } from '@/types/timeline'
+import type {
+  AudioItem,
+  ControllerItem,
+  ShapeItem,
+  TimelineItem,
+  VideoItem,
+} from '@/types/timeline'
 import { useComposeUiStore } from './compose-ui-store'
 import { CompositingTimeline } from './compositing-timeline'
 
@@ -132,6 +139,55 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(
       screen.queryByRole('button', { name: 'Separate Position dimensions' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('shows a linked audiovisual pair as one Motion layer', () => {
+    const videoTrack = makeTimelineTrack({
+      id: 'motion-video-track',
+      name: 'Interview',
+      kind: 'video',
+      order: 0,
+    })
+    const audioTrack = makeTimelineTrack({
+      id: 'motion-audio-track',
+      name: 'Interview audio',
+      kind: 'audio',
+      order: 1,
+    })
+    const video: VideoItem = {
+      id: 'motion-video',
+      type: 'video',
+      trackId: videoTrack.id,
+      from: 0,
+      durationInFrames: 120,
+      label: 'Interview.mp4',
+      src: 'blob:interview-video',
+      mediaId: 'interview-media',
+      linkedGroupId: 'motion-av-1',
+    }
+    const audio: AudioItem = {
+      id: 'motion-audio',
+      type: 'audio',
+      trackId: audioTrack.id,
+      from: 0,
+      durationInFrames: 120,
+      label: 'Interview.mp4',
+      src: 'blob:interview-audio',
+      mediaId: 'interview-media',
+      linkedGroupId: 'motion-av-1',
+    }
+    useItemsStore.getState().setTracks([videoTrack, audioTrack])
+    useItemsStore.getState().setItems([video, audio])
+
+    render(<CompositingTimeline />)
+
+    expect(screen.getByTestId(`motion-layer-row-${video.id}`)).toBeInTheDocument()
+    expect(screen.queryByTestId(`motion-layer-row-${audio.id}`)).not.toBeInTheDocument()
+
+    useEditorStore.setState({ linkedSelectionEnabled: false })
+    act(() => trimItemEnd(video.id, -10, { forceLinked: true }))
+    expect(useItemsStore.getState().itemById[video.id]?.durationInFrames).toBe(110)
+    expect(useItemsStore.getState().itemById[audio.id]?.durationInFrames).toBe(110)
   })
 
   it('toggles Position between coupled and separated dimensions through history', () => {
@@ -715,9 +771,9 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
       ),
     ).toEqual(previewLabels)
     expect(Array.from(rulerSurface.children)).toEqual(originalTicks)
-    expect(
-      Array.from(rulerSurface.children, (tick) => (tick as HTMLElement).style.left),
-    ).toEqual(originalTickPositions)
+    expect(Array.from(rulerSurface.children, (tick) => (tick as HTMLElement).style.left)).toEqual(
+      originalTickPositions,
+    )
 
     clientWidthSpy.mockRestore()
     animationFrameSpy.mockRestore()

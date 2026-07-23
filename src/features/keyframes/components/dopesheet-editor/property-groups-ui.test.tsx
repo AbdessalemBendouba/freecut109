@@ -92,6 +92,35 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.queryByRole('slider', { name: /horizontal zoom/i })).toBeNull()
   })
 
+  it('filters the classic Edit presentation between animated and all properties', () => {
+    renderEditor({
+      presentation: 'classic',
+      keyframesByProperty: {
+        x: [{ id: 'kf-x', frame: 12, value: 100, easing: 'linear' }],
+        volume: [],
+      },
+    })
+
+    const animated = screen.getByRole('button', { name: 'Animated' })
+    const all = screen.getByRole('button', { name: 'All' })
+    expect(all).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeTruthy()
+    expect(screen.getByRole('spinbutton', { name: /volume \(db\) value at playhead/i })).toBeTruthy()
+
+    fireEvent.click(animated)
+
+    expect(animated).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeTruthy()
+    expect(
+      screen.queryByRole('spinbutton', { name: /volume \(db\) value at playhead/i }),
+    ).toBeNull()
+
+    fireEvent.click(all)
+
+    expect(all).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('spinbutton', { name: /volume \(db\) value at playhead/i })).toBeTruthy()
+  })
+
   it('uses middle-button drag to pan only the keyframe rows vertically', () => {
     renderEditor({ presentation: 'classic' })
 

@@ -23,8 +23,10 @@ import type {
 } from '../keyframes-store'
 import type { AutoKeyframeOperation } from '@/features/timeline/deps/keyframes'
 import { useKeyframesStore } from '../keyframes-store'
+import { useItemsStore } from '../items-store'
 import { useTimelineSettingsStore } from '../timeline-settings-store'
 import { execute, getLogger, canAddKeyframeAtFrame } from './shared'
+import { cleanupTrimmedKeyframes } from '@/features/timeline/deps/keyframes'
 
 export function addKeyframe(
   itemId: string,
@@ -569,6 +571,39 @@ export function removeManualKeyframes(itemId: string): void {
     () => {
       useKeyframesStore.getState()._removeManualKeyframes(itemId)
       useTimelineSettingsStore.getState().markDirty()
+    },
+    { itemId },
+  )
+}
+
+/**
+ * Explicitly remove keyframes parked beyond the item's current out point.
+ * A boundary keyframe is inserted first so the final visible frame retains its
+ * evaluated value. Ordinary trim actions intentionally never call this.
+ */
+export function trimAnimationToItemBounds(itemId: string): number {
+  return execute(
+    'TRIM_ANIMATION_TO_BOUNDS',
+    () => {
+      const item = useItemsStore.getState().itemById[itemId]
+      const store = useKeyframesStore.getState()
+      const itemKeyframes = store.getKeyframesForItem(itemId)
+      if (!item || !itemKeyframes) return 0
+
+      const result = cleanupTrimmedKeyframes(
+        itemKeyframes,
+        item.durationInFrames,
+        useTimelineSettingsStore.getState().fps,
+      )
+      if (result.removedCount === 0) return 0
+
+      store.setKeyframes(
+        store.keyframes.map((candidate) =>
+          candidate.itemId === itemId ? result.itemKeyframes : candidate,
+        ),
+      )
+      useTimelineSettingsStore.getState().markDirty()
+      return result.removedCount
     },
     { itemId },
   )

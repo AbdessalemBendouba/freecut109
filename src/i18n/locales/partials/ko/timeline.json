@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "키프레임 있음",
-      "hasMotion": "연속 모션 있음",
+      "hasMotion": "애니메이션 컨트롤 열기",
       "mask": "마스크",
       "mediaMissing": "미디어 없음",
       "preparingReversed": "역방향 준비 중",
@@ -243,6 +243,12 @@
       "presetNameRequired": "프리셋 이름이 필요합니다",
       "springTension": "장력",
       "springFriction": "마찰",
+      "trimmedKeyframes": "트리밍됨 {{count}}개",
+      "trimmedKeyframesLabel": "트리밍된 키프레임",
+      "trimmedKeyframesDetail": "키프레임 {{count}}개가 클립 범위 밖에 있습니다.",
+      "trimAnimation": "애니메이션 트리밍",
+      "trimAnimationHint": "클립 끝의 값을 유지하고 범위 밖 키프레임 {{count}}개를 제거합니다.",
+      "trimAnimationToast": "트리밍된 키프레임 {{count}}개를 제거했습니다.",
       "springMass": "질량"
     },
     "markerName": "마커 {{index}}",

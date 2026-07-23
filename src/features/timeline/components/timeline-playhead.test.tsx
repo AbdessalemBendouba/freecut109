@@ -173,6 +173,41 @@ describe('TimelinePlayhead', () => {
     expect(usePlaybackStore.getState().currentFrame).toBe(60)
   })
 
+  it('keeps a stationary handle drag on the committed frame pixel', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frameCallbacks.push(callback)
+      return frameCallbacks.length
+    })
+    const { container } = render(
+      <div className="timeline-ruler">
+        <TimelinePlayhead inRuler maxFrame={300} />
+      </div>,
+    )
+    const ruler = container.querySelector('.timeline-ruler') as HTMLDivElement
+    ruler.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 600,
+      bottom: 40,
+      width: 600,
+      height: 40,
+      toJSON: () => ({}),
+    })
+    const hitArea = container.querySelector('[style*="width: 20px"]') as HTMLDivElement
+    const playhead = container.querySelector('[data-timeline-playhead="ruler"]') as HTMLDivElement
+
+    fireEvent.mouseDown(hitArea, { clientX: 24, clientY: 8, button: 0 })
+    frameCallbacks.shift()?.(16)
+    expect(playhead).toHaveStyle({ transform: 'translate3d(23px, 0, 0)' })
+
+    fireEvent.mouseUp(document, { clientX: 24, clientY: 8 })
+    expect(usePlaybackStore.getState().currentFrame).toBe(7)
+    expect(playhead).toHaveStyle({ transform: 'translate3d(23px, 0, 0)' })
+  })
+
   it('follows a keyframe scrub visual frame before its throttled store update', () => {
     const { container } = render(
       <div className="timeline-container">

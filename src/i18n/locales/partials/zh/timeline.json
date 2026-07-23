@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "有关键帧",
-      "hasMotion": "具有连续运动",
+      "hasMotion": "打开动画控制",
       "mask": "遮罩",
       "mediaMissing": "媒体缺失",
       "preparingReversed": "正在准备反向播放",
@@ -243,6 +243,12 @@
       "presetNameRequired": "需要预设名称",
       "springTension": "张力",
       "springFriction": "摩擦",
+      "trimmedKeyframes": "已修剪 {{count}} 个",
+      "trimmedKeyframesLabel": "已修剪的关键帧",
+      "trimmedKeyframesDetail": "有 {{count}} 个关键帧位于片段范围之外。",
+      "trimAnimation": "修剪动画",
+      "trimAnimationHint": "保留片段末尾的值，并移除 {{count}} 个已修剪的关键帧。",
+      "trimAnimationToast": "已移除 {{count}} 个已修剪的关键帧。",
       "springMass": "质量"
     },
     "markerName": "标记 {{index}}",

@@ -20,6 +20,7 @@ import {
   removePropertyExpression,
   setDirectPropertyLink,
   setPropertyExpression,
+  trimAnimationToItemBounds,
   updateKeyframe,
 } from './keyframe-actions'
 
@@ -463,6 +464,38 @@ describe('keyframe actions', () => {
   })
 
   describe('removal', () => {
+    it('trims parked keyframes with a boundary value in one undoable action', () => {
+      useItemsStore.getState().setItems([
+        makeTimelineVideoItem({ id: 'a', durationInFrames: 11 }),
+        makeTimelineVideoItem({ id: 'b', from: 60 }),
+      ])
+      useKeyframesStore.getState().setKeyframes([
+        {
+          itemId: 'a',
+          properties: [
+            {
+              property: 'opacity',
+              keyframes: [
+                { id: 'start', frame: 0, value: 0, easing: 'linear' },
+                { id: 'trimmed', frame: 20, value: 1, easing: 'linear' },
+              ],
+            },
+          ],
+        },
+      ])
+      const undoDepth = useTimelineCommandStore.getState().undoStack.length
+
+      expect(trimAnimationToItemBounds('a')).toBe(1)
+      expect(getKeyframes('a', 'opacity')).toEqual([
+        { id: 'start', frame: 0, value: 0, easing: 'linear' },
+        expect.objectContaining({ frame: 10, value: 0.5 }),
+      ])
+      expect(useTimelineCommandStore.getState().undoStack).toHaveLength(undoDepth + 1)
+
+      useTimelineCommandStore.getState().undo()
+      expect(getKeyframes('a', 'opacity').map((keyframe) => keyframe.frame)).toEqual([0, 20])
+    })
+
     it('removeKeyframe deletes a single keyframe', () => {
       const id = addKeyframe('a', 'opacity', 10, 0.5)
       addKeyframe('a', 'opacity', 20, 1)

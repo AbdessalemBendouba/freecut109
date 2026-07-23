@@ -166,6 +166,20 @@
         "layer": "レイヤーを追加"
       }
     },
+    "editAnimation": {
+      "quickTitle": "クイックアニメーション",
+      "quickHint": "クリップにプリセットアニメーションを追加します。タイミングレーンで編集できます。",
+      "appliedHint": "このクリップで現在動いているすべての要素です。",
+      "noneApplied": "アニメーションはまだ適用されていません。",
+      "editTiming": "タイミングを編集",
+      "textHint": "文字、単語、行、またはテキストクリップ全体をアニメーション化します。",
+      "motionClipTitle": "Motionクリップ",
+      "motionClipCreateHint": "高度なアニメーション用のレイヤーコンポジションに変換します。",
+      "motionClipOpenHint": "このクリップはレイヤー構成のMotionコンポジションです。",
+      "createMotionClip": "Motionクリップを作成",
+      "openInMotion": "Motionで開く",
+      "untitledClip": "名称未設定のクリップ"
+    },
     "motionGenerator": {
       "title": "ジェネレーター",
       "intensity": "強度",

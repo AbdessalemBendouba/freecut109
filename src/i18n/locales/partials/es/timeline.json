@@ -46,7 +46,7 @@
     },
     "clipIndicators": {
       "hasKeyframes": "Has fotogramas clave",
-      "hasMotion": "Tiene movimiento continuo",
+      "hasMotion": "Abrir controles de animación",
       "mask": "Mascara",
       "mediaMissing": "Medios faltante",
       "preparingReversed": "Preparando invertido",
@@ -243,6 +243,12 @@
       "presetNameRequired": "El nombre del ajuste es obligatorio",
       "springTension": "Tensión",
       "springFriction": "Fricción",
+      "trimmedKeyframes": "{{count}} recortados",
+      "trimmedKeyframesLabel": "Fotogramas clave recortados",
+      "trimmedKeyframesDetail": "{{count}} fotogramas clave están fuera del clip.",
+      "trimAnimation": "Recortar animación",
+      "trimAnimationHint": "Conserva el valor al final del clip y elimina {{count}} fotogramas clave recortados.",
+      "trimAnimationToast": "Se eliminaron {{count}} fotogramas clave recortados.",
       "springMass": "Masa"
     },
     "markerName": "Marcador {{index}}",

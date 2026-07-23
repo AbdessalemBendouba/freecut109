@@ -65,6 +65,7 @@ function createPreviewValidator({
   affectedIds,
   keyframesByItemId,
   timelineFps,
+  preserveKeyframes,
   buildPreview,
 }: {
   items: TimelineItem[]
@@ -72,6 +73,7 @@ function createPreviewValidator({
   affectedIds: ReadonlySet<string>
   keyframesByItemId: KeyframesByItemId
   timelineFps: number
+  preserveKeyframes: boolean
   buildPreview: (delta: number) => Map<string, TimelineItem>
 }): (delta: number) => boolean {
   const itemsById = new Map(items.map((item) => [item.id, item]))
@@ -79,12 +81,9 @@ function createPreviewValidator({
     (transition) =>
       affectedIds.has(transition.leftClipId) || affectedIds.has(transition.rightClipId),
   )
-  const preservedKeyframes = collectPreservedKeyframes(
-    affectedIds,
-    itemsById,
-    transitions,
-    keyframesByItemId,
-  )
+  const preservedKeyframes = preserveKeyframes
+    ? collectPreservedKeyframes(affectedIds, itemsById, transitions, keyframesByItemId)
+    : new Map<string, number[]>()
 
   return (delta: number): boolean => {
     const previewById = buildPreview(delta)
@@ -133,6 +132,7 @@ export function clampRollingTrimDeltaToPreserveEditState(
   transitions: Transition[],
   keyframesByItemId: KeyframesByItemId,
   timelineFps: number = 30,
+  preserveKeyframes: boolean = true,
 ): number {
   if (requestedDelta === 0) return 0
   const left = handle === 'end' ? item : neighbor
@@ -144,6 +144,7 @@ export function clampRollingTrimDeltaToPreserveEditState(
     affectedIds,
     keyframesByItemId,
     timelineFps,
+    preserveKeyframes,
     buildPreview: (delta) =>
       new Map([
         [left.id, applyUpdate(left, applyTrimEndPreview(left, delta, timelineFps))],
@@ -162,6 +163,7 @@ export function clampRippleTrimDeltaToPreserveEditState(
   keyframesByItemId: KeyframesByItemId,
   timelineFps: number = 30,
   excludedDownstreamIds: ReadonlySet<string> = new Set(),
+  preserveKeyframes: boolean = true,
 ): number {
   if (requestedDelta === 0) return 0
   const oldEnd = item.from + item.durationInFrames
@@ -189,6 +191,7 @@ export function clampRippleTrimDeltaToPreserveEditState(
     affectedIds,
     keyframesByItemId,
     timelineFps,
+    preserveKeyframes,
     buildPreview: (delta) => {
       const previewById = new Map<string, TimelineItem>()
       const update =

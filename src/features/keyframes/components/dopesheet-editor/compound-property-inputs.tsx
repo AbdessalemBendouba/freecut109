@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link2, Unlink2 } from 'lucide-react'
+import { setPointerCaptureSafely } from './dopesheet-utils'
+import { getScrubbedPropertyValue } from './property-value-scrub'
+
+const AXIS_SCRUB_DRAG_THRESHOLD = 2
 
 function AxisInput({
   axis,
@@ -9,6 +13,12 @@ function AxisInput({
   disabled,
   allowCreateOnBlur,
   onCommit,
+  onScrubStart,
+  onScrubPreview,
+  onScrubEnd,
+  onScrubCancel,
+  scrubStep,
+  decimals = 2,
 }: {
   axis: 'x' | 'y'
   value: number
@@ -17,24 +27,38 @@ function AxisInput({
   disabled: boolean
   allowCreateOnBlur: boolean
   onCommit: (value: number, options: { allowCreate: boolean }) => boolean | void
+  onScrubStart?: () => void
+  onScrubPreview?: (value: number) => void
+  onScrubEnd?: (value: number) => void
+  onScrubCancel?: () => void
+  scrubStep?: number
+  decimals?: number
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const skipNextBlurCommitRef = useRef(false)
-  const [draft, setDraft] = useState(() => value.toFixed(2))
+  const [draft, setDraft] = useState(() => value.toFixed(decimals))
+  const scrubRef = useRef<{
+    pointerId: number
+    startX: number
+    startValue: number
+    lastValue: number
+    didDrag: boolean
+  } | null>(null)
 
   useEffect(() => {
-    if (document.activeElement !== inputRef.current) setDraft(value.toFixed(2))
-  }, [value])
+    if (document.activeElement !== inputRef.current) setDraft(value.toFixed(decimals))
+  }, [decimals, value])
 
   const commit = (allowCreate: boolean) => {
     const parsed = Number(draft)
     if (Number.isFinite(parsed)) {
-      if (parsed !== value) {
-        const applied = onCommit(parsed, { allowCreate })
-        if (applied === false) setDraft(value.toFixed(2))
+      const quantized = Number(parsed.toFixed(decimals))
+      if (quantized !== value) {
+        const applied = onCommit(quantized, { allowCreate })
+        if (applied === false) setDraft(value.toFixed(decimals))
+        else setDraft(quantized.toFixed(decimals))
       }
-    }
-    else setDraft(value.toFixed(2))
+    } else setDraft(value.toFixed(decimals))
   }
 
   return (
@@ -47,11 +71,64 @@ function AxisInput({
       <input
         ref={inputRef}
         aria-label={`${propertyLabel} ${axis.toUpperCase()}`}
-        className="min-w-0 flex-1 bg-transparent text-right font-mono text-[9px] tabular-nums outline-none disabled:opacity-50"
+        className="min-w-0 flex-1 cursor-ew-resize select-none bg-transparent text-right font-mono text-[9px] tabular-nums outline-none disabled:cursor-default disabled:opacity-50"
         disabled={disabled}
         inputMode="decimal"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
+        onPointerDown={(event) => {
+          if (event.button !== 0 || disabled) return
+          const startValue = Number(draft)
+          if (!Number.isFinite(startValue)) return
+          scrubRef.current = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startValue,
+            lastValue: startValue,
+            didDrag: false,
+          }
+          setPointerCaptureSafely(event.currentTarget, event.pointerId)
+        }}
+        onPointerMove={(event) => {
+          const scrub = scrubRef.current
+          if (!scrub || scrub.pointerId !== event.pointerId) return
+          const deltaX = event.clientX - scrub.startX
+          if (!scrub.didDrag && Math.abs(deltaX) < AXIS_SCRUB_DRAG_THRESHOLD) return
+          if (!scrub.didDrag) {
+            scrub.didDrag = true
+            onScrubStart?.()
+          }
+          event.preventDefault()
+          const next = getScrubbedPropertyValue({
+            startValue: scrub.startValue,
+            deltaX,
+            decimals,
+            step: scrubStep,
+            shiftKey: event.shiftKey,
+            altKey: event.altKey,
+          })
+          scrub.lastValue = next.value
+          setDraft(next.display)
+          onScrubPreview?.(next.value)
+        }}
+        onPointerUp={(event) => {
+          const scrub = scrubRef.current
+          if (!scrub || scrub.pointerId !== event.pointerId) return
+          scrubRef.current = null
+          if (!scrub.didDrag) return
+          event.preventDefault()
+          if (onScrubEnd) onScrubEnd(scrub.lastValue)
+          else onCommit(scrub.lastValue, { allowCreate: true })
+        }}
+        onPointerCancel={(event) => {
+          const scrub = scrubRef.current
+          if (!scrub || scrub.pointerId !== event.pointerId) return
+          scrubRef.current = null
+          if (!scrub.didDrag) return
+          event.preventDefault()
+          setDraft(scrub.startValue.toFixed(decimals))
+          onScrubCancel?.()
+        }}
         onBlur={() => {
           if (skipNextBlurCommitRef.current) {
             skipNextBlurCommitRef.current = false
@@ -68,7 +145,7 @@ function AxisInput({
           } else if (event.key === 'Escape') {
             event.preventDefault()
             skipNextBlurCommitRef.current = true
-            setDraft(value.toFixed(2))
+            setDraft(value.toFixed(decimals))
             event.currentTarget.blur()
           }
         }}
@@ -92,11 +169,50 @@ export interface CompoundPropertyInputConfig {
     linked: boolean
     onChange: (linked: boolean) => void
   }
-  onCommit: (
-    axis: 'x' | 'y',
-    value: number,
-    options: { allowCreate: boolean },
-  ) => boolean | void
+  onCommit: (axis: 'x' | 'y', value: number, options: { allowCreate: boolean }) => boolean | void
+  onScrubStart?: (axis: 'x' | 'y') => void
+  onScrubPreview?: (axis: 'x' | 'y', value: number) => void
+  onScrubEnd?: (axis: 'x' | 'y', value: number) => void
+  onScrubCancel?: (axis: 'x' | 'y') => void
+  /** Value change per horizontal pixel. Defaults to the displayed precision. */
+  scrubStep?: number
+  /** Display and typed-value precision. Position uses 0 for whole pixels. */
+  decimals?: number
+}
+
+function createCompoundAxisCallbacks(config: CompoundPropertyInputConfig, axis: 'x' | 'y') {
+  return {
+    onCommit: (value: number, options: { allowCreate: boolean }) =>
+      config.onCommit(axis, value, options),
+    onScrubStart: config.onScrubStart ? () => config.onScrubStart?.(axis) : undefined,
+    onScrubPreview: config.onScrubPreview
+      ? (value: number) => config.onScrubPreview?.(axis, value)
+      : undefined,
+    onScrubEnd: config.onScrubEnd ? (value: number) => config.onScrubEnd?.(axis, value) : undefined,
+    onScrubCancel: config.onScrubCancel ? () => config.onScrubCancel?.(axis) : undefined,
+  }
+}
+
+function CompoundAxisInput({
+  axis,
+  config,
+}: {
+  axis: 'x' | 'y'
+  config: CompoundPropertyInputConfig
+}) {
+  return (
+    <AxisInput
+      axis={axis}
+      value={config.value[axis]}
+      unit={config.unit}
+      propertyLabel={config.label}
+      disabled={config.disabled ?? false}
+      allowCreateOnBlur={config.allowCreateOnBlur ?? false}
+      {...createCompoundAxisCallbacks(config, axis)}
+      scrubStep={config.scrubStep}
+      decimals={config.decimals}
+    />
+  )
 }
 
 export function CompoundPropertyInputs({
@@ -109,17 +225,17 @@ export function CompoundPropertyInputs({
   return (
     <div
       className={`flex shrink-0 items-center overflow-hidden rounded-sm border border-border/70 ${
-        spacious ? 'w-[192px]' : 'w-[116px]'
-      } ${
-        config.linked ? 'border-orange-500/50 text-orange-400' : ''
-      }`}
+        spacious ? 'w-[192px]' : 'w-[132px]'
+      } ${config.linked ? 'border-orange-500/50 text-orange-400' : ''}`}
       data-testid="compound-property-inputs"
     >
       {config.axisLink ? (
         <button
           type="button"
           className="flex h-5 w-5 shrink-0 items-center justify-center border-r border-border/70 text-muted-foreground hover:text-foreground"
-          aria-label={config.axisLink.linked ? `Unlink ${config.label} axes` : `Link ${config.label} axes`}
+          aria-label={
+            config.axisLink.linked ? `Unlink ${config.label} axes` : `Link ${config.label} axes`
+          }
           aria-pressed={config.axisLink.linked}
           onClick={() => config.axisLink?.onChange(!config.axisLink.linked)}
         >
@@ -136,24 +252,8 @@ export function CompoundPropertyInputs({
           data-testid="compound-property-axis-link-spacer"
         />
       ) : null}
-      <AxisInput
-        axis="x"
-        value={config.value.x}
-        unit={config.unit}
-        propertyLabel={config.label}
-        disabled={config.disabled ?? false}
-        allowCreateOnBlur={config.allowCreateOnBlur ?? false}
-        onCommit={(value, options) => config.onCommit('x', value, options)}
-      />
-      <AxisInput
-        axis="y"
-        value={config.value.y}
-        unit={config.unit}
-        propertyLabel={config.label}
-        disabled={config.disabled ?? false}
-        allowCreateOnBlur={config.allowCreateOnBlur ?? false}
-        onCommit={(value, options) => config.onCommit('y', value, options)}
-      />
+      <CompoundAxisInput axis="x" config={config} />
+      <CompoundAxisInput axis="y" config={config} />
     </div>
   )
 }

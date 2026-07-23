@@ -26,7 +26,6 @@ import {
 import {
   getEdgeScrollDelta,
   getPlayheadEdgeScrollVelocity,
-  getVisiblePlayheadClientX,
 } from '../utils/playhead-edge-scroll'
 
 interface TimelinePlayheadProps {
@@ -326,16 +325,21 @@ export function TimelinePlayhead({
         }
 
         const viewportBounds = scrollContainer?.getBoundingClientRect() ?? coordinateBounds
-        const visualClientX = getVisiblePlayheadClientX(clientX, viewportBounds)
-        const pointerTimelineX = visualClientX - coordinateBounds.left + coordinateScrollOffset
+        // Match the committed playhead's integer-frame position during the
+        // gesture so a stationary press/release cannot visibly settle sideways.
+        const frameTimelineX = Math.round(frameToPixelsRef.current(targetFrame))
         const maxTimelineX =
           maxFrameRef.current === undefined
             ? undefined
-            : frameToPixelsRef.current(maxFrameRef.current)
-        const visualTimelineX =
-          maxTimelineX === undefined
-            ? pointerTimelineX
-            : Math.max(scrollLeft, Math.min(pointerTimelineX, maxTimelineX))
+            : Math.round(frameToPixelsRef.current(maxFrameRef.current))
+        const visualTimelineX = Math.max(
+          scrollLeft,
+          Math.min(
+            frameTimelineX,
+            scrollLeft + Math.max(0, viewportBounds.width - 1),
+            maxTimelineX ?? Number.POSITIVE_INFINITY,
+          ),
+        )
         for (const element of scrubPlayheadElementsRef.current) {
           element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
         }

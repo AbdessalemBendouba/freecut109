@@ -166,6 +166,20 @@
         "layer": "Ebene hinzufügen"
       }
     },
+    "editAnimation": {
+      "quickTitle": "Schnell animieren",
+      "quickHint": "Füge eine fertige Clip-Animation hinzu. Sie bleibt in der Zeitleiste bearbeitbar.",
+      "appliedHint": "Alles, was sich derzeit in diesem Clip bewegt.",
+      "noneApplied": "Noch keine Animation angewendet.",
+      "editTiming": "Timing bearbeiten",
+      "textHint": "Animiere Zeichen, Wörter, Zeilen oder den gesamten Textclip.",
+      "motionClipTitle": "Motion-Clip",
+      "motionClipCreateHint": "Wandle diesen Clip für erweiterte Animationen in eine Ebenenkomposition um.",
+      "motionClipOpenHint": "Dieser Clip ist eine ebenenbasierte Motion-Komposition.",
+      "createMotionClip": "Motion-Clip erstellen",
+      "openInMotion": "In Motion öffnen",
+      "untitledClip": "Unbenannter Clip"
+    },
     "motionGenerator": {
       "title": "Generator",
       "intensity": "Intensität",

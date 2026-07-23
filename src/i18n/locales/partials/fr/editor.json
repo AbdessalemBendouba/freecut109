@@ -166,6 +166,20 @@
         "layer": "Ajouter un calque"
       }
     },
+    "editAnimation": {
+      "quickTitle": "Animation rapide",
+      "quickHint": "Ajoutez une animation prête à l’emploi au clip. Elle reste modifiable dans la chronologie.",
+      "appliedHint": "Tout ce qui est actuellement animé sur ce clip.",
+      "noneApplied": "Aucune animation appliquée pour le moment.",
+      "editTiming": "Modifier le timing",
+      "textHint": "Animez les caractères, les mots, les lignes ou tout le clip de texte.",
+      "motionClipTitle": "Clip Motion",
+      "motionClipCreateHint": "Convertissez ce clip en composition multicouche pour une animation avancée.",
+      "motionClipOpenHint": "Ce clip est une composition Motion multicouche.",
+      "createMotionClip": "Créer un clip Motion",
+      "openInMotion": "Ouvrir dans Motion",
+      "untitledClip": "Clip sans titre"
+    },
     "motionGenerator": {
       "title": "Générateur",
       "intensity": "Intensité",

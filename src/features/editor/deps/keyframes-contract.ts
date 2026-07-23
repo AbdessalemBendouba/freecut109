@@ -13,6 +13,7 @@ export {
   getPropertyKeyframes,
   interpolatePropertyValue,
 } from '@/features/keyframes/utils/interpolation'
+export { countTrimmedKeyframes } from '@/features/keyframes/utils/trimmed-keyframes'
 export {
   getAutoKeyframeOperation,
   type AutoKeyframeOperation,
