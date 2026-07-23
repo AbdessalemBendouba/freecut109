@@ -217,10 +217,7 @@ describe('ClipContent', () => {
     expect(await screen.findByTestId('clip-waveform')).toHaveAttribute('data-pps', '180')
   })
 
-  it('defers filmstrip content for clips that mount during an active zoom gesture', () => {
-    // A clip first appearing mid-zoom (e.g. entering the viewport while zooming
-    // out) must NOT mount its filmstrip tile grid yet — that mount burst is the
-    // bulk of zoom-out cost. It shows just the clip shell until the zoom settles.
+  it('mounts the bounded filmstrip for clips that appear during an active zoom gesture', async () => {
     useZoomStore.setState({
       level: 1,
       pixelsPerSecond: 100,
@@ -247,8 +244,7 @@ describe('ClipContent', () => {
 
     render(<ClipContent item={item} clipLeftFrames={0} clipWidthFrames={96} fps={30} />)
 
-    // Mounted mid-gesture → filmstrip deferred (label still renders).
-    expect(screen.queryByTestId('clip-filmstrip')).toBeNull()
+    expect(await screen.findByTestId('clip-filmstrip')).toBeInTheDocument()
     expect(screen.getByText('Video clip')).toBeInTheDocument()
   })
 })

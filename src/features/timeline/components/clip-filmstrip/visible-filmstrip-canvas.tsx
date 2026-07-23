@@ -24,7 +24,6 @@ type DrawableFilmstripSource = ImageBitmap | HTMLImageElement
 interface VisibleFilmstripCanvasProps {
   renderWidth: number
   height: number
-  tileWidth: number
   visibleStartPx: number
   visibleEndPx: number
   tiles: FilmstripCanvasTile[]
@@ -39,7 +38,6 @@ function isDrawableBitmap(bitmap: ImageBitmap | undefined): bitmap is ImageBitma
 export const VisibleFilmstripCanvas = memo(function VisibleFilmstripCanvas({
   renderWidth,
   height,
-  tileWidth,
   visibleStartPx,
   visibleEndPx,
   tiles,
@@ -188,7 +186,6 @@ export const VisibleFilmstripCanvas = memo(function VisibleFilmstripCanvas({
     height,
     imageRevision,
     renderWidth,
-    tileWidth,
     tiles,
     visibleEndPx,
     visibleStartPx,

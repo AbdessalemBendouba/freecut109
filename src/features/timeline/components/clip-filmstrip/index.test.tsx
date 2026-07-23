@@ -314,8 +314,13 @@ describe('ClipFilmstrip', () => {
     )
 
     const canvas = container.querySelector('[data-filmstrip-canvas]') as HTMLCanvasElement | null
+    const fallback = container.querySelector('[data-filmstrip-fallback]') as HTMLDivElement | null
     expect(canvas).not.toBeNull()
+    expect(fallback).not.toBeNull()
     expect(canvas!.style.width).toBe('40px')
+    expect(fallback!.style.backgroundImage).toContain('blob:frame-0')
+    expect(fallback!.style.backgroundRepeat).toBe('repeat-x')
+    expect(fallback!.style.backgroundSize).toBe('107px 60px')
     expect(container.querySelectorAll('img')).toHaveLength(0)
 
     const source = TestImage.instances.find((image) => image.src === 'blob:frame-0')

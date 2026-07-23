@@ -359,11 +359,19 @@ export const ClipFilmstrip = memo(function ClipFilmstrip({
   }
 
   return (
-    <div ref={containerRef} className="absolute inset-0">
+    <div
+      ref={containerRef}
+      className="absolute inset-0"
+      data-filmstrip-fallback
+      style={{
+        backgroundImage: coverFrame?.url ? `url(${coverFrame.url})` : undefined,
+        backgroundRepeat: 'repeat-x',
+        backgroundSize: `${thumbnailWidth}px ${height}px`,
+      }}
+    >
       <VisibleFilmstripCanvas
         renderWidth={renderClipWidth}
         height={height}
-        tileWidth={thumbnailWidth}
         visibleStartPx={filmstripRenderWindow.paddedStartX}
         visibleEndPx={filmstripRenderWindow.paddedEndX}
         tiles={tiles}

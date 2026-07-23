@@ -55,7 +55,11 @@ export function computeFilmstripRenderWindow({
   const safeMaxWindowWidth = Math.max(0, maxWindowWidth)
   if (paddedEndX - paddedStartX > safeMaxWindowWidth) {
     const cappedWidth = Math.min(safeRenderWidth, safeMaxWindowWidth)
-    const center = (paddedStartX + paddedEndX) / 2
+    // Keep the capped canvas centered on the actual visible range. The render
+    // overflow is intentionally one-sided so trailing width commits stay
+    // covered, but centering on that asymmetric padded range can move the whole
+    // bounded canvas beyond the viewport on long clips.
+    const center = (visibleStartX + visibleEndX) / 2
     paddedStartX = Math.max(
       0,
       Math.min(safeRenderWidth - cappedWidth, center - cappedWidth / 2),

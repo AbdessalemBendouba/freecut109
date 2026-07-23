@@ -210,14 +210,10 @@ export const ClipContent = memo(function ClipContent({
   const enableFilmstripExtraction = useSettingsStore((s) => s.enableFilmstripExtraction)
   const showVideoFilmstrips = showFilmstrips && enableFilmstripExtraction
 
-  // Defer the heavy filmstrip/waveform mount for clips that first appear DURING
-  // an active zoom gesture. Zooming out brings many clips into the viewport at
-  // once, and mounting each one's tile grid + canvas draws is ~90% of zoom-out
-  // cost. A clip that mounts mid-gesture shows just its colored shell until the
-  // zoom settles, then reveals the thumbnails. This is read once at mount via
-  // getState() (NOT a reactive subscription) so already-mounted clips never
-  // re-render — only clips born mid-gesture defer, and only they subscribe (to
-  // flip themselves on once interaction ends).
+  // Defer waveform work for clips that first appear during an active zoom
+  // gesture. Filmstrips use one viewport-bounded canvas now, so suppressing
+  // them here only produces a visible blank shell without saving the old
+  // per-thumbnail DOM cost.
   const [deferVisual, setDeferVisual] = useState(() => useZoomStore.getState().isZoomInteracting)
   useEffect(() => {
     if (!deferVisual) return
@@ -432,7 +428,8 @@ export const ClipContent = memo(function ClipContent({
     [compositionKindLabel, renderTitleText],
   )
 
-  const showVisualContent = clipWidth >= FILMSTRIP_MIN_WIDTH_PX && !deferVisual
+  const showFilmstripContent = clipWidth >= FILMSTRIP_MIN_WIDTH_PX
+  const showDeferredVisualContent = showFilmstripContent && !deferVisual
 
   // Video clip 2-row layout: label | filmstrip
   if (item.type === 'video' && item.mediaId) {
@@ -449,7 +446,7 @@ export const ClipContent = memo(function ClipContent({
           {renderTitleText(item.label)}
         </div>
         {/* Row 2: Filmstrip - flex-1 to fill remaining space */}
-        {showVisualContent && (
+        {showFilmstripContent && (
           <div className="relative overflow-hidden flex-1 min-h-0">
             {showVideoFilmstrips && (
               <Suspense fallback={null}>
@@ -493,7 +490,7 @@ export const ClipContent = memo(function ClipContent({
           {renderTitleText(item.label)}
         </div>
         {/* Row 2: Waveform - fills remaining space */}
-        {showVisualContent && showWaveforms && (
+        {showDeferredVisualContent && showWaveforms && (
           <div className="relative overflow-hidden bg-waveform-gradient flex-1 min-h-0">
             <div
               className="absolute inset-0"
@@ -531,7 +528,7 @@ export const ClipContent = memo(function ClipContent({
     return (
       <div className="absolute inset-0 flex flex-col">
         {renderCompoundClipLabel(item.label || defaultCompositionLabel)}
-        {showVisualContent && showWaveforms && (
+        {showDeferredVisualContent && showWaveforms && (
           <div className="relative overflow-hidden bg-waveform-gradient flex-1 min-h-0">
             <Suspense fallback={null}>
               <LazyCompoundClipWaveform
@@ -570,7 +567,7 @@ export const ClipContent = memo(function ClipContent({
       return (
         <div className="absolute inset-0 flex flex-col">
           {renderCompoundClipLabel(item.label || defaultCompositionLabel)}
-          {showVisualContent && (
+          {showFilmstripContent && (
             <>
               {/* Row 2: Filmstrip stack - flex-1 */}
               <div className="relative overflow-hidden flex-1 min-h-0">
@@ -593,7 +590,7 @@ export const ClipContent = memo(function ClipContent({
                   ))}
               </div>
               {/* Row 3: Waveform */}
-              {showCompositionWaveform && composition && (
+              {showCompositionWaveform && composition && !deferVisual && (
                 <div
                   className="relative overflow-hidden bg-waveform-gradient"
                   style={{ height: EDITOR_LAYOUT_CSS_VALUES.timelineWaveformRowHeight }}
@@ -622,7 +619,7 @@ export const ClipContent = memo(function ClipContent({
       return (
         <div className="absolute inset-0 flex flex-col">
           {renderCompoundClipLabel(item.label || defaultCompositionLabel)}
-          {showVisualContent && showWaveforms && (
+          {showDeferredVisualContent && showWaveforms && (
             <div className="relative overflow-hidden bg-waveform-gradient flex-1 min-h-0">
               <Suspense fallback={null}>
                 <LazyCompoundClipWaveform
@@ -700,7 +697,7 @@ export const ClipContent = memo(function ClipContent({
         >
           {renderTitleText(item.label)}
         </div>
-        {showVisualContent && (
+        {showFilmstripContent && (
           <div className="relative overflow-hidden flex-1 min-h-0">
             {showFilmstrips && (
               <Suspense fallback={null}>
