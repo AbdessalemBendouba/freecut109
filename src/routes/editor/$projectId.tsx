@@ -1,4 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
+import { ProjectNotFoundError } from '@/app/route-error-cause'
 
 export const Route = createFileRoute('/editor/$projectId')({
   // Editor loader data is tiny and migration state must be fresh on reopen.
@@ -14,7 +15,7 @@ export const Route = createFileRoute('/editor/$projectId')({
     const project = await getProject(params.projectId)
 
     if (!project) {
-      throw new Error(`Project not found: ${params.projectId}`)
+      throw new ProjectNotFoundError(params.projectId)
     }
 
     const storedSchemaVersion = project.schemaVersion ?? 1

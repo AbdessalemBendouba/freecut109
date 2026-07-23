@@ -1,26 +1,25 @@
 /**
  * Router-level error screen.
  *
- * Errors thrown from a route's `beforeLoad` / `loader` reject before any
- * component mounts, so React error boundaries never see them — TanStack Router
- * catches them itself. With no `defaultErrorComponent` configured it falls back
- * to its own built-in: a hardcoded, untranslated "Something went wrong!" whose
- * message is hidden behind a "Show Error" toggle in production builds. A user
- * whose workspace folder cannot be read therefore sees three words on a blank
- * page, and their bug report carries nothing.
- *
- * This screen replaces that. It always shows the real message (production
- * included), names the underlying DOMException when there is one, and offers
- * the recovery that actually applies: for a storage fault, picking a different
- * folder — the workspace is a user-chosen directory, and some directories
- * (cloud-synced or network mounts) cannot support every filesystem operation.
+ * Route loaders fail before a component mounts, so the router owns their
+ * recovery UI. Expected failures such as a stale project link get a specific
+ * path forward, while technical details stay available through a copy action
+ * instead of taking over the screen.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ErrorComponentProps } from '@tanstack/react-router'
-import { useRouter } from '@tanstack/react-router'
+import { Link, useRouter } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, FolderOpen, RefreshCw } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Check,
+  Copy,
+  FileQuestion,
+  FolderOpen,
+  RefreshCw,
+} from 'lucide-react'
 
 import { FreeCutLogo } from '@/components/brand/freecut-logo'
 import { Button } from '@/components/ui/button'
@@ -30,7 +29,11 @@ import {
   getWorkspaceHandleRecord,
   removeKnownWorkspace,
 } from '@/infrastructure/storage/handles-db'
-import { getStorageFailureName } from './route-error-cause'
+import {
+  formatRouteErrorDetails,
+  getProjectNotFoundError,
+  getStorageFailureName,
+} from './route-error-cause'
 
 const logger = createLogger('RouteError')
 
@@ -46,19 +49,49 @@ export function RouteErrorScreen({ error, reset }: ErrorComponentProps) {
   const { t } = useTranslation()
   const router = useRouter()
   const [isSwitchingFolder, setIsSwitchingFolder] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const copyResetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const projectNotFound = getProjectNotFoundError(error)
   const failureName = getStorageFailureName(error)
   const explanationKey = failureName ? CAUSE_EXPLANATION_KEYS[failureName] : undefined
-  const description = explanationKey ? t(explanationKey) : t('app.routeError.description')
+  const title = projectNotFound
+    ? t('app.routeError.projectNotFoundTitle')
+    : t('app.routeError.title')
+  const description = projectNotFound
+    ? t('app.routeError.projectNotFoundDescription')
+    : explanationKey
+      ? t(explanationKey)
+      : t('app.routeError.description')
+
+  useEffect(
+    () => () => {
+      if (copyResetTimer.current) clearTimeout(copyResetTimer.current)
+    },
+    [],
+  )
 
   const handleRetry = () => {
     reset()
     void router.invalidate()
   }
 
+  const handleCopyDetails = async () => {
+    try {
+      await navigator.clipboard.writeText(formatRouteErrorDetails(error, window.location.href))
+      setCopyStatus('copied')
+    } catch (cause) {
+      logger.error('Failed to copy route error details', cause)
+      setCopyStatus('failed')
+    }
+
+    if (copyResetTimer.current) clearTimeout(copyResetTimer.current)
+    copyResetTimer.current = setTimeout(() => setCopyStatus('idle'), 2000)
+  }
+
   /**
    * Forget the active workspace so `WorkspaceGate` reverts to its pick-folder
-   * state on the next render. This only deletes the handle registry record —
+   * state on the next render. This only deletes the handle registry record,
    * never the user's files.
    */
   const handleChooseDifferentFolder = async () => {
@@ -77,53 +110,88 @@ export function RouteErrorScreen({ error, reset }: ErrorComponentProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-6">
-      <div className="max-w-lg w-full text-center">
-        <FreeCutLogo variant="full" size="lg" className="justify-center mb-8" />
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-6 py-12">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent"
+      />
 
-        <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+      <div className="w-full max-w-md">
+        <FreeCutLogo variant="full" size="md" className="mb-6 justify-center" />
 
-        <h1 className="text-lg font-semibold">{t('app.routeError.title')}</h1>
-        <p className="text-sm text-muted-foreground mt-1">{description}</p>
-
-        {/*
-          Always rendered, production included. The built-in fallback hid this
-          behind a toggle, which is precisely what made the original reports
-          undiagnosable.
-        */}
-        <p className="mt-4 rounded-lg bg-muted px-4 py-3 text-left font-mono text-xs wrap-break-word">
-          {error.message}
-          {failureName && <span className="text-muted-foreground"> — {failureName}</span>}
-        </p>
-
-        <div className="mt-6 flex flex-col items-center justify-center gap-2 sm:flex-row">
-          <Button variant="outline" className="gap-2" onClick={handleRetry}>
-            <RefreshCw className="h-4 w-4" />
-            {t('app.errorBoundary.tryAgain')}
-          </Button>
-          <Button onClick={() => window.location.reload()}>
-            {t('app.errorBoundary.reloadPage')}
-          </Button>
-        </div>
-
-        {failureName && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="mt-3 gap-2"
-            disabled={isSwitchingFolder}
-            onClick={handleChooseDifferentFolder}
+        <main className="rounded-2xl border border-border/80 bg-card/70 px-6 py-8 text-center shadow-2xl shadow-black/20 backdrop-blur-sm sm:px-8">
+          <div
+            className={
+              projectNotFound
+                ? 'mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary'
+                : 'mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-destructive/20 bg-destructive/10 text-destructive'
+            }
           >
-            <FolderOpen className="h-4 w-4" />
-            {t('projects.workspaceGate.chooseDifferentFolder')}
-          </Button>
-        )}
+            {projectNotFound ? (
+              <FileQuestion className="h-8 w-8" />
+            ) : (
+              <AlertTriangle className="h-8 w-8" />
+            )}
+          </div>
 
-        {import.meta.env.DEV && error.stack && (
-          <pre className="mt-4 p-4 bg-muted rounded text-xs text-left overflow-auto max-h-48">
-            {error.stack}
-          </pre>
-        )}
+          <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+            {description}
+          </p>
+
+          <div className="mt-7 flex flex-col-reverse justify-center gap-2 sm:flex-row">
+            <Button variant="outline" onClick={handleRetry}>
+              <RefreshCw />
+              {t('app.errorBoundary.tryAgain')}
+            </Button>
+
+            {projectNotFound ? (
+              <Button asChild>
+                <Link to="/projects">
+                  <ArrowLeft />
+                  {t('app.routeError.backToProjects')}
+                </Link>
+              </Button>
+            ) : (
+              <Button onClick={() => window.location.reload()}>
+                {t('app.errorBoundary.reloadPage')}
+              </Button>
+            )}
+          </div>
+
+          {failureName && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-3"
+              disabled={isSwitchingFolder}
+              onClick={handleChooseDifferentFolder}
+            >
+              <FolderOpen />
+              {t('projects.workspaceGate.chooseDifferentFolder')}
+            </Button>
+          )}
+
+          <div className="mt-6 border-t border-border/70 pt-5">
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t('app.routeError.supportHint')}
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-1"
+              aria-live="polite"
+              onClick={() => void handleCopyDetails()}
+            >
+              {copyStatus === 'copied' ? <Check /> : <Copy />}
+              {copyStatus === 'copied'
+                ? t('app.routeError.detailsCopied')
+                : copyStatus === 'failed'
+                  ? t('app.routeError.copyFailed')
+                  : t('app.routeError.copyDetails')}
+            </Button>
+          </div>
+        </main>
       </div>
     </div>
   )
