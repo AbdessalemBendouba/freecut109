@@ -3,9 +3,7 @@ import {
   lazy,
   memo,
   useCallback,
-  useEffect,
   useMemo,
-  useState,
   type ReactNode,
 } from 'react'
 import { Link2 } from 'lucide-react'
@@ -189,15 +187,13 @@ export const ClipContent = memo(function ClipContent({
   linkedSyncOffsetFrames = null,
 }: ClipContentProps) {
   perfMarkRender('ClipContent')
-  // Drive filmstrip/waveform width from the SETTLED zoom (contentPixelsPerSecond)
-  // by default, not the live per-frame pps. The clip shell itself resizes
-  // smoothly during a zoom gesture via the --timeline-px-per-frame CSS variable
-  // (no React), while contentPixelsPerSecond only updates ~100ms after the gesture
-  // settles. This stops ClipContent (and the expensive filmstrip tile grid /
-  // waveform render) from re-rendering on every wheel/momentum frame — previously
-  // ~73% of zoom cost. During the gesture the filmstrip is briefly at the pre-zoom
-  // scale, covered by the repeating cover-frame background (zoom-in) or clipped by
-  // overflow:hidden (zoom-out); it snaps sharp on settle.
+  // Keep ClipContent measurements on the SETTLED zoom
+  // (contentPixelsPerSecond) by default. The clip shell itself resizes smoothly
+  // through --timeline-px-per-frame without rerendering this subtree. Filmstrips
+  // remain on this settled geometry and use their cached repeating cover while
+  // zoom is live. Mounted waveforms independently sample the live zoom at a
+  // bounded redraw cadence, so they stay sharp without putting ClipContent back
+  // on the per-frame zoom hot path.
   //
   // preferImmediateRendering (active edit previews — trim/slide) opts back into
   // the live pps so the content tracks the shell frame-for-frame while the user
@@ -205,29 +201,15 @@ export const ClipContent = memo(function ClipContent({
   const pixelsPerSecond = useZoomStore((s) =>
     preferImmediateRendering ? s.pixelsPerSecond : s.contentPixelsPerSecond,
   )
+  const liveClipClearsVisualThreshold = useZoomStore(
+    (s) =>
+      fps > 0 &&
+      (clipWidthFrames / fps) * s.pixelsPerSecond >= FILMSTRIP_MIN_WIDTH_PX,
+  )
   const showWaveforms = useSettingsStore((s) => s.showWaveforms)
   const showFilmstrips = useSettingsStore((s) => s.showFilmstrips)
   const enableFilmstripExtraction = useSettingsStore((s) => s.enableFilmstripExtraction)
   const showVideoFilmstrips = showFilmstrips && enableFilmstripExtraction
-
-  // Defer waveform work for clips that first appear during an active zoom
-  // gesture. Filmstrips use one viewport-bounded canvas now, so suppressing
-  // them here only produces a visible blank shell without saving the old
-  // per-thumbnail DOM cost.
-  const [deferVisual, setDeferVisual] = useState(() => useZoomStore.getState().isZoomInteracting)
-  useEffect(() => {
-    if (!deferVisual) return
-    // The gesture may have settled between the mount-time getState() read and
-    // this effect attaching. The subscription only fires on *future* changes, so
-    // without this re-check the clip would stay shell-only until the next zoom.
-    if (!useZoomStore.getState().isZoomInteracting) {
-      setDeferVisual(false)
-      return
-    }
-    return useZoomStore.subscribe((state) => {
-      if (!state.isZoomInteracting) setDeferVisual(false)
-    })
-  }, [deferVisual])
 
   const clipLeftPx = useMemo(
     () => (fps > 0 ? (clipLeftFrames / fps) * pixelsPerSecond : 0),
@@ -428,8 +410,11 @@ export const ClipContent = memo(function ClipContent({
     [compositionKindLabel, renderTitleText],
   )
 
-  const showFilmstripContent = clipWidth >= FILMSTRIP_MIN_WIDTH_PX
-  const showDeferredVisualContent = showFilmstripContent && !deferVisual
+  // Filmstrips and waveforms are both viewport-bounded single canvases now.
+  // Mount them immediately when a clip enters during zoom; their extraction
+  // and redraw budgets remain independently throttled.
+  const showVisualContent =
+    clipWidth >= FILMSTRIP_MIN_WIDTH_PX || liveClipClearsVisualThreshold
 
   // Video clip 2-row layout: label | filmstrip
   if (item.type === 'video' && item.mediaId) {
@@ -446,7 +431,7 @@ export const ClipContent = memo(function ClipContent({
           {renderTitleText(item.label)}
         </div>
         {/* Row 2: Filmstrip - flex-1 to fill remaining space */}
-        {showFilmstripContent && (
+        {showVisualContent && (
           <div className="relative overflow-hidden flex-1 min-h-0">
             {showVideoFilmstrips && (
               <Suspense fallback={null}>
@@ -490,7 +475,7 @@ export const ClipContent = memo(function ClipContent({
           {renderTitleText(item.label)}
         </div>
         {/* Row 2: Waveform - fills remaining space */}
-        {showDeferredVisualContent && showWaveforms && (
+        {showVisualContent && showWaveforms && (
           <div className="relative overflow-hidden bg-waveform-gradient flex-1 min-h-0">
             <div
               className="absolute inset-0"
@@ -515,6 +500,7 @@ export const ClipContent = memo(function ClipContent({
                   visibleStartRatio={clipVisibility.visibleStartRatio}
                   visibleEndRatio={clipVisibility.visibleEndRatio}
                   pixelsPerSecond={pixelsPerSecond}
+                  liveTimelineZoom
                 />
               </Suspense>
             </div>
@@ -528,7 +514,7 @@ export const ClipContent = memo(function ClipContent({
     return (
       <div className="absolute inset-0 flex flex-col">
         {renderCompoundClipLabel(item.label || defaultCompositionLabel)}
-        {showDeferredVisualContent && showWaveforms && (
+        {showVisualContent && showWaveforms && (
           <div className="relative overflow-hidden bg-waveform-gradient flex-1 min-h-0">
             <Suspense fallback={null}>
               <LazyCompoundClipWaveform
@@ -567,7 +553,7 @@ export const ClipContent = memo(function ClipContent({
       return (
         <div className="absolute inset-0 flex flex-col">
           {renderCompoundClipLabel(item.label || defaultCompositionLabel)}
-          {showFilmstripContent && (
+          {showVisualContent && (
             <>
               {/* Row 2: Filmstrip stack - flex-1 */}
               <div className="relative overflow-hidden flex-1 min-h-0">
@@ -590,7 +576,7 @@ export const ClipContent = memo(function ClipContent({
                   ))}
               </div>
               {/* Row 3: Waveform */}
-              {showCompositionWaveform && composition && !deferVisual && (
+              {showCompositionWaveform && composition && (
                 <div
                   className="relative overflow-hidden bg-waveform-gradient"
                   style={{ height: EDITOR_LAYOUT_CSS_VALUES.timelineWaveformRowHeight }}
@@ -619,7 +605,7 @@ export const ClipContent = memo(function ClipContent({
       return (
         <div className="absolute inset-0 flex flex-col">
           {renderCompoundClipLabel(item.label || defaultCompositionLabel)}
-          {showDeferredVisualContent && showWaveforms && (
+          {showVisualContent && showWaveforms && (
             <div className="relative overflow-hidden bg-waveform-gradient flex-1 min-h-0">
               <Suspense fallback={null}>
                 <LazyCompoundClipWaveform
@@ -697,7 +683,7 @@ export const ClipContent = memo(function ClipContent({
         >
           {renderTitleText(item.label)}
         </div>
-        {showFilmstripContent && (
+        {showVisualContent && (
           <div className="relative overflow-hidden flex-1 min-h-0">
             {showFilmstrips && (
               <Suspense fallback={null}>

@@ -3,6 +3,40 @@ export interface VisibleWaveformCanvasGeometry {
   width: number
 }
 
+export function computeLiveViewportWaveformCanvasGeometry({
+  hostLeft,
+  hostWidth,
+  viewportLeft,
+  viewportWidth,
+  overscanPx,
+}: {
+  hostLeft: number
+  hostWidth: number
+  viewportLeft: number
+  viewportWidth: number
+  overscanPx: number
+}): VisibleWaveformCanvasGeometry {
+  const safeHostWidth = Math.max(0, hostWidth)
+  const safeViewportWidth = Math.max(0, viewportWidth)
+  const safeOverscan = Math.max(0, overscanPx)
+  const left = Math.max(
+    0,
+    Math.min(safeHostWidth, viewportLeft - safeOverscan - hostLeft),
+  )
+  const right = Math.max(
+    left,
+    Math.min(
+      safeHostWidth,
+      viewportLeft + safeViewportWidth + safeOverscan - hostLeft,
+    ),
+  )
+
+  return {
+    left: Math.floor(left),
+    width: Math.max(0, Math.ceil(right) - Math.floor(left)),
+  }
+}
+
 export function computeVisibleWaveformCanvasGeometry(
   width: number,
   visibleStartPx: number,

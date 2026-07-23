@@ -16,10 +16,11 @@ import { computeWaveformRenderWindow } from './render-window'
 import { computeWaveformAmplitude } from './amplitude'
 import {
   getWaveformActiveTileCount,
-  useAdaptiveWaveformRenderVersion,
+  useAdaptiveWaveformPixelsPerSecond,
 } from './adaptive-render-version'
 import { observeParentElementHeight } from '../measure-parent-height'
 import { useTimelineViewportStore } from '../../stores/timeline-viewport-store'
+import { useZoomStore } from '../../stores/zoom-store'
 import { CLIP_VISIBILITY_PREFETCH_MARGIN_PX } from '../../hooks/use-clip-visibility'
 
 const logger = createLogger('ClipWaveform')
@@ -55,6 +56,8 @@ interface ClipWaveformProps {
   visibleEndRatio?: number
   /** Pixels per second from parent (avoids redundant zoom subscription) */
   pixelsPerSecond: number
+  /** Track the main timeline's live zoom while parent geometry stays settled. */
+  liveTimelineZoom?: boolean
 }
 
 /**
@@ -78,16 +81,12 @@ export const ClipWaveform = memo(function ClipWaveform({
   visibleStartRatio = 0,
   visibleEndRatio = 1,
   pixelsPerSecond,
+  liveTimelineZoom = false,
 }: ClipWaveformProps) {
   void fps
   const containerRef = useRef<HTMLDivElement>(null)
   const pixelsPerSecondRef = useRef(pixelsPerSecond)
-  pixelsPerSecondRef.current = pixelsPerSecond
-  // clipWidth is read via ref inside renderWindow so zoom (which changes clipWidth
-  // and pps proportionally) doesn't invalidate the callback identity and force
-  // a redraw on every zoom step.
-  const clipWidthRef = useRef(clipWidth)
-  clipWidthRef.current = clipWidth
+  const clipTimelineDurationRef = useRef(clipWidth / Math.max(1, pixelsPerSecond))
   const amplitudesBufferRef = useRef<Float32Array>(new Float32Array(0))
   const [height, setHeight] = useState(0)
   const viewportWidth = useTimelineViewportStore((state) => state.viewportWidth)
@@ -105,7 +104,43 @@ export const ClipWaveform = memo(function ClipWaveform({
   // Track if audio codec is supported for waveform generation
   const [audioCodecSupported, setAudioCodecSupported] = useState(true)
   const visibleClipWidth = clipWidth
-  const renderClipWidth = Math.max(visibleClipWidth, renderWidth ?? visibleClipWidth)
+  const settledRenderClipWidth = Math.max(visibleClipWidth, renderWidth ?? visibleClipWidth)
+  const maxWaveformWindowWidth =
+    viewportWidth > 0 ? viewportWidth + CLIP_VISIBILITY_PREFETCH_MARGIN_PX * 2 : undefined
+  const settledRenderWindow = useMemo(
+    () =>
+      computeWaveformRenderWindow({
+        renderWidth: settledRenderClipWidth,
+        visibleWidth: visibleClipWidth,
+        visibleStartRatio,
+        visibleEndRatio,
+        maxWindowWidth: maxWaveformWindowWidth,
+      }),
+    [
+      maxWaveformWindowWidth,
+      settledRenderClipWidth,
+      visibleClipWidth,
+      visibleEndRatio,
+      visibleStartRatio,
+    ],
+  )
+  const settledActiveTileCount = useMemo(
+    () =>
+      getWaveformActiveTileCount({
+        renderWidth: settledRenderClipWidth,
+        visibleStartPx: settledRenderWindow.visibleStartPx,
+        visibleEndPx: settledRenderWindow.visibleEndPx,
+      }),
+    [settledRenderClipWidth, settledRenderWindow],
+  )
+  const renderPixelsPerSecond = useAdaptiveWaveformPixelsPerSecond({
+    pixelsPerSecond,
+    activeTileCount: settledActiveTileCount,
+    phaseKey: mediaId,
+    enabled: liveTimelineZoom,
+  })
+  pixelsPerSecondRef.current = renderPixelsPerSecond
+  clipTimelineDurationRef.current = visibleClipWidth / Math.max(1, pixelsPerSecond)
   const visibleSourceWindow = useMemo(() => {
     const effectiveStart = Math.max(0, sourceStart + trimStart)
     const effectiveEnd = Math.min(
@@ -237,20 +272,7 @@ export const ClipWaveform = memo(function ClipWaveform({
     () => (peaks ? (stereo ? Math.floor(peaks.length / 2) : peaks.length) : 0),
     [peaks, stereo],
   )
-  const { visibleStartPx, visibleEndPx } = useMemo(
-    () =>
-      computeWaveformRenderWindow({
-        renderWidth: renderClipWidth,
-        visibleWidth: visibleClipWidth,
-        visibleStartRatio,
-        visibleEndRatio,
-        maxWindowWidth:
-          viewportWidth > 0
-            ? viewportWidth + CLIP_VISIBILITY_PREFETCH_MARGIN_PX * 2
-            : undefined,
-      }),
-    [renderClipWidth, visibleClipWidth, visibleStartRatio, visibleEndRatio, viewportWidth],
-  )
+  const { visibleStartPx, visibleEndPx } = settledRenderWindow
 
   // Render one final amplitude column per visible timeline pixel. Keep the
   // callback stable through zoom and use versioning to trigger redraws.
@@ -261,12 +283,20 @@ export const ClipWaveform = memo(function ClipWaveform({
       }
 
       const effectiveStart = sourceStart + trimStart
-      const currentPps = Math.max(1, pixelsPerSecondRef.current)
+      // An edge canvas can grow imperatively before React's cadence-limited
+      // waveform state commits. Sample the live store for that redraw so its
+      // new pixels map to the same zoom geometry that was just measured.
+      const currentPps = Math.max(
+        1,
+        liveTimelineZoom
+          ? useZoomStore.getState().pixelsPerSecond
+          : pixelsPerSecondRef.current,
+      )
       const effectiveEnd = Math.min(
         sourceDuration,
         Math.max(
           effectiveStart,
-          sourceEnd ?? effectiveStart + (clipWidthRef.current / Math.max(1, currentPps)) * speed,
+          sourceEnd ?? effectiveStart + clipTimelineDurationRef.current * speed,
         ),
       )
       const centerY = height / 2
@@ -355,25 +385,13 @@ export const ClipWaveform = memo(function ClipWaveform({
       height,
       normalizationPeak,
       stereo,
+      liveTimelineZoom,
     ],
   )
 
-  const activeTileCount = useMemo(
-    () =>
-      getWaveformActiveTileCount({
-        renderWidth: renderClipWidth,
-        visibleStartPx,
-        visibleEndPx,
-      }),
-    [renderClipWidth, visibleStartPx, visibleEndPx],
-  )
-  const renderVersion = useAdaptiveWaveformRenderVersion({
-    baseVersion: `${loadedSamples}:${height}`,
-    pixelsPerSecond,
-    renderWidth: renderClipWidth,
-    activeTileCount,
-    phaseKey: mediaId,
-  })
+  const renderVersion = `${loadedSamples}:${height}:e${Math.round(
+    renderPixelsPerSecond * 1000,
+  )}:w${Math.round(settledRenderClipWidth)}`
 
   // Show empty state for unsupported/failed waveforms (no infinite skeleton).
   if (!audioCodecSupported || !!error) {
@@ -404,8 +422,10 @@ export const ClipWaveform = memo(function ClipWaveform({
   return (
     <div ref={containerRef} className="absolute inset-0">
       <VisibleWaveformCanvas
-        width={renderClipWidth}
+        width={settledRenderClipWidth}
         height={height}
+        liveTimelineViewport={liveTimelineZoom}
+        liveViewportOverscanPx={CLIP_VISIBILITY_PREFETCH_MARGIN_PX}
         renderWindow={renderWindow}
         version={renderVersion}
         visibleStartPx={visibleStartPx}
