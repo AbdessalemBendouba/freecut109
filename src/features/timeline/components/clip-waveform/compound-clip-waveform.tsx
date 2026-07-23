@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { TiledCanvas } from '../clip-filmstrip/tiled-canvas'
 import { WaveformSkeleton } from './waveform-skeleton'
+import { VisibleWaveformCanvas } from './visible-waveform-canvas'
 import { useMediaLibraryStore } from '@/features/timeline/deps/media-library-store'
 import { resolveMediaUrl } from '@/features/timeline/deps/media-library-resolver'
 import { createLogger } from '@/shared/logging/logger'
@@ -18,6 +18,8 @@ import {
   useAdaptiveWaveformRenderVersion,
 } from './adaptive-render-version'
 import { observeParentElementHeight } from '../measure-parent-height'
+import { useTimelineViewportStore } from '../../stores/timeline-viewport-store'
+import { CLIP_VISIBILITY_PREFETCH_MARGIN_PX } from '../../hooks/use-clip-visibility'
 
 const logger = createLogger('CompoundClipWaveform')
 const WAVEFORM_VERTICAL_PADDING_PX = 3
@@ -51,6 +53,7 @@ export const CompoundClipWaveform = memo(function CompoundClipWaveform({
   pixelsPerSecondRef.current = pixelsPerSecond
   const amplitudesBufferRef = useRef<Float32Array>(new Float32Array(0))
   const [height, setHeight] = useState(0)
+  const viewportWidth = useTimelineViewportStore((state) => state.viewportWidth)
   const [waveformsByMediaId, setWaveformsByMediaId] = useState<Map<string, CachedWaveform>>(
     new Map(),
   )
@@ -184,8 +187,12 @@ export const CompoundClipWaveform = memo(function CompoundClipWaveform({
         visibleWidth: visibleClipWidth,
         visibleStartRatio,
         visibleEndRatio,
+        maxWindowWidth:
+          viewportWidth > 0
+            ? viewportWidth + CLIP_VISIBILITY_PREFETCH_MARGIN_PX * 2
+            : undefined,
       }),
-    [renderClipWidth, visibleClipWidth, visibleStartRatio, visibleEndRatio],
+    [renderClipWidth, visibleClipWidth, visibleStartRatio, visibleEndRatio, viewportWidth],
   )
   const normalizationPeak = useMemo(() => {
     if (!peaks || peaks.length === 0) return 1
@@ -199,8 +206,8 @@ export const CompoundClipWaveform = memo(function CompoundClipWaveform({
     return maxPeak > 0 ? maxPeak : 1
   }, [peaks])
 
-  const renderTile = useCallback(
-    (ctx: CanvasRenderingContext2D, _tileIndex: number, tileOffset: number, tileWidth: number) => {
+  const renderWindow = useCallback(
+    (ctx: CanvasRenderingContext2D, windowOffset: number, windowWidth: number) => {
       if (!peaks || peaks.length === 0 || sampleRate <= 0 || sourceDuration <= 0) {
         return
       }
@@ -208,7 +215,7 @@ export const CompoundClipWaveform = memo(function CompoundClipWaveform({
       const currentPps = Math.max(1, pixelsPerSecondRef.current)
       const centerY = height / 2
       const maxWaveHeight = Math.max(1, height / 2 - WAVEFORM_VERTICAL_PADDING_PX)
-      const amplitudeCount = tileWidth + 1
+      const amplitudeCount = windowWidth + 1
       if (amplitudesBufferRef.current.length < amplitudeCount) {
         amplitudesBufferRef.current = new Float32Array(amplitudeCount)
       }
@@ -219,7 +226,7 @@ export const CompoundClipWaveform = memo(function CompoundClipWaveform({
       ctx.moveTo(0, centerY)
 
       for (let x = 0; x < amplitudeCount; x += 1) {
-        const timelinePosition = (tileOffset + x) / currentPps
+        const timelinePosition = (windowOffset + x) / currentPps
         const compoundTime = sourceStart + timelinePosition
 
         if (compoundTime < 0 || compoundTime > sourceDuration) {
@@ -316,14 +323,14 @@ export const CompoundClipWaveform = memo(function CompoundClipWaveform({
 
   return (
     <div ref={containerRef} className="absolute inset-0">
-      <TiledCanvas
+      <VisibleWaveformCanvas
         width={renderClipWidth}
         height={height}
-        renderTile={renderTile}
+        renderWindow={renderWindow}
         version={renderVersion}
         visibleStartPx={visibleStartPx}
         visibleEndPx={visibleEndPx}
-        overscanTiles={1}
+        viewportVersion={`${viewportWidth}:${visibleStartRatio.toFixed(4)}:${visibleEndRatio.toFixed(4)}`}
       />
     </div>
   )

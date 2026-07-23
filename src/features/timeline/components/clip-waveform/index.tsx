@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { TiledCanvas } from '../clip-filmstrip/tiled-canvas'
 import { WaveformSkeleton } from './waveform-skeleton'
+import { VisibleWaveformCanvas } from './visible-waveform-canvas'
 import { useWaveform } from '../../hooks/use-waveform'
 import { importMediaLibraryService } from '@/features/timeline/deps/media-library-service'
 import { resolveMediaUrl } from '@/features/timeline/deps/media-library-resolver'
@@ -19,6 +19,8 @@ import {
   useAdaptiveWaveformRenderVersion,
 } from './adaptive-render-version'
 import { observeParentElementHeight } from '../measure-parent-height'
+import { useTimelineViewportStore } from '../../stores/timeline-viewport-store'
+import { CLIP_VISIBILITY_PREFETCH_MARGIN_PX } from '../../hooks/use-clip-visibility'
 
 const logger = createLogger('ClipWaveform')
 
@@ -81,13 +83,14 @@ export const ClipWaveform = memo(function ClipWaveform({
   const containerRef = useRef<HTMLDivElement>(null)
   const pixelsPerSecondRef = useRef(pixelsPerSecond)
   pixelsPerSecondRef.current = pixelsPerSecond
-  // clipWidth is read via ref inside renderTile so zoom (which changes clipWidth
+  // clipWidth is read via ref inside renderWindow so zoom (which changes clipWidth
   // and pps proportionally) doesn't invalidate the callback identity and force
-  // TiledCanvas to redraw all visible tiles on every zoom step.
+  // a redraw on every zoom step.
   const clipWidthRef = useRef(clipWidth)
   clipWidthRef.current = clipWidth
   const amplitudesBufferRef = useRef<Float32Array>(new Float32Array(0))
   const [height, setHeight] = useState(0)
+  const viewportWidth = useTimelineViewportStore((state) => state.viewportWidth)
   const conformStartedRef = useRef(false)
   const { blobUrl, setBlobUrl, hasStartedLoadingRef, blobUrlVersion } = useMediaBlobUrl(mediaId)
 
@@ -241,14 +244,18 @@ export const ClipWaveform = memo(function ClipWaveform({
         visibleWidth: visibleClipWidth,
         visibleStartRatio,
         visibleEndRatio,
+        maxWindowWidth:
+          viewportWidth > 0
+            ? viewportWidth + CLIP_VISIBILITY_PREFETCH_MARGIN_PX * 2
+            : undefined,
       }),
-    [renderClipWidth, visibleClipWidth, visibleStartRatio, visibleEndRatio],
+    [renderClipWidth, visibleClipWidth, visibleStartRatio, visibleEndRatio, viewportWidth],
   )
 
-  // Render function for tiled canvas. Keep the callback stable through zoom
-  // changes and use versioning to trigger redraws at the current zoom level.
-  const renderTile = useCallback(
-    (ctx: CanvasRenderingContext2D, _tileIndex: number, tileOffset: number, tileWidth: number) => {
+  // Render one final amplitude column per visible timeline pixel. Keep the
+  // callback stable through zoom and use versioning to trigger redraws.
+  const renderWindow = useCallback(
+    (ctx: CanvasRenderingContext2D, windowOffset: number, windowWidth: number) => {
       if (!peaks || peakSampleCount === 0 || duration === 0) {
         return
       }
@@ -264,7 +271,7 @@ export const ClipWaveform = memo(function ClipWaveform({
       )
       const centerY = height / 2
       const maxWaveHeight = Math.max(1, height / 2 - WAVEFORM_VERTICAL_PADDING_PX)
-      const amplitudeCount = tileWidth + 1
+      const amplitudeCount = windowWidth + 1
       if (amplitudesBufferRef.current.length < amplitudeCount) {
         amplitudesBufferRef.current = new Float32Array(amplitudeCount)
       }
@@ -275,7 +282,7 @@ export const ClipWaveform = memo(function ClipWaveform({
       ctx.moveTo(0, centerY)
 
       for (let x = 0; x < amplitudeCount; x++) {
-        const timelinePosition = (tileOffset + x) / currentPps
+        const timelinePosition = (windowOffset + x) / currentPps
         const sourceOffset = timelinePosition * speed
         const sourceTime = isReversed ? effectiveEnd - sourceOffset : effectiveStart + sourceOffset
 
@@ -396,14 +403,14 @@ export const ClipWaveform = memo(function ClipWaveform({
 
   return (
     <div ref={containerRef} className="absolute inset-0">
-      <TiledCanvas
+      <VisibleWaveformCanvas
         width={renderClipWidth}
         height={height}
-        renderTile={renderTile}
+        renderWindow={renderWindow}
         version={renderVersion}
         visibleStartPx={visibleStartPx}
         visibleEndPx={visibleEndPx}
-        overscanTiles={1}
+        viewportVersion={`${viewportWidth}:${visibleStartRatio.toFixed(4)}:${visibleEndRatio.toFixed(4)}`}
       />
     </div>
   )
