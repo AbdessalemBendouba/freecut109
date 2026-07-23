@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Switch keyframe editor to graph view",
           "keyframeEditorDopesheet": "Switch keyframe editor to dopesheet view",
           "keyframeEditorSplit": "Switch keyframe editor to split view",
-          "keyframeToggle": "Toggle keyframe at playhead",
+          "editKeyframeAdd": "Add keyframe at playhead for selected Edit layer",
           "keyframePrevious": "Jump to previous property keyframe",
           "keyframeNext": "Jump to next property keyframe",
           "keyframeToggleAuto": "Toggle auto-key for active property",

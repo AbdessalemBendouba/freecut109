@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Cambiar el editor de fotogramas clave a la vista de gráfico",
           "keyframeEditorDopesheet": "Cambiar el editor de fotogramas clave a la vista de hoja de tiempos",
           "keyframeEditorSplit": "Cambiar el editor de fotogramas clave a la vista dividida",
-          "keyframeToggle": "Alternar fotograma clave en el cabezal",
+          "editKeyframeAdd": "Añadir fotograma clave en el cabezal para la capa de Edit seleccionada",
           "keyframePrevious": "Ir al fotograma clave anterior de la propiedad",
           "keyframeNext": "Ir al fotograma clave siguiente de la propiedad",
           "keyframeToggleAuto": "Alternar clave automática para la propiedad activa",

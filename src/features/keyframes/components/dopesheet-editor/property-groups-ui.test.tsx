@@ -92,6 +92,18 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.queryByRole('slider', { name: /horizontal zoom/i })).toBeNull()
   })
 
+  it('selects a property layer by clicking its classic Edit row', () => {
+    const onActivePropertyChange = vi.fn()
+    renderEditor({
+      presentation: 'classic',
+      onActivePropertyChange,
+    })
+
+    fireEvent.click(screen.getByText('Volume (dB)'))
+
+    expect(onActivePropertyChange).toHaveBeenCalledWith('volume')
+  })
+
   it('filters the classic Edit presentation between animated and all properties', () => {
     renderEditor({
       presentation: 'classic',

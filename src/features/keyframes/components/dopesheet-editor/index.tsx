@@ -443,9 +443,11 @@ interface DopesheetEditorProps {
   showPlayhead?: boolean
   /** Activate editor-only shortcuts when this surface owns pointer or keyboard focus. */
   shortcutsEnabled?: boolean
+  /** Keep the Edit add-keyframe shortcut active while its dock is open. */
+  addKeyframeShortcutEnabled?: boolean
   /** User-configurable bindings for high-frequency keyframe actions. */
   shortcuts?: {
-    toggleKeyframe: string
+    addKeyframe: string
     previousKeyframe: string
     nextKeyframe: string
     toggleAutoKey: string
@@ -881,6 +883,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   initialVisibleGroupIds,
   showPlayhead = true,
   shortcutsEnabled = false,
+  addKeyframeShortcutEnabled = false,
   shortcuts,
   className,
 }: DopesheetEditorProps) {
@@ -2294,6 +2297,27 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     ],
   )
 
+  const handleRowAddKeyframe = useCallback(
+    (property: AnimatableProperty, currentKeyframes: Keyframe[]) => {
+      if (isPropertyLocked(property)) return
+      activateProperty(property)
+      if (currentKeyframes.length > 0) return
+      if (isCurrentFrameBlocked) {
+        notifyKeyframeBlocked()
+        return
+      }
+      onAddKeyframe?.(property, currentFrame)
+    },
+    [
+      activateProperty,
+      currentFrame,
+      isCurrentFrameBlocked,
+      isPropertyLocked,
+      notifyKeyframeBlocked,
+      onAddKeyframe,
+    ],
+  )
+
   const handleRowValueChange = useCallback((property: AnimatableProperty, value: string) => {
     setValueDrafts((prev) => ({ ...prev, [property]: value }))
   }, [])
@@ -2433,11 +2457,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     : undefined
 
   useHotkeys(
-    shortcuts?.toggleKeyframe ?? '',
+    shortcuts?.addKeyframe ?? '',
     (event) => {
       event.preventDefault()
       if (activePropertyRow) {
-        handleRowToggleKeyframe(
+        handleRowAddKeyframe(
           activePropertyRow.property,
           activePropertyRow.controls.currentKeyframes,
         )
@@ -2446,9 +2470,17 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     {
       ...HOTKEY_OPTIONS,
       enabled:
-        shortcutsEnabled && !disabled && Boolean(shortcuts?.toggleKeyframe && activePropertyRow),
+        (shortcutsEnabled || addKeyframeShortcutEnabled) &&
+        !disabled &&
+        Boolean(shortcuts?.addKeyframe && activePropertyRow),
     },
-    [activePropertyRow, disabled, handleRowToggleKeyframe, shortcutsEnabled],
+    [
+      activePropertyRow,
+      addKeyframeShortcutEnabled,
+      disabled,
+      handleRowAddKeyframe,
+      shortcutsEnabled,
+    ],
   )
 
   useHotkeys(
@@ -3512,7 +3544,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               (presentation === 'lanes' ? 'bg-accent/70' : 'bg-primary/10'),
             showGraphPane && graphVisibleProperties.has(row.property) && 'bg-accent/40',
             selectedProperty === row.property && 'bg-accent/55',
-            showGraphPane && !rowLocked && 'cursor-pointer',
+            !rowLocked && 'cursor-pointer',
             rowLocked && 'opacity-70',
             'data-[expression-link-eligible=true]:bg-primary/[0.06] data-[expression-link-eligible=true]:ring-1 data-[expression-link-eligible=true]:ring-inset data-[expression-link-eligible=true]:ring-primary/20',
             'data-[expression-link-hover=true]:!bg-primary/20 data-[expression-link-hover=true]:ring-1 data-[expression-link-hover=true]:ring-inset data-[expression-link-hover=true]:!ring-primary/70',
@@ -3522,7 +3554,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           )}
           data-expression-item-id={linkableProperty ? itemId : undefined}
           data-expression-property={linkableProperty ?? undefined}
-          onClick={showGraphPane && !rowLocked ? () => activateProperty(row.property) : undefined}
+          data-selected={selectedProperty === row.property ? 'true' : undefined}
+          aria-current={selectedProperty === row.property ? 'true' : undefined}
+          onClick={!rowLocked ? () => activateProperty(row.property) : undefined}
         >
           <div className="flex items-center gap-px self-stretch">
             {!classic && (

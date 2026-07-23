@@ -3658,8 +3658,9 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   initialVisibleGroupIds={initialVisibleGroupIds}
                   propertyColumnWidth={propertyColumnWidth}
                   shortcutsEnabled={isPointerWithinEditor || isFocusWithinEditor}
+                  addKeyframeShortcutEnabled={surface === 'edit'}
                   shortcuts={{
-                    toggleKeyframe: hotkeys.KEYFRAME_TOGGLE,
+                    addKeyframe: surface === 'edit' ? hotkeys.EDIT_KEYFRAME_ADD : '',
                     previousKeyframe: hotkeys.KEYFRAME_PREVIOUS,
                     nextKeyframe: hotkeys.KEYFRAME_NEXT,
                     toggleAutoKey: hotkeys.KEYFRAME_TOGGLE_AUTO,

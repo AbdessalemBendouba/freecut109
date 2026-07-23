@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Ana kare düzenleyiciyi grafik görünümüne geçir",
           "keyframeEditorDopesheet": "Ana kare düzenleyiciyi zaman çizelgesi görünümüne geçir",
           "keyframeEditorSplit": "Ana kare düzenleyiciyi bölünmüş görünüme geçir",
-          "keyframeToggle": "Oynatma kafasında ana kareyi aç/kapat",
+          "editKeyframeAdd": "Seçili Düzenleme katmanına oynatma kafasında ana kare ekle",
           "keyframePrevious": "Önceki özellik ana karesine git",
           "keyframeNext": "Sonraki özellik ana karesine git",
           "keyframeToggleAuto": "Etkin özellik için otomatik anahtarı aç/kapat",

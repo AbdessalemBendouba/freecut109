@@ -354,14 +354,7 @@ export function useEditingShortcuts(callbacks: TimelineShortcutCallbacks) {
     splitAllItemsAtFrame(splitFrame)
   }, [])
 
-  // Editing: Cmd/Ctrl+K - Split all items at gray playhead (or main playhead)
-  useHotkeys(
-    hotkeys.SPLIT_AT_PLAYHEAD,
-    splitAtPlayhead,
-    { ...HOTKEY_OPTIONS, eventListenerOptions: { capture: true } },
-    [splitAtPlayhead],
-  )
-
+  // Editing: Alt+C - Split all items at gray playhead (or main playhead)
   useHotkeys(
     hotkeys.SPLIT_AT_PLAYHEAD_ALT,
     splitAtPlayhead,

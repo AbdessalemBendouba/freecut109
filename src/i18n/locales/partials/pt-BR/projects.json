@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Alternar o editor de quadros-chave para a visualização de gráfico",
           "keyframeEditorDopesheet": "Alternar o editor de quadros-chave para a visualização de folha de tempos",
           "keyframeEditorSplit": "Alternar o editor de quadros-chave para a visualização dividida",
-          "keyframeToggle": "Alternar quadro-chave no indicador de reprodução",
+          "editKeyframeAdd": "Adicionar quadro-chave no indicador de reprodução para a camada de Edição selecionada",
           "keyframePrevious": "Ir para o quadro-chave anterior da propriedade",
           "keyframeNext": "Ir para o próximo quadro-chave da propriedade",
           "keyframeToggleAuto": "Alternar chave automática da propriedade ativa",

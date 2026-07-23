@@ -125,7 +125,7 @@ export const HOTKEY_EDITOR_SECTIONS: readonly HotkeyEditorSection[] = [
     items: [
       {
         labelKey: "projects.settings.hotkeys.items.splitAtPlayhead",
-        keys: ["SPLIT_AT_PLAYHEAD", "SPLIT_AT_PLAYHEAD_ALT"],
+        keys: ["SPLIT_AT_PLAYHEAD_ALT"],
       },
       {
         labelKey: "projects.settings.hotkeys.items.joinSelectedClips",
@@ -298,8 +298,8 @@ export const HOTKEY_EDITOR_SECTIONS: readonly HotkeyEditorSection[] = [
         keys: ["KEYFRAME_EDITOR_SPLIT"],
       },
       {
-        labelKey: "projects.settings.hotkeys.items.keyframeToggle",
-        keys: ["KEYFRAME_TOGGLE"],
+        labelKey: "projects.settings.hotkeys.items.editKeyframeAdd",
+        keys: ["EDIT_KEYFRAME_ADD"],
       },
       {
         labelKey: "projects.settings.hotkeys.items.keyframePrevious",

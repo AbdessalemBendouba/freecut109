@@ -16,7 +16,6 @@ export const HOTKEYS = {
   PREVIOUS_SNAP_POINT: "up",
 
   // Timeline editing
-  SPLIT_AT_PLAYHEAD: "mod+k",
   SPLIT_AT_PLAYHEAD_ALT: "alt+c",
   JOIN_ITEMS: "shift+j",
   DELETE_SELECTED: "delete",
@@ -84,7 +83,7 @@ export const HOTKEYS = {
   KEYFRAME_EDITOR_GRAPH: "1",
   KEYFRAME_EDITOR_DOPESHEET: "2",
   KEYFRAME_EDITOR_SPLIT: "3",
-  KEYFRAME_TOGGLE: "k",
+  EDIT_KEYFRAME_ADD: "k",
   KEYFRAME_PREVIOUS: "alt+bracketleft",
   KEYFRAME_NEXT: "alt+bracketright",
   KEYFRAME_TOGGLE_AUTO: "a",
@@ -292,8 +291,7 @@ export const HOTKEY_DESCRIPTIONS: Record<HotkeyKey, string> = {
   PREVIOUS_SNAP_POINT: "Previous snap point",
 
   // Timeline editing
-  SPLIT_AT_PLAYHEAD: "Split at playhead",
-  SPLIT_AT_PLAYHEAD_ALT: "Split at playhead (alternative)",
+  SPLIT_AT_PLAYHEAD_ALT: "Split at playhead",
   JOIN_ITEMS: "Join selected clips",
   DELETE_SELECTED: "Delete selected items",
   DELETE_SELECTED_ALT: "Delete selected items (alternative)",
@@ -360,7 +358,7 @@ export const HOTKEY_DESCRIPTIONS: Record<HotkeyKey, string> = {
   KEYFRAME_EDITOR_GRAPH: "Switch keyframe editor to graph view",
   KEYFRAME_EDITOR_DOPESHEET: "Switch keyframe editor to dopesheet view",
   KEYFRAME_EDITOR_SPLIT: "Switch keyframe editor to split view",
-  KEYFRAME_TOGGLE: "Toggle keyframe at playhead",
+  EDIT_KEYFRAME_ADD: "Add keyframe at playhead for selected Edit layer",
   KEYFRAME_PREVIOUS: "Jump to previous property keyframe",
   KEYFRAME_NEXT: "Jump to next property keyframe",
   KEYFRAME_TOGGLE_AUTO: "Toggle auto-key for active property",

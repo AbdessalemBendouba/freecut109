@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "키프레임 편집기를 그래프 보기로 전환",
           "keyframeEditorDopesheet": "키프레임 편집기를 도프시트 보기로 전환",
           "keyframeEditorSplit": "키프레임 편집기를 분할 보기로 전환",
-          "keyframeToggle": "재생 헤드에서 키프레임 전환",
+          "editKeyframeAdd": "선택한 편집 레이어의 재생 헤드에 키프레임 추가",
           "keyframePrevious": "이전 속성 키프레임으로 이동",
           "keyframeNext": "다음 속성 키프레임으로 이동",
           "keyframeToggleAuto": "활성 속성의 자동 키 전환",

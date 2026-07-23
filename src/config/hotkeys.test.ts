@@ -21,14 +21,14 @@ describe("keyframe productivity hotkeys", () => {
   it("provides distinct defaults for the focused editor workflow", () => {
     expect({
       split: HOTKEYS.KEYFRAME_EDITOR_SPLIT,
-      toggle: HOTKEYS.KEYFRAME_TOGGLE,
+      addInEdit: HOTKEYS.EDIT_KEYFRAME_ADD,
       previous: HOTKEYS.KEYFRAME_PREVIOUS,
       next: HOTKEYS.KEYFRAME_NEXT,
       auto: HOTKEYS.KEYFRAME_TOGGLE_AUTO,
       fit: HOTKEYS.KEYFRAME_FIT,
     }).toEqual({
       split: "3",
-      toggle: "k",
+      addInEdit: "k",
       previous: "alt+bracketleft",
       next: "alt+bracketright",
       auto: "a",

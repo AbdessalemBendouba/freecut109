@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Keyframe-Editor zur Grafikansicht wechseln",
           "keyframeEditorDopesheet": "Keyframe-Editor zur Dopesheet-Ansicht wechseln",
           "keyframeEditorSplit": "Keyframe-Editor zur geteilten Ansicht wechseln",
-          "keyframeToggle": "Keyframe am Abspielkopf umschalten",
+          "editKeyframeAdd": "Keyframe am Abspielkopf zur ausgewählten Edit-Ebene hinzufügen",
           "keyframePrevious": "Zum vorherigen Eigenschafts-Keyframe springen",
           "keyframeNext": "Zum nächsten Eigenschafts-Keyframe springen",
           "keyframeToggleAuto": "Auto-Key für aktive Eigenschaft umschalten",

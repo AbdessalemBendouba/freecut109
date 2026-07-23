@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Basculer l'éditeur d'images clés en vue graphique",
           "keyframeEditorDopesheet": "Basculer l'éditeur d'images clés en vue feuille d'exposition",
           "keyframeEditorSplit": "Basculer l'éditeur d'images clés en vue partagée",
-          "keyframeToggle": "Activer ou désactiver l'image clé à la tête de lecture",
+          "editKeyframeAdd": "Ajouter une image clé à la tête de lecture pour le calque Edit sélectionné",
           "keyframePrevious": "Aller à l'image clé précédente de la propriété",
           "keyframeNext": "Aller à l'image clé suivante de la propriété",
           "keyframeToggleAuto": "Activer ou désactiver l'animation automatique de la propriété active",
