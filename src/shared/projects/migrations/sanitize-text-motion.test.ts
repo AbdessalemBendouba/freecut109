@@ -89,6 +89,7 @@ describe('sanitizeTextMotion', () => {
       in: {
         presetId: 'pop',
         durationFrames: 0,
+        offsetFrames: -12,
         staggerFrames: -4,
         intensity: 99,
         order: 'forward',
@@ -98,6 +99,7 @@ describe('sanitizeTextMotion', () => {
       out: {
         presetId: 'blur-out',
         durationFrames: 9.4,
+        offsetFrames: 14.6,
         staggerFrames: 2.6,
         intensity: -1,
         order: 'forward',
@@ -117,6 +119,7 @@ describe('sanitizeTextMotion', () => {
     expect(result?.out).toEqual({
       presetId: 'blur-out',
       durationFrames: 9,
+      offsetFrames: 15,
       staggerFrames: 3,
       intensity: 0,
       order: 'forward',

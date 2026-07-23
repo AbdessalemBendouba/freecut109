@@ -170,8 +170,6 @@
       "quickTitle": "快速动画",
       "quickHint": "为剪辑添加现成动画，并可在时间轨中继续编辑。",
       "appliedHint": "此剪辑当前正在运动的所有内容。",
-      "noneApplied": "尚未应用动画。",
-      "editTiming": "编辑时间",
       "textHint": "为字符、单词、行或整个文字剪辑添加动画。",
       "motionClipTitle": "Motion 剪辑",
       "motionClipCreateHint": "将此剪辑提升为分层合成，以进行高级动画编辑。",

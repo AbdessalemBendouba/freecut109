@@ -304,19 +304,35 @@ function resolveActiveSlot(
 
   const outWindow = spec.out ? resolveSlotWindow(spec.out, unitCount, durationInFrames) : null
   if (spec.out && outWindow) {
-    const outStart = durationInFrames - outWindow.totalWindow
+    const outOffset = Math.min(
+      Math.max(0, spec.out.offsetFrames ?? 0),
+      Math.max(0, durationInFrames - outWindow.totalWindow),
+    )
+    const outStart = durationInFrames - outOffset - outWindow.totalWindow
     if (relativeFrame >= outStart) {
       return { slot: 'out', effect: spec.out, window: outWindow, startFrame: outStart }
     }
   }
 
   const inWindow = spec.in ? resolveSlotWindow(spec.in, unitCount, durationInFrames) : null
-  if (spec.in && inWindow && relativeFrame < inWindow.totalWindow) {
-    return { slot: 'in', effect: spec.in, window: inWindow, startFrame: 0 }
+  const inOffset =
+    spec.in && inWindow
+      ? Math.min(
+          Math.max(0, spec.in.offsetFrames ?? 0),
+          Math.max(0, durationInFrames - inWindow.totalWindow),
+        )
+      : 0
+  if (spec.in && inWindow && relativeFrame < inOffset + inWindow.totalWindow) {
+    return { slot: 'in', effect: spec.in, window: inWindow, startFrame: inOffset }
   }
 
   if (spec.loop) {
-    return { slot: 'loop', effect: spec.loop, window: null, startFrame: inWindow?.totalWindow ?? 0 }
+    return {
+      slot: 'loop',
+      effect: spec.loop,
+      window: null,
+      startFrame: inOffset + (inWindow?.totalWindow ?? 0),
+    }
   }
 
   return null
@@ -387,18 +403,20 @@ export function isTextMotionActive(
   const maxWindow = durationInFrames / 2
   if (spec.loop) return true
   if (spec.in) {
+    const offset = Math.max(0, spec.in.offsetFrames ?? 0)
     const upper =
       spec.in.staggerFrames > 0
         ? maxWindow
         : Math.min(Math.max(0, spec.in.durationFrames), maxWindow)
-    if (relativeFrame < upper) return true
+    if (relativeFrame < Math.min(durationInFrames, offset + upper)) return true
   }
   if (spec.out) {
+    const offset = Math.max(0, spec.out.offsetFrames ?? 0)
     const upper =
       spec.out.staggerFrames > 0
         ? maxWindow
         : Math.min(Math.max(0, spec.out.durationFrames), maxWindow)
-    if (relativeFrame >= durationInFrames - upper) return true
+    if (relativeFrame >= Math.max(0, durationInFrames - offset - upper)) return true
   }
   return false
 }

@@ -34,6 +34,12 @@ export interface TextMotionEffectBase {
    * is the cycle length (frequency semantics) rather than a one-shot window.
    */
   durationFrames: number
+  /**
+   * Gap between the clip edge and a one-shot animation, in project-fps
+   * frames. IN uses the leading edge; OUT uses the trailing edge. Omitted is
+   * equivalent to zero. LOOP ignores this field.
+   */
+  offsetFrames?: number
   /** Delay between consecutive units starting, in project-fps frames. */
   staggerFrames: number
   /** Intensity multiplier (0–2). Scales the preset's travel/scale/rotation. */

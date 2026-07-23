@@ -82,8 +82,11 @@ import {
 import type { BlendMode } from '@/types/blend-modes'
 import { BLEND_MODE_GROUPS, BLEND_MODE_LABELS } from '@/types/blend-modes'
 import type { TimelineItem, TimelineTrack } from '@/types/timeline'
-import type { TextMotionEffect, TextMotionSlot } from '@/types/text-motion'
-import { getTextMotionPreset, segmentTextUnits } from '@/shared/typography/text-motion'
+import type { TextMotionSlot } from '@/types/text-motion'
+import {
+  getTextMotionTimelineBands,
+  type TextMotionTimelineBand,
+} from '@/shared/timeline/text-motion-timeline'
 import {
   addItemOnNewTrack,
   addItemsOnNewTracks,
@@ -389,80 +392,6 @@ function resolveMotionInlinePixels(value: string, referenceWidth: number, fallba
   const parsed = Number.parseFloat(value)
   if (!Number.isFinite(parsed)) return fallback
   return value.trim().endsWith('%') ? (parsed / 100) * referenceWidth : parsed
-}
-
-interface TextMotionTimelineBand {
-  slot: TextMotionSlot
-  presetId: string
-  fromFrame: number
-  toFrame: number
-  unitCount: number
-  durationFrames: number
-}
-
-function getTextMotionUnitCount(
-  item: Extract<TimelineItem, { type: 'text' }>,
-  effect: TextMotionEffect,
-) {
-  const unit = effect.unit ?? getTextMotionPreset(effect.presetId).unit
-  return Math.max(1, segmentTextUnits(item.text.split(/\r?\n/u), unit).unitCount)
-}
-
-function getTextMotionWindow(
-  item: Extract<TimelineItem, { type: 'text' }>,
-  effect: TextMotionEffect | undefined,
-): { length: number; unitCount: number } {
-  if (!effect) return { length: 0, unitCount: 0 }
-  const unitCount = getTextMotionUnitCount(item, effect)
-  const maxRank =
-    effect.order === 'center' ? Math.floor((unitCount - 1) / 2) : Math.max(0, unitCount - 1)
-  const requested = Math.max(0, effect.durationFrames) + Math.max(0, effect.staggerFrames) * maxRank
-  return { length: Math.min(item.durationInFrames / 2, requested), unitCount }
-}
-
-function getTextMotionTimelineBands(item: TimelineItem): TextMotionTimelineBand[] {
-  if (item.type !== 'text' || !item.textMotion) return []
-  const { in: inEffect, loop: loopEffect, out: outEffect } = item.textMotion
-  const inWindow = getTextMotionWindow(item, inEffect)
-  const outWindow = getTextMotionWindow(item, outEffect)
-  const clipEnd = item.from + item.durationInFrames
-  const bands: TextMotionTimelineBand[] = []
-
-  if (inEffect && inWindow.length > 0) {
-    bands.push({
-      slot: 'in',
-      presetId: inEffect.presetId,
-      fromFrame: item.from,
-      toFrame: item.from + inWindow.length,
-      unitCount: inWindow.unitCount,
-      durationFrames: inEffect.durationFrames,
-    })
-  }
-  if (loopEffect) {
-    const loopFrom = item.from + inWindow.length
-    const loopTo = clipEnd - outWindow.length
-    if (loopTo > loopFrom) {
-      bands.push({
-        slot: 'loop',
-        presetId: loopEffect.presetId,
-        fromFrame: loopFrom,
-        toFrame: loopTo,
-        unitCount: getTextMotionUnitCount(item, loopEffect),
-        durationFrames: loopEffect.durationFrames,
-      })
-    }
-  }
-  if (outEffect && outWindow.length > 0) {
-    bands.push({
-      slot: 'out',
-      presetId: outEffect.presetId,
-      fromFrame: clipEnd - outWindow.length,
-      toFrame: clipEnd,
-      unitCount: outWindow.unitCount,
-      durationFrames: outEffect.durationFrames,
-    })
-  }
-  return bands
 }
 
 const TextMotionTimelineLanes = memo(function TextMotionTimelineLanes({

@@ -10,7 +10,8 @@
  * - Non-object spec → `undefined`
  * - Unknown/malformed slot value → drop that slot
  * - `presetId` not in the slot's preset id list → drop that slot
- * - Numerics clamped: durationFrames int ≥ 1, staggerFrames int ≥ 0,
+ * - Numerics clamped: durationFrames int ≥ 1, optional offsetFrames int ≥ 0,
+ *   staggerFrames int ≥ 0,
  *   intensity 0–2, seed finite int — defaults applied when missing/invalid
  * - `order` / `easing` outside their enums → 'forward' / 'ease-out'
  * - `unit` outside its enum (or absent) → dropped (preset default applies)
@@ -92,9 +93,11 @@ function sanitizeSlot<Id extends string>(
     return undefined
   }
   const unit = sanitizeUnit(value.unit)
+  const offsetFrames = clampFrameCount(value.offsetFrames, 0, 0)
   return {
     presetId: presetId as Id,
     durationFrames: clampFrameCount(value.durationFrames, 1, DEFAULT_DURATION_FRAMES),
+    ...(offsetFrames > 0 ? { offsetFrames } : {}),
     staggerFrames: clampFrameCount(value.staggerFrames, 0, DEFAULT_STAGGER_FRAMES),
     intensity: clampIntensity(value.intensity),
     order: sanitizeOrder(value.order),

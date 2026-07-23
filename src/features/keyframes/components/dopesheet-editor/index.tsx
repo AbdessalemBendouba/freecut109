@@ -49,6 +49,8 @@ import type {
   PropertyExpression,
 } from '@/types/keyframe'
 import type { MotionModifier } from '@/types/motion'
+import type { TextMotionSlot } from '@/types/text-motion'
+import type { TextMotionTimelineBand } from '@/shared/timeline/text-motion-timeline'
 import {
   areDirectLinkPropertiesCompatible,
   isDirectLinkableProperty,
@@ -180,6 +182,7 @@ import {
 } from '@/features/keyframes/utils/property-i18n'
 import { useCoalescedScrub } from '../use-coalesced-scrub'
 import { getScrubbedPropertyValue } from './property-value-scrub'
+import { TextMotionTimelineRows } from './text-motion-timeline-rows'
 
 interface DopesheetEditorProps {
   /** Shared time viewport when split mode needs synchronized frame zoom/pan */
@@ -382,6 +385,22 @@ interface DopesheetEditorProps {
   proceduralPreview?: ProceduralPreviewInput
   /** Motion modifiers used to render procedural bands in the sheet. */
   motionModifiers?: MotionModifier[]
+  /** Procedural text-animation spans shown above Edit's authored keyframe rows. */
+  textMotionBands?: readonly TextMotionTimelineBand[]
+  /** Capture state before an Edit text-animation duration drag. */
+  onTextMotionDurationDragStart?: () => void
+  /** Commit a text-animation duration after an Edit band drag. */
+  onTextMotionDurationCommit?: (slot: TextMotionSlot, durationFrames: number) => void
+  /** Discard an interrupted Edit text-animation duration drag. */
+  onTextMotionDurationCancel?: () => void
+  /** Capture state before moving an Edit text-animation away from its clip edge. */
+  onTextMotionOffsetDragStart?: () => void
+  /** Commit an IN/OUT text-animation clip-edge offset. */
+  onTextMotionOffsetCommit?: (slot: TextMotionSlot, offsetFrames: number) => void
+  /** Discard an interrupted Edit text-animation offset drag. */
+  onTextMotionOffsetCancel?: () => void
+  /** Open the selected text animation in the inspector. */
+  onTextMotionBandClick?: (slot: TextMotionSlot) => void
   /** Whether the edited clip has any enabled procedural motion source. */
   hasProceduralMotion?: boolean
   /** Whether the edited clip carries bakeable procedural motion. */
@@ -861,6 +880,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   transitionBlockedRanges = [],
   proceduralPreview,
   motionModifiers,
+  textMotionBands = [],
+  onTextMotionDurationDragStart,
+  onTextMotionDurationCommit,
+  onTextMotionDurationCancel,
+  onTextMotionOffsetDragStart,
+  onTextMotionOffsetCommit,
+  onTextMotionOffsetCancel,
+  onTextMotionBandClick,
   hasProceduralMotion = false,
   canBakeMotion = false,
   onBakeMotion,
@@ -1741,7 +1768,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   }, [sheetRowsStructure, getRenderedKeyframeX])
   const renderedSheetEntries = useMemo(() => {
     const entries: RenderedSheetEntry[] = []
-    let top = 0
+    const textMotionRowCount = presentation === 'classic' ? textMotionBands.length : 0
+    let top = textMotionRowCount * ROW_HEIGHT
 
     for (const group of groupedSheetRows) {
       const inline = presentation === 'classic' || inlinePropertyGroupIdSet.has(group.id)
@@ -1764,7 +1792,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       entries,
       contentHeight: top,
     }
-  }, [expandedGroups, groupedSheetRows, inlinePropertyGroupIdSet, presentation])
+  }, [
+    expandedGroups,
+    groupedSheetRows,
+    inlinePropertyGroupIdSet,
+    presentation,
+    textMotionBands.length,
+  ])
   // Marquee points are only needed while a selection marquee is moving.
   // Building them eagerly duplicated the viewport-sensitive keyframe position
   // pass on every zoom frame, even when no marquee interaction was active.
@@ -4547,8 +4581,30 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     [presentation, propertyGridStyle],
   )
   const rowElements = useMemo(
-    () =>
-      renderedSheetEntries.entries.map((entry) => {
+    () => [
+      ...(presentation === 'classic' && textMotionBands.length > 0
+        ? [
+            <TextMotionTimelineRows
+              key="text-motion"
+              bands={textMotionBands}
+              gridStyle={propertyTimelineRowStyle}
+              ticks={ticks}
+              axisWidth={effectiveTimelineWidth}
+              frameToX={frameToX}
+              getPixelsPerFrame={getLiveDragPixelsPerFrame}
+              disabled={disabled}
+              onBackgroundPointerDown={handleTimelineBackgroundPointerDown}
+              onDurationDragStart={onTextMotionDurationDragStart}
+              onDurationCommit={onTextMotionDurationCommit}
+              onDurationCancel={onTextMotionDurationCancel}
+              onOffsetDragStart={onTextMotionOffsetDragStart}
+              onOffsetCommit={onTextMotionOffsetCommit}
+              onOffsetCancel={onTextMotionOffsetCancel}
+              onBandClick={onTextMotionBandClick}
+            />,
+          ]
+        : []),
+      ...renderedSheetEntries.entries.map((entry) => {
         if (entry.type === 'group') {
           return (
             <div
@@ -4621,6 +4677,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           </div>
         )
       }),
+    ],
     [
       renderedSheetEntries.entries,
       expandedGroups,
@@ -4652,6 +4709,16 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onSegmentEasingChange,
       onDragStart,
       onDragEnd,
+      presentation,
+      textMotionBands,
+      getLiveDragPixelsPerFrame,
+      onTextMotionDurationDragStart,
+      onTextMotionDurationCommit,
+      onTextMotionDurationCancel,
+      onTextMotionOffsetDragStart,
+      onTextMotionOffsetCommit,
+      onTextMotionOffsetCancel,
+      onTextMotionBandClick,
     ],
   )
   const propertyColumnElements = useMemo(
@@ -4798,7 +4865,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const sheetBodyElement = (
     <DopesheetSheetBody
       scrollAreaRef={scrollAreaRef}
-      hasRows={sheetRows.length > 0}
+      hasRows={sheetRows.length > 0 || (presentation === 'classic' && textMotionBands.length > 0)}
       emptyStateMessage={emptyStateMessage}
       showEmptyGuidance={showEmptyGuidance}
       proceduralHint={proceduralHint}
