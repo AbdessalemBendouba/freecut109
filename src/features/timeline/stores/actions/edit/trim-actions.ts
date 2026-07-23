@@ -17,6 +17,7 @@ import {
   clampRollingTrimDeltaToPreserveEditState,
 } from '../../../utils/trim-edit-constraints'
 import { clampToAdjacentItems, clampTrimAmount } from '../../../utils/trim-utils'
+import { getTransitionLinkedIds } from '../../items-store-indexes'
 import {
   clampSlideDeltaToPreserveTransitions,
   clampSlipDeltaToPreserveTransitions,
@@ -152,10 +153,31 @@ function applySynchronizedTrim(
   const anchorBefore = synchronizedItems.find((item) => item.id === id)
   if (!anchorBefore) return
 
+  const timelineFps = useTimelineSettingsStore.getState().fps
+  let synchronizedTrimAmount = trimAmount
+  for (const synchronizedItem of synchronizedItems) {
+    const sourceClampedAmount = clampTrimAmount(
+      synchronizedItem,
+      handle,
+      synchronizedTrimAmount,
+      timelineFps,
+    ).clampedAmount
+    synchronizedTrimAmount = keepTightestDelta(
+      synchronizedTrimAmount,
+      clampToAdjacentItems(
+        synchronizedItem,
+        handle,
+        sourceClampedAmount,
+        itemsBefore,
+        getTransitionLinkedIds(synchronizedItem.id),
+      ),
+    )
+  }
+
   if (handle === 'start') {
-    itemsStore._trimItemStart(id, trimAmount)
+    itemsStore._trimItemStart(id, synchronizedTrimAmount, { skipAdjacentClamp: true })
   } else {
-    itemsStore._trimItemEnd(id, trimAmount)
+    itemsStore._trimItemEnd(id, synchronizedTrimAmount, { skipAdjacentClamp: true })
   }
 
   const anchorAfter = useItemsStore.getState().itemById[id]

@@ -118,7 +118,7 @@ function AxisInput({
           scrubRef.current = null
           if (!scrub.didDrag) return
           event.preventDefault()
-          if (onScrubPreview) onScrubEnd?.(scrub.lastValue)
+          if (onScrubEnd) onScrubEnd(scrub.lastValue)
           else onCommit(scrub.lastValue, { allowCreate: true })
         }}
         onPointerCancel={(event) => {

@@ -174,6 +174,58 @@ describe('linked edit tools', () => {
     })
   })
 
+  it('clamps a linked end trim to the closest neighbor on every companion track', () => {
+    useItemsStore.getState().setItems([
+      makeVideoItem(),
+      makeAudioItem(),
+      makeVideoItem({ id: 'video-next', linkedGroupId: undefined, from: 100 }),
+      makeAudioItem({ id: 'audio-next', linkedGroupId: undefined, from: 70 }),
+    ])
+
+    trimItemEnd('video-1', 30)
+
+    expect(useItemsStore.getState().itemById['video-1']).toMatchObject({
+      durationInFrames: 70,
+      sourceEnd: 70,
+    })
+    expect(useItemsStore.getState().itemById['audio-1']).toMatchObject({
+      durationInFrames: 70,
+      sourceEnd: 70,
+    })
+  })
+
+  it('clamps a linked start trim to the closest neighbor on every companion track', () => {
+    useItemsStore.getState().setItems([
+      makeVideoItem({ from: 60, sourceStart: 60, sourceEnd: 120 }),
+      makeAudioItem({ from: 60, sourceStart: 60, sourceEnd: 120 }),
+      makeVideoItem({
+        id: 'video-previous',
+        linkedGroupId: undefined,
+        from: 0,
+        durationInFrames: 40,
+      }),
+      makeAudioItem({
+        id: 'audio-previous',
+        linkedGroupId: undefined,
+        from: 20,
+        durationInFrames: 30,
+      }),
+    ])
+
+    trimItemStart('video-1', -30)
+
+    expect(useItemsStore.getState().itemById['video-1']).toMatchObject({
+      from: 50,
+      durationInFrames: 70,
+      sourceStart: 50,
+    })
+    expect(useItemsStore.getState().itemById['audio-1']).toMatchObject({
+      from: 50,
+      durationInFrames: 70,
+      sourceStart: 50,
+    })
+  })
+
   it('clips and removes attached captions when a regular start trim shortens the clip', () => {
     useItemsStore
       .getState()

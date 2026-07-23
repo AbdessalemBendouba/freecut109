@@ -146,6 +146,32 @@ describe('CompoundPropertyInputs', () => {
     expect(onCommit).not.toHaveBeenCalled()
   })
 
+  it('commits the final scrub value when preview has no matching end handler', () => {
+    const onCommit = vi.fn()
+    const onScrubPreview = vi.fn()
+    render(
+      <CompoundPropertyInputs
+        config={{
+          label: 'Position',
+          value: { x: 10, y: 20 },
+          unit: 'px',
+          onCommit,
+          onScrubPreview,
+          scrubStep: 1,
+          decimals: 0,
+        }}
+      />,
+    )
+
+    const x = screen.getByLabelText('Position X')
+    fireEvent.pointerDown(x, { button: 0, pointerId: 11, clientX: 100 })
+    fireEvent.pointerMove(x, { pointerId: 11, clientX: 120 })
+    fireEvent.pointerUp(x, { pointerId: 11, clientX: 120 })
+
+    expect(onScrubPreview).toHaveBeenLastCalledWith('x', 30)
+    expect(onCommit).toHaveBeenCalledWith('x', 30, { allowCreate: true })
+  })
+
   it('cancels a scrub without committing its preview or undo boundary', () => {
     const onScrubPreview = vi.fn()
     const onScrubEnd = vi.fn()
