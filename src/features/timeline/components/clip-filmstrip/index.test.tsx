@@ -1,6 +1,7 @@
-import { fireEvent, render, waitFor } from '@testing-library/react'
+import { render, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { ClipFilmstrip } from './index'
+import { resetDecodedFilmstripImagesForTest } from './filmstrip-image-cache'
 
 type FilmstripResult = {
   frames: Array<{ index: number; timestamp: number; url: string }> | null
@@ -57,6 +58,40 @@ const filmstripCacheMocks = vi.hoisted(() => ({
   refreshFrames: vi.fn(() => Promise.resolve()),
 }))
 
+const canvasContextMocks = vi.hoisted(() => ({
+  setTransform: vi.fn(),
+  clearRect: vi.fn(),
+  save: vi.fn(),
+  beginPath: vi.fn(),
+  rect: vi.fn(),
+  clip: vi.fn(),
+  drawImage: vi.fn(),
+  restore: vi.fn(),
+}))
+
+class TestImage {
+  static instances: TestImage[] = []
+
+  width = 160
+  height = 90
+  decoding = 'auto'
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  private source = ''
+
+  constructor() {
+    TestImage.instances.push(this)
+  }
+
+  get src(): string {
+    return this.source
+  }
+
+  set src(value: string) {
+    this.source = value
+  }
+}
+
 vi.mock('../../hooks/use-filmstrip', () => ({
   useFilmstrip: useFilmstripMock,
 }))
@@ -89,7 +124,19 @@ describe('ClipFilmstrip', () => {
         disconnect(): void {}
       },
     )
+    vi.stubGlobal('Image', TestImage)
+    resetDecodedFilmstripImagesForTest()
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(60)
+    ;(
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext') as unknown as {
+        mockReturnValue: (value: CanvasRenderingContext2D) => void
+      }
+    ).mockReturnValue({
+      ...canvasContextMocks,
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'low',
+    } as unknown as CanvasRenderingContext2D)
+    TestImage.instances = []
 
     useMediaBlobUrlMock.mockReturnValue({
       blobUrl: 'blob:original',
@@ -243,7 +290,7 @@ describe('ClipFilmstrip', () => {
     expect(latestCall?.targetFrameIndices).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9])
   })
 
-  it('keeps tile media full width when the segment window is narrower than a thumbnail', async () => {
+  it('keeps tile media full width while the canvas clips a short segment', async () => {
     useFilmstripMock.mockReturnValue({
       frames: [{ index: 0, timestamp: 0, url: 'blob:frame-0' }],
       isLoading: false,
@@ -266,10 +313,22 @@ describe('ClipFilmstrip', () => {
       />,
     )
 
+    const canvas = container.querySelector('[data-filmstrip-canvas]') as HTMLCanvasElement | null
+    expect(canvas).not.toBeNull()
+    expect(canvas!.style.width).toBe('40px')
+    expect(container.querySelectorAll('img')).toHaveLength(0)
+
+    const source = TestImage.instances.find((image) => image.src === 'blob:frame-0')
+    expect(source).toBeDefined()
+    source!.onload?.()
+
     await waitFor(() => {
-      const img = container.querySelector('img[src="blob:frame-0"]') as HTMLImageElement | null
-      expect(img).not.toBeNull()
-      expect(img!.style.width).toBe('107px')
+      expect(canvasContextMocks.rect).toHaveBeenCalledWith(0, 0, 107, 60)
+      const drawCall = canvasContextMocks.drawImage.mock.calls.at(-1)
+      expect(drawCall?.[0]).toBe(source)
+      expect(drawCall?.[1]).toBe(0)
+      expect(drawCall?.[3]).toBe(107)
+      expect(drawCall?.[4]).toBeGreaterThanOrEqual(60)
     })
   })
 
@@ -296,13 +355,50 @@ describe('ClipFilmstrip', () => {
       />,
     )
 
-    const img = container.querySelector('img[src="blob:stale"]')
-    expect(img).not.toBeNull()
-    fireEvent.error(img!)
+    expect(container.querySelectorAll('img')).toHaveLength(0)
+    const source = TestImage.instances.find((image) => image.src === 'blob:stale')
+    expect(source).toBeDefined()
+    source!.onerror?.()
 
     await waitFor(() => {
       expect(filmstripCacheMocks.refreshFrames).toHaveBeenCalledWith('media-1', [0])
     })
+  })
+
+  it('reuses a decoded cover source when a clip remounts', async () => {
+    useFilmstripMock.mockReturnValue({
+      frames: [{ index: 0, timestamp: 0, url: 'blob:shared-cover' }],
+      isLoading: false,
+      isComplete: true,
+      progress: 100,
+      error: null,
+    })
+
+    const props = {
+      mediaId: 'media-shared',
+      clipWidth: 320,
+      sourceStart: 0,
+      sourceDuration: 10,
+      trimStart: 0,
+      speed: 1,
+      fps: 32,
+      isVisible: true,
+      pixelsPerSecond: 120,
+    }
+    const first = render(<ClipFilmstrip {...props} />)
+    const source = TestImage.instances.find((image) => image.src === 'blob:shared-cover')
+    expect(source).toBeDefined()
+    source!.onload?.()
+    await waitFor(() => expect(canvasContextMocks.drawImage).toHaveBeenCalled())
+
+    first.unmount()
+    canvasContextMocks.drawImage.mockClear()
+    render(<ClipFilmstrip {...props} />)
+
+    expect(
+      TestImage.instances.filter((image) => image.src === 'blob:shared-cover'),
+    ).toHaveLength(1)
+    await waitFor(() => expect(canvasContextMocks.drawImage).toHaveBeenCalled())
   })
 
   it('keeps the visible filmstrip stable while extraction is still streaming updates', async () => {
@@ -329,7 +425,7 @@ describe('ClipFilmstrip', () => {
     )
 
     await waitFor(() => {
-      expect(container.querySelector('img[src="blob:initial"]')).not.toBeNull()
+      expect(TestImage.instances.some((image) => image.src === 'blob:initial')).toBe(true)
     })
 
     useFilmstripMock.mockReturnValue({
@@ -356,7 +452,7 @@ describe('ClipFilmstrip', () => {
       />,
     )
 
-    expect(container.querySelector('img[src="blob:streamed"]')).toBeNull()
+    expect(TestImage.instances.some((image) => image.src === 'blob:streamed')).toBe(false)
 
     useFilmstripMock.mockReturnValue({
       frames: [
@@ -383,7 +479,8 @@ describe('ClipFilmstrip', () => {
     )
 
     await waitFor(() => {
-      expect(container.querySelector('img[src="blob:streamed"]')).not.toBeNull()
+      expect(TestImage.instances.some((image) => image.src === 'blob:streamed')).toBe(true)
     })
+    expect(container.querySelectorAll('img')).toHaveLength(0)
   })
 })

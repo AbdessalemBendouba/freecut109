@@ -1,6 +1,7 @@
-import { memo, useEffect, useState, useMemo, useCallback, useRef, type RefCallback } from 'react'
+import { memo, useEffect, useState, useMemo, useCallback, useRef } from 'react'
 import { FilmstripSkeleton } from './filmstrip-skeleton'
 import { computeFilmstripRenderWindow } from './render-window'
+import { VisibleFilmstripCanvas } from './visible-filmstrip-canvas'
 import { useFilmstrip, type FilmstripFrame } from '../../hooks/use-filmstrip'
 import { resolveMediaUrl, resolveProxyUrl } from '@/features/timeline/deps/media-library-resolver'
 import { useMediaBlobUrl } from '../../hooks/use-media-blob-url'
@@ -8,6 +9,8 @@ import { filmstripCache, THUMBNAIL_WIDTH } from '../../services/filmstrip-cache'
 import { createLogger } from '@/shared/logging/logger'
 import { useMediaLibraryStore } from '@/features/timeline/deps/media-library-store'
 import { observeParentElementHeight } from '../measure-parent-height'
+import { useTimelineViewportStore } from '../../stores/timeline-viewport-store'
+import { CLIP_VISIBILITY_PREFETCH_MARGIN_PX } from '../../hooks/use-clip-visibility'
 
 const logger = createLogger('ClipFilmstrip')
 
@@ -15,6 +18,7 @@ const logger = createLogger('ClipFilmstrip')
 // outruns the mounted tiles within a frame. Matches the animated-image filmstrip.
 const VIEWPORT_PAD_TILES = 2
 const VIEWPORT_PAD_PX = 600
+const coverFrameIndexByMediaId = new Map<string, number>()
 
 interface ClipFilmstripProps {
   /** Media ID from the timeline item */
@@ -49,151 +53,6 @@ interface ClipFilmstripProps {
 }
 
 /**
- * Simple filmstrip tile - memoized to prevent unnecessary re-renders.
- * Renders from ImageBitmap via canvas when available (instant, no JPEG decode),
- * falls back to <img> for blob URL sources (OPFS-loaded frames).
- */
-const FilmstripTile = memo(function FilmstripTile({
-  src,
-  bitmap,
-  x,
-  height,
-  width,
-  sourceWidth,
-  frameIndex,
-  onSourceError,
-}: {
-  src: string
-  bitmap?: ImageBitmap
-  x: number
-  height: number
-  width: number
-  sourceWidth: number
-  frameIndex: number
-  onSourceError?: (frameIndex: number) => void
-}) {
-  const [errorSrc, setErrorSrc] = useState<string | null>(null)
-
-  // Draw bitmap to canvas when ref is attached or bitmap changes.
-  // Assigning canvas.width/height resets the backing buffer even when the value
-  // doesn't change, so guard against same-size writes to avoid wasted realloc.
-  const canvasRefCallback: RefCallback<HTMLCanvasElement> = useCallback(
-    (canvas: HTMLCanvasElement | null) => {
-      if (!canvas || !bitmap || bitmap.width === 0 || bitmap.height === 0) return
-      const targetWidth = Math.max(1, Math.round(sourceWidth))
-      const targetHeight = Math.max(1, Math.round(height))
-      if (canvas.width !== targetWidth) canvas.width = targetWidth
-      if (canvas.height !== targetHeight) canvas.height = targetHeight
-      const ctx = canvas.getContext('2d')
-      try {
-        if (ctx) {
-          const scale = Math.max(targetWidth / bitmap.width, targetHeight / bitmap.height)
-          const drawWidth = bitmap.width * scale
-          const drawHeight = bitmap.height * scale
-          const drawX = (targetWidth - drawWidth) * 0.5
-          const drawY = (targetHeight - drawHeight) * 0.5
-          ctx.clearRect(0, 0, targetWidth, targetHeight)
-          ctx.drawImage(bitmap, drawX, drawY, drawWidth, drawHeight)
-        }
-      } catch {
-        // Bitmap may have been closed/detached by the time React renders
-      }
-    },
-    [bitmap, height, sourceWidth],
-  )
-
-  const handleError = useCallback(() => {
-    setErrorSrc(src)
-    onSourceError?.(frameIndex)
-  }, [frameIndex, onSourceError, src])
-
-  // Bitmap path: render to canvas (instant, no JPEG decode)
-  if (bitmap) {
-    return (
-      <div
-        aria-hidden
-        className="absolute top-0"
-        style={{
-          left: x,
-          width,
-          height,
-          overflow: 'hidden',
-        }}
-      >
-        <canvas
-          ref={canvasRefCallback}
-          className="absolute top-0 left-0"
-          style={{
-            width: sourceWidth,
-            height,
-          }}
-        />
-      </div>
-    )
-  }
-
-  // Hide if this specific src failed, but allow new src to try again
-  if (!src || errorSrc === src) {
-    return null
-  }
-
-  const shouldRepeat = width > sourceWidth + 1
-  if (shouldRepeat) {
-    return (
-      <div
-        aria-hidden
-        className="absolute top-0"
-        style={{
-          left: x,
-          width,
-          height,
-          backgroundImage: `url(${src})`,
-          backgroundRepeat: 'repeat-x',
-          backgroundSize: `${sourceWidth}px ${height}px`,
-          backgroundPosition: 'left top',
-        }}
-      >
-        <img
-          src={src}
-          alt=""
-          aria-hidden
-          className="absolute h-px w-px opacity-0 pointer-events-none"
-          onError={handleError}
-          style={{ left: 0, top: 0 }}
-        />
-      </div>
-    )
-  }
-
-  return (
-    <div
-      aria-hidden
-      className="absolute top-0"
-      style={{
-        left: x,
-        width,
-        height,
-        overflow: 'hidden',
-      }}
-    >
-      <img
-        src={src}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        className="absolute top-0 left-0"
-        onError={handleError}
-        style={{
-          width: sourceWidth,
-          height,
-          objectFit: 'cover',
-        }}
-      />
-    </div>
-  )
-})
-
-/**
  * Clip Filmstrip Component
  *
  * Renders video frame thumbnails as a tiled filmstrip.
@@ -218,6 +77,7 @@ export const ClipFilmstrip = memo(function ClipFilmstrip({
 }: ClipFilmstripProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState(0)
+  const viewportWidth = useTimelineViewportStore((state) => state.viewportWidth)
   const { blobUrl, setBlobUrl, hasStartedLoadingRef, blobUrlVersion } = useMediaBlobUrl(mediaId)
   const refreshingFrameIndicesRef = useRef<Set<number>>(new Set())
   const proxyStatus = useMediaLibraryStore((s) => s.proxyStatus.get(mediaId) ?? null)
@@ -271,21 +131,37 @@ export const ClipFilmstrip = memo(function ClipFilmstrip({
       ? initialPriorityWindowRef.current.window
       : null
   const targetFrameCount = undefined
+  const filmstripRenderWindow = useMemo(
+    () =>
+      computeFilmstripRenderWindow({
+        renderWidth: renderClipWidth,
+        visibleWidth: visibleClipWidth,
+        tileWidth: thumbnailWidth,
+        visibleStartRatio,
+        visibleEndRatio,
+        minimumPadTiles: VIEWPORT_PAD_TILES,
+        minimumPadPx: VIEWPORT_PAD_PX,
+        maxWindowWidth:
+          viewportWidth > 0
+            ? viewportWidth + CLIP_VISIBILITY_PREFETCH_MARGIN_PX * 2
+            : undefined,
+      }),
+    [
+      renderClipWidth,
+      visibleClipWidth,
+      thumbnailWidth,
+      visibleStartRatio,
+      visibleEndRatio,
+      viewportWidth,
+    ],
+  )
   const targetFrameIndices = useMemo(() => {
     if (!isVisible || height <= 0 || renderPixelsPerSecond <= 0) return undefined
     if (effectiveEnd <= effectiveStart || sourceDuration <= 0) return undefined
 
     const pixelsPerSourceSecond = renderPixelsPerSecond / Math.max(0.0001, speed)
     const tileWidth = thumbnailWidth
-    const { startTile, endTile } = computeFilmstripRenderWindow({
-      renderWidth: renderClipWidth,
-      visibleWidth: visibleClipWidth,
-      tileWidth,
-      visibleStartRatio,
-      visibleEndRatio,
-      minimumPadTiles: VIEWPORT_PAD_TILES,
-      minimumPadPx: VIEWPORT_PAD_PX,
-    })
+    const { startTile, endTile } = filmstripRenderWindow
     if (endTile <= startTile) return undefined
 
     const totalFrameCount = Math.max(1, Math.ceil(sourceDuration))
@@ -308,10 +184,7 @@ export const ClipFilmstrip = memo(function ClipFilmstrip({
     sourceDuration,
     speed,
     thumbnailWidth,
-    renderClipWidth,
-    visibleClipWidth,
-    visibleStartRatio,
-    visibleEndRatio,
+    filmstripRenderWindow,
     isReversed,
   ])
 
@@ -397,25 +270,8 @@ export const ClipFilmstrip = memo(function ClipFilmstrip({
     [mediaId],
   )
 
-  // Pixel-aligned slot grid. Slots are at x = 0, thumbnailWidth, 2*thumbnailWidth, …
-  // up to the clip's right edge. Each slot's content is the closest available
-  // extracted frame for the source time at that slot's center — so extraction
-  // gaps are silently filled with the nearest frame instead of producing an
-  // alternating-size visual.
-  //
-  // - Tile width is exactly thumbnailWidth — never stretched, squashed, or
-  //   merged. Segment boundaries are handled by overflow clipping outside the
-  //   tile, so a short segment only reveals less of the full-size tile.
-  // - key=slot is the integer slot index on the pixel grid, so a slot that stays
-  //   inside the window keeps its DOM as the window slides; a slot's frame prop
-  //   updating as extraction lands doesn't remount its DOM either.
-  // - Only slots intersecting the visible window (+ pad) are emitted, mirroring
-  //   the animated-image filmstrip and the waveform's TiledCanvas. Without this
-  //   a clip spanning a large fraction of a max-zoom timeline mounts one tile per
-  //   slot across its ENTIRE width (thousands of <img>s), which React must
-  //   reconcile and the compositor must paint on every scroll frame — the
-  //   dominant cost when scrubbing the navigator at high zoom. Off-window areas
-  //   keep showing the repeating cover-frame background, so windowing is seamless.
+  // Build the pixel-aligned visible slot grid. The renderer paints these cached
+  // sources into one bounded canvas instead of mounting one DOM node per slot.
   const tiles = useMemo(() => {
     if (!renderFrames || renderFrames.length === 0 || renderPixelsPerSecond <= 0) return []
     if (effectiveEnd <= effectiveStart) return []
@@ -423,15 +279,7 @@ export const ClipFilmstrip = memo(function ClipFilmstrip({
     const pixelsPerSourceSecond = renderPixelsPerSecond / Math.max(0.0001, speed)
     const tileWidth = thumbnailWidth
 
-    const { startTile, endTile } = computeFilmstripRenderWindow({
-      renderWidth: renderClipWidth,
-      visibleWidth: visibleClipWidth,
-      tileWidth,
-      visibleStartRatio,
-      visibleEndRatio,
-      minimumPadTiles: VIEWPORT_PAD_TILES,
-      minimumPadPx: VIEWPORT_PAD_PX,
-    })
+    const { startTile, endTile } = filmstripRenderWindow
     if (endTile <= startTile) return []
 
     const findClosestFrame = (targetTime: number): FilmstripFrame | null => {
@@ -471,10 +319,7 @@ export const ClipFilmstrip = memo(function ClipFilmstrip({
   }, [
     renderFrames,
     renderPixelsPerSecond,
-    renderClipWidth,
-    visibleClipWidth,
-    visibleStartRatio,
-    visibleEndRatio,
+    filmstripRenderWindow,
     effectiveStart,
     effectiveEnd,
     isReversed,
@@ -482,30 +327,21 @@ export const ClipFilmstrip = memo(function ClipFilmstrip({
     thumbnailWidth,
   ])
 
-  // Lock a stable cover-frame index on first paint. Without this, the middle
-  // frame moves as refinement extraction adds new frames, so the repeating
-  // background URL swaps mid-zoom and produces a visible flash. Resetting on
-  // mediaId change keeps relinked clips correct.
-  const [coverFrameIndex, setCoverFrameIndex] = useState<number | null>(null)
-  useEffect(() => {
-    setCoverFrameIndex(null)
-  }, [mediaId])
-  useEffect(() => {
-    if (coverFrameIndex !== null) return
-    if (!renderFrames || renderFrames.length === 0) return
-    const mid = renderFrames[Math.floor(renderFrames.length / 2)] ?? renderFrames[0] ?? null
-    if (mid) setCoverFrameIndex(mid.index)
-  }, [coverFrameIndex, renderFrames])
+  // Share one stable fallback frame per media item. Every clip instance then
+  // reuses the same decoded source across virtualization and zoom remounts.
   const coverFrame = useMemo(() => {
     if (!renderFrames || renderFrames.length === 0) return null
-    if (coverFrameIndex !== null) {
-      const exact = renderFrames.find((frame) => frame.index === coverFrameIndex)
+    const cachedIndex = coverFrameIndexByMediaId.get(mediaId)
+    if (cachedIndex !== undefined) {
+      const exact = renderFrames.find((frame) => frame.index === cachedIndex)
       if (exact) return exact
     }
-    return renderFrames[Math.floor(renderFrames.length / 2)] ?? renderFrames[0] ?? null
-  }, [coverFrameIndex, renderFrames])
-  const coverFrameUrl = coverFrame?.url ?? null
-
+    const fallback = renderFrames[Math.floor(renderFrames.length / 2)] ?? renderFrames[0] ?? null
+    if (fallback) {
+      coverFrameIndexByMediaId.set(mediaId, fallback.index)
+    }
+    return fallback
+  }, [mediaId, renderFrames])
   if (error) {
     return null
   }
@@ -524,51 +360,16 @@ export const ClipFilmstrip = memo(function ClipFilmstrip({
 
   return (
     <div ref={containerRef} className="absolute inset-0">
-      {/* No inline shimmer once we have any frames. The cover-frame background
-          + already-rendered tiles are the user's visual feedback. The shimmer
-          used to re-show whenever extraction refinement flipped `isComplete`
-          to false (e.g. after a zoom-triggered target update), which read as
-          a "blink/refresh" mid-zoom — even though the loaded frames never
-          actually went away. */}
-      {/* Stable cover-frame background layer — fills any gap before a tile's
-          canvas has painted its bitmap, so the user never sees a black hole. */}
-      {coverFrameUrl && (
-        <div
-          aria-hidden
-          className="absolute inset-0 overflow-hidden pointer-events-none"
-          style={{
-            backgroundImage: `url(${coverFrameUrl})`,
-            backgroundRepeat: 'repeat-x',
-            backgroundSize: `${thumbnailWidth}px ${height}px`,
-          }}
-        />
-      )}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        {tiles.map(({ slot, frame, x, width }) => (
-          <FilmstripTile
-            key={slot}
-            src={frame.url}
-            bitmap={frame.bitmap}
-            x={x}
-            height={height}
-            width={width}
-            sourceWidth={thumbnailWidth}
-            frameIndex={frame.index}
-            onSourceError={handleFrameSourceError}
-          />
-        ))}
-        {/* Hidden probe to detect stale cover background URL */}
-        {coverFrame && !coverFrame.bitmap && (
-          <img
-            src={coverFrame.url}
-            alt=""
-            aria-hidden
-            className="absolute h-px w-px opacity-0 pointer-events-none"
-            style={{ left: 0, top: 0 }}
-            onError={() => handleFrameSourceError(coverFrame.index)}
-          />
-        )}
-      </div>
+      <VisibleFilmstripCanvas
+        renderWidth={renderClipWidth}
+        height={height}
+        tileWidth={thumbnailWidth}
+        visibleStartPx={filmstripRenderWindow.paddedStartX}
+        visibleEndPx={filmstripRenderWindow.paddedEndX}
+        tiles={tiles}
+        coverFrame={coverFrame}
+        onSourceError={handleFrameSourceError}
+      />
     </div>
   )
 })
