@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Keyframe-Editor zur Grafikansicht wechseln",
           "keyframeEditorDopesheet": "Keyframe-Editor zur Dopesheet-Ansicht wechseln",
           "keyframeEditorSplit": "Keyframe-Editor zur geteilten Ansicht wechseln",
-          "keyframeToggle": "Keyframe am Abspielkopf umschalten",
+          "editKeyframeAdd": "Keyframe am Abspielkopf zur ausgewählten Edit-Ebene hinzufügen",
           "keyframePrevious": "Zum vorherigen Eigenschafts-Keyframe springen",
           "keyframeNext": "Zum nächsten Eigenschafts-Keyframe springen",
           "keyframeToggleAuto": "Auto-Key für aktive Eigenschaft umschalten",
@@ -541,6 +541,13 @@
     "routeError": {
       "title": "Etwas ist schiefgelaufen",
       "description": "FreeCut konnte diese Seite nicht vollständig laden.",
+      "projectNotFoundTitle": "Dieses Projekt wurde nicht gefunden",
+      "projectNotFoundDescription": "Es wurde möglicherweise verschoben, gelöscht oder über einen alten Link geöffnet. Deine anderen Projekte sind weiterhin in deinem Arbeitsbereich verfügbar.",
+      "backToProjects": "Zurück zu den Projekten",
+      "supportHint": "Wenn du Hilfe benötigst, kopiere die Fehlerdetails und sende sie an einen Entwickler.",
+      "copyDetails": "Fehlerdetails kopieren",
+      "detailsCopied": "Fehlerdetails kopiert",
+      "copyFailed": "Details konnten nicht kopiert werden",
       "causePermission": "FreeCut hat keine Berechtigung mehr für deinen Arbeitsordner. Verbinde ihn erneut oder wähle einen anderen Ordner.",
       "causeMissing": "Dein Arbeitsordner wurde nicht gefunden. Möglicherweise wurde er verschoben, umbenannt oder gelöscht.",
       "causeUnsupported": "Dein Arbeitsordner liegt auf einem Laufwerk, das nicht alles unterstützt, was FreeCut benötigt. Cloud-synchronisierte Ordner und Netzwerkordner verhalten sich häufig so. Ein Ordner auf einer lokalen Festplatte behebt das meist."

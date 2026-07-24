@@ -88,7 +88,7 @@ describe('useClipVisibility', () => {
     expect(screen.getByTestId('visibility')).toHaveTextContent('false:0.000:1.000')
   })
 
-  it('forces visible during zoom interaction to avoid coordinate space mismatch', () => {
+  it('freezes the last bounded visibility window during zoom interaction', () => {
     render(
       createElement(VisibilityProbe, {
         clipLeftPx: 200,
@@ -110,9 +110,26 @@ describe('useClipVisibility', () => {
     })
     expect(screen.getByTestId('visibility')).toHaveTextContent('false:0.000:1.000')
 
-    // Start zoom interaction — should force visible
+    // Start zoom interaction. The last valid offscreen state remains frozen.
     act(() => {
       useZoomStore.getState().setZoomLevelImmediate(2)
+    })
+    expect(screen.getByTestId('visibility')).toHaveTextContent('false:0.000:1.000')
+
+    // Viewport changes during the gesture do not expand or move the window.
+    act(() => {
+      useTimelineViewportStore.getState().setViewport({
+        scrollLeft: 0,
+        scrollTop: 0,
+        viewportWidth: 800,
+        viewportHeight: 120,
+      })
+    })
+    expect(screen.getByTestId('visibility')).toHaveTextContent('false:0.000:1.000')
+
+    // Settling zoom recomputes against the current viewport.
+    act(() => {
+      useZoomStore.getState().setZoomLevelSynchronized(2)
     })
     expect(screen.getByTestId('visibility')).toHaveTextContent('true:0.000:1.000')
   })

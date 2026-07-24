@@ -1,21 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { TILE_WIDTH as TILED_CANVAS_TILE_WIDTH } from '../clip-filmstrip/tiled-canvas'
+import { useZoomStore } from '../../stores/zoom-store'
 
 interface WaveformActiveTileCountOptions {
   renderWidth: number
   visibleStartPx: number
   visibleEndPx: number
   overscanTiles?: number
-}
-
-interface AdaptiveWaveformRenderVersionOptions {
-  baseVersion: string
-  pixelsPerSecond: number
-  /** Total canvas render width in px. Included in the throttled zoom signal so
-   *  trim-extend (which grows width without changing pps) also triggers redraws. */
-  renderWidth: number
-  activeTileCount: number
-  phaseKey?: string
 }
 
 function nowMs(): number {
@@ -75,35 +66,37 @@ export function getWaveformZoomCommitPhaseMs(activeTileCount: number, phaseKey?:
   return (hashPhaseKey(phaseKey) % 6) * 10
 }
 
-export function useAdaptiveWaveformRenderVersion({
-  baseVersion,
+/**
+ * Samples live zoom into mounted waveform components at a workload-aware
+ * cadence. Every committed value redraws a real sharp canvas; intervening store
+ * updates are coalesced, so a slider burst cannot create an unbounded React
+ * render queue.
+ */
+export function useAdaptiveWaveformPixelsPerSecond({
   pixelsPerSecond,
-  renderWidth,
   activeTileCount,
   phaseKey,
-}: AdaptiveWaveformRenderVersionOptions): string {
-  const zoomVersion = useMemo(
-    () => `e${Math.round(Math.max(1, pixelsPerSecond) * 1000)}:w${Math.round(renderWidth)}`,
-    [pixelsPerSecond, renderWidth],
+  enabled = true,
+}: {
+  pixelsPerSecond: number
+  activeTileCount: number
+  phaseKey?: string
+  enabled?: boolean
+}): number {
+  const initialRenderPixelsPerSecond = enabled && useZoomStore.getState().isZoomInteracting
+    ? useZoomStore.getState().pixelsPerSecond
+    : pixelsPerSecond
+  const [renderPixelsPerSecond, setRenderPixelsPerSecond] = useState(
+    initialRenderPixelsPerSecond,
   )
-  const redrawIntervalMs = useMemo(
-    () => getWaveformZoomRedrawIntervalMs(activeTileCount),
-    [activeTileCount],
-  )
-  const phaseDelayMs = useMemo(
-    () => getWaveformZoomCommitPhaseMs(activeTileCount, phaseKey),
-    [activeTileCount, phaseKey],
-  )
-  const [committedZoomVersion, setCommittedZoomVersion] = useState(zoomVersion)
-  const latestZoomVersionRef = useRef(zoomVersion)
   const lastCommitAtRef = useRef(0)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const rafRef = useRef<number | null>(null)
-
-  latestZoomVersionRef.current = zoomVersion
+  const redrawIntervalMs = getWaveformZoomRedrawIntervalMs(activeTileCount)
+  const phaseDelayMs = getWaveformZoomCommitPhaseMs(activeTileCount, phaseKey)
 
   useEffect(() => {
-    if (committedZoomVersion === zoomVersion) {
+    if (!enabled) {
+      setRenderPixelsPerSecond(pixelsPerSecond)
       return
     }
 
@@ -112,54 +105,77 @@ export function useAdaptiveWaveformRenderVersion({
         clearTimeout(timeoutRef.current)
         timeoutRef.current = null
       }
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
     }
+
+    let cancelled = false
+    let microtaskPending = false
 
     const commit = () => {
+      if (cancelled) return
       lastCommitAtRef.current = nowMs()
-      setCommittedZoomVersion(latestZoomVersionRef.current)
+      setRenderPixelsPerSecond(
+        enabled ? useZoomStore.getState().pixelsPerSecond : pixelsPerSecond,
+      )
     }
 
-    const now = nowMs()
-    const elapsedMs = now - lastCommitAtRef.current
-    if (lastCommitAtRef.current === 0 || (elapsedMs >= redrawIntervalMs && phaseDelayMs === 0)) {
-      clearPending()
-      commit()
-      return
-    }
-
-    if (timeoutRef.current || rafRef.current !== null) {
-      return
-    }
-
-    const remainingMs = Math.max(0, redrawIntervalMs - elapsedMs)
-    const scheduledDelayMs =
-      lastCommitAtRef.current === 0 ? phaseDelayMs : remainingMs + phaseDelayMs
-    timeoutRef.current = setTimeout(() => {
-      timeoutRef.current = null
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = null
+    const commitAfterLiveLayout = () => {
+      if (microtaskPending) return
+      microtaskPending = true
+      queueMicrotask(() => {
+        microtaskPending = false
         commit()
       })
-    }, scheduledDelayMs)
-    return clearPending
-  }, [committedZoomVersion, phaseDelayMs, redrawIntervalMs, zoomVersion])
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
-        timeoutRef.current = null
-      }
-      if (rafRef.current !== null) {
-        cancelAnimationFrame(rafRef.current)
-        rafRef.current = null
-      }
     }
-  }, [])
 
-  return `${baseVersion}:${committedZoomVersion}`
+    const schedule = () => {
+      const elapsedMs = nowMs() - lastCommitAtRef.current
+      if (lastCommitAtRef.current === 0 && phaseDelayMs === 0) {
+        commitAfterLiveLayout()
+        return
+      }
+      // Once this canvas has exhausted its redraw budget, commit directly.
+      // Forcing every phased waveform through another animation frame leaves
+      // the old bounded canvas offscreen for one paint during fast reversals.
+      // Bursts inside the budget are still coalesced below.
+      if (elapsedMs >= redrawIntervalMs) {
+        clearPending()
+        commitAfterLiveLayout()
+        return
+      }
+      if (timeoutRef.current) return
+
+      const remainingMs = Math.max(0, redrawIntervalMs - elapsedMs)
+      const delayMs = lastCommitAtRef.current === 0 ? phaseDelayMs : remainingMs
+      timeoutRef.current = setTimeout(() => {
+        timeoutRef.current = null
+        // The timeout already enforces the redraw cadence. Waiting for another
+        // animation frame can leave a bounded canvas outside the live clip for
+        // one extra paint during a fast zoom reversal.
+        commit()
+      }, delayMs)
+    }
+
+    schedule()
+    const unsubscribe = useZoomStore.subscribe((state, previousState) => {
+      if (state.pixelsPerSecond !== previousState.pixelsPerSecond) {
+        schedule()
+      }
+    })
+
+    return () => {
+      cancelled = true
+      unsubscribe()
+      clearPending()
+    }
+  }, [enabled, phaseDelayMs, pixelsPerSecond, redrawIntervalMs])
+
+  // Synchronized zoom commands can update the settled prop without a distinct
+  // live-store notification for this mounted component.
+  useEffect(() => {
+    if (!enabled || !useZoomStore.getState().isZoomInteracting) {
+      setRenderPixelsPerSecond(pixelsPerSecond)
+    }
+  }, [enabled, pixelsPerSecond])
+
+  return renderPixelsPerSecond
 }

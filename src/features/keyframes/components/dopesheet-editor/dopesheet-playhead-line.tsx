@@ -19,6 +19,11 @@ import {
   type TimelineScrubVisualFrameDetail,
 } from '@/shared/timeline/live-scroll-sync'
 
+function setTranslateXIfChanged(element: HTMLElement, left: number): void {
+  const transform = `translate3d(${left}px, 0, 0)`
+  if (element.style.transform !== transform) element.style.transform = transform
+}
+
 interface DopesheetPlayheadLineProps {
   /** Clip-relative playhead frame for paused seek and zoom updates. */
   relativeFrame: number
@@ -209,7 +214,7 @@ export function DopesheetPlayheadLine({
     if (localScrubActiveRef?.current === true || mainTimelineScrubActiveRef.current) return
     const liveRelativeFrame = livePlaybackRelFrame()
     const x = clampLeft(liveRelativeFrame ?? posRef.current.relativeFrame)
-    ref.current.style.transform = `translate3d(${x}px, 0, 0)`
+    setTranslateXIfChanged(ref.current, x)
   })
 
   useEffect(() => {
@@ -217,7 +222,7 @@ export function DopesheetPlayheadLine({
       const liveRelativeFrame = livePlaybackRelFrame()
       const relativeFrame = liveRelativeFrame ?? posRef.current.relativeFrame
       if (ref.current) {
-        ref.current.style.transform = `translate3d(${clampLeft(relativeFrame)}px, 0, 0)`
+        setTranslateXIfChanged(ref.current, clampLeft(relativeFrame))
       }
     }
     const updateFromScroll = () => {
@@ -230,7 +235,7 @@ export function DopesheetPlayheadLine({
       const { viewportProgress } = (event as CustomEvent<TimelineScrubVisualFrameDetail>).detail
       if (!ref.current) return
       const viewportX = getTimelineScrubViewportX(viewportProgress, posRef.current.maxLeft)
-      ref.current.style.transform = `translate3d(${viewportX}px, 0, 0)`
+      setTranslateXIfChanged(ref.current, viewportX)
     }
     const unsubscribe = usePlaybackStore.subscribe(update)
     const target = positionSyncTargetRef?.current

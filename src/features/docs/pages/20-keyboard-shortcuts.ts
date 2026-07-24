@@ -29,7 +29,7 @@ const page = {
           kind: 'table',
           headers: ['Action', 'Shortcut'],
           rows: [
-            ['Split at playhead', '`Ctrl+K` (also `Alt+C`)'],
+            ['Split at playhead', '`Alt+C`'],
             ['Split at cursor', '`Shift+C`'],
             ['Join', '`Shift+J`'],
             ['Delete / Ripple delete', '`Delete` / `Ctrl+Delete`'],
@@ -96,6 +96,7 @@ const page = {
             ['Add / Remove marker', '`M` / `Shift+M`'],
             ['Previous / Next marker', '`[` / `]`'],
             ['Clear keyframes', '`Shift+A`'],
+            ['Add keyframe to selected Edit layer', '`K`'],
             ['Keyframe graph / sheet view', '`1` / `2`'],
           ],
         },

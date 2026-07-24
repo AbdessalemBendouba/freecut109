@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
 import { DopesheetEditor } from './index'
+import { DopesheetPlayheadLine } from './dopesheet-playhead-line'
 import { PROPERTY_COLUMN_WIDTH } from './dopesheet-constants'
 import {
   mainTimelineScrubActiveRef,
@@ -36,6 +37,38 @@ describe('DopesheetEditor playhead overlay', () => {
     mainTimelineScrubActiveRef.current = false
     mainTimelineScrubHandoffFrameRef.current = null
     resetTimelineSkimmerScrubForTest()
+  })
+
+  it('skips playhead transform assignments until playback reaches the next pixel', () => {
+    usePlaybackStore.setState({ isPlaying: true })
+    render(
+      <DopesheetPlayheadLine
+        relativeFrame={0}
+        itemFrom={0}
+        totalFrames={100}
+        frameToX={(frame) => Math.floor(frame / 2)}
+        maxLeft={100}
+      />,
+    )
+    const playhead = screen.getByTestId('dopesheet-playhead-line')
+    expect(playhead).toHaveStyle({ transform: 'translate3d(0px, 0, 0)' })
+
+    let transform = playhead.style.transform
+    const transformAssignments: string[] = []
+    Object.defineProperty(playhead.style, 'transform', {
+      configurable: true,
+      get: () => transform,
+      set: (value: string) => {
+        transform = value
+        transformAssignments.push(value)
+      },
+    })
+
+    act(() => usePlaybackStore.setState({ currentFrame: 1 }))
+    expect(transformAssignments).toEqual([])
+
+    act(() => usePlaybackStore.setState({ currentFrame: 2 }))
+    expect(transformAssignments).toEqual(['translate3d(1px, 0, 0)'])
   })
 
   it('clamps the playhead to the left edge when the current frame is before the viewport', () => {
@@ -724,14 +757,16 @@ describe('DopesheetEditor playhead overlay', () => {
     animationFrameSpy.mockRestore()
   })
 
-  it('compositor-pans keyframe geometry between settled React viewport updates', () => {
+  it('repositions keyframe geometry without scaling between settled React viewport updates', () => {
     const scrollContainer = document.createElement('div')
     scrollContainer.scrollLeft = 20
     const timelineScrollContainerRef = { current: scrollContainer }
     render(
       <DopesheetEditor
         itemId="item-1"
-        keyframesByProperty={{ x: [] }}
+        keyframesByProperty={{
+          x: [{ id: 'kf-pan', frame: 30, value: 100, easing: 'linear' }],
+        }}
         currentFrame={0}
         frameViewport={{ startFrame: 0, endFrame: 100 }}
         width={640}
@@ -743,20 +778,22 @@ describe('DopesheetEditor playhead overlay', () => {
 
     const rulerSurface = screen
       .getByTestId('dopesheet-ruler')
-      .querySelector('[data-motion-ruler-surface]')
-    expect(rulerSurface).toHaveStyle({
-      transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
-    })
+      .querySelector<HTMLElement>('[data-motion-ruler-surface]')
+    expect(rulerSurface?.style.transform).not.toContain('scaleX')
+
+    const keyframe = screen
+      .getByTestId('dopesheet-editor-root')
+      .querySelector<HTMLElement>('[data-dopesheet-frame="30"]')
+    const initialLeft = Number.parseFloat(keyframe?.style.left ?? 'NaN')
 
     scrollContainer.scrollLeft = 65
     scrollContainer.dispatchEvent(new Event(TIMELINE_LIVE_SCROLL_EVENT))
 
-    expect(screen.getByTestId('dopesheet-editor-root')).toHaveStyle({
-      '--dopesheet-live-axis-transform': 'translate3d(-45px, 0, 0) scaleX(1)',
-    })
+    expect(Number.parseFloat(keyframe?.style.left ?? 'NaN')).toBeCloseTo(initialLeft - 45)
+    expect(keyframe?.style.transform).toBe('')
   })
 
-  it('applies linked live zoom on the compositor without changing rendered geometry props', () => {
+  it('applies live zoom as direct keyframe pixel positions', () => {
     const scrollContainer = document.createElement('div')
     scrollContainer.scrollLeft = 60
     const timelineScrollContainerRef = { current: scrollContainer }
@@ -764,7 +801,9 @@ describe('DopesheetEditor playhead overlay', () => {
     render(
       <DopesheetEditor
         itemId="item-1"
-        keyframesByProperty={{ x: [] }}
+        keyframesByProperty={{
+          x: [{ id: 'kf-zoom', frame: 30, value: 100, easing: 'linear' }],
+        }}
         currentFrame={0}
         frameViewport={{ startFrame: 0, endFrame: 100 }}
         width={640}
@@ -777,31 +816,29 @@ describe('DopesheetEditor playhead overlay', () => {
     )
 
     const root = screen.getByTestId('dopesheet-editor-root')
-    expect(root).toHaveStyle({
-      '--dopesheet-live-axis-transform': 'translate3d(-30px, 0, 0) scaleX(1.5)',
-      '--dopesheet-live-axis-inverse-scale': `${1 / 1.5}`,
-    })
+    const keyframe = root.querySelector<HTMLElement>('[data-dopesheet-frame="30"]')
+    expect(keyframe?.style.left).toBe('90px')
+    expect(root.style.getPropertyValue('--dopesheet-live-axis-transform')).toBe('')
 
     livePixelsPerSecond = 75
     scrollContainer.dispatchEvent(new Event(TIMELINE_LIVE_SCROLL_EVENT))
-    expect(root).toHaveStyle({
-      '--dopesheet-live-axis-transform': 'translate3d(-45px, 0, 0) scaleX(0.75)',
-      '--dopesheet-live-axis-inverse-scale': `${1 / 0.75}`,
-    })
+    expect(keyframe?.style.left).toBe('15px')
+    expect(keyframe?.style.transform).toBe('')
   })
 
-  it('scales the Edit settle handoff into the narrower rendered axis', () => {
+  it('uses live main-timeline pixels during the Edit settle handoff', () => {
     const scrollContainer = document.createElement('div')
     scrollContainer.scrollLeft = 500
     const timelineScrollContainerRef = { current: scrollContainer }
     const mainViewportWidth = 393
-    const renderedAxisWidth = 391
     const basePixelsPerSecond = (mainViewportWidth / 100) * 30
 
     render(
       <DopesheetEditor
         itemId="item-1"
-        keyframesByProperty={{ x: [] }}
+        keyframesByProperty={{
+          x: [{ id: 'kf-handoff', frame: 100, value: 100, easing: 'linear' }],
+        }}
         currentFrame={0}
         totalFrames={300}
         frameViewport={{ startFrame: 0, endFrame: 100 }}
@@ -817,17 +854,13 @@ describe('DopesheetEditor playhead overlay', () => {
       />,
     )
 
-    const transform = screen
+    const keyframe = screen
       .getByTestId('dopesheet-editor-root')
-      .style.getPropertyValue('--dopesheet-live-axis-transform')
-    const translatedPixels = Number.parseFloat(
-      transform.match(/translate3d\(([-\d.]+)px/)?.[1] ?? 'NaN',
-    )
+      .querySelector<HTMLElement>('[data-dopesheet-frame="100"]')
+    const keyframeLeft = Number.parseFloat(keyframe?.style.left ?? 'NaN')
 
-    expect(translatedPixels).toBeCloseTo(
-      ((100 - scrollContainer.scrollLeft) * renderedAxisWidth) / mainViewportWidth,
-    )
-    expect(transform).toContain('scaleX(1)')
+    expect(keyframeLeft).toBeCloseTo((100 / 30) * basePixelsPerSecond - scrollContainer.scrollLeft)
+    expect(keyframe?.style.transform).toBe('')
   })
 
   it('uses the linked Edit viewport width as the authoritative settled axis', () => {
@@ -840,7 +873,9 @@ describe('DopesheetEditor playhead overlay', () => {
     render(
       <DopesheetEditor
         itemId="item-1"
-        keyframesByProperty={{ x: [] }}
+        keyframesByProperty={{
+          x: [{ id: 'kf-linked', frame: 100, value: 100, easing: 'linear' }],
+        }}
         currentFrame={0}
         totalFrames={300}
         frameViewport={{ startFrame: 0, endFrame: 100 }}
@@ -857,9 +892,14 @@ describe('DopesheetEditor playhead overlay', () => {
       />,
     )
 
-    expect(screen.getByTestId('dopesheet-editor-root')).toHaveStyle({
-      '--dopesheet-live-axis-transform': 'translate3d(-401px, 0, 0) scaleX(1)',
-    })
+    const root = screen.getByTestId('dopesheet-editor-root')
+    const keyframe = root.querySelector<HTMLElement>('[data-dopesheet-frame="100"]')
+    expect(Number.parseFloat(keyframe?.style.left ?? 'NaN')).toBeCloseTo(
+      (100 / 30) * basePixelsPerSecond - scrollContainer.scrollLeft - 1,
+    )
+    expect(root.querySelector<HTMLElement>('[data-motion-viewport-surface]')?.style.transform).toBe(
+      '',
+    )
     expect(screen.getByTestId('dopesheet-playhead-clip')).toHaveStyle({
       left: `${PROPERTY_COLUMN_WIDTH}px`,
     })

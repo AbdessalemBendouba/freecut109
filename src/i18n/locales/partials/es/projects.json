@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Cambiar el editor de fotogramas clave a la vista de gráfico",
           "keyframeEditorDopesheet": "Cambiar el editor de fotogramas clave a la vista de hoja de tiempos",
           "keyframeEditorSplit": "Cambiar el editor de fotogramas clave a la vista dividida",
-          "keyframeToggle": "Alternar fotograma clave en el cabezal",
+          "editKeyframeAdd": "Añadir fotograma clave en el cabezal para la capa de Edit seleccionada",
           "keyframePrevious": "Ir al fotograma clave anterior de la propiedad",
           "keyframeNext": "Ir al fotograma clave siguiente de la propiedad",
           "keyframeToggleAuto": "Alternar clave automática para la propiedad activa",
@@ -541,6 +541,13 @@
     "routeError": {
       "title": "Algo salió mal",
       "description": "FreeCut no pudo terminar de cargar esta página.",
+      "projectNotFoundTitle": "No encontramos este proyecto",
+      "projectNotFoundDescription": "Puede que se haya movido, eliminado o abierto desde un enlace antiguo. Tus demás proyectos siguen disponibles en tu espacio de trabajo.",
+      "backToProjects": "Volver a proyectos",
+      "supportHint": "Si necesitas ayuda, copia los detalles del error y envíaselos a un desarrollador.",
+      "copyDetails": "Copiar detalles del error",
+      "detailsCopied": "Detalles del error copiados",
+      "copyFailed": "No se pudieron copiar los detalles",
       "causePermission": "FreeCut ya no tiene permiso para usar tu carpeta de trabajo. Vuelve a conectarla o elige otra carpeta.",
       "causeMissing": "No se encontró tu carpeta de trabajo. Puede que se haya movido, renombrado o eliminado.",
       "causeUnsupported": "Tu carpeta de trabajo está en una unidad que no admite todo lo que FreeCut necesita. Las carpetas sincronizadas en la nube y las de red suelen comportarse así. Elegir una carpeta en un disco local suele solucionarlo."

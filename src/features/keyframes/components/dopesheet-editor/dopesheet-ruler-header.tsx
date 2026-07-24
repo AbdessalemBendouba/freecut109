@@ -10,6 +10,7 @@ interface DopesheetRulerHeaderProps {
   onRulerPointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void
   onRulerPointerLeave: (event: ReactPointerEvent<HTMLDivElement>) => void
   rulerTickElements: ReactNode
+  liveRulerCanvas?: ReactNode
   reservedRightGutterWidth?: number
   propertyFilter?: 'all' | 'keyframed'
   onPropertyFilterChange?: (filter: 'all' | 'keyframed') => void
@@ -23,6 +24,7 @@ export function DopesheetRulerHeader({
   onRulerPointerUp,
   onRulerPointerLeave,
   rulerTickElements,
+  liveRulerCanvas,
   reservedRightGutterWidth = 0,
   propertyFilter = 'all',
   onPropertyFilterChange,
@@ -78,17 +80,11 @@ export function DopesheetRulerHeader({
         onPointerCancel={onRulerPointerUp}
         onPointerLeave={onRulerPointerLeave}
       >
-        <div
-          data-motion-viewport-surface
-          data-motion-ruler-surface
-          className="absolute inset-0"
-          style={{
-            transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
-            transformOrigin: '0 0',
-          }}
-        >
-          {rulerTickElements}
-        </div>
+        {liveRulerCanvas ?? (
+          <div data-motion-viewport-surface data-motion-ruler-surface className="absolute inset-0">
+            {rulerTickElements}
+          </div>
+        )}
         {reservedRightGutterWidth > 0 ? (
           <div
             data-testid="dopesheet-ruler-scrollbar-gutter"

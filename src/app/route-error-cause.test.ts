@@ -2,7 +2,23 @@
 
 import { describe, expect, it } from 'vite-plus/test'
 
-import { getStorageFailureName } from './route-error-cause'
+import {
+  formatRouteErrorDetails,
+  getProjectNotFoundError,
+  getStorageFailureName,
+  ProjectNotFoundError,
+} from './route-error-cause'
+
+describe('ProjectNotFoundError', () => {
+  it('keeps stale editor links distinct from unrelated route failures', () => {
+    const missingProject = new ProjectNotFoundError('project-123')
+
+    expect(getProjectNotFoundError(missingProject)).toBe(missingProject)
+    expect(missingProject.projectId).toBe('project-123')
+    expect(missingProject.message).toBe('Project not found: project-123')
+    expect(getProjectNotFoundError(new Error('Project not found: project-123'))).toBeNull()
+  })
+})
 
 describe('getStorageFailureName', () => {
   // The whole point of attaching `cause` in workspace-fs: the DOMException name
@@ -31,5 +47,23 @@ describe('getStorageFailureName', () => {
     expect(getStorageFailureName(new Error('boom'))).toBeNull()
     expect(getStorageFailureName('NotAllowedError')).toBeNull()
     expect(getStorageFailureName(null)).toBeNull()
+  })
+})
+
+describe('formatRouteErrorDetails', () => {
+  it('includes the page and exact error message for a developer report', () => {
+    const error = new ProjectNotFoundError('project-123')
+    error.stack = 'ProjectNotFoundError: Project not found: project-123\n    at loader'
+
+    expect(formatRouteErrorDetails(error, 'https://freecut.example/editor/project-123')).toBe(
+      [
+        'Page: https://freecut.example/editor/project-123',
+        'Error: ProjectNotFoundError: Project not found: project-123',
+        '',
+        'Stack:',
+        'ProjectNotFoundError: Project not found: project-123',
+        '    at loader',
+      ].join('\n'),
+    )
   })
 })

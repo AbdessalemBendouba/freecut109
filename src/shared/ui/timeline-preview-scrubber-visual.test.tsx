@@ -12,8 +12,23 @@ import { TimelinePreviewScrubberVisual } from './timeline-preview-scrubber-visua
 
 describe('TimelinePreviewScrubberVisual', () => {
   beforeEach(() => {
-    usePlaybackStore.setState({ previewFrame: null, previewItemId: null })
+    usePlaybackStore.setState({ previewFrame: null, previewItemId: null, isPlaying: false })
     resetTimelineSkimmerScrubForTest()
+  })
+
+  it('ignores playback-store updates when the preview frame is unchanged', () => {
+    const frameToPixels = vi.fn((frame: number) => frame)
+    render(<TimelinePreviewScrubberVisual frameToPixels={frameToPixels} fps={30} />)
+
+    act(() => usePlaybackStore.getState().setPreviewFrame(12))
+    frameToPixels.mockClear()
+
+    act(() => usePlaybackStore.setState({ currentFrame: 8 }))
+    expect(frameToPixels).not.toHaveBeenCalled()
+
+    act(() => usePlaybackStore.getState().setPreviewFrame(13))
+    expect(frameToPixels).toHaveBeenCalledOnce()
+    expect(frameToPixels).toHaveBeenCalledWith(13)
   })
 
   it('preserves subpixel coordinates so shared timeline skim lines stay aligned', () => {

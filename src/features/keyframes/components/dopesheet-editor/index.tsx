@@ -49,6 +49,8 @@ import type {
   PropertyExpression,
 } from '@/types/keyframe'
 import type { MotionModifier } from '@/types/motion'
+import type { TextMotionSlot } from '@/types/text-motion'
+import type { TextMotionTimelineBand } from '@/shared/timeline/text-motion-timeline'
 import {
   areDirectLinkPropertiesCompatible,
   isDirectLinkableProperty,
@@ -73,6 +75,8 @@ import { useElementSize } from './use-element-size'
 import { addWindowPointerListeners } from './dopesheet-pointer-listeners'
 import { DopesheetHeaderFrameInputs } from './dopesheet-header-frame-inputs'
 import { DopesheetRulerHeader } from './dopesheet-ruler-header'
+import { DopesheetLiveRulerCanvas } from './dopesheet-live-ruler-canvas'
+import { syncDopesheetLivePixelGeometry } from './dopesheet-live-pixel-geometry'
 import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
 import { perfMarkRender } from '@/shared/logging/perf-marks'
 import {
@@ -180,6 +184,7 @@ import {
 } from '@/features/keyframes/utils/property-i18n'
 import { useCoalescedScrub } from '../use-coalesced-scrub'
 import { getScrubbedPropertyValue } from './property-value-scrub'
+import { TextMotionTimelineRows } from './text-motion-timeline-rows'
 
 interface DopesheetEditorProps {
   /** Shared time viewport when split mode needs synchronized frame zoom/pan */
@@ -382,6 +387,22 @@ interface DopesheetEditorProps {
   proceduralPreview?: ProceduralPreviewInput
   /** Motion modifiers used to render procedural bands in the sheet. */
   motionModifiers?: MotionModifier[]
+  /** Procedural text-animation spans shown above Edit's authored keyframe rows. */
+  textMotionBands?: readonly TextMotionTimelineBand[]
+  /** Capture state before an Edit text-animation duration drag. */
+  onTextMotionDurationDragStart?: () => void
+  /** Commit a text-animation duration after an Edit band drag. */
+  onTextMotionDurationCommit?: (slot: TextMotionSlot, durationFrames: number) => void
+  /** Discard an interrupted Edit text-animation duration drag. */
+  onTextMotionDurationCancel?: () => void
+  /** Capture state before moving an Edit text-animation away from its clip edge. */
+  onTextMotionOffsetDragStart?: () => void
+  /** Commit an IN/OUT text-animation clip-edge offset. */
+  onTextMotionOffsetCommit?: (slot: TextMotionSlot, offsetFrames: number) => void
+  /** Discard an interrupted Edit text-animation offset drag. */
+  onTextMotionOffsetCancel?: () => void
+  /** Open the selected text animation in the inspector. */
+  onTextMotionBandClick?: (slot: TextMotionSlot) => void
   /** Whether the edited clip has any enabled procedural motion source. */
   hasProceduralMotion?: boolean
   /** Whether the edited clip carries bakeable procedural motion. */
@@ -443,9 +464,11 @@ interface DopesheetEditorProps {
   showPlayhead?: boolean
   /** Activate editor-only shortcuts when this surface owns pointer or keyboard focus. */
   shortcutsEnabled?: boolean
+  /** Keep the Edit add-keyframe shortcut active while its dock is open. */
+  addKeyframeShortcutEnabled?: boolean
   /** User-configurable bindings for high-frequency keyframe actions. */
   shortcuts?: {
-    toggleKeyframe: string
+    addKeyframe: string
     previousKeyframe: string
     nextKeyframe: string
     toggleAutoKey: string
@@ -687,30 +710,6 @@ function getDopesheetDragPixelsPerFrame(
   return pixelsPerSecond / Math.max(fps, 1)
 }
 
-function getLiveDopesheetAxisTransform(params: {
-  basePixelsPerSecond: number
-  livePixelsPerSecond: number
-  timelinePixelsPerSecond: number
-  baseScrollLeft: number
-  scrollLeft: number
-  classic: boolean
-  linked: boolean
-}) {
-  const scale =
-    params.basePixelsPerSecond > 0 && params.livePixelsPerSecond > 0
-      ? params.livePixelsPerSecond / params.basePixelsPerSecond
-      : 1
-  const scrollPixelScale =
-    params.classic && params.basePixelsPerSecond > 0
-      ? params.timelinePixelsPerSecond / params.basePixelsPerSecond
-      : 1
-  const originOffset = params.linked ? -1 : 0
-  return {
-    scale,
-    panX: originOffset + scrollPixelScale * (scale * params.baseScrollLeft - params.scrollLeft),
-  }
-}
-
 function getLiveRulerFrame({
   viewportX,
   fallbackFrame,
@@ -859,6 +858,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   transitionBlockedRanges = [],
   proceduralPreview,
   motionModifiers,
+  textMotionBands = [],
+  onTextMotionDurationDragStart,
+  onTextMotionDurationCommit,
+  onTextMotionDurationCancel,
+  onTextMotionOffsetDragStart,
+  onTextMotionOffsetCommit,
+  onTextMotionOffsetCancel,
+  onTextMotionBandClick,
   hasProceduralMotion = false,
   canBakeMotion = false,
   onBakeMotion,
@@ -881,6 +888,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   initialVisibleGroupIds,
   showPlayhead = true,
   shortcutsEnabled = false,
+  addKeyframeShortcutEnabled = false,
   shortcuts,
   className,
 }: DopesheetEditorProps) {
@@ -984,8 +992,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     })
   }, [])
   const pickWhipRootRef = useRef<HTMLDivElement>(null)
-  const livePanXRef = useRef(0)
-  const liveScaleRef = useRef(Number.NaN)
+  const syncLivePixelGeometryRef = useRef<() => void>(() => {})
   const insertExpressionReference = useCallback(
     (origin: ExpressionReferenceDragOrigin, candidate: ExpressionReferenceCandidate) => {
       const reference = `prop(${JSON.stringify(candidate.itemId)}, ${JSON.stringify(candidate.property)})`
@@ -1561,60 +1568,70 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   useLayoutEffect(() => {
     const scrollContainer = timelineScrollContainerRef?.current
     const root = pickWhipRootRef.current
-    if (!scrollContainer || !root || timelinePanBaseScrollLeft === undefined) return
-
-    const syncLiveAxis = () => {
-      const basePixelsPerSecond = timelinePanBasePixelsPerSecond ?? timelinePixelsPerSecond
-      const livePixelsPerSecond = getTimelineLivePixelsPerSecond?.() ?? basePixelsPerSecond
-      // Keep the fallback width path continuous if the linked viewport has not
-      // been measured yet. Once linkedTimelineViewportWidth is available this
-      // ratio is exactly one because both surfaces share the same pixel axis.
-      // The linked grid cells keep their visual left border, whose padding-box
-      // origin is one pixel to the right. Pull their compositor surfaces back
-      // over that border so the lower and main timeline share the same origin.
-      const { scale, panX: nextPanX } = getLiveDopesheetAxisTransform({
-        basePixelsPerSecond,
-        livePixelsPerSecond,
-        timelinePixelsPerSecond,
-        baseScrollLeft: timelinePanBaseScrollLeft,
-        scrollLeft: scrollContainer.scrollLeft,
-        classic: presentation === 'classic',
-        linked: hasLinkedTimelineAxis,
-      })
-      if (
-        Math.abs(nextPanX - livePanXRef.current) < 0.01 &&
-        Math.abs(scale - liveScaleRef.current) < 0.0001
-      ) {
-        return
-      }
-      livePanXRef.current = nextPanX
-      liveScaleRef.current = scale
-      root.style.setProperty(
-        '--dopesheet-live-axis-transform',
-        `translate3d(${nextPanX}px, 0, 0) scaleX(${scale})`,
-      )
-      root.style.setProperty('--dopesheet-live-axis-inverse-scale', `${1 / scale}`)
+    if (!scrollContainer || !root || timelinePanBaseScrollLeft === undefined) {
+      syncLivePixelGeometryRef.current = () => {}
+      return
     }
-    syncLiveAxis()
-    scrollContainer.addEventListener('scroll', syncLiveAxis, { passive: true })
-    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLiveAxis)
+
+    let scrollFrame: number | null = null
+    const syncLiveGeometry = () => {
+      const pixelsPerSecond =
+        getTimelineLivePixelsPerSecond?.() ??
+        timelinePanBasePixelsPerSecond ??
+        timelinePixelsPerSecond
+      syncDopesheetLivePixelGeometry({
+        root,
+        pixelsPerSecond,
+        fps,
+        scrollLeft: scrollContainer.scrollLeft,
+        itemFrom,
+        // Linked Edit cells retain a one-pixel left border. Their absolutely
+        // positioned contents begin just inside it, so compensate without
+        // transforming or scaling the surface.
+        originOffset: hasLinkedTimelineAxis ? -1 : 0,
+      })
+    }
+    const scheduleScrollSync = () => {
+      if (scrollFrame !== null) return
+      scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = null
+        syncLiveGeometry()
+      })
+    }
+    const syncLiveEvent = () => {
+      if (scrollFrame !== null) {
+        cancelAnimationFrame(scrollFrame)
+        scrollFrame = null
+      }
+      syncLiveGeometry()
+    }
+
+    syncLivePixelGeometryRef.current = syncLiveGeometry
+    syncLiveGeometry()
+    scrollContainer.addEventListener('scroll', scheduleScrollSync, { passive: true })
+    scrollContainer.addEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLiveEvent)
     return () => {
-      scrollContainer.removeEventListener('scroll', syncLiveAxis)
-      scrollContainer.removeEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLiveAxis)
-      livePanXRef.current = 0
-      liveScaleRef.current = Number.NaN
-      root.style.removeProperty('--dopesheet-live-axis-transform')
-      root.style.removeProperty('--dopesheet-live-axis-inverse-scale')
+      if (scrollFrame !== null) cancelAnimationFrame(scrollFrame)
+      scrollContainer.removeEventListener('scroll', scheduleScrollSync)
+      scrollContainer.removeEventListener(TIMELINE_LIVE_SCROLL_EVENT, syncLiveEvent)
+      syncLivePixelGeometryRef.current = () => {}
     }
   }, [
+    fps,
     getTimelineLivePixelsPerSecond,
     hasLinkedTimelineAxis,
-    presentation,
+    itemFrom,
     timelinePanBasePixelsPerSecond,
     timelinePanBaseScrollLeft,
     timelinePixelsPerSecond,
     timelineScrollContainerRef,
   ])
+  useLayoutEffect(() => {
+    // React may add drag previews or filtered rows without changing the live
+    // axis inputs. Bring those new nodes onto the same current pixel axis before
+    // the browser paints them.
+    syncLivePixelGeometryRef.current()
+  })
 
   const frameToX = useCallback(
     (frame: number) => getFrameAxisX(frame, viewport, effectiveTimelineWidth, timelineEdgeInset),
@@ -1738,7 +1755,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   }, [sheetRowsStructure, getRenderedKeyframeX])
   const renderedSheetEntries = useMemo(() => {
     const entries: RenderedSheetEntry[] = []
-    let top = 0
+    const textMotionRowCount = presentation === 'classic' ? textMotionBands.length : 0
+    let top = textMotionRowCount * ROW_HEIGHT
 
     for (const group of groupedSheetRows) {
       const inline = presentation === 'classic' || inlinePropertyGroupIdSet.has(group.id)
@@ -1761,7 +1779,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       entries,
       contentHeight: top,
     }
-  }, [expandedGroups, groupedSheetRows, inlinePropertyGroupIdSet, presentation])
+  }, [
+    expandedGroups,
+    groupedSheetRows,
+    inlinePropertyGroupIdSet,
+    presentation,
+    textMotionBands.length,
+  ])
   // Marquee points are only needed while a selection marquee is moving.
   // Building them eagerly duplicated the viewport-sensitive keyframe position
   // pass on every zoom frame, even when no marquee interaction was active.
@@ -2294,6 +2318,27 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     ],
   )
 
+  const handleRowAddKeyframe = useCallback(
+    (property: AnimatableProperty, currentKeyframes: Keyframe[]) => {
+      if (isPropertyLocked(property)) return
+      activateProperty(property)
+      if (currentKeyframes.length > 0) return
+      if (isCurrentFrameBlocked) {
+        notifyKeyframeBlocked()
+        return
+      }
+      onAddKeyframe?.(property, currentFrame)
+    },
+    [
+      activateProperty,
+      currentFrame,
+      isCurrentFrameBlocked,
+      isPropertyLocked,
+      notifyKeyframeBlocked,
+      onAddKeyframe,
+    ],
+  )
+
   const handleRowValueChange = useCallback((property: AnimatableProperty, value: string) => {
     setValueDrafts((prev) => ({ ...prev, [property]: value }))
   }, [])
@@ -2433,11 +2478,11 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     : undefined
 
   useHotkeys(
-    shortcuts?.toggleKeyframe ?? '',
+    shortcuts?.addKeyframe ?? '',
     (event) => {
       event.preventDefault()
       if (activePropertyRow) {
-        handleRowToggleKeyframe(
+        handleRowAddKeyframe(
           activePropertyRow.property,
           activePropertyRow.controls.currentKeyframes,
         )
@@ -2446,9 +2491,17 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     {
       ...HOTKEY_OPTIONS,
       enabled:
-        shortcutsEnabled && !disabled && Boolean(shortcuts?.toggleKeyframe && activePropertyRow),
+        (shortcutsEnabled || addKeyframeShortcutEnabled) &&
+        !disabled &&
+        Boolean(shortcuts?.addKeyframe && activePropertyRow),
     },
-    [activePropertyRow, disabled, handleRowToggleKeyframe, shortcutsEnabled],
+    [
+      activePropertyRow,
+      addKeyframeShortcutEnabled,
+      disabled,
+      handleRowAddKeyframe,
+      shortcutsEnabled,
+    ],
   )
 
   useHotkeys(
@@ -3379,6 +3432,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   )
 
   const rulerTickElements = useMemo(() => {
+    if (hasLinkedTimelineAxis) return null
+
     const firstTick = ticks[0]
     const lastTick = ticks[ticks.length - 1]
     const minorTickLayer =
@@ -3413,20 +3468,24 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             className="pointer-events-none absolute bottom-0 h-2 border-l border-white/30"
             style={{ left: Math.round(frameToX(frame)) }}
           >
-            <span
-              className="absolute bottom-[7px] left-1 whitespace-nowrap text-[10px] text-muted-foreground"
-              style={{
-                transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
-                transformOrigin: '0 50%',
-              }}
-            >
+            <span className="absolute bottom-[7px] left-1 whitespace-nowrap text-[10px] text-muted-foreground">
               {formatRulerTick(frame)}
             </span>
           </div>
         ))}
       </>
     )
-  }, [ticks, frameToX, formatRulerTick])
+  }, [hasLinkedTimelineAxis, ticks, frameToX, formatRulerTick])
+  const liveRulerCanvas =
+    hasLinkedTimelineAxis && timelineScrollContainerRef ? (
+      <DopesheetLiveRulerCanvas
+        scrollContainerRef={timelineScrollContainerRef}
+        getLivePixelsPerSecond={getTimelineLivePixelsPerSecond}
+        fallbackPixelsPerSecond={timelinePixelsPerSecond}
+        fps={fps}
+        rulerUnit={graphRulerUnit}
+      />
+    ) : null
   const renderPropertyRowContent = useCallback(
     (row: DopesheetPropertyRow, options?: { classic?: boolean; indented?: boolean }) => {
       const classic = options?.classic ?? false
@@ -3512,7 +3571,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               (presentation === 'lanes' ? 'bg-accent/70' : 'bg-primary/10'),
             showGraphPane && graphVisibleProperties.has(row.property) && 'bg-accent/40',
             selectedProperty === row.property && 'bg-accent/55',
-            showGraphPane && !rowLocked && 'cursor-pointer',
+            !rowLocked && 'cursor-pointer',
             rowLocked && 'opacity-70',
             'data-[expression-link-eligible=true]:bg-primary/[0.06] data-[expression-link-eligible=true]:ring-1 data-[expression-link-eligible=true]:ring-inset data-[expression-link-eligible=true]:ring-primary/20',
             'data-[expression-link-hover=true]:!bg-primary/20 data-[expression-link-hover=true]:ring-1 data-[expression-link-hover=true]:ring-inset data-[expression-link-hover=true]:!ring-primary/70',
@@ -3522,7 +3581,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           )}
           data-expression-item-id={linkableProperty ? itemId : undefined}
           data-expression-property={linkableProperty ?? undefined}
-          onClick={showGraphPane && !rowLocked ? () => activateProperty(row.property) : undefined}
+          data-selected={selectedProperty === row.property ? 'true' : undefined}
+          aria-current={selectedProperty === row.property ? 'true' : undefined}
+          onClick={!rowLocked ? () => activateProperty(row.property) : undefined}
         >
           <div className="flex items-center gap-px self-stretch">
             {!classic && (
@@ -3839,6 +3900,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             ) : (
               <Input
                 type={isColorAnimatableProperty(row.property) ? 'text' : 'number'}
+                autoComplete="off"
+                data-bwignore="true"
                 value={valueDrafts[row.property] ?? ''}
                 onChange={(event) => handleRowValueChange(row.property, event.target.value)}
                 onPointerDown={(event) => handleValueScrubStart(event, row.property)}
@@ -4513,8 +4576,30 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     [presentation, propertyGridStyle],
   )
   const rowElements = useMemo(
-    () =>
-      renderedSheetEntries.entries.map((entry) => {
+    () => [
+      ...(presentation === 'classic' && textMotionBands.length > 0
+        ? [
+            <TextMotionTimelineRows
+              key="text-motion"
+              bands={textMotionBands}
+              gridStyle={propertyTimelineRowStyle}
+              ticks={ticks}
+              axisWidth={effectiveTimelineWidth}
+              frameToX={frameToX}
+              getPixelsPerFrame={getLiveDragPixelsPerFrame}
+              disabled={disabled}
+              onBackgroundPointerDown={handleTimelineBackgroundPointerDown}
+              onDurationDragStart={onTextMotionDurationDragStart}
+              onDurationCommit={onTextMotionDurationCommit}
+              onDurationCancel={onTextMotionDurationCancel}
+              onOffsetDragStart={onTextMotionOffsetDragStart}
+              onOffsetCommit={onTextMotionOffsetCommit}
+              onOffsetCancel={onTextMotionOffsetCancel}
+              onBandClick={onTextMotionBandClick}
+            />,
+          ]
+        : []),
+      ...renderedSheetEntries.entries.map((entry) => {
         if (entry.type === 'group') {
           return (
             <div
@@ -4587,6 +4672,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
           </div>
         )
       }),
+    ],
     [
       renderedSheetEntries.entries,
       expandedGroups,
@@ -4618,6 +4704,16 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onSegmentEasingChange,
       onDragStart,
       onDragEnd,
+      presentation,
+      textMotionBands,
+      getLiveDragPixelsPerFrame,
+      onTextMotionDurationDragStart,
+      onTextMotionDurationCommit,
+      onTextMotionDurationCancel,
+      onTextMotionOffsetDragStart,
+      onTextMotionOffsetCommit,
+      onTextMotionOffsetCancel,
+      onTextMotionBandClick,
     ],
   )
   const propertyColumnElements = useMemo(
@@ -4684,6 +4780,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onRulerPointerUp={handleRulerPointerUp}
       onRulerPointerLeave={handleRulerPointerLeave}
       rulerTickElements={rulerTickElements}
+      liveRulerCanvas={liveRulerCanvas}
       reservedRightGutterWidth={reservedScrollbarGutterWidth}
       propertyFilter={filterKeyframedOnly ? 'keyframed' : 'all'}
       onPropertyFilterChange={
@@ -4764,7 +4861,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   const sheetBodyElement = (
     <DopesheetSheetBody
       scrollAreaRef={scrollAreaRef}
-      hasRows={sheetRows.length > 0}
+      hasRows={sheetRows.length > 0 || (presentation === 'classic' && textMotionBands.length > 0)}
       emptyStateMessage={emptyStateMessage}
       showEmptyGuidance={showEmptyGuidance}
       proceduralHint={proceduralHint}

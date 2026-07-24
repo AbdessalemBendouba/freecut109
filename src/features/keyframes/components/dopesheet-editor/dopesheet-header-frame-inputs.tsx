@@ -45,6 +45,8 @@ export function DopesheetHeaderFrameInputs({
         </span>
         <Input
           type="number"
+          autoComplete="off"
+          data-bwignore="true"
           value={localFrameInputValue}
           onChange={(event) => setLocalFrameInputValue(event.target.value)}
           placeholder="-"
@@ -72,6 +74,8 @@ export function DopesheetHeaderFrameInputs({
           </span>
           <Input
             type="number"
+            autoComplete="off"
+            data-bwignore="true"
             value={globalFrameInputValue}
             onChange={(event) => setGlobalFrameInputValue(event.target.value)}
             placeholder="-"

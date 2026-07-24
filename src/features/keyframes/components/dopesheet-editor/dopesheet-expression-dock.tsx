@@ -202,6 +202,8 @@ export function DopesheetExpressionDock({
           <textarea
             ref={textareaRef}
             autoFocus
+            autoComplete="off"
+            data-bwignore="true"
             spellCheck={false}
             value={source}
             onChange={(event) =>

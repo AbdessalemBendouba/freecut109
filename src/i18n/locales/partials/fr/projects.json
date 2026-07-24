@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Basculer l'éditeur d'images clés en vue graphique",
           "keyframeEditorDopesheet": "Basculer l'éditeur d'images clés en vue feuille d'exposition",
           "keyframeEditorSplit": "Basculer l'éditeur d'images clés en vue partagée",
-          "keyframeToggle": "Activer ou désactiver l'image clé à la tête de lecture",
+          "editKeyframeAdd": "Ajouter une image clé à la tête de lecture pour le calque Edit sélectionné",
           "keyframePrevious": "Aller à l'image clé précédente de la propriété",
           "keyframeNext": "Aller à l'image clé suivante de la propriété",
           "keyframeToggleAuto": "Activer ou désactiver l'animation automatique de la propriété active",
@@ -541,6 +541,13 @@
     "routeError": {
       "title": "Une erreur est survenue",
       "description": "FreeCut n'a pas pu terminer le chargement de cette page.",
+      "projectNotFoundTitle": "Ce projet est introuvable",
+      "projectNotFoundDescription": "Il a peut-être été déplacé, supprimé ou ouvert depuis un ancien lien. Vos autres projets sont toujours disponibles dans votre espace de travail.",
+      "backToProjects": "Retour aux projets",
+      "supportHint": "Si vous avez besoin d'aide, copiez les détails de l'erreur et envoyez-les à un développeur.",
+      "copyDetails": "Copier les détails de l'erreur",
+      "detailsCopied": "Détails de l'erreur copiés",
+      "copyFailed": "Impossible de copier les détails",
       "causePermission": "FreeCut n'a plus l'autorisation d'utiliser votre dossier de travail. Reconnectez-le ou choisissez un autre dossier.",
       "causeMissing": "Votre dossier de travail est introuvable. Il a peut-être été déplacé, renommé ou supprimé.",
       "causeUnsupported": "Votre dossier de travail se trouve sur un disque qui ne prend pas en charge tout ce dont FreeCut a besoin. Les dossiers synchronisés dans le cloud et les dossiers réseau se comportent souvent ainsi. Choisir un dossier sur un disque local résout généralement le problème."

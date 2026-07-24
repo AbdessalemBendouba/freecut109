@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "将关键帧编辑器切换到图形视图",
           "keyframeEditorDopesheet": "将关键帧编辑器切换到摄影表视图",
           "keyframeEditorSplit": "将关键帧编辑器切换到拆分视图",
-          "keyframeToggle": "切换播放头处的关键帧",
+          "editKeyframeAdd": "在播放头处为所选编辑图层添加关键帧",
           "keyframePrevious": "跳转到上一个属性关键帧",
           "keyframeNext": "跳转到下一个属性关键帧",
           "keyframeToggleAuto": "切换活动属性的自动关键帧",
@@ -541,6 +541,13 @@
     "routeError": {
       "title": "出了点问题",
       "description": "FreeCut 无法完成此页面的加载。",
+      "projectNotFoundTitle": "找不到此项目",
+      "projectNotFoundDescription": "该项目可能已被移动或删除，或者你打开的是旧链接。工作区中的其他项目仍然可用。",
+      "backToProjects": "返回项目列表",
+      "supportHint": "如需帮助，请复制错误详情并发送给开发者。",
+      "copyDetails": "复制错误详情",
+      "detailsCopied": "已复制错误详情",
+      "copyFailed": "无法复制详情",
       "causePermission": "FreeCut 已失去使用工作区文件夹的权限。请重新连接，或选择其他文件夹。",
       "causeMissing": "找不到你的工作区文件夹。它可能已被移动、重命名或删除。",
       "causeUnsupported": "你的工作区文件夹位于不支持 FreeCut 所需全部功能的驱动器上。云同步文件夹和网络文件夹经常如此。选择本地磁盘上的文件夹通常可以解决。"

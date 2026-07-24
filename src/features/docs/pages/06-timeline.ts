@@ -48,7 +48,7 @@ const page = {
         {
           kind: 'list',
           items: [
-            'Split at the playhead with `Ctrl+K`, or use the **Razor** tool (`C`) to cut wherever you click.',
+            'Split at the playhead with `Alt+C`, or use the **Razor** tool (`C`) to cut wherever you click.',
             'Join adjacent sections of the same clip with `Shift+J`.',
             '**Delete** leaves a gap; **Ripple Delete** (`Ctrl+Delete`) removes the clip and closes the gap.',
             'Use **Close All Gaps** to pull clips together and remove empty space on a track.',

@@ -73,7 +73,8 @@ import { useTimelineViewportStore } from '../stores/timeline-viewport-store'
 import { useZoomStore } from '../stores/zoom-store'
 import { perfMarkRender } from '@/shared/logging/perf-marks'
 import { notifyTimelineLiveScroll } from '@/shared/timeline/live-scroll-sync'
-import { useSettledTimelineScrollLeft } from './use-settled-timeline-scroll-left'
+import { getTextMotionTimelineBands } from '@/shared/timeline/text-motion-timeline'
+import { useSettledTimelineGeometry } from './use-settled-timeline-scroll-left'
 import { getContentBoundedEdgeScrollLeft } from '../utils/timeline-layout'
 import type {
   AnimatableProperty,
@@ -92,7 +93,13 @@ import type {
 } from '@/types/keyframe'
 import type { CanvasSettings, ResolvedTransform } from '@/types/transform'
 import type { TimelineItem } from '@/types/timeline'
+import type { TextMotionSlot } from '@/types/text-motion'
 import * as timelineActions from '../stores/timeline-actions'
+import {
+  beginTextMotionEdit,
+  commitTextMotionEdit,
+  updateTextMotionLive,
+} from '../stores/actions/text-motion-actions'
 import { HOTKEY_OPTIONS } from '@/config/hotkeys'
 import { useResolvedHotkeys } from '@/features/timeline/deps/settings'
 import { isEffectAnimatableProperty } from '@/types/keyframe'
@@ -1464,6 +1471,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
 
   // Ref to store snapshot captured on drag start for undo batching
   const dragSnapshotRef = useRef<TimelineSnapshot | null>(null)
+  const textMotionDragSnapshotRef = useRef<TimelineSnapshot | null>(null)
   const dragSelectionSnapshotRef = useRef<KeyframeRef[] | null>(null)
   const valueScrubCreatedKeyframesRef = useRef(new Map<AnimatableProperty, string>())
   const promotedVectorDragIdsRef = useRef(new Map<string, string>())
@@ -1541,12 +1549,15 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
   const editTimelineViewportWidth = useTimelineViewportStore((state) => state.viewportWidth)
   // The expensive editor tree follows settled geometry. Live wheel zoom is
   // applied by the dopesheet root's compositor axis transform instead.
-  const editTimelinePixelsPerSecond = useZoomStore((state) => state.contentPixelsPerSecond)
+  const editTimelineContentPixelsPerSecond = useZoomStore((state) => state.contentPixelsPerSecond)
   const editTimelineFps = useTimelineSettingsStore((state) => state.fps)
-  const editTimelineScrollLeft = useSettledTimelineScrollLeft(
+  const editTimelineGeometry = useSettledTimelineGeometry(
     timelineScrollContainerRef,
     surface === 'edit' && isOpen,
+    editTimelineContentPixelsPerSecond,
   )
+  const editTimelineScrollLeft = editTimelineGeometry.scrollLeft
+  const editTimelinePixelsPerSecond = editTimelineGeometry.pixelsPerSecond
   const editTimelineFrameViewport = useMemo(() => {
     if (
       surface !== 'edit' ||
@@ -1635,6 +1646,58 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
     if (!selectedItemForEditor) return []
     return getAnimatablePropertiesForItem(selectedItemForEditor)
   }, [selectedItemForEditor])
+  const editTextMotionBands = useMemo(
+    () =>
+      surface === 'edit' && selectedItemForEditor
+        ? getTextMotionTimelineBands(selectedItemForEditor).map((band) => ({
+            ...band,
+            fromFrame: band.fromFrame - selectedItemForEditor.from,
+            toFrame: band.toFrame - selectedItemForEditor.from,
+            clipFromFrame: band.clipFromFrame - selectedItemForEditor.from,
+            clipToFrame: band.clipToFrame - selectedItemForEditor.from,
+          }))
+        : [],
+    [selectedItemForEditor, surface],
+  )
+  const handleTextMotionDurationDragStart = useCallback(() => {
+    textMotionDragSnapshotRef.current = beginTextMotionEdit()
+  }, [])
+  const handleTextMotionDurationCommit = useCallback(
+    (slot: TextMotionSlot, durationFrames: number) => {
+      if (!selectedItemForEditor) return
+      const before = textMotionDragSnapshotRef.current ?? beginTextMotionEdit()
+      updateTextMotionLive([selectedItemForEditor.id], slot, { durationFrames })
+      commitTextMotionEdit(before, { slot, itemIds: [selectedItemForEditor.id] })
+      textMotionDragSnapshotRef.current = null
+    },
+    [selectedItemForEditor],
+  )
+  const handleTextMotionDurationCancel = useCallback(() => {
+    textMotionDragSnapshotRef.current = null
+  }, [])
+  const handleTextMotionOffsetDragStart = useCallback(() => {
+    textMotionDragSnapshotRef.current = beginTextMotionEdit()
+  }, [])
+  const handleTextMotionOffsetCommit = useCallback(
+    (slot: TextMotionSlot, offsetFrames: number) => {
+      if (!selectedItemForEditor || slot === 'loop') return
+      const before = textMotionDragSnapshotRef.current ?? beginTextMotionEdit()
+      updateTextMotionLive([selectedItemForEditor.id], slot, {
+        offsetFrames: offsetFrames > 0 ? offsetFrames : undefined,
+      })
+      commitTextMotionEdit(before, { slot, itemIds: [selectedItemForEditor.id] })
+      textMotionDragSnapshotRef.current = null
+    },
+    [selectedItemForEditor],
+  )
+  const handleTextMotionOffsetCancel = useCallback(() => {
+    textMotionDragSnapshotRef.current = null
+  }, [])
+  const handleTextMotionBandClick = useCallback((_slot: TextMotionSlot) => {
+    const editor = useEditorStore.getState()
+    editor.setRightSidebarOpen(true)
+    editor.setClipInspectorTab('motion')
+  }, [])
   const availableProperties = useMemo(
     () =>
       surface !== 'edit' && supportsVectorTransform(selectedItemForEditor)
@@ -3540,6 +3603,14 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                 <DopesheetEditor
                   itemId={selectedItemForEditor.id}
                   motionModifiers={selectedItemForEditor.motionModifiers}
+                  textMotionBands={editTextMotionBands}
+                  onTextMotionDurationDragStart={handleTextMotionDurationDragStart}
+                  onTextMotionDurationCommit={handleTextMotionDurationCommit}
+                  onTextMotionDurationCancel={handleTextMotionDurationCancel}
+                  onTextMotionOffsetDragStart={handleTextMotionOffsetDragStart}
+                  onTextMotionOffsetCommit={handleTextMotionOffsetCommit}
+                  onTextMotionOffsetCancel={handleTextMotionOffsetCancel}
+                  onTextMotionBandClick={handleTextMotionBandClick}
                   hasProceduralMotion={canBakeProceduralMotion}
                   frameViewport={editTimelineFrameViewport}
                   clampViewportToContent={surface !== 'edit'}
@@ -3658,8 +3729,9 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
                   initialVisibleGroupIds={initialVisibleGroupIds}
                   propertyColumnWidth={propertyColumnWidth}
                   shortcutsEnabled={isPointerWithinEditor || isFocusWithinEditor}
+                  addKeyframeShortcutEnabled={surface === 'edit'}
                   shortcuts={{
-                    toggleKeyframe: hotkeys.KEYFRAME_TOGGLE,
+                    addKeyframe: surface === 'edit' ? hotkeys.EDIT_KEYFRAME_ADD : '',
                     previousKeyframe: hotkeys.KEYFRAME_PREVIOUS,
                     nextKeyframe: hotkeys.KEYFRAME_NEXT,
                     toggleAutoKey: hotkeys.KEYFRAME_TOGGLE_AUTO,

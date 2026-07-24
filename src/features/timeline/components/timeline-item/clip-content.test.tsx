@@ -23,8 +23,18 @@ vi.mock('../clip-filmstrip/image-filmstrip', () => ({
 }))
 
 vi.mock('../clip-waveform', () => ({
-  ClipWaveform: ({ pixelsPerSecond }: { pixelsPerSecond: number }) => (
-    <div data-testid="clip-waveform" data-pps={String(pixelsPerSecond)} />
+  ClipWaveform: ({
+    pixelsPerSecond,
+    liveTimelineZoom,
+  }: {
+    pixelsPerSecond: number
+    liveTimelineZoom?: boolean
+  }) => (
+    <div
+      data-testid="clip-waveform"
+      data-pps={String(pixelsPerSecond)}
+      data-live-timeline-zoom={String(!!liveTimelineZoom)}
+    />
   ),
 }))
 
@@ -217,10 +227,7 @@ describe('ClipContent', () => {
     expect(await screen.findByTestId('clip-waveform')).toHaveAttribute('data-pps', '180')
   })
 
-  it('defers filmstrip content for clips that mount during an active zoom gesture', () => {
-    // A clip first appearing mid-zoom (e.g. entering the viewport while zooming
-    // out) must NOT mount its filmstrip tile grid yet — that mount burst is the
-    // bulk of zoom-out cost. It shows just the clip shell until the zoom settles.
+  it('mounts the bounded filmstrip for clips that appear during an active zoom gesture', async () => {
     useZoomStore.setState({
       level: 1,
       pixelsPerSecond: 100,
@@ -247,8 +254,71 @@ describe('ClipContent', () => {
 
     render(<ClipContent item={item} clipLeftFrames={0} clipWidthFrames={96} fps={30} />)
 
-    // Mounted mid-gesture → filmstrip deferred (label still renders).
-    expect(screen.queryByTestId('clip-filmstrip')).toBeNull()
+    expect(await screen.findByTestId('clip-filmstrip')).toBeInTheDocument()
     expect(screen.getByText('Video clip')).toBeInTheDocument()
+  })
+
+  it('mounts the bounded waveform for clips that appear during an active zoom gesture', async () => {
+    useZoomStore.setState({
+      level: 1,
+      pixelsPerSecond: 100,
+      contentLevel: 1,
+      contentPixelsPerSecond: 100,
+      isZoomInteracting: true,
+    })
+    useSettingsStore.setState({
+      showFilmstrips: false,
+      enableFilmstripExtraction: false,
+      showWaveforms: true,
+    })
+
+    const item: TimelineItem = {
+      id: 'audio-during-zoom',
+      type: 'audio',
+      trackId: 'track-1',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Audio clip',
+      mediaId: 'media-1',
+      src: 'blob:test',
+    } as TimelineItem
+
+    render(<ClipContent item={item} clipLeftFrames={0} clipWidthFrames={96} fps={30} />)
+
+    expect(await screen.findByTestId('clip-waveform')).toBeInTheDocument()
+    expect(screen.getByTestId('clip-waveform')).toHaveAttribute(
+      'data-live-timeline-zoom',
+      'true',
+    )
+    expect(screen.getByText('Audio clip')).toBeInTheDocument()
+  })
+
+  it('mounts a waveform when live zoom crosses the visual-width threshold', async () => {
+    useZoomStore.setState({
+      level: 1.8,
+      pixelsPerSecond: 180,
+      contentLevel: 1,
+      contentPixelsPerSecond: 100,
+      isZoomInteracting: true,
+    })
+    useSettingsStore.setState({
+      showFilmstrips: false,
+      enableFilmstripExtraction: false,
+      showWaveforms: true,
+    })
+    const item: TimelineItem = {
+      id: 'short-audio-during-zoom',
+      type: 'audio',
+      trackId: 'track-1',
+      from: 0,
+      durationInFrames: 1,
+      label: 'Short audio clip',
+      mediaId: 'media-1',
+      src: 'blob:test',
+    } as TimelineItem
+
+    render(<ClipContent item={item} clipLeftFrames={0} clipWidthFrames={1} fps={30} />)
+
+    expect(await screen.findByTestId('clip-waveform')).toBeInTheDocument()
   })
 })

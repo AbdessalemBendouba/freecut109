@@ -1,5 +1,5 @@
 import { createRef } from 'react'
-import { fireEvent, render, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vite-plus/test'
 
 import { usePlaybackStore } from '@/shared/state/playback'
@@ -38,6 +38,34 @@ describe('TimelinePlayhead', () => {
     mainTimelineScrubActiveRef.current = false
     mainTimelineScrubHandoffFrameRef.current = null
     resetTimelineSkimmerScrubForTest()
+  })
+
+  it('skips transform assignments until playback reaches the next rounded pixel', () => {
+    useZoomStore.getState().setZoomLevelSynchronized(0.1)
+    const { container } = render(
+      <div className="timeline-ruler">
+        <TimelinePlayhead inRuler maxFrame={300} />
+      </div>,
+    )
+    const playhead = container.querySelector<HTMLElement>('[data-timeline-playhead="ruler"]')!
+    expect(playhead).toHaveStyle({ transform: 'translate3d(4px, 0, 0)' })
+
+    let transform = playhead.style.transform
+    const transformAssignments: string[] = []
+    Object.defineProperty(playhead.style, 'transform', {
+      configurable: true,
+      get: () => transform,
+      set: (value: string) => {
+        transform = value
+        transformAssignments.push(value)
+      },
+    })
+
+    act(() => usePlaybackStore.setState({ currentFrame: 13 }))
+    expect(transformAssignments).toEqual([])
+
+    act(() => usePlaybackStore.setState({ currentFrame: 14 }))
+    expect(transformAssignments).toEqual(['translate3d(5px, 0, 0)'])
   })
 
   it('uses atomic scrub updates while dragging and clears preview on release', async () => {

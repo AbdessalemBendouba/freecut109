@@ -28,6 +28,8 @@ import { SegmentEasingPopover, type SegmentEasingChange } from './segment-easing
  */
 interface SegmentSpan<T> {
   from: T
+  fromFrame: number
+  toFrame: number
   left: number
   width: number
 }
@@ -44,7 +46,7 @@ export function buildSegmentSpans<T>(
     const left = Math.min(a.x, b.x)
     const width = Math.abs(b.x - a.x)
     if (width > 0) {
-      spans.push({ from: a.from, left, width })
+      spans.push({ from: a.from, fromFrame: a.frame, toFrame: b.frame, left, width })
     }
   }
   return spans
@@ -72,6 +74,8 @@ interface ConnectorSegment {
   key: string
   fromKeyframeId: string
   toKeyframeId: string
+  fromFrame: number
+  toFrame: number
   left: number
   width: number
   /** True when the value is held across the span (no interpolation). */
@@ -99,6 +103,8 @@ function buildConnectorSegments(
         key: point.id,
         fromKeyframeId: point.id,
         toKeyframeId: next.id,
+        fromFrame: point.frame,
+        toFrame: next.frame,
         left,
         width,
         held: point.held,
@@ -121,6 +127,8 @@ function KeyframeConnectors({
       data-motion-item-id={itemId}
       data-motion-connector-from-keyframe-id={segment.fromKeyframeId}
       data-motion-connector-to-keyframe-id={segment.toKeyframeId}
+      data-dopesheet-from-frame={segment.fromFrame}
+      data-dopesheet-to-frame={segment.toFrame}
       className={cn(
         'pointer-events-none absolute z-0 -translate-y-1/2',
         segment.held ? 'border-t border-dashed border-neutral-500/50' : 'h-px bg-neutral-400/50',
@@ -155,6 +163,9 @@ function ProceduralBandView({
       data-testid={`procedural-band-${band.property}`}
       data-from-frame={band.fromFrame}
       data-to-frame={band.toFrame}
+      data-dopesheet-from-frame={band.fromFrame}
+      data-dopesheet-to-frame={band.toFrame}
+      data-dopesheet-min-width={3}
       className="pointer-events-none absolute top-1/2 z-0 h-2 -translate-y-1/2 overflow-hidden rounded-sm border border-sky-400/40 bg-sky-400/10"
       style={{ left, width, backgroundImage: PROCEDURAL_HATCH }}
       title={title}
@@ -222,10 +233,6 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
         data-motion-viewport-edge-inset={KEYFRAME_EDGE_INSET}
         data-motion-viewport-axis-width={axisWidth}
         className="absolute inset-0"
-        style={{
-          transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
-          transformOrigin: '0 0',
-        }}
       >
         <div
           aria-hidden
@@ -234,78 +241,76 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
           style={getTimelineGridLineStyle(ticks, frameToX)}
         />
 
-      <div data-motion-span-drag-visual className="absolute inset-0">
-        {!expanded &&
-          renderedFrameGroups.map((frameGroup) => {
-            const renderedX =
-              getRenderedKeyframeX(frameGroup.frame) ?? frameToX(frameGroup.frame)
+        <div data-motion-span-drag-visual className="absolute inset-0">
+          {!expanded &&
+            renderedFrameGroups.map((frameGroup) => {
+              const renderedX = getRenderedKeyframeX(frameGroup.frame) ?? frameToX(frameGroup.frame)
 
-            const movableEntries = frameGroup.keyframes.filter(
-              ({ property }) => !isPropertyLocked(property),
-            )
-            const isSelected = movableEntries.some(({ keyframe }) =>
-              selectedKeyframeIds.has(keyframe.id),
-            )
+              const movableEntries = frameGroup.keyframes.filter(
+                ({ property }) => !isPropertyLocked(property),
+              )
+              const isSelected = movableEntries.some(({ keyframe }) =>
+                selectedKeyframeIds.has(keyframe.id),
+              )
 
-            return (
-              <button
-                key={`${groupId}-${frameGroup.frame}`}
-                type="button"
-                data-testid={`group-keyframe-${groupId}-${frameGroup.frame}`}
-                className={cn(
-                  'group absolute z-10 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center',
-                  movableEntries.length > 0 && 'cursor-grab active:cursor-grabbing',
-                  movableEntries.length === 0 && 'cursor-not-allowed opacity-50',
-                )}
-                style={{
-                  left: renderedX,
-                  top: '50%',
-                  transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
-                }}
-                disabled={movableEntries.length === 0 || disabled}
-                onPointerDown={(event) => onGroupKeyframePointerDown(frameGroup, event)}
-                onClick={(event) => event.stopPropagation()}
-                title={t('timeline.keyframeEditor.keyframeMarker.groupLabel', {
-                  group: getKeyframeGroupLabel(t, groupId, groupLabel),
-                  frame: frameGroup.frame,
-                })}
-                aria-label={t('timeline.keyframeEditor.keyframeMarker.groupLabel', {
-                  group: getKeyframeGroupLabel(t, groupId, groupLabel),
-                  frame: frameGroup.frame,
-                })}
-              >
-                <span
+              return (
+                <button
+                  key={`${groupId}-${frameGroup.frame}`}
+                  type="button"
+                  data-testid={`group-keyframe-${groupId}-${frameGroup.frame}`}
+                  data-dopesheet-frame={frameGroup.frame}
                   className={cn(
-                    'pointer-events-none block h-2 w-2 rotate-45 border transition-colors',
-                    isSelected
-                      ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
-                      : 'border-transparent bg-neutral-200 group-hover:bg-white',
+                    'group absolute z-10 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center',
+                    movableEntries.length > 0 && 'cursor-grab active:cursor-grabbing',
+                    movableEntries.length === 0 && 'cursor-not-allowed opacity-50',
                   )}
-                />
-              </button>
-            )
-          })}
-        {!expanded &&
-          sheetPreviewDuplicateKeyframeIds &&
-          displayedFrameGroups.map((frameGroup) => {
-            const renderedX =
-              getRenderedKeyframeX(frameGroup.frame) ?? frameToX(frameGroup.frame)
+                  style={{
+                    left: renderedX,
+                    top: '50%',
+                  }}
+                  disabled={movableEntries.length === 0 || disabled}
+                  onPointerDown={(event) => onGroupKeyframePointerDown(frameGroup, event)}
+                  onClick={(event) => event.stopPropagation()}
+                  title={t('timeline.keyframeEditor.keyframeMarker.groupLabel', {
+                    group: getKeyframeGroupLabel(t, groupId, groupLabel),
+                    frame: frameGroup.frame,
+                  })}
+                  aria-label={t('timeline.keyframeEditor.keyframeMarker.groupLabel', {
+                    group: getKeyframeGroupLabel(t, groupId, groupLabel),
+                    frame: frameGroup.frame,
+                  })}
+                >
+                  <span
+                    className={cn(
+                      'pointer-events-none block h-2 w-2 rotate-45 border transition-colors',
+                      isSelected
+                        ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
+                        : 'border-transparent bg-neutral-200 group-hover:bg-white',
+                    )}
+                  />
+                </button>
+              )
+            })}
+          {!expanded &&
+            sheetPreviewDuplicateKeyframeIds &&
+            displayedFrameGroups.map((frameGroup) => {
+              const renderedX = getRenderedKeyframeX(frameGroup.frame) ?? frameToX(frameGroup.frame)
 
-            return (
-              <div
-                key={`preview-${groupId}-${frameGroup.frame}`}
-                className="absolute z-20 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center pointer-events-none"
-                style={{
-                  left: renderedX,
-                  top: '50%',
-                  transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
-                }}
-              >
-                <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
-              </div>
-            )
-          })}
-      </div>
+              return (
+                <div
+                  key={`preview-${groupId}-${frameGroup.frame}`}
+                  data-dopesheet-frame={frameGroup.frame}
+                  className="absolute z-20 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center pointer-events-none"
+                  style={{
+                    left: renderedX,
+                    top: '50%',
+                  }}
+                >
+                  <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
+                </div>
+              )
+            })}
+        </div>
       </div>
     </div>
   )
@@ -419,10 +424,6 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
         data-motion-viewport-edge-inset={KEYFRAME_EDGE_INSET}
         data-motion-viewport-axis-width={axisWidth}
         className="absolute inset-0"
-        style={{
-          transform: 'var(--dopesheet-live-axis-transform, translate3d(0px, 0, 0))',
-          transformOrigin: '0 0',
-        }}
       >
         <div
           aria-hidden
@@ -431,127 +432,131 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
           style={getTimelineGridLineStyle(ticks, frameToX)}
         />
 
-      {transitionBlockedRanges.map((range, index) => (
-        <div
-          key={`${property}-${index}-${range.start}-${range.end}`}
-          className="absolute inset-y-0 bg-destructive/10 border-x border-destructive/20 pointer-events-none"
-          style={{
-            left: frameToX(range.start),
-            width: frameToX(range.end) - frameToX(range.start),
-          }}
-        />
-      ))}
-
-      <div data-motion-span-drag-visual className="absolute inset-0">
-        {proceduralBand && (
-          <ProceduralBandView
-            band={proceduralBand}
-            frameToX={frameToX}
-            title={t('timeline.keyframeEditor.proceduralBand')}
+        {transitionBlockedRanges.map((range, index) => (
+          <div
+            key={`${property}-${index}-${range.start}-${range.end}`}
+            data-dopesheet-from-frame={range.start}
+            data-dopesheet-to-frame={range.end}
+            className="absolute inset-y-0 bg-destructive/10 border-x border-destructive/20 pointer-events-none"
+            style={{
+              left: frameToX(range.start),
+              width: frameToX(range.end) - frameToX(range.start),
+            }}
           />
-        )}
+        ))}
 
-        <KeyframeConnectors itemId={itemId} segments={connectorSegments} />
-
-        {onSegmentEasingChange &&
-          segmentSpans.map((span) => (
-            <SegmentEasingPopover
-              key={`seg-${span.from.id}`}
-              left={span.left}
-              width={span.width}
-              refs={[{ itemId, property, keyframeId: span.from.id }]}
-              easing={span.from.easing}
-              easingConfig={span.from.easingConfig}
-              held={span.from.easing === 'hold'}
-              onChange={onSegmentEasingChange}
-              onDragStart={onSegmentDragStart}
-              onDragEnd={onSegmentDragEnd}
+        <div data-motion-span-drag-visual className="absolute inset-0">
+          {proceduralBand && (
+            <ProceduralBandView
+              band={proceduralBand}
+              frameToX={frameToX}
+              title={t('timeline.keyframeEditor.proceduralBand')}
             />
-          ))}
+          )}
 
-        {keyframes.map((keyframe) => {
-          const renderedX = xForKeyframe(keyframe)
-          if (renderedX === null) return null
-          const selected = selectedKeyframeIds.has(keyframe.id)
-          return (
-            <button
-              key={keyframe.id}
-              ref={(node) => setKeyframeButtonRef(keyframe.id, node)}
-              type="button"
-              data-testid={`row-keyframe-${property}-${keyframe.id}`}
-              data-motion-item-id={itemId}
-              data-motion-keyframe-id={keyframe.id}
-              className={cn(
-                'group absolute z-10 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center',
-                !locked && 'cursor-grab active:cursor-grabbing',
-                locked && 'cursor-not-allowed opacity-50',
-              )}
-              style={{
-                left: renderedX,
-                top: '50%',
-                transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
-              }}
-              disabled={locked || disabled}
-              onPointerDown={(event) => onKeyframePointerDown(property, keyframe.id, event)}
-              onClick={(event) => event.stopPropagation()}
-              title={
-                locked
-                  ? t('timeline.keyframeEditor.keyframeMarker.locked', {
-                      frame: keyframe.frame,
-                    })
-                  : t('timeline.keyframeEditor.keyframeMarker.rowLabel', {
-                      frame: keyframe.frame,
-                    })
-              }
-              aria-label={
-                locked
-                  ? t('timeline.keyframeEditor.keyframeMarker.locked', {
-                      frame: keyframe.frame,
-                    })
-                  : t('timeline.keyframeEditor.keyframeMarker.rowLabel', {
-                      frame: keyframe.frame,
-                    })
-              }
-            >
-              <span
-                className={cn(
-                  'pointer-events-none block h-2 w-2 rotate-45 border transition-colors group-data-[marquee-selected=true]:!border-blue-100 group-data-[marquee-selected=true]:!bg-blue-500 group-data-[marquee-selected=true]:!shadow-[0_0_0_1px_rgba(59,130,246,0.45)] group-data-[marquee-selected=false]:!border-transparent group-data-[marquee-selected=false]:!bg-neutral-200 group-data-[marquee-selected=false]:!shadow-none',
-                  selected
-                    ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
-                    : 'border-transparent bg-neutral-200 group-hover:bg-white',
-                )}
+          <KeyframeConnectors itemId={itemId} segments={connectorSegments} />
+
+          {onSegmentEasingChange &&
+            segmentSpans.map((span) => (
+              <SegmentEasingPopover
+                key={`seg-${span.from.id}`}
+                left={span.left}
+                width={span.width}
+                fromFrame={span.fromFrame}
+                toFrame={span.toFrame}
+                refs={[{ itemId, property, keyframeId: span.from.id }]}
+                easing={span.from.easing}
+                easingConfig={span.from.easingConfig}
+                held={span.from.easing === 'hold'}
+                onChange={onSegmentEasingChange}
+                onDragStart={onSegmentDragStart}
+                onDragEnd={onSegmentDragEnd}
               />
-            </button>
-          )
-        })}
-        {sheetPreviewDuplicateKeyframeIds?.flatMap((keyframeId) => {
-          const meta = keyframeMetaByIdRef.current.get(keyframeId)
-          if (!meta || meta.property !== property) {
-            return []
-          }
+            ))}
 
-          const previewFrame = sheetPreviewFrames?.[keyframeId]
-          if (previewFrame === undefined) {
-            return []
-          }
+          {keyframes.map((keyframe) => {
+            const renderedX = xForKeyframe(keyframe)
+            if (renderedX === null) return null
+            const selected = selectedKeyframeIds.has(keyframe.id)
+            return (
+              <button
+                key={keyframe.id}
+                ref={(node) => setKeyframeButtonRef(keyframe.id, node)}
+                type="button"
+                data-testid={`row-keyframe-${property}-${keyframe.id}`}
+                data-motion-item-id={itemId}
+                data-motion-keyframe-id={keyframe.id}
+                data-dopesheet-frame={displayedFrame(keyframe)}
+                className={cn(
+                  'group absolute z-10 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center',
+                  !locked && 'cursor-grab active:cursor-grabbing',
+                  locked && 'cursor-not-allowed opacity-50',
+                )}
+                style={{
+                  left: renderedX,
+                  top: '50%',
+                }}
+                disabled={locked || disabled}
+                onPointerDown={(event) => onKeyframePointerDown(property, keyframe.id, event)}
+                onClick={(event) => event.stopPropagation()}
+                title={
+                  locked
+                    ? t('timeline.keyframeEditor.keyframeMarker.locked', {
+                        frame: keyframe.frame,
+                      })
+                    : t('timeline.keyframeEditor.keyframeMarker.rowLabel', {
+                        frame: keyframe.frame,
+                      })
+                }
+                aria-label={
+                  locked
+                    ? t('timeline.keyframeEditor.keyframeMarker.locked', {
+                        frame: keyframe.frame,
+                      })
+                    : t('timeline.keyframeEditor.keyframeMarker.rowLabel', {
+                        frame: keyframe.frame,
+                      })
+                }
+              >
+                <span
+                  className={cn(
+                    'pointer-events-none block h-2 w-2 rotate-45 border transition-colors group-data-[marquee-selected=true]:!border-blue-100 group-data-[marquee-selected=true]:!bg-blue-500 group-data-[marquee-selected=true]:!shadow-[0_0_0_1px_rgba(59,130,246,0.45)] group-data-[marquee-selected=false]:!border-transparent group-data-[marquee-selected=false]:!bg-neutral-200 group-data-[marquee-selected=false]:!shadow-none',
+                    selected
+                      ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
+                      : 'border-transparent bg-neutral-200 group-hover:bg-white',
+                  )}
+                />
+              </button>
+            )
+          })}
+          {sheetPreviewDuplicateKeyframeIds?.flatMap((keyframeId) => {
+            const meta = keyframeMetaByIdRef.current.get(keyframeId)
+            if (!meta || meta.property !== property) {
+              return []
+            }
 
-          const renderedX = getRenderedKeyframeX(previewFrame) ?? frameToX(previewFrame)
+            const previewFrame = sheetPreviewFrames?.[keyframeId]
+            if (previewFrame === undefined) {
+              return []
+            }
 
-          return [
-            <div
-              key={`preview-${property}-${keyframeId}`}
-              className="absolute z-20 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center pointer-events-none"
-              style={{
-                left: renderedX,
-                top: '50%',
-                transform: 'scaleX(var(--dopesheet-live-axis-inverse-scale, 1))',
-              }}
-            >
-              <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
-            </div>,
-          ]
-        })}
-      </div>
+            const renderedX = getRenderedKeyframeX(previewFrame) ?? frameToX(previewFrame)
+
+            return [
+              <div
+                key={`preview-${property}-${keyframeId}`}
+                data-dopesheet-frame={previewFrame}
+                className="absolute z-20 flex h-3 w-3 -ml-1.5 -mt-1.5 items-center justify-center pointer-events-none"
+                style={{
+                  left: renderedX,
+                  top: '50%',
+                }}
+              >
+                <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
+              </div>,
+            ]
+          })}
+        </div>
       </div>
     </div>
   )

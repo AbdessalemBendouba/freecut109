@@ -49,4 +49,35 @@ describe('computeFilmstripRenderWindow', () => {
     expect(window.paddedEndX).toBe(500)
     expect(window.endTile).toBe(6)
   })
+
+  it('caps stale zoom geometry to the viewport redraw budget', () => {
+    const window = computeFilmstripRenderWindow({
+      renderWidth: 100_000,
+      visibleWidth: 100_000,
+      tileWidth: 80,
+      visibleStartRatio: 0.4,
+      visibleEndRatio: 0.6,
+      minimumPadPx: 600,
+      maxWindowWidth: 2_500,
+    })
+
+    expect(window.paddedEndX - window.paddedStartX).toBe(2_500)
+    expect(window.startTile).toBe(609)
+    expect(window.endTile).toBe(641)
+  })
+
+  it('keeps the visible range covered when trailing render overflow exceeds the budget', () => {
+    const window = computeFilmstripRenderWindow({
+      renderWidth: 200_000,
+      visibleWidth: 198_000,
+      tileWidth: 80,
+      visibleStartRatio: 0.25,
+      visibleEndRatio: 52_000 / 198_000,
+      minimumPadPx: 600,
+      maxWindowWidth: 2_500,
+    })
+
+    expect(window.paddedStartX).toBe(49_500)
+    expect(window.paddedEndX).toBe(52_000)
+  })
 })

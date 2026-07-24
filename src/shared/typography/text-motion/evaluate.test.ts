@@ -392,6 +392,20 @@ describe('isTextMotionActive', () => {
     expect(isTextMotionActive(outSpec, 99, 30, 100)).toBe(true)
   })
 
+  it('accounts for delayed in and early out offsets', () => {
+    const offsetIn: TextMotionSpec = {
+      in: { ...inSpec.in!, offsetFrames: 15 },
+    }
+    const offsetOut: TextMotionSpec = {
+      out: { ...outSpec.out!, offsetFrames: 20 },
+    }
+    expect(isTextMotionActive(offsetIn, 24, 30, 100)).toBe(true)
+    expect(isTextMotionActive(offsetIn, 25, 30, 100)).toBe(false)
+    expect(isTextMotionActive(offsetOut, 69, 30, 100)).toBe(false)
+    expect(isTextMotionActive(offsetOut, 70, 30, 100)).toBe(true)
+    expect(isTextMotionActive(offsetOut, 99, 30, 100)).toBe(true)
+  })
+
   it('is conservative (half-clip) when a stagger is present', () => {
     const staggered: TextMotionSpec = {
       in: { ...createTextMotionEffect('fade-up'), durationFrames: 4, staggerFrames: 2 },
@@ -454,6 +468,25 @@ describe('getActiveTextMotionSlot', () => {
     expect(getActiveTextMotionSlot(spec, 50, 100)).toBeNull()
     expect(getActiveTextMotionSlot({}, 0, 100)).toBeNull()
     expect(getActiveTextMotionSlot(spec, 0, 0)).toBeNull()
+  })
+
+  it('holds delayed in and early out endpoint states outside their moving windows', () => {
+    const spec: TextMotionSpec = {
+      in: { ...inFx, offsetFrames: 10 },
+      out: { ...outFx, offsetFrames: 15 },
+    }
+
+    expect(getActiveTextMotionSlot(spec, 0, 100)).toBe('in')
+    expect(getActiveTextMotionSlot(spec, 19, 100)).toBe('in')
+    expect(getActiveTextMotionSlot(spec, 20, 100)).toBeNull()
+    expect(getActiveTextMotionSlot(spec, 74, 100)).toBeNull()
+    expect(getActiveTextMotionSlot(spec, 75, 100)).toBe('out')
+    expect(getActiveTextMotionSlot(spec, 99, 100)).toBe('out')
+
+    const beforeIn = evaluateGlyphMotion(spec, ctx({ relativeFrame: 5, durationInFrames: 100 }))
+    const afterOut = evaluateGlyphMotion(spec, ctx({ relativeFrame: 90, durationInFrames: 100 }))
+    expect(beforeIn?.alpha).toBe(0)
+    expect(afterOut?.alpha).toBe(0)
   })
 
   it('widens staggered windows to the half-clip cap (never drops a stagger tail)', () => {

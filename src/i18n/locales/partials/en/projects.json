@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Switch keyframe editor to graph view",
           "keyframeEditorDopesheet": "Switch keyframe editor to dopesheet view",
           "keyframeEditorSplit": "Switch keyframe editor to split view",
-          "keyframeToggle": "Toggle keyframe at playhead",
+          "editKeyframeAdd": "Add keyframe at playhead for selected Edit layer",
           "keyframePrevious": "Jump to previous property keyframe",
           "keyframeNext": "Jump to next property keyframe",
           "keyframeToggleAuto": "Toggle auto-key for active property",
@@ -541,6 +541,13 @@
     "routeError": {
       "title": "Something went wrong",
       "description": "FreeCut could not finish loading this page.",
+      "projectNotFoundTitle": "We couldn't find this project",
+      "projectNotFoundDescription": "It may have been moved, deleted, or opened from an old link. Your other projects are still available in your workspace.",
+      "backToProjects": "Back to projects",
+      "supportHint": "If you need help, copy the error details and send them to a developer.",
+      "copyDetails": "Copy error details",
+      "detailsCopied": "Error details copied",
+      "copyFailed": "Couldn't copy details",
       "causePermission": "FreeCut no longer has permission to use your workspace folder. Reconnect it, or choose a different folder.",
       "causeMissing": "Your workspace folder could not be found. It may have been moved, renamed, or deleted.",
       "causeUnsupported": "Your workspace folder is on a drive that does not support everything FreeCut needs. Cloud-synced and network folders often behave this way. Choosing a folder on a local disk usually fixes it."

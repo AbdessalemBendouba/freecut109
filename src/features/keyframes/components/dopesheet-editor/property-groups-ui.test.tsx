@@ -92,6 +92,42 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.queryByRole('slider', { name: /horizontal zoom/i })).toBeNull()
   })
 
+  it('keeps procedural text-animation bands visible without authored keyframes', () => {
+    renderEditor({
+      presentation: 'classic',
+      keyframesByProperty: {},
+      propertyValues: {},
+      textMotionBands: [
+        {
+          slot: 'in',
+          presetId: 'typewriter',
+          fromFrame: 0,
+          toFrame: 24,
+          clipFromFrame: 0,
+          clipToFrame: 100,
+          unitCount: 4,
+          durationFrames: 12,
+          offsetFrames: 0,
+        },
+      ],
+    })
+
+    expect(screen.getByTestId('edit-text-motion-row-in')).toBeInTheDocument()
+    expect(screen.getByTestId('edit-text-motion-band-in')).toHaveAttribute('data-to-frame', '24')
+  })
+
+  it('selects a property layer by clicking its classic Edit row', () => {
+    const onActivePropertyChange = vi.fn()
+    renderEditor({
+      presentation: 'classic',
+      onActivePropertyChange,
+    })
+
+    fireEvent.click(screen.getByText('Volume (dB)'))
+
+    expect(onActivePropertyChange).toHaveBeenCalledWith('volume')
+  })
+
   it('filters the classic Edit presentation between animated and all properties', () => {
     renderEditor({
       presentation: 'classic',
@@ -105,7 +141,9 @@ describe('DopesheetEditor property groups', () => {
     const all = screen.getByRole('button', { name: 'All' })
     expect(all).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeTruthy()
-    expect(screen.getByRole('spinbutton', { name: /volume \(db\) value at playhead/i })).toBeTruthy()
+    expect(
+      screen.getByRole('spinbutton', { name: /volume \(db\) value at playhead/i }),
+    ).toBeTruthy()
 
     fireEvent.click(animated)
 
@@ -118,7 +156,9 @@ describe('DopesheetEditor property groups', () => {
     fireEvent.click(all)
 
     expect(all).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByRole('spinbutton', { name: /volume \(db\) value at playhead/i })).toBeTruthy()
+    expect(
+      screen.getByRole('spinbutton', { name: /volume \(db\) value at playhead/i }),
+    ).toBeTruthy()
   })
 
   it('uses middle-button drag to pan only the keyframe rows vertically', () => {

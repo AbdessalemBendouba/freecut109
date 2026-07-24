@@ -6,6 +6,8 @@ export interface FilmstripRenderWindowOptions {
   visibleEndRatio?: number
   minimumPadTiles?: number
   minimumPadPx?: number
+  /** Hard redraw budget, normally viewport width plus prefetch margins. */
+  maxWindowWidth?: number
 }
 
 export interface FilmstripRenderWindow {
@@ -23,6 +25,7 @@ export function computeFilmstripRenderWindow({
   visibleEndRatio = 1,
   minimumPadTiles = 0,
   minimumPadPx = 0,
+  maxWindowWidth = Number.POSITIVE_INFINITY,
 }: FilmstripRenderWindowOptions): FilmstripRenderWindow {
   const safeRenderWidth = Math.max(0, renderWidth)
   const safeVisibleWidth = Math.max(0, Math.min(visibleWidth, safeRenderWidth))
@@ -44,8 +47,25 @@ export function computeFilmstripRenderWindow({
   const visibleEndX = safeVisibleWidth * clampedEndRatio
   const basePadPx = Math.max(minimumPadPx, safeTileWidth * Math.max(0, minimumPadTiles))
   const renderOverflowPx = Math.max(0, safeRenderWidth - safeVisibleWidth)
-  const paddedStartX = Math.max(0, visibleStartX - basePadPx)
-  const paddedEndX = Math.min(safeRenderWidth, visibleEndX + Math.max(basePadPx, renderOverflowPx))
+  let paddedStartX = Math.max(0, visibleStartX - basePadPx)
+  let paddedEndX = Math.min(
+    safeRenderWidth,
+    visibleEndX + Math.max(basePadPx, renderOverflowPx),
+  )
+  const safeMaxWindowWidth = Math.max(0, maxWindowWidth)
+  if (paddedEndX - paddedStartX > safeMaxWindowWidth) {
+    const cappedWidth = Math.min(safeRenderWidth, safeMaxWindowWidth)
+    // Keep the capped canvas centered on the actual visible range. The render
+    // overflow is intentionally one-sided so trailing width commits stay
+    // covered, but centering on that asymmetric padded range can move the whole
+    // bounded canvas beyond the viewport on long clips.
+    const center = (visibleStartX + visibleEndX) / 2
+    paddedStartX = Math.max(
+      0,
+      Math.min(safeRenderWidth - cappedWidth, center - cappedWidth / 2),
+    )
+    paddedEndX = paddedStartX + cappedWidth
+  }
 
   return {
     paddedStartX,

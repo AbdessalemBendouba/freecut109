@@ -124,4 +124,25 @@ describe('TimelineMarkers ruler scrub cancellation', () => {
     expect(usePlaybackStore.getState().currentFrame).toBe(7)
     expect(playhead).toHaveStyle({ transform: 'translate3d(23px, 0, 0)' })
   })
+
+  it('keeps the IO strip in its own lane above the viewport ruler canvas', () => {
+    useTimelineStore.setState({ inPoint: 15, outPoint: 45 })
+
+    const { container } = render(
+      <div className="timeline-container">
+        <TimelineMarkers duration={10} width={1000} />
+      </div>,
+    )
+
+    const strip = container.querySelector(
+      '[data-testid="edit-timeline-io-strip"]',
+    ) as HTMLDivElement
+    const canvas = container.querySelector('[data-main-timeline-ruler-canvas]') as HTMLCanvasElement
+    const canvasLane = canvas.parentElement as HTMLDivElement
+
+    expect(strip).toHaveStyle({ top: '0px', height: '12px' })
+    expect(canvasLane).toHaveClass('bottom-0')
+    expect(canvasLane).toHaveStyle({ top: '12px' })
+    expect(canvas.style.marginTop).toBe('')
+  })
 })

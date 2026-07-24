@@ -11,7 +11,6 @@ import {
 import { useTranslation } from 'react-i18next'
 import {
   ChevronDown,
-  Clock3,
   ExternalLink,
   Layers3,
   ListFilter,
@@ -43,6 +42,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { MotionBakeConfirmationDialog } from '@/shared/ui/motion-bake-confirmation-dialog'
 import { SliderInput } from '@/shared/ui/property-controls'
 import { useSelectionStore } from '@/shared/state/selection'
+import { usePlaybackStore } from '@/shared/state/playback'
 import { useProjectStore } from '@/features/editor/deps/projects'
 import {
   applyAnimationPreset,
@@ -93,6 +93,7 @@ import {
   type MotionModulator,
 } from '@/features/editor/deps/keyframes'
 import { getTextMotionPreset } from '@/shared/typography/text-motion'
+import { getTextMotionTimelineBands } from '@/shared/timeline/text-motion-timeline'
 import {
   readAnimationPresets,
   saveAnimationPresets,
@@ -459,23 +460,39 @@ const AppliedMotionRow = memo(function AppliedMotionRow({
   detail,
   removeLabel,
   onRemove,
+  onNavigate,
 }: {
   label: string
   detail: string
   removeLabel?: string
   onRemove?: () => void
+  onNavigate?: () => void
 }) {
+  const content = (
+    <>
+      <div className="truncate text-[11px] font-medium text-foreground">{label}</div>
+      <div className="truncate text-[10px] text-muted-foreground">{detail}</div>
+    </>
+  )
+
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-md border border-border/60 bg-background/50 px-2 py-1.5">
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[11px] font-medium text-foreground">{label}</div>
-        <div className="truncate text-[10px] text-muted-foreground">{detail}</div>
-      </div>
+    <div className="flex min-w-0 items-center rounded-md border border-border/60 bg-background/50">
+      {onNavigate ? (
+        <button
+          type="button"
+          className="min-w-0 flex-1 rounded-l-md px-2 py-1.5 text-left hover:bg-secondary/35 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+          onClick={onNavigate}
+        >
+          {content}
+        </button>
+      ) : (
+        <div className="min-w-0 flex-1 px-2 py-1.5">{content}</div>
+      )}
       {onRemove && removeLabel ? (
         <button
           type="button"
           aria-label={removeLabel}
-          className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+          className="mr-1 rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
           onClick={onRemove}
         >
           <X className="h-3 w-3" />
@@ -1164,45 +1181,61 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
         source: NonNullable<import('@/types/keyframe').Keyframe['source']>
         properties: Set<string>
         keyframeCount: number
+        firstFrame: number
       }
     >()
-    const add = (propertyLabel: string, source: import('@/types/keyframe').Keyframe['source']) => {
+    const add = (
+      propertyLabel: string,
+      frame: number,
+      source: import('@/types/keyframe').Keyframe['source'],
+    ) => {
       if (!source) return
       const current = applications.get(source.applicationId) ?? {
         source,
         properties: new Set<string>(),
         keyframeCount: 0,
+        firstFrame: frame,
       }
       current.properties.add(propertyLabel)
       current.keyframeCount += 1
+      current.firstFrame = Math.min(current.firstFrame, frame)
       applications.set(source.applicationId, current)
     }
     for (const property of selectedItemKeyframes?.properties ?? []) {
       const label = getKeyframePropertyLabel(t, property.property)
-      for (const keyframe of property.keyframes) add(label, keyframe.source)
+      for (const keyframe of property.keyframes) add(label, keyframe.frame, keyframe.source)
     }
     for (const property of selectedItemKeyframes?.vectorProperties ?? []) {
       const label = t(`editor.animateStages.vectorProperties.${property.property}`)
-      for (const keyframe of property.keyframes) add(label, keyframe.source)
+      for (const keyframe of property.keyframes) add(label, keyframe.frame, keyframe.source)
     }
     return [...applications.values()]
   }, [selectedItemKeyframes, t])
   const manualKeyframeSummary = useMemo(() => {
     const properties = new Set<string>()
     let keyframeCount = 0
+    let firstFrame = Number.POSITIVE_INFINITY
     for (const property of selectedItemKeyframes?.properties ?? []) {
-      const count = property.keyframes.filter((keyframe) => !keyframe.source).length
+      const manualKeyframes = property.keyframes.filter((keyframe) => !keyframe.source)
+      const count = manualKeyframes.length
       if (count === 0) continue
       properties.add(getKeyframePropertyLabel(t, property.property))
       keyframeCount += count
+      for (const keyframe of manualKeyframes) firstFrame = Math.min(firstFrame, keyframe.frame)
     }
     for (const property of selectedItemKeyframes?.vectorProperties ?? []) {
-      const count = property.keyframes.filter((keyframe) => !keyframe.source).length
+      const manualKeyframes = property.keyframes.filter((keyframe) => !keyframe.source)
+      const count = manualKeyframes.length
       if (count === 0) continue
       properties.add(t(`editor.animateStages.vectorProperties.${property.property}`))
       keyframeCount += count
+      for (const keyframe of manualKeyframes) firstFrame = Math.min(firstFrame, keyframe.frame)
     }
-    return { properties: [...properties], keyframeCount }
+    return {
+      properties: [...properties],
+      keyframeCount,
+      firstFrame: Number.isFinite(firstFrame) ? firstFrame : null,
+    }
   }, [selectedItemKeyframes, t])
   const trimmedKeyframeCount = useMemo(
     () =>
@@ -1237,6 +1270,33 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
     activeModulators.length > 0 ||
     activeTextMotion.length > 0 ||
     hasAudioPulse
+
+  const navigateToAbsoluteFrame = useCallback((frame: number) => {
+    const playback = usePlaybackStore.getState()
+    playback.pause()
+    playback.finishScrub(Math.max(0, Math.round(frame)))
+  }, [])
+  const navigateToItemFrame = useCallback(
+    (frame: number) => {
+      if (!selectedItem) return
+      const localFrame = Math.min(
+        Math.max(0, Math.round(frame)),
+        Math.max(0, selectedItem.durationInFrames - 1),
+      )
+      navigateToAbsoluteFrame(selectedItem.from + localFrame)
+    },
+    [navigateToAbsoluteFrame, selectedItem],
+  )
+  const navigateToTextMotion = useCallback(
+    (slot: TextMotionSlot) => {
+      if (!selectedItem) return
+      const band = getTextMotionTimelineBands(selectedItem).find(
+        (candidate) => candidate.slot === slot,
+      )
+      if (band) navigateToAbsoluteFrame(band.fromFrame)
+    },
+    [navigateToAbsoluteFrame, selectedItem],
+  )
 
   const handleRemoveManualKeyframes = useCallback(() => {
     if (!selectedItem) return
@@ -1302,10 +1362,6 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
     selectedItems.length === 1 &&
     selectedItem?.type === 'composition' &&
     selectedCompositionKind === 'composite-2d'
-  const handleOpenTiming = useCallback(() => {
-    if (selectedItems.length !== 1 || !selectedItem) return
-    useSelectionStore.getState().setKeyframeLanesExpanded(selectedItem.id, true)
-  }, [selectedItem, selectedItems.length])
   const handleMotionClip = useCallback(() => {
     if (isMotionClip && selectedItem?.type === 'composition') {
       openComposition(selectedItem.compositionId, selectedItem.label, selectedItem.id)
@@ -1359,81 +1415,76 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
             </div>
           </section>
 
-          <Separator />
-
-          <section className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h3 className="text-xs font-medium">{t('editor.animateStages.appliedTitle')}</h3>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {hasAnyAnimation
-                    ? t('editor.editAnimation.appliedHint')
-                    : t('editor.editAnimation.noneApplied')}
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 gap-1 px-2 text-[10px]"
-                disabled={selectedItems.length !== 1}
-                onClick={handleOpenTiming}
-              >
-                <Clock3 className="h-3 w-3" />
-                {t('editor.editAnimation.editTiming')}
-              </Button>
-            </div>
-            {hasAnyAnimation ? (
-              <div className="flex flex-col gap-1 rounded-md border border-border/60 bg-secondary/20 p-2">
-                {manualKeyframeSummary.keyframeCount > 0 ? (
-                  <AppliedMotionRow
-                    label={t('editor.animateStages.manualKeyframes')}
-                    detail={`${manualKeyframeSummary.properties.join(', ')} · ${t('editor.animateStages.keyframeCount', { count: manualKeyframeSummary.keyframeCount })}`}
-                    removeLabel={t('editor.animateStages.removeManualKeyframes')}
-                    onRemove={handleRemoveManualKeyframes}
+          {hasAnyAnimation ? (
+            <>
+              <Separator />
+              <section className="flex flex-col gap-2">
+                <div>
+                  <h3 className="text-xs font-medium">{t('editor.animateStages.appliedTitle')}</h3>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    {t('editor.editAnimation.appliedHint')}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1 rounded-md border border-border/60 bg-secondary/20 p-2">
+                  {manualKeyframeSummary.keyframeCount > 0 ? (
+                    <AppliedMotionRow
+                      label={t('editor.animateStages.manualKeyframes')}
+                      detail={`${manualKeyframeSummary.properties.join(', ')} · ${t('editor.animateStages.keyframeCount', { count: manualKeyframeSummary.keyframeCount })}`}
+                      removeLabel={t('editor.animateStages.removeManualKeyframes')}
+                      onRemove={handleRemoveManualKeyframes}
+                      onNavigate={
+                        manualKeyframeSummary.firstFrame === null
+                          ? undefined
+                          : () => navigateToItemFrame(manualKeyframeSummary.firstFrame ?? 0)
+                      }
+                    />
+                  ) : null}
+                  {trimmedKeyframeCount > 0 ? (
+                    <AppliedMotionRow
+                      label={t('timeline.keyframeEditor.trimmedKeyframesLabel')}
+                      detail={t('timeline.keyframeEditor.trimmedKeyframesDetail', {
+                        count: trimmedKeyframeCount,
+                      })}
+                      removeLabel={t('timeline.keyframeEditor.trimAnimation')}
+                      onRemove={handleTrimAnimation}
+                    />
+                  ) : null}
+                  {keyframeApplications.map((application) => (
+                    <AppliedMotionRow
+                      key={application.source.applicationId}
+                      label={application.source.presetName}
+                      detail={`${t('editor.animateStages.generatedKeyframes')} · ${t('editor.animateStages.keyframeCount', { count: application.keyframeCount })}`}
+                      removeLabel={t('editor.animateStages.removePresetApplication', {
+                        name: application.source.presetName,
+                      })}
+                      onRemove={() =>
+                        handleRemovePresetApplication(application.source.applicationId)
+                      }
+                      onNavigate={() => navigateToItemFrame(application.firstFrame)}
+                    />
+                  ))}
+                  <AppliedContinuousMotionControls
+                    items={selectedItems}
+                    canvas={canvas}
+                    variant="rows"
+                    showBakeAction
                   />
-                ) : null}
-                {trimmedKeyframeCount > 0 ? (
-                  <AppliedMotionRow
-                    label={t('timeline.keyframeEditor.trimmedKeyframesLabel')}
-                    detail={t('timeline.keyframeEditor.trimmedKeyframesDetail', {
-                      count: trimmedKeyframeCount,
-                    })}
-                    removeLabel={t('timeline.keyframeEditor.trimAnimation')}
-                    onRemove={handleTrimAnimation}
-                  />
-                ) : null}
-                {keyframeApplications.map((application) => (
-                  <AppliedMotionRow
-                    key={application.source.applicationId}
-                    label={application.source.presetName}
-                    detail={`${t('editor.animateStages.generatedKeyframes')} · ${t('editor.animateStages.keyframeCount', { count: application.keyframeCount })}`}
-                    removeLabel={t('editor.animateStages.removePresetApplication', {
-                      name: application.source.presetName,
-                    })}
-                    onRemove={() => handleRemovePresetApplication(application.source.applicationId)}
-                  />
-                ))}
-                <AppliedContinuousMotionControls
-                  items={selectedItems}
-                  canvas={canvas}
-                  variant="rows"
-                  showBakeAction
-                />
-                {activeTextMotion.map(({ slot, effect }) => (
-                  <AppliedMotionRow
-                    key={slot}
-                    label={t(getTextMotionPreset(effect.presetId).labelKey)}
-                    detail={`${t('editor.animateStages.scopeText')} · ${t(`textMotion.slots.${slot}`)} · ${t('editor.animateStages.liveBadge')}`}
-                    removeLabel={t('textMotion.removePreset', {
-                      name: t(getTextMotionPreset(effect.presetId).labelKey),
-                    })}
-                    onRemove={() => handleRemoveTextMotion(slot)}
-                  />
-                ))}
-              </div>
-            ) : null}
-          </section>
+                  {activeTextMotion.map(({ slot, effect }) => (
+                    <AppliedMotionRow
+                      key={slot}
+                      label={t(getTextMotionPreset(effect.presetId).labelKey)}
+                      detail={`${t('editor.animateStages.scopeText')} · ${t(`textMotion.slots.${slot}`)} · ${t('editor.animateStages.liveBadge')}`}
+                      removeLabel={t('textMotion.removePreset', {
+                        name: t(getTextMotionPreset(effect.presetId).labelKey),
+                      })}
+                      onRemove={() => handleRemoveTextMotion(slot)}
+                      onNavigate={() => navigateToTextMotion(slot)}
+                    />
+                  ))}
+                </div>
+              </section>
+            </>
+          ) : null}
 
           {selectedTextItems.length > 0 ? (
             <>
@@ -1578,6 +1629,11 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
                       detail={`${manualKeyframeSummary.properties.join(', ')} · ${t('editor.animateStages.keyframeCount', { count: manualKeyframeSummary.keyframeCount })}`}
                       removeLabel={t('editor.animateStages.removeManualKeyframes')}
                       onRemove={handleRemoveManualKeyframes}
+                      onNavigate={
+                        manualKeyframeSummary.firstFrame === null
+                          ? undefined
+                          : () => navigateToItemFrame(manualKeyframeSummary.firstFrame ?? 0)
+                      }
                     />
                   ) : null}
                   {keyframeApplications.map((application) => (
@@ -1591,6 +1647,7 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
                       onRemove={() =>
                         handleRemovePresetApplication(application.source.applicationId)
                       }
+                      onNavigate={() => navigateToItemFrame(application.firstFrame)}
                     />
                   ))}
                   <AppliedContinuousMotionControls
@@ -1607,6 +1664,7 @@ export const AnimationPresetLibrary = memo(function AnimationPresetLibrary({
                         name: t(getTextMotionPreset(effect.presetId).labelKey),
                       })}
                       onRemove={() => handleRemoveTextMotion(slot)}
+                      onNavigate={() => navigateToTextMotion(slot)}
                     />
                   ))}
                 </div>

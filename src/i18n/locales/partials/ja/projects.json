@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "キーフレームエディターをグラフビューに切り替え",
           "keyframeEditorDopesheet": "キーフレームエディターをドープシートビューに切り替え",
           "keyframeEditorSplit": "キーフレームエディターを分割ビューに切り替え",
-          "keyframeToggle": "再生ヘッド位置のキーフレームを切り替え",
+          "editKeyframeAdd": "選択した編集レイヤーの再生ヘッド位置にキーフレームを追加",
           "keyframePrevious": "前のプロパティキーフレームへ移動",
           "keyframeNext": "次のプロパティキーフレームへ移動",
           "keyframeToggleAuto": "アクティブなプロパティの自動キーを切り替え",
@@ -541,6 +541,13 @@
     "routeError": {
       "title": "問題が発生しました",
       "description": "FreeCut はこのページの読み込みを完了できませんでした。",
+      "projectNotFoundTitle": "このプロジェクトが見つかりません",
+      "projectNotFoundDescription": "移動または削除されたか、古いリンクから開かれた可能性があります。他のプロジェクトは引き続きワークスペースで利用できます。",
+      "backToProjects": "プロジェクト一覧に戻る",
+      "supportHint": "サポートが必要な場合は、エラーの詳細をコピーして開発者に送ってください。",
+      "copyDetails": "エラーの詳細をコピー",
+      "detailsCopied": "エラーの詳細をコピーしました",
+      "copyFailed": "詳細をコピーできませんでした",
       "causePermission": "FreeCut はワークスペースフォルダーを使用する権限を失いました。再接続するか、別のフォルダーを選択してください。",
       "causeMissing": "ワークスペースフォルダーが見つかりません。移動、名前の変更、または削除された可能性があります。",
       "causeUnsupported": "ワークスペースフォルダーは、FreeCut に必要な機能をすべてサポートしていないドライブ上にあります。クラウド同期フォルダーやネットワークフォルダーではよくあることです。ローカルディスク上のフォルダーを選ぶと、たいていは解決します。"

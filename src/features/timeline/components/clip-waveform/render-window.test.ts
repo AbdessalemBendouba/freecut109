@@ -25,4 +25,19 @@ describe('computeWaveformRenderWindow', () => {
     expect(window.visibleStartPx).toBe(120)
     expect(window.visibleEndPx).toBe(360)
   })
+
+  it('caps stale zoom geometry to the viewport redraw budget', () => {
+    expect(
+      computeWaveformRenderWindow({
+        renderWidth: 100_000,
+        visibleWidth: 100_000,
+        visibleStartRatio: 0.4,
+        visibleEndRatio: 0.6,
+        maxWindowWidth: 2_500,
+      }),
+    ).toEqual({
+      visibleStartPx: 48_750,
+      visibleEndPx: 51_250,
+    })
+  })
 })

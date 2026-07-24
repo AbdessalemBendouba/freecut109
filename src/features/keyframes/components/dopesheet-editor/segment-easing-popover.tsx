@@ -65,6 +65,9 @@ interface SegmentEasingPopoverProps {
   left: number
   /** Width of the connector band, in px. */
   width: number
+  /** Relative frames used to keep the hit target aligned during live zoom. */
+  fromFrame: number
+  toFrame: number
   /** Keyframe(s) that begin this segment (one per property for group rows). */
   refs: KeyframeRef[]
   /** Representative easing (first ref). */
@@ -83,6 +86,8 @@ interface SegmentEasingPopoverProps {
 export function SegmentEasingPopover({
   left,
   width,
+  fromFrame,
+  toFrame,
   refs,
   easing,
   easingConfig,
@@ -303,6 +308,10 @@ export function SegmentEasingPopover({
           ref={triggerRef}
           type="button"
           data-testid={`segment-easing-${refs[0]?.property}-${refs[0]?.keyframeId}`}
+          data-dopesheet-from-frame={fromFrame}
+          data-dopesheet-to-frame={toFrame}
+          data-dopesheet-responsive-inset={8}
+          data-dopesheet-min-width={2}
           className={cn(
             'absolute z-[6] h-2 -translate-y-1/2 rounded-full',
             'bg-transparent hover:bg-blue-400/25 focus-visible:bg-blue-400/30',
@@ -314,7 +323,7 @@ export function SegmentEasingPopover({
             // Record where along the band the user pressed (in cell coords) so
             // the popover anchors there. Runs before the click that opens it.
             const rect = event.currentTarget.getBoundingClientRect()
-            setAnchorLeft(bandLeft + (event.clientX - rect.left))
+            setAnchorLeft(event.currentTarget.offsetLeft + (event.clientX - rect.left))
           }}
           onClick={(event) => event.stopPropagation()}
           title={t('timeline.keyframeEditor.editCurve', { defaultValue: 'Easing' })}
@@ -438,6 +447,8 @@ export function SegmentEasingPopover({
                     <div className="flex items-center gap-1">
                       <Input
                         autoFocus
+                        autoComplete="off"
+                        data-bwignore="true"
                         value={savingName}
                         onChange={(event) => setSavingName(event.target.value)}
                         onKeyDown={(event) => {

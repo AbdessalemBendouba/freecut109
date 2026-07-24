@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Ana kare düzenleyiciyi grafik görünümüne geçir",
           "keyframeEditorDopesheet": "Ana kare düzenleyiciyi zaman çizelgesi görünümüne geçir",
           "keyframeEditorSplit": "Ana kare düzenleyiciyi bölünmüş görünüme geçir",
-          "keyframeToggle": "Oynatma kafasında ana kareyi aç/kapat",
+          "editKeyframeAdd": "Seçili Düzenleme katmanına oynatma kafasında ana kare ekle",
           "keyframePrevious": "Önceki özellik ana karesine git",
           "keyframeNext": "Sonraki özellik ana karesine git",
           "keyframeToggleAuto": "Etkin özellik için otomatik anahtarı aç/kapat",
@@ -541,6 +541,13 @@
     "routeError": {
       "title": "Bir şeyler ters gitti",
       "description": "FreeCut bu sayfayı yüklemeyi tamamlayamadı.",
+      "projectNotFoundTitle": "Bu projeyi bulamadık",
+      "projectNotFoundDescription": "Proje taşınmış, silinmiş veya eski bir bağlantıdan açılmış olabilir. Diğer projeleriniz çalışma alanınızda kullanılmaya devam edebilir.",
+      "backToProjects": "Projelere dön",
+      "supportHint": "Yardıma ihtiyacınız varsa hata ayrıntılarını kopyalayıp bir geliştiriciye gönderin.",
+      "copyDetails": "Hata ayrıntılarını kopyala",
+      "detailsCopied": "Hata ayrıntıları kopyalandı",
+      "copyFailed": "Ayrıntılar kopyalanamadı",
       "causePermission": "FreeCut artık çalışma klasörünüzü kullanma iznine sahip değil. Yeniden bağlayın veya başka bir klasör seçin.",
       "causeMissing": "Çalışma klasörünüz bulunamadı. Taşınmış, yeniden adlandırılmış veya silinmiş olabilir.",
       "causeUnsupported": "Çalışma klasörünüz, FreeCut'ın ihtiyaç duyduğu her şeyi desteklemeyen bir sürücüde. Buluta eşitlenen klasörler ve ağ klasörleri genellikle böyle davranır. Yerel bir diskteki klasörü seçmek sorunu genellikle çözer."

@@ -474,7 +474,7 @@
           "keyframeEditorGraph": "Alternar o editor de quadros-chave para a visualização de gráfico",
           "keyframeEditorDopesheet": "Alternar o editor de quadros-chave para a visualização de folha de tempos",
           "keyframeEditorSplit": "Alternar o editor de quadros-chave para a visualização dividida",
-          "keyframeToggle": "Alternar quadro-chave no indicador de reprodução",
+          "editKeyframeAdd": "Adicionar quadro-chave no indicador de reprodução para a camada de Edição selecionada",
           "keyframePrevious": "Ir para o quadro-chave anterior da propriedade",
           "keyframeNext": "Ir para o próximo quadro-chave da propriedade",
           "keyframeToggleAuto": "Alternar chave automática da propriedade ativa",
@@ -541,6 +541,13 @@
     "routeError": {
       "title": "Algo deu errado",
       "description": "O FreeCut não conseguiu terminar de carregar esta página.",
+      "projectNotFoundTitle": "Não encontramos este projeto",
+      "projectNotFoundDescription": "Ele pode ter sido movido, excluído ou aberto por um link antigo. Seus outros projetos continuam disponíveis no espaço de trabalho.",
+      "backToProjects": "Voltar aos projetos",
+      "supportHint": "Se precisar de ajuda, copie os detalhes do erro e envie-os a um desenvolvedor.",
+      "copyDetails": "Copiar detalhes do erro",
+      "detailsCopied": "Detalhes do erro copiados",
+      "copyFailed": "Não foi possível copiar os detalhes",
       "causePermission": "O FreeCut não tem mais permissão para usar sua pasta de trabalho. Reconecte-a ou escolha outra pasta.",
       "causeMissing": "Sua pasta de trabalho não foi encontrada. Ela pode ter sido movida, renomeada ou excluída.",
       "causeUnsupported": "Sua pasta de trabalho está em uma unidade que não oferece suporte a tudo o que o FreeCut precisa. Pastas sincronizadas na nuvem e pastas de rede costumam se comportar assim. Escolher uma pasta em um disco local geralmente resolve."
