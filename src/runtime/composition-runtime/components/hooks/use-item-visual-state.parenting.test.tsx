@@ -100,6 +100,58 @@ describe('useItemVisualState parenting', () => {
     expect(screen.getByTestId('transform-x')).toHaveTextContent('120')
   })
 
+  it('keeps the React transform stable while a parented item uses the imperative drag preview', () => {
+    const movedParent: ControllerItem = {
+      ...nullObject,
+      transform: resolvedTransform({ x: 100 }),
+    }
+    const movedChild: ShapeItem = {
+      ...child,
+      transform: resolvedTransform({ x: 10, width: 20, height: 20 }),
+      transformParent: createTransformParentBinding({
+        childLocal: resolvedTransform({ x: 10, width: 20, height: 20 }),
+        childWorld: resolvedTransform({ x: 10, width: 20, height: 20 }),
+        parentItemId: movedParent.id,
+        parentWorld: resolvedTransform(),
+      }),
+    }
+
+    render(
+      <VideoConfigProvider
+        id="parented-child-gizmo-preview"
+        width={canvas.width}
+        height={canvas.height}
+        fps={canvas.fps}
+        durationInFrames={120}
+      >
+        <SequenceContext.Provider
+          value={{ from: 0, parentFrom: 0, localFrame: 0, durationInFrames: 120 }}
+        >
+          <KeyframesProvider keyframes={[]} items={[movedParent, movedChild]} canvas={canvas}>
+            <TransformXProbe item={movedChild} />
+          </KeyframesProvider>
+        </SequenceContext.Provider>
+      </VideoConfigProvider>,
+    )
+
+    expect(screen.getByTestId('transform-x')).toHaveTextContent('110')
+
+    act(() => {
+      const gizmo = useGizmoStore.getState()
+      gizmo.setSnappingEnabled(false)
+      gizmo.startTranslate(
+        movedChild.id,
+        { x: 110, y: 0 },
+        resolvedTransform({ x: 110, width: 20, height: 20 }),
+        0,
+        'shape',
+      )
+      gizmo.updateInteraction({ x: 130, y: 0 }, false)
+    })
+
+    expect(screen.getByTestId('transform-x')).toHaveTextContent('110')
+  })
+
   it('moves a child during a coalesced parent Position preview before commit', () => {
     render(
       <VideoConfigProvider

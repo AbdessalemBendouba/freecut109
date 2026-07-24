@@ -48,6 +48,7 @@ import {
 } from '@/features/timeline/deps/composition-runtime'
 import {
   createTransformParentBinding,
+  hasRedundantTransformParentLink,
   wouldCreateTransformParentCycle,
 } from '@/shared/utils/transform-parenting'
 import { createDefaultControllerItem } from '../../utils/generated-layer-items'
@@ -105,7 +106,18 @@ function isInvalidTransformParentUpdate(
   if (!child || !canParticipateInTransformHierarchy(child)) return true
   return Boolean(
     context.parentItemId &&
-      wouldCreateTransformParentCycle(childItemId, context.parentItemId, context.getItem),
+      (wouldCreateTransformParentCycle(
+          childItemId,
+          context.parentItemId,
+          context.getItem,
+          context.getKeyframes,
+        ) ||
+        hasRedundantTransformParentLink(
+          childItemId,
+          context.parentItemId,
+          context.getItem,
+          context.getKeyframes,
+        )),
   )
 }
 

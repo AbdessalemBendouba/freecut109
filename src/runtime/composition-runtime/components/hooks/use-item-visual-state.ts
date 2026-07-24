@@ -122,7 +122,15 @@ export function useItemVisualState(
 
   // === GRANULAR SELECTORS ===
   // Using individual selectors to avoid creating new object references
-  const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id)
+  const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id, {
+    imperativeTranslate: true,
+  })
+  const transformParentId = item.transformParent?.parentItemId
+  const parentGizmoPreview = useGizmoStore((state) =>
+    transformParentId && state.activeGizmo?.itemId === transformParentId
+      ? state.previewTransform
+      : null,
+  )
   const allItemPreviews = useGizmoStore((state) => state.preview)
 
   const itemKeyframes = useRuntimeItemKeyframes(item.id)
@@ -176,7 +184,9 @@ export function useItemVisualState(
     const getPreviewTransform = (itemId: string) =>
       activeGizmo?.itemId === itemId && previewTransform
         ? previewTransform
-        : allItemPreviews?.[itemId]?.transform
+        : transformParentId === itemId && parentGizmoPreview
+          ? parentGizmoPreview
+          : allItemPreviews?.[itemId]?.transform
     let resolved = keyframesContext
       ? resolveItemTransformAtFrame(item, {
           canvas: logicalCanvas,
@@ -193,6 +203,16 @@ export function useItemVisualState(
           keyframes: itemKeyframes,
           previewTransform: rootPreviewTransform,
         })
+
+    if (isGizmoPreviewActive && previewTransform) {
+      // Gizmo interactions operate on the fully resolved world transform.
+      // A parented item has already inherited its parent's delta at this
+      // point, so reapplying that preview as local input inside the hierarchy
+      // can leave the content behind (or move it twice) until mouseup converts
+      // the committed value back to local space. Let the live world preview
+      // win after hierarchy resolution so content and gizmo stay together.
+      resolved = applyTransformOverride(resolved, previewTransform)
+    }
 
     if (item.type === 'text' && !hasCornerPin(item.cornerPin)) {
       resolved = expandTextTransformToFitContent(
@@ -282,9 +302,11 @@ export function useItemVisualState(
   }, [
     activeGizmo,
     previewTransform,
+    parentGizmoPreview,
     itemPreview,
     allItemPreviews,
     item,
+    transformParentId,
     logicalCanvas,
     renderCanvas,
     itemKeyframes,

@@ -1316,4 +1316,73 @@ describe('MaskEditorOverlay edit mode', () => {
       cancelRafSpy.mockRestore()
     }
   })
+
+  it('does not let deferred cleanup from one vertex drag end the next drag', () => {
+    const queuedRafCallbacks: FrameRequestCallback[] = []
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      queuedRafCallbacks.push(callback)
+      return queuedRafCallbacks.length
+    })
+    const cancelRafSpy = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+      const index = Number(id) - 1
+      if (index >= 0 && index < queuedRafCallbacks.length) {
+        queuedRafCallbacks[index] = () => 0
+      }
+    })
+
+    try {
+      seedEditablePath()
+      const { canvas } = renderMaskEditorOverlay(PATH_ITEM_TRANSFORM)
+      Object.defineProperty(canvas, 'setPointerCapture', { value: vi.fn(), configurable: true })
+      Object.defineProperty(canvas, 'releasePointerCapture', { value: vi.fn(), configurable: true })
+
+      fireEvent.pointerDown(canvas, { clientX: 150, clientY: 30, pointerId: 1 })
+      fireEvent.pointerUp(canvas, { clientX: 150, clientY: 30, pointerId: 1 })
+
+      fireEvent.pointerDown(canvas, { clientX: 150, clientY: 30, pointerId: 2 })
+      fireEvent.pointerMove(canvas, { clientX: 165, clientY: 38, pointerId: 2 })
+
+      const livePreview = useMaskEditorStore.getState().previewVertices
+      expect(useMaskEditorStore.getState().draggingVertexIndex).not.toBeNull()
+      expect(livePreview).not.toBeNull()
+
+      act(() => {
+        let callbackIndex = 0
+        while (callbackIndex < queuedRafCallbacks.length) {
+          queuedRafCallbacks[callbackIndex++]!(0)
+        }
+      })
+
+      expect(useMaskEditorStore.getState().draggingVertexIndex).not.toBeNull()
+      expect(useMaskEditorStore.getState().previewVertices).toBe(livePreview)
+    } finally {
+      rafSpy.mockRestore()
+      cancelRafSpy.mockRestore()
+    }
+  })
+
+  it('does not clear a newer same-item gizmo interaction when the mask editor unmounts', () => {
+    seedEditablePath()
+    const { canvas, unmount } = renderMaskEditorOverlay(PATH_ITEM_TRANSFORM)
+    Object.defineProperty(canvas, 'setPointerCapture', { value: vi.fn(), configurable: true })
+    Object.defineProperty(canvas, 'releasePointerCapture', { value: vi.fn(), configurable: true })
+
+    fireEvent.pointerDown(canvas, { clientX: 100, clientY: 60, pointerId: 1 })
+    const maskInteractionId = useGizmoStore.getState().activeGizmo?.interactionId
+    expect(maskInteractionId).toBeDefined()
+
+    const newerInteractionId = useGizmoStore
+      .getState()
+      .startTranslate(
+        'path-1',
+        { x: 20, y: 20 },
+        PATH_ITEM_TRANSFORM,
+        undefined,
+        'shape',
+      )
+
+    unmount()
+
+    expect(useGizmoStore.getState().activeGizmo?.interactionId).toBe(newerInteractionId)
+  })
 })

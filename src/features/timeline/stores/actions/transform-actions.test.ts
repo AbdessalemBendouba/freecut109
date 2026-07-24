@@ -16,6 +16,7 @@ import {
   updateItemsTransformMap,
 } from './transform-actions'
 import { createNullParentForItems, setTransformParent, setTransformParents } from './item-actions'
+import { setDirectPropertyLink } from './keyframe-actions'
 
 function makeClip(id: string, overrides: Record<string, unknown> = {}) {
   return makeTimelineVideoItem({ id, transform: {}, ...overrides })
@@ -170,6 +171,95 @@ describe('transform actions', () => {
         false,
       )
       expect(useItemsStore.getState().itemById['b']?.transformParent).toBeUndefined()
+    })
+
+    it('blocks transform-parent cycles that pass through property links', () => {
+      setDirectPropertyLink('b', {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'a',
+        sourceProperty: 'position',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        false,
+      )
+      expect(useItemsStore.getState().itemById['a']?.transformParent).toBeUndefined()
+    })
+
+    it('blocks property-link cycles that pass through transform parents', () => {
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        true,
+      )
+
+      setDirectPropertyLink('b', {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'a',
+        sourceProperty: 'position',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(
+        useKeyframesStore.getState().keyframesByItemId['b']?.propertyLinks,
+      ).toBeUndefined()
+    })
+
+    it('blocks parenting when the child already links transform channels to that parent', () => {
+      setDirectPropertyLink('a', {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'b',
+        sourceProperty: 'position',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        false,
+      )
+      expect(useItemsStore.getState().itemById['a']?.transformParent).toBeUndefined()
+    })
+
+    it('blocks a redundant transform link to an existing parent', () => {
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        true,
+      )
+
+      setDirectPropertyLink('a', {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'b',
+        sourceProperty: 'position',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(
+        useKeyframesStore.getState().keyframesByItemId['a']?.propertyLinks,
+      ).toBeUndefined()
+    })
+
+    it('allows non-inherited property links to an existing parent', () => {
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        true,
+      )
+
+      setDirectPropertyLink('a', {
+        type: 'link',
+        targetProperty: 'opacity',
+        sourceItemId: 'b',
+        sourceProperty: 'opacity',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(useKeyframesStore.getState().keyframesByItemId['a']?.propertyLinks).toEqual([
+        expect.objectContaining({ targetProperty: 'opacity', sourceItemId: 'b' }),
+      ])
     })
 
     it('snaps to the parent position when explicitly requested', () => {

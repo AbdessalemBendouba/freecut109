@@ -14,6 +14,7 @@ import { appendVirtualTranscriptCaptionTrack } from '@/features/preview/deps/cap
 import { useCornerPinStore } from '../stores/corner-pin-store'
 import { useGizmoStore, type ItemPreview } from '../stores/gizmo-store'
 import { useMaskEditorStore } from '../stores/mask-editor-store'
+import { resolveGizmoWorldPreviewAsLocal } from '../utils/gizmo-world-preview'
 import { resolveProxyUrl } from '../utils/media-resolver'
 import {
   getMediaResolveCost,
@@ -196,19 +197,6 @@ export function usePreviewCompositionModel({
     useProxy,
   ])
 
-  const getPreviewTransformOverride = useCallback(
-    (itemId: string): Partial<ResolvedTransform> | undefined => {
-      const gizmoState = useGizmoStore.getState()
-      const unifiedPreviewTransform = gizmoState.preview?.[itemId]?.transform
-      if (unifiedPreviewTransform) return unifiedPreviewTransform
-      if (gizmoState.activeGizmo?.itemId === itemId && gizmoState.previewTransform) {
-        return gizmoState.previewTransform
-      }
-      return undefined
-    },
-    [],
-  )
-
   const getPreviewEffectsOverride = useCallback((itemId: string): ItemEffect[] | undefined => {
     const gizmoState = useGizmoStore.getState()
     const playbackState = usePlaybackStore.getState()
@@ -262,6 +250,31 @@ export function usePreviewCompositionModel({
     fastScrubKeyframesByItemId,
   )
   fastScrubKeyframesByItemIdRef.current = fastScrubKeyframesByItemId
+
+  const getPreviewTransformOverride = useCallback(
+    (itemId: string): Partial<ResolvedTransform> | undefined => {
+      const gizmoState = useGizmoStore.getState()
+      const unifiedPreviewTransform = gizmoState.preview?.[itemId]?.transform
+      if (unifiedPreviewTransform) return unifiedPreviewTransform
+      if (gizmoState.activeGizmo?.itemId !== itemId || !gizmoState.previewTransform) {
+        return undefined
+      }
+
+      const playbackState = usePlaybackStore.getState()
+      return resolveGizmoWorldPreviewAsLocal({
+        itemId,
+        worldPreviewTransform: gizmoState.previewTransform,
+        canvas: { width: project.width, height: project.height, fps },
+        frame: playbackState.previewFrame ?? playbackState.currentFrame,
+        getItem: (candidateId) => fastScrubLiveItemsByIdRef.current.get(candidateId),
+        getKeyframes: (candidateId) =>
+          fastScrubKeyframesByItemIdRef.current.get(candidateId),
+        getLocalPreviewTransform: (candidateId) =>
+          useGizmoStore.getState().preview?.[candidateId]?.transform,
+      })
+    },
+    [fps, project.height, project.width],
+  )
 
   const getLiveItemSnapshot = useCallback((itemId: string) => {
     const item = fastScrubLiveItemsByIdRef.current.get(itemId)

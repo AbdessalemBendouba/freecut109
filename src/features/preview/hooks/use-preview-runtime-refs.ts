@@ -19,7 +19,7 @@ export function usePreviewRuntimeRefs() {
   const scrubFrameDirtyRef = useRef(false)
   const bypassPreviewSeekRef = useRef(false)
   const isGizmoInteractingRef = useRef(false)
-  const preferPlayerForTextGizmoRef = useRef(false)
+  const preferPlayerForDomGizmoRef = useRef(false)
   const preferPlayerForStyledTextScrubRef = useRef(false)
   const adaptiveQualityStateRef = useRef(createAdaptivePreviewQualityState(1))
   const adaptiveFrameSampleRef = useRef<{ frame: number; tsMs: number } | null>(null)
@@ -219,7 +219,7 @@ export function usePreviewRuntimeRefs() {
     scrubFrameDirtyRef,
     bypassPreviewSeekRef,
     isGizmoInteractingRef,
-    preferPlayerForTextGizmoRef,
+    preferPlayerForDomGizmoRef,
     preferPlayerForStyledTextScrubRef,
     adaptiveQualityStateRef,
     adaptiveFrameSampleRef,

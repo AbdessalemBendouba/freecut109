@@ -11,6 +11,7 @@ import {
 import { shouldPreferPlayerForStyledTextScrub as shouldPreferPlayerForStyledTextScrubGuard } from '../utils/text-render-guard'
 import { getPreviewRuntimeSnapshotFromPlaybackState } from '../utils/preview-state-coordinator'
 import { resolvePlaybackColdStartFrameAdvance } from '../utils/playback-cold-start-event'
+import { shouldPreferDomPlayerForGizmo } from '../utils/gizmo-preview-presentation'
 import { usePreviewRuntimeGuards } from './use-preview-runtime-guards'
 import type { PreviewPerfStats } from './use-preview-diagnostics'
 
@@ -24,7 +25,7 @@ interface UsePreviewPlaybackControllerParams {
   domTextScrubOverlayEnabled: boolean
   previewPerfRef: MutableRefObject<PreviewPerfStats>
   isGizmoInteractingRef: MutableRefObject<boolean>
-  preferPlayerForTextGizmoRef: MutableRefObject<boolean>
+  preferPlayerForDomGizmoRef: MutableRefObject<boolean>
   preferPlayerForStyledTextScrubRef: MutableRefObject<boolean>
   adaptiveQualityStateRef: MutableRefObject<AdaptivePreviewQualityState>
   adaptiveFrameSampleRef: MutableRefObject<{ frame: number; tsMs: number } | null>
@@ -42,7 +43,7 @@ export function usePreviewPlaybackController({
   domTextScrubOverlayEnabled,
   previewPerfRef,
   isGizmoInteractingRef,
-  preferPlayerForTextGizmoRef,
+  preferPlayerForDomGizmoRef,
   preferPlayerForStyledTextScrubRef,
   adaptiveQualityStateRef,
   adaptiveFrameSampleRef,
@@ -63,19 +64,20 @@ export function usePreviewPlaybackController({
     !domTextScrubOverlayEnabled &&
     !forceFastScrubOverlay &&
     shouldPreferPlayerForStyledTextScrubGuard(combinedTracks, keyframes)
-  const preferPlayerForTextGizmo =
-    !forceFastScrubOverlay && isGizmoInteracting && activeGizmoItemType === 'text'
-  preferPlayerForTextGizmoRef.current = preferPlayerForTextGizmo
+  const preferPlayerForDomGizmo =
+    isGizmoInteracting &&
+    shouldPreferDomPlayerForGizmo(forceFastScrubOverlay, activeGizmoItemType)
+  preferPlayerForDomGizmoRef.current = preferPlayerForDomGizmo
   preferPlayerForStyledTextScrubRef.current = preferPlayerForStyledTextScrub
 
   const shouldPreferPlayerForPreview = useCallback(
     (previewFrame: number | null) => {
       return (
-        preferPlayerForTextGizmoRef.current ||
+        preferPlayerForDomGizmoRef.current ||
         (preferPlayerForStyledTextScrubRef.current && previewFrame !== null)
       )
     },
-    [preferPlayerForStyledTextScrubRef, preferPlayerForTextGizmoRef],
+    [preferPlayerForDomGizmoRef, preferPlayerForStyledTextScrubRef],
   )
 
   const handleFrameChange = useCallback(

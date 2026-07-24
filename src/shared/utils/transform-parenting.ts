@@ -1,4 +1,9 @@
 import type { TimelineItem } from '@/types/timeline'
+import {
+  getDirectPropertyLinks,
+  type DirectLinkableProperty,
+  type ItemKeyframes,
+} from '@/types/keyframe'
 import type {
   ResolvedTransform,
   TransformParentBinding,
@@ -184,14 +189,101 @@ export function wouldCreateTransformParentCycle(
   childItemId: string,
   parentItemId: string,
   getItem: (itemId: string) => TimelineItem | undefined,
+  getKeyframes: (itemId: string) => ItemKeyframes | undefined = () => undefined,
+): boolean {
+  return wouldCreateItemDependencyCycle(childItemId, parentItemId, getItem, getKeyframes)
+}
+
+/**
+ * Items depend on both their transform parent and the source layers of direct
+ * property links. Reject a new dependency edge when either route would lead
+ * back to the dependent item.
+ */
+export function wouldCreateItemDependencyCycle(
+  dependentItemId: string,
+  sourceItemId: string,
+  getItem: (itemId: string) => TimelineItem | undefined,
+  getKeyframes: (itemId: string) => ItemKeyframes | undefined,
 ): boolean {
   const visited = new Set<string>()
-  let currentId: string | undefined = parentItemId
-  while (currentId) {
-    if (currentId === childItemId) return true
-    if (visited.has(currentId)) return false
+  const pending = [sourceItemId]
+
+  while (pending.length > 0) {
+    const currentId = pending.pop()!
+    if (currentId === dependentItemId) return true
+    if (visited.has(currentId)) continue
     visited.add(currentId)
+
+    const parentId = getItem(currentId)?.transformParent?.parentItemId
+    if (parentId) pending.push(parentId)
+    for (const link of getDirectPropertyLinks(getKeyframes(currentId))) {
+      if (link.enabled) pending.push(link.sourceItemId)
+    }
+  }
+
+  return false
+}
+
+const TRANSFORM_PARENT_INHERITED_PROPERTIES = new Set<DirectLinkableProperty>([
+  'position',
+  'scale',
+  'x',
+  'y',
+  'width',
+  'height',
+  'rotation',
+])
+
+export function isTransformParentInheritedProperty(
+  property: DirectLinkableProperty,
+): boolean {
+  return TRANSFORM_PARENT_INHERITED_PROPERTIES.has(property)
+}
+
+/** Whether `sourceItemId` already drives the item through its parent chain. */
+export function hasTransformParentDependency(
+  itemId: string,
+  sourceItemId: string,
+  getItem: (itemId: string) => TimelineItem | undefined,
+): boolean {
+  const visited = new Set<string>()
+  let parentId = getItem(itemId)?.transformParent?.parentItemId
+
+  while (parentId) {
+    if (parentId === sourceItemId) return true
+    if (visited.has(parentId)) return false
+    visited.add(parentId)
+    parentId = getItem(parentId)?.transformParent?.parentItemId
+  }
+
+  return false
+}
+
+/**
+ * A child that already links Position/Scale/Rotation to its proposed parent
+ * would receive the same transform once from the link and again from parenting.
+ */
+export function hasRedundantTransformParentLink(
+  childItemId: string,
+  parentItemId: string,
+  getItem: (itemId: string) => TimelineItem | undefined,
+  getKeyframes: (itemId: string) => ItemKeyframes | undefined,
+): boolean {
+  const parentIds = new Set<string>()
+  const visited = new Set<string>()
+  let currentId: string | undefined = parentItemId
+
+  while (currentId) {
+    if (visited.has(currentId)) break
+    visited.add(currentId)
+    parentIds.add(currentId)
     currentId = getItem(currentId)?.transformParent?.parentItemId
   }
-  return false
+
+  return getDirectPropertyLinks(getKeyframes(childItemId)).some(
+    (link) =>
+      link.enabled &&
+      isTransformParentInheritedProperty(link.targetProperty) &&
+      parentIds.has(link.sourceItemId),
+  )
 }

@@ -43,6 +43,7 @@ import {
   getPreviewDisplayCanvasBackingSize,
 } from '../utils/preview-display-canvas'
 import { buildDomTextScrubOverlayPlan } from '../utils/dom-text-scrub-overlay'
+import { shouldPreferDomPlayerForGizmo } from '../utils/gizmo-preview-presentation'
 import { importCompositionRenderer, type CompositionRendererInstance } from '../deps/export'
 
 interface VideoPreviewProps {
@@ -177,16 +178,6 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
   )
   const isPowerWindowEditing = usePowerWindowEditorStore((s) => s.isEditing)
   const isSpatialEffectEditing = useSpatialEffectEditorStore((s) => s.isEditing)
-  const shouldPreferPlayerForPreview = useCallback(
-    (previewFrame: number | null) => {
-      return (
-        previewRuntimeRefs.preferPlayerForTextGizmoRef.current ||
-        (preferPlayerForStyledTextScrubRef.current && previewFrame !== null)
-      )
-    },
-    [preferPlayerForStyledTextScrubRef, previewRuntimeRefs.preferPlayerForTextGizmoRef],
-  )
-
   const setCaptureFrame = usePreviewBridgeStore((s) => s.setCaptureFrame)
   const setCaptureFrameImageData = usePreviewBridgeStore((s) => s.setCaptureFrameImageData)
   const setDisplayedFrame = usePreviewBridgeStore((s) => s.setDisplayedFrame)
@@ -547,6 +538,28 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     pushTransitionTrace,
     ...previewRuntimeRefs.transitionSessionControllerRefs,
   })
+  const shouldPreferPlayerForPreview = useCallback(
+    (previewFrame: number | null) => {
+      const playbackState = usePlaybackStore.getState()
+      const requiresRenderedPresentation =
+        forceFastScrubOverlay ||
+        isPausedTransitionOverlayActive(playbackState.currentFrame, playbackState)
+      if (requiresRenderedPresentation) return false
+
+      const activeGizmoItemType = useGizmoStore.getState().activeGizmo?.itemType ?? null
+      return (
+        shouldPreferDomPlayerForGizmo(false, activeGizmoItemType) ||
+        previewRuntimeRefs.preferPlayerForDomGizmoRef.current ||
+        (preferPlayerForStyledTextScrubRef.current && previewFrame !== null)
+      )
+    },
+    [
+      forceFastScrubOverlay,
+      isPausedTransitionOverlayActive,
+      preferPlayerForStyledTextScrubRef,
+      previewRuntimeRefs.preferPlayerForDomGizmoRef,
+    ],
+  )
   const { handleFrameChange, handlePlayStateChange } = usePreviewPlaybackController({
     fps,
     combinedTracks,
@@ -557,7 +570,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     domTextScrubOverlayEnabled: domTextScrubOverlayPlan.enabled,
     previewPerfRef,
     isGizmoInteractingRef,
-    preferPlayerForTextGizmoRef: previewRuntimeRefs.preferPlayerForTextGizmoRef,
+    preferPlayerForDomGizmoRef: previewRuntimeRefs.preferPlayerForDomGizmoRef,
     preferPlayerForStyledTextScrubRef,
     adaptiveQualityStateRef,
     adaptiveFrameSampleRef: previewRuntimeRefs.adaptiveFrameSampleRef,

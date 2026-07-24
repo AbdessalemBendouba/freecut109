@@ -107,10 +107,12 @@ import { useTimelineSettingsStore } from './timeline-settings-store'
 import { useTimelineCommandStore } from './timeline-command-store'
 import { useCompositionsStore } from './compositions-store'
 import { useCompositionNavigationStore } from './composition-navigation-store'
+import { useSequencesStore } from './sequences-store'
 import { useTimelineStore } from './timeline-store-facade'
 import { useProjectStore } from '@/features/timeline/deps/projects'
 import { captureSnapshot } from './commands/snapshot'
 import { rateStretchItemWithoutHistory } from './actions/item-edit-actions'
+import type { ProjectTimeline } from '@/types/project'
 
 describe('TimelineStoreFacade', () => {
   beforeEach(() => {
@@ -925,9 +927,337 @@ describe('TimelineStoreFacade', () => {
         { compositionId: 'comp-b', label: 'Comp B', entryItemId: 'item-b-second' },
       ])
     })
+
+    it('saves held Main and live Motion edits without broadcasting Main through live stores', async () => {
+      indexedDbMocks.getProject.mockResolvedValue({
+        id: 'project-1',
+        metadata: { fps: 30, width: 1920, height: 1080 },
+      })
+      useSequencesStore.getState().reset()
+
+      const rootTrack = {
+        id: 'root-track',
+        name: 'V1',
+        kind: 'video' as const,
+        order: 0,
+        height: 80,
+        locked: false,
+        visible: true,
+        muted: false,
+        solo: false,
+        items: [],
+      }
+      const mainLeft = {
+        id: 'main-left',
+        type: 'video' as const,
+        trackId: rootTrack.id,
+        from: 0,
+        durationInFrames: 90,
+        label: 'Main left',
+        src: 'blob:main-left',
+        mediaId: 'main-left-media',
+      }
+      const mainRight = {
+        id: 'main-right',
+        type: 'video' as const,
+        trackId: rootTrack.id,
+        from: 90,
+        durationInFrames: 90,
+        label: 'Main right',
+        src: 'blob:main-right',
+        mediaId: 'main-right-media',
+      }
+      const mainTransition = {
+        id: 'main-transition',
+        type: 'crossfade' as const,
+        leftClipId: mainLeft.id,
+        rightClipId: mainRight.id,
+        trackId: rootTrack.id,
+        durationInFrames: 12,
+        presentation: 'wipe' as const,
+        timing: 'cubic-bezier' as const,
+      }
+      const mainKeyframes = [
+        {
+          itemId: mainLeft.id,
+          properties: [
+            {
+              property: 'rotation' as const,
+              keyframes: [
+                {
+                  id: 'main-rotation',
+                  frame: 12,
+                  value: 15,
+                  easing: 'linear' as const,
+                },
+              ],
+            },
+          ],
+        },
+      ]
+      const mainBus = { enabled: true, outputGainDb: 2 }
+      const mainMarkers = [{ id: 'main-marker', frame: 45, color: '#ff0000' }]
+
+      useItemsStore.getState().setTracks([rootTrack])
+      useItemsStore.getState().setItems([mainLeft, mainRight])
+      useTransitionsStore.getState().setTransitions([mainTransition])
+      useKeyframesStore.getState().setKeyframes(mainKeyframes)
+      useMarkersStore.getState().setMarkers(mainMarkers)
+      useMarkersStore.getState().setInPoint(5)
+      useMarkersStore.getState().setOutPoint(150)
+      useTimelineSettingsStore.getState().setScrollPosition(123)
+      playbackMocks.currentFrame = 77
+      playbackMocks.setBusAudioEq(mainBus)
+      playbackMocks.masterBusDb = 1.5
+      zoomMocks.level = 2.25
+
+      const motionTrack = {
+        id: 'motion-track',
+        name: 'Layer 1',
+        kind: 'video' as const,
+        order: 0,
+        height: 80,
+        locked: false,
+        visible: true,
+        muted: false,
+        solo: false,
+        items: [],
+      }
+      const motionBase = {
+        id: 'motion-base',
+        type: 'shape' as const,
+        trackId: motionTrack.id,
+        from: 0,
+        durationInFrames: 100,
+        label: 'Motion base',
+        shapeType: 'rectangle' as const,
+        fillColor: '#ffffff',
+        strokeWidth: 0,
+        transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0, opacity: 1 },
+      }
+      const motionUnsaved = {
+        id: 'motion-unsaved',
+        type: 'shape' as const,
+        trackId: motionTrack.id,
+        from: 50,
+        durationInFrames: 80,
+        label: 'Unsaved Motion layer',
+        shapeType: 'polygon' as const,
+        fillColor: '#3b82f6',
+        strokeWidth: 0,
+        transform: { x: 20, y: 10, width: 120, height: 120, rotation: 0, opacity: 1 },
+      }
+      useCompositionsStore.getState().addComposition({
+        id: 'motion-comp',
+        name: 'Motion composition',
+        editorKind: 'composite-2d',
+        tracks: [motionTrack],
+        items: [motionBase],
+        transitions: [],
+        keyframes: [],
+        fps: 30,
+        width: 1920,
+        height: 1080,
+        durationInFrames: 100,
+      })
+      useCompositionNavigationStore.getState().switchToSequence('motion-comp')
+
+      const motionBus = { enabled: true, outputGainDb: -3 }
+      const motionMarkers = [{ id: 'motion-marker', frame: 30, color: '#00ff00' }]
+      useItemsStore.getState().setItems([motionBase, motionUnsaved])
+      useMarkersStore.getState().setMarkers(motionMarkers)
+      useMarkersStore.getState().setInPoint(2)
+      useMarkersStore.getState().setOutPoint(70)
+      useTimelineSettingsStore.getState().setScrollPosition(47)
+      playbackMocks.currentFrame = 22
+      playbackMocks.setBusAudioEq(motionBus)
+      zoomMocks.level = 3
+
+      const observedItemIds: string[][] = []
+      const observedActiveCompositionIds: Array<string | null> = []
+      const unsubscribeItems = useItemsStore.subscribe((state) => {
+        observedItemIds.push(state.items.map((item) => item.id))
+      })
+      const unsubscribeNavigation = useCompositionNavigationStore.subscribe((state) => {
+        observedActiveCompositionIds.push(state.activeCompositionId)
+      })
+      playbackMocks.setCurrentFrame.mockClear()
+      zoomMocks.setZoomLevel.mockClear()
+
+      try {
+        await useTimelineStore.getState().saveTimeline('project-1')
+      } finally {
+        unsubscribeItems()
+        unsubscribeNavigation()
+      }
+
+      const savedTimeline = (
+        indexedDbMocks.updateProject.mock.calls.at(-1)![1] as {
+          timeline: ProjectTimeline
+        }
+      ).timeline
+      expect(savedTimeline.items.map((item) => item.id)).toEqual(['main-left', 'main-right'])
+      expect(savedTimeline.tracks.map((track) => track.id)).toEqual(['root-track'])
+      expect(savedTimeline.transitions?.map((transition) => transition.id)).toEqual([
+        'main-transition',
+      ])
+      expect(savedTimeline.keyframes?.map((entry) => entry.itemId)).toEqual(['main-left'])
+      expect(savedTimeline).toMatchObject({
+        currentFrame: 77,
+        zoomLevel: 2.25,
+        scrollPosition: 123,
+        busAudioEq: mainBus,
+        masterBusDb: 1.5,
+        markers: mainMarkers,
+        inPoint: 5,
+        outPoint: 150,
+      })
+      expect(
+        savedTimeline.compositions?.find((composition) => composition.id === 'motion-comp'),
+      ).toMatchObject({
+        items: [expect.objectContaining({ id: 'motion-base' }), expect.objectContaining({
+          id: 'motion-unsaved',
+        })],
+        durationInFrames: 130,
+        busAudioEq: motionBus,
+        markers: motionMarkers,
+        inPoint: 2,
+        outPoint: 70,
+      })
+
+      expect(observedItemIds).toEqual([])
+      expect(observedActiveCompositionIds).toEqual([])
+      expect(useCompositionNavigationStore.getState().activeCompositionId).toBe('motion-comp')
+      expect(useItemsStore.getState().items.map((item) => item.id)).toEqual([
+        'motion-base',
+        'motion-unsaved',
+      ])
+      expect(playbackMocks.currentFrame).toBe(22)
+      expect(playbackMocks.busAudioEq).toEqual(motionBus)
+      expect(zoomMocks.level).toBe(3)
+      expect(useTimelineSettingsStore.getState().scrollPosition).toBe(47)
+      expect(playbackMocks.setCurrentFrame).not.toHaveBeenCalled()
+      expect(zoomMocks.setZoomLevel).not.toHaveBeenCalled()
+    })
   })
 
   describe('loadTimeline', () => {
+    it('coalesces concurrent loads for the same project', async () => {
+      const storedProject = {
+        id: 'project-1',
+        schemaVersion: 1,
+        metadata: { fps: 30 },
+        timeline: null,
+      }
+      let resolveProject!: (project: typeof storedProject) => void
+      indexedDbMocks.getProject.mockReturnValue(
+        new Promise<typeof storedProject>((resolve) => {
+          resolveProject = resolve
+        }),
+      )
+      mediaValidationMocks.validateProjectMediaReferences.mockResolvedValue([])
+
+      const firstLoad = useTimelineStore.getState().loadTimeline('project-1')
+      const secondLoad = useTimelineStore.getState().loadTimeline('project-1')
+
+      expect(secondLoad).toBe(firstLoad)
+      await Promise.resolve()
+      expect(indexedDbMocks.getProject).toHaveBeenCalledTimes(1)
+
+      resolveProject(storedProject)
+      await Promise.all([firstLoad, secondLoad])
+      expect(indexedDbMocks.getProject).toHaveBeenCalledTimes(1)
+
+      indexedDbMocks.getProject.mockResolvedValue(storedProject)
+      await useTimelineStore.getState().loadTimeline('project-1')
+      expect(indexedDbMocks.getProject).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps distinct upgrade policies as separate serialized loads', async () => {
+      const storedProject = {
+        id: 'project-1',
+        schemaVersion: 1,
+        metadata: { fps: 30 },
+        timeline: null,
+      }
+      let resolveFirstRead!: (project: typeof storedProject) => void
+      let resolveSecondRead!: (project: typeof storedProject) => void
+      indexedDbMocks.getProject
+        .mockReturnValueOnce(
+          new Promise<typeof storedProject>((resolve) => {
+            resolveFirstRead = resolve
+          }),
+        )
+        .mockReturnValueOnce(
+          new Promise<typeof storedProject>((resolve) => {
+            resolveSecondRead = resolve
+          }),
+        )
+      mediaValidationMocks.validateProjectMediaReferences.mockResolvedValue([])
+
+      const unapprovedLoad = useTimelineStore.getState().loadTimeline('project-1')
+      const approvedLoad = useTimelineStore
+        .getState()
+        .loadTimeline('project-1', { allowProjectUpgrade: true })
+
+      expect(approvedLoad).not.toBe(unapprovedLoad)
+      await Promise.resolve()
+      expect(indexedDbMocks.getProject).toHaveBeenCalledTimes(1)
+
+      resolveFirstRead(storedProject)
+      await unapprovedLoad
+      await Promise.resolve()
+      expect(indexedDbMocks.getProject).toHaveBeenCalledTimes(2)
+      expect(useTimelineSettingsStore.getState().isTimelineLoading).toBe(true)
+
+      resolveSecondRead(storedProject)
+      await approvedLoad
+      expect(useTimelineSettingsStore.getState().isTimelineLoading).toBe(false)
+    })
+
+    it('serializes different projects so the latest request hydrates last', async () => {
+      const firstProject = {
+        id: 'project-1',
+        schemaVersion: 1,
+        metadata: { fps: 30 },
+        timeline: null,
+      }
+      const secondProject = {
+        id: 'project-2',
+        schemaVersion: 1,
+        metadata: { fps: 24 },
+        timeline: null,
+      }
+      let resolveFirstRead!: (project: typeof firstProject) => void
+      let resolveSecondRead!: (project: typeof secondProject) => void
+      const firstRead = new Promise<typeof firstProject>((resolve) => {
+        resolveFirstRead = resolve
+      })
+      const secondRead = new Promise<typeof secondProject>((resolve) => {
+        resolveSecondRead = resolve
+      })
+      indexedDbMocks.getProject.mockImplementation((projectId: string) =>
+        projectId === 'project-1' ? firstRead : secondRead,
+      )
+      mediaValidationMocks.validateProjectMediaReferences.mockResolvedValue([])
+
+      const firstLoad = useTimelineStore.getState().loadTimeline('project-1')
+      const secondLoad = useTimelineStore.getState().loadTimeline('project-2')
+
+      await Promise.resolve()
+      expect(indexedDbMocks.getProject).toHaveBeenCalledTimes(1)
+      resolveFirstRead(firstProject)
+      await firstLoad
+      await Promise.resolve()
+      expect(indexedDbMocks.getProject).toHaveBeenCalledTimes(2)
+
+      resolveSecondRead(secondProject)
+      await secondLoad
+
+      expect(useTimelineSettingsStore.getState().fps).toBe(24)
+      expect(useTimelineSettingsStore.getState().isTimelineLoading).toBe(false)
+    })
+
     it('requires explicit approval before upgrading an older stored project', async () => {
       indexedDbMocks.getProject.mockResolvedValue({
         id: 'project-1',

@@ -974,6 +974,7 @@ describe('VideoPreview sync behavior', () => {
     act(() => {
       useGizmoStore.setState({
         activeGizmo: {
+          interactionId: 1,
           mode: 'translate',
           activeHandle: null,
           startPoint: { x: 0, y: 0 },
@@ -996,6 +997,174 @@ describe('VideoPreview sync behavior', () => {
 
     await waitFor(() => {
       expect(usePlaybackStore.getState().previewFrame).toBeNull()
+    })
+  })
+
+  it('reveals the live DOM shape on repeated gizmo drags over a settled scrub overlay', async () => {
+    setSingleVideoTrack()
+    useItemsStore.getState().setItems([
+      {
+        id: 'shape-1',
+        type: 'shape',
+        trackId: 'track-video',
+        from: 0,
+        durationInFrames: 120,
+        shapeType: 'polygon',
+        fillColor: '#3b82f6',
+        transform: {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+        },
+      } as unknown as TimelineItem,
+    ])
+
+    const { scrubCanvas } = await renderPreviewAfterInitialSeek()
+    await setScrubFrameAndWaitVisible(scrubCanvas, 24)
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(null)
+    })
+    await waitFor(() => {
+      expect(scrubCanvas.style.visibility).toBe('visible')
+    })
+
+    act(() => {
+      useGizmoStore.getState().startTranslate(
+        'shape-1',
+        { x: 0, y: 0 },
+        {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+        },
+        0,
+        'shape',
+      )
+    })
+
+    await waitFor(() => {
+      expect(scrubCanvas.style.visibility).toBe('hidden')
+      expect(getDisplayedFrame()).toBeNull()
+    })
+
+    act(() => {
+      useGizmoStore.getState().clearInteraction()
+    })
+    await setScrubFrameAndWaitVisible(scrubCanvas, 25)
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(null)
+    })
+    await waitFor(() => {
+      expect(scrubCanvas.style.visibility).toBe('visible')
+    })
+
+    act(() => {
+      useGizmoStore.getState().startTranslate(
+        'shape-1',
+        { x: 0, y: 0 },
+        {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+        },
+        0,
+        'shape',
+      )
+    })
+
+    await waitFor(() => {
+      expect(scrubCanvas.style.visibility).toBe('hidden')
+      expect(getDisplayedFrame()).toBeNull()
+    })
+  })
+
+  it('keeps an in-flight scrub render hidden after a DOM gizmo drag starts', async () => {
+    setSingleVideoTrack()
+    useItemsStore.getState().setItems([
+      {
+        id: 'shape-1',
+        type: 'shape',
+        trackId: 'track-video',
+        from: 0,
+        durationInFrames: 120,
+        shapeType: 'polygon',
+        fillColor: '#3b82f6',
+        transform: {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+        },
+      } as unknown as TimelineItem,
+    ])
+
+    const { scrubCanvas } = await renderPreviewAfterInitialSeek()
+    const renderer = await waitFor(() => {
+      expect(rendererMockState.instances).toHaveLength(1)
+      return rendererMockState.instances[0]!
+    })
+    await setScrubFrameAndWaitVisible(scrubCanvas, 23)
+
+    renderer.renderFrame.mockClear()
+    let resolveFrame24: (() => void) | null = null
+    renderer.renderFrame.mockImplementation(async (frame: number) => {
+      if (frame === 24) {
+        await new Promise<void>((resolve) => {
+          resolveFrame24 = resolve
+        })
+      }
+    })
+
+    act(() => {
+      usePlaybackStore.getState().setScrubFrame(24)
+    })
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(24)
+    })
+
+    act(() => {
+      useGizmoStore.getState().startTranslate(
+        'shape-1',
+        { x: 0, y: 0 },
+        {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+        },
+        0,
+        'shape',
+      )
+    })
+
+    await waitFor(() => {
+      expect(scrubCanvas.style.visibility).toBe('hidden')
+      expect(getDisplayedFrame()).toBeNull()
+    })
+
+    await act(async () => {
+      resolveFrame24?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(scrubCanvas.style.visibility).toBe('hidden')
+      expect(getDisplayedFrame()).toBeNull()
     })
   })
 
@@ -1033,6 +1202,7 @@ describe('VideoPreview sync behavior', () => {
     act(() => {
       useGizmoStore.setState({
         activeGizmo: {
+          interactionId: 1,
           mode: 'scale',
           activeHandle: 'se',
           startPoint: { x: 0, y: 0 },
@@ -3929,6 +4099,79 @@ describe('VideoPreview sync behavior', () => {
     await waitFor(() => {
       expect(getDisplayedFrame()).toBeNull()
       expect(scrubCanvas.style.visibility).toBe('hidden')
+    })
+  })
+
+  it('keeps paused transition rendering active during a shape gizmo drag', async () => {
+    setCrossfadeTransitionFixture()
+    useItemsStore.getState().setItems([
+      ...createTransitionClipPair(),
+      {
+        id: 'shape-overlay',
+        type: 'shape',
+        trackId: 'track-video',
+        from: 0,
+        durationInFrames: 100,
+        shapeType: 'rectangle',
+        fillColor: '#3b82f6',
+        transform: {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+        },
+      } as unknown as TimelineItem,
+    ])
+    const { container } = renderDefaultPreview()
+    const scrubCanvas = getScrubCanvas(container)
+
+    await waitFor(() => {
+      expect(seekToMock).toHaveBeenCalled()
+    })
+    act(() => {
+      usePlaybackStore.getState().setCurrentFrame(48)
+    })
+
+    await waitFor(() => {
+      expect(
+        rendererMockState.instances.some((renderer) =>
+          renderer.renderFrame.mock.calls.some(([frame]) => frame === 48),
+        ),
+      ).toBe(true)
+      expect(scrubCanvas.style.visibility).toBe('visible')
+    })
+    const frame48RenderCount = () =>
+      rendererMockState.instances.reduce(
+        (count, renderer) =>
+          count + renderer.renderFrame.mock.calls.filter(([frame]) => frame === 48).length,
+        0,
+      )
+    const renderCountBeforeDrag = frame48RenderCount()
+
+    act(() => {
+      useGizmoStore.getState().startTranslate(
+        'shape-overlay',
+        { x: 0, y: 0 },
+        {
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          rotation: 0,
+          opacity: 1,
+        },
+        0,
+        'shape',
+      )
+      useGizmoStore.getState().updateInteraction({ x: 24, y: 12 }, false)
+    })
+
+    await waitFor(() => {
+      expect(frame48RenderCount()).toBeGreaterThan(renderCountBeforeDrag)
+      expect(getDisplayedFrame()).toBe(48)
+      expect(scrubCanvas.style.visibility).toBe('visible')
     })
   })
 

@@ -26,6 +26,7 @@ import { getDirectionalPrewarmOffsets } from '../utils/fast-scrub-prewarm'
 import { resolveProxyUrl } from '../utils/media-resolver'
 import { scheduleScrubProxyFallback } from '../utils/scrub-proxy-fallback'
 import { shouldShowFastScrubOverlay } from '../utils/fast-scrub-overlay-guard'
+import { shouldPreferDomPlayerForGizmo } from '../utils/gizmo-preview-presentation'
 import { hasPendingPreviewInput, yieldToPendingPreviewInput } from '../utils/preview-input-yield'
 import { resolvePlaybackTransitionOverlayState } from '../utils/playback-transition-overlay'
 import {
@@ -2422,8 +2423,44 @@ export function usePreviewRenderPump({
     // During gizmo drags or live preview changes, trigger re-renders even when
     // the frame is unchanged so the fast-scrub overlay does not reuse a stale
     // cached bitmap for the current frame.
+    let domGizmoPresentationActive = false
     const unsubscribeGizmo = useGizmoStore.subscribe((state, prev) => {
-      if (shouldPreferPlayerForPreview(usePlaybackStore.getState().previewFrame)) return
+      const playbackState = usePlaybackStore.getState()
+      const previewFrame = playbackState.previewFrame
+      const requiresRenderedPresentation =
+        forceFastScrubOverlay ||
+        isPausedTransitionOverlayActive(playbackState.currentFrame, playbackState)
+      const prefersDomGizmo = shouldPreferDomPlayerForGizmo(
+        requiresRenderedPresentation,
+        state.activeGizmo?.itemType ?? null,
+      )
+      if (prefersDomGizmo) {
+        // Vector transforms already update in the DOM Player. Drop any scrub
+        // canvas that remained visible after a prior seek before it can
+        // occlude the live shape/text preview during this drag.
+        scrubRequestedFrameRef.current = null
+        if (!domGizmoPresentationActive) {
+          domGizmoPresentationActive = true
+          // A render may already be past the Player-preference check when the
+          // drag begins. Invalidate that generation so its eventual completion
+          // cannot put the stale scrub canvas back on top of the live Player.
+          // Keep the in-flight mutex owned until that render drains.
+          scrubRenderGenerationRef.current += 1
+          clearPrewarmQueue()
+          hideAllOverlays()
+        }
+        return
+      }
+
+      // Store subscribers run before React updates preferPlayerForDomGizmoRef.
+      // Reset from synchronous interaction state so release N cannot leave the
+      // transition latched and make drag N+1 skip its overlay handoff.
+      domGizmoPresentationActive = false
+      if (shouldPreferPlayerForPreview(previewFrame)) {
+        scrubRequestedFrameRef.current = null
+        hideAllOverlays()
+        return
+      }
       // Without forceFastScrubOverlay, gizmo previews (transform, crop, etc.)
       // are handled by the DOM Player through React props. Activating the
       // overlay here would switch from browser video seek (±1 frame) to
@@ -2437,11 +2474,10 @@ export function usePreviewRenderPump({
       // stuck until the next scrub. Refreshing the already-visible overlay is
       // safe: it is showing a rendered frame, so no browser-seek -> mediabunny
       // frame shift is introduced.
-      if (!forceFastScrubOverlay && !showFastScrubOverlayRef.current) return
+      if (!requiresRenderedPresentation && !showFastScrubOverlayRef.current) return
       const invalidation = getGizmoPreviewInvalidation(state, prev)
       if (!invalidation) return
 
-      const playbackState = usePlaybackStore.getState()
       const currentFrame = playbackState.currentFrame
       clearReleasedScrubSnapshotGuard()
       const gradeBypassChanged =

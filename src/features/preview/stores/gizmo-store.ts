@@ -11,6 +11,13 @@ export type ColorGradeComparisonMode = 'off' | 'before' | 'split'
 const DEFAULT_COLOR_GRADE_SPLIT_POSITION = 0.5
 const MIN_COLOR_GRADE_SPLIT_POSITION = 0.05
 const MAX_COLOR_GRADE_SPLIT_POSITION = 0.95
+let nextGizmoInteractionId = 1
+
+function createGizmoInteractionId(): number {
+  const interactionId = nextGizmoInteractionId
+  nextGizmoInteractionId += 1
+  return interactionId
+}
 
 function clampColorGradeSplitPosition(position: number): number {
   if (!Number.isFinite(position)) return DEFAULT_COLOR_GRADE_SPLIT_POSITION
@@ -213,7 +220,8 @@ interface GizmoStoreActions {
     startPoint: Point,
     transform: Transform,
     strokeWidth?: number,
-  ) => void
+    itemType?: TimelineItem['type'],
+  ) => number
 
   /** Start scale interaction (drag handle to resize) */
   startScale: (
@@ -224,7 +232,7 @@ interface GizmoStoreActions {
     itemType?: TimelineItem['type'],
     aspectRatioLocked?: boolean,
     strokeWidth?: number,
-  ) => void
+  ) => number
 
   /** Start rotate interaction (drag rotation handle) */
   startRotate: (
@@ -232,7 +240,8 @@ interface GizmoStoreActions {
     startPoint: Point,
     transform: Transform,
     strokeWidth?: number,
-  ) => void
+    itemType?: TimelineItem['type'],
+  ) => number
 
   /** Update interaction with current mouse position */
   updateInteraction: (
@@ -246,7 +255,7 @@ interface GizmoStoreActions {
   endInteraction: () => Transform | null
 
   /** Clear interaction state (call after timeline is updated) */
-  clearInteraction: () => void
+  clearInteraction: (expectedInteractionId?: number) => void
 
   /** Cancel interaction without committing changes */
   cancelInteraction: () => void
@@ -335,9 +344,11 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
 
   setOtherItemBounds: (bounds) => set({ otherItemBounds: bounds }),
 
-  startTranslate: (itemId, startPoint, transform, strokeWidth) =>
+  startTranslate: (itemId, startPoint, transform, strokeWidth, itemType) => {
+    const interactionId = createGizmoInteractionId()
     set({
       activeGizmo: {
+        interactionId,
         mode: 'translate',
         activeHandle: null,
         startPoint,
@@ -347,15 +358,20 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
         ctrlKey: false,
         altKey: false,
         itemId,
+        itemType,
         strokeWidth,
       },
       previewTransform: { ...transform },
       snapLines: [],
-    }),
+    })
+    return interactionId
+  },
 
-  startScale: (itemId, handle, startPoint, transform, itemType, aspectRatioLocked, strokeWidth) =>
+  startScale: (itemId, handle, startPoint, transform, itemType, aspectRatioLocked, strokeWidth) => {
+    const interactionId = createGizmoInteractionId()
     set({
       activeGizmo: {
+        interactionId,
         mode: 'scale',
         activeHandle: handle,
         startPoint,
@@ -371,11 +387,15 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
       },
       previewTransform: { ...transform },
       snapLines: [],
-    }),
+    })
+    return interactionId
+  },
 
-  startRotate: (itemId, startPoint, transform, strokeWidth) =>
+  startRotate: (itemId, startPoint, transform, strokeWidth, itemType) => {
+    const interactionId = createGizmoInteractionId()
     set({
       activeGizmo: {
+        interactionId,
         mode: 'rotate',
         activeHandle: 'rotate',
         startPoint,
@@ -385,11 +405,14 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
         ctrlKey: false,
         altKey: false,
         itemId,
+        itemType,
         strokeWidth,
       },
       previewTransform: { ...transform },
       snapLines: [],
-    }),
+    })
+    return interactionId
+  },
 
   updateInteraction: (currentPoint, shiftKey, ctrlKey = false, altKey = false) => {
     const { activeGizmo, canvasSize, canvasScale, snappingEnabled, otherItemBounds } = get()
@@ -481,7 +504,15 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
     return previewTransform
   },
 
-  clearInteraction: () => set({ activeGizmo: null, previewTransform: null, snapLines: [] }),
+  clearInteraction: (expectedInteractionId) => {
+    if (
+      expectedInteractionId !== undefined &&
+      get().activeGizmo?.interactionId !== expectedInteractionId
+    ) {
+      return
+    }
+    set({ activeGizmo: null, previewTransform: null, snapLines: [] })
+  },
 
   cancelInteraction: () => set({ activeGizmo: null, previewTransform: null, snapLines: [] }),
 

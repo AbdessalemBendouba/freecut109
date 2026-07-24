@@ -58,6 +58,7 @@ import { getSourceDimensions, resolveTransform } from '@/features/preview/deps/c
 import {
   buildGizmoTransformCommit,
   resolveEditableGizmoTransform,
+  resolveGizmoCommitParentWorld,
 } from '../utils/gizmo-transform-commit'
 import { CROP_EDGE_PROPERTY, type CropEdge } from '../utils/crop-gizmo'
 
@@ -79,6 +80,11 @@ interface MotionPathEditPreview {
   x: number
   y: number
   spatial?: SpatialBezierTangents
+}
+
+function LiveSnapGuides({ coordParams }: { coordParams: CoordinateParams }) {
+  const snapLines = useGizmoStore((state) => state.snapLines)
+  return <SnapGuides snapLines={snapLines} coordParams={coordParams} />
 }
 
 function getEditablePositionKeyframe(itemId: string, keyframeId: string) {
@@ -267,7 +273,6 @@ export function GizmoOverlay({
   const setCanvasScale = useGizmoStore((s) => s.setCanvasScale)
   const setSnappingEnabled = useGizmoStore((s) => s.setSnappingEnabled)
   const setOtherItemBounds = useGizmoStore((s) => s.setOtherItemBounds)
-  const snapLines = useGizmoStore((s) => s.snapLines)
   const {
     cornerPin: isCornerPinEditing,
     mask: isMaskEditing,
@@ -286,16 +291,6 @@ export function GizmoOverlay({
     null,
   )
   const cancelMotionPathInteractionRef = useRef<(() => void) | null>(null)
-  // Live drag position so the motion path previews the pending edit in real time
-  // (only a translate moves position keyframes).
-  const gizmoDragItemId = useGizmoStore((s) =>
-    s.activeGizmo?.mode === 'translate' ? s.activeGizmo.itemId : null,
-  )
-  // Only translate moves position keyframes — returning null for scale/rotate
-  // keeps the motion-path memo stable instead of recomputing on every drag frame.
-  const gizmoPreviewTransform = useGizmoStore((s) =>
-    s.activeGizmo?.mode === 'translate' ? s.previewTransform : null,
-  )
 
   useEffect(
     () => () => {
@@ -658,7 +653,6 @@ export function GizmoOverlay({
     const canvas = { width: projectSize.width, height: projectSize.height, fps }
     const itemsById = new Map(visualItems.map((item) => [item.id, item]))
     return selectedItemsRef.current.flatMap((item) => {
-      const dragging = item.id === gizmoDragItemId && gizmoPreviewTransform
       const directEdit = motionPathEditPreview?.itemId === item.id ? motionPathEditPreview : null
       const points = buildMotionPathPoints({
         item,
@@ -674,13 +668,7 @@ export function GizmoOverlay({
               keyframeId: directEdit.keyframeId,
               spatial: directEdit.spatial,
             }
-          : dragging
-            ? {
-                frame: frozenFrameRef.current - item.from,
-                x: gizmoPreviewTransform.x,
-                y: gizmoPreviewTransform.y,
-              }
-            : undefined,
+          : undefined,
       })
       if (points.length === 0) return []
       return [
@@ -707,8 +695,6 @@ export function GizmoOverlay({
     visualItems,
     keyframesByItemId,
     selectedItemKeyframesById,
-    gizmoDragItemId,
-    gizmoPreviewTransform,
     motionPathEditPreview,
   ])
 
@@ -830,11 +816,17 @@ export function GizmoOverlay({
       const currentFrame = usePlaybackStore.getState().currentFrame
       const item = visualItems.find((i) => i.id === itemId)
       if (!item) return
-      const parentId = item.transformParent?.parentItemId
+      const itemsById = new Map(visualItems.map((candidate) => [candidate.id, candidate]))
       const editableTransform = resolveEditableGizmoTransform({
         item,
         visualTransform: toResolvedTransform(transform),
-        parentVisualTransform: parentId ? visualTransformsMap.get(parentId) : undefined,
+        parentVisualTransform: resolveGizmoCommitParentWorld({
+          item,
+          canvas: { width: projectSize.width, height: projectSize.height, fps },
+          frame: currentFrame,
+          getItem: (candidateId) => itemsById.get(candidateId),
+          getKeyframes: (candidateId) => keyframesByItemId[candidateId],
+        }),
         relativeFrame: currentFrame - item.from,
         fps,
         frameWidth: projectSize.width,
@@ -875,7 +867,7 @@ export function GizmoOverlay({
     },
     [
       visualItems,
-      visualTransformsMap,
+      keyframesByItemId,
       updateItemTransform,
       setOtherItemBounds,
       fps,
@@ -940,6 +932,7 @@ export function GizmoOverlay({
       // Convert Transform to TransformProperties for the batch update
       const transformsMap = new Map<string, Partial<TransformProperties>>()
       const autoKeyframeOperations: AutoKeyframeOperation[] = []
+      const itemsById = new Map(visualItems.map((candidate) => [candidate.id, candidate]))
       for (const [itemId, transform] of transforms) {
         const item = visualItems.find((candidate) => candidate.id === itemId)
         if (!item) continue
@@ -947,9 +940,13 @@ export function GizmoOverlay({
         const parentTransform = parentId ? transforms.get(parentId) : undefined
         const parentWorld = parentTransform
           ? toResolvedTransform(parentTransform)
-          : parentId
-            ? visualTransformsMap.get(parentId)
-            : undefined
+          : resolveGizmoCommitParentWorld({
+              item,
+              canvas: { width: projectSize.width, height: projectSize.height, fps },
+              frame: currentFrame,
+              getItem: (candidateId) => itemsById.get(candidateId),
+              getKeyframes: (candidateId) => keyframesByItemId[candidateId],
+            })
         const editableTransform = resolveEditableGizmoTransform({
           item,
           visualTransform: toResolvedTransform(transform),
@@ -987,7 +984,7 @@ export function GizmoOverlay({
     },
     [
       visualItems,
-      visualTransformsMap,
+      keyframesByItemId,
       updateItemsTransformMap,
       setOtherItemBounds,
       fps,
@@ -1142,7 +1139,8 @@ export function GizmoOverlay({
       const startTransformSnapshot = { ...transform }
       const point = screenToCanvas(e.clientX, e.clientY, coordParams)
 
-      startTranslate(itemId, point, transform)
+      const itemType = visibleItems.find((item) => item.id === itemId)?.type
+      const interactionId = startTranslate(itemId, point, transform, undefined, itemType)
       document.body.style.cursor = 'move'
 
       attachWindowTransformInteraction({
@@ -1157,7 +1155,7 @@ export function GizmoOverlay({
         operation: 'move',
         afterFinish: () => {
           requestAnimationFrame(() => {
-            clearInteraction()
+            clearInteraction(interactionId)
           })
         },
       })
@@ -1170,6 +1168,7 @@ export function GizmoOverlay({
       clearInteraction,
       handleTransformEnd,
       isExclusiveCanvasEditorActive,
+      visibleItems,
     ],
   )
 
@@ -1305,7 +1304,7 @@ export function GizmoOverlay({
 
         {/* Snap guides shown during drag */}
         {!isExclusiveCanvasEditorActive && (
-          <SnapGuides snapLines={snapLines} coordParams={coordParams} />
+          <LiveSnapGuides coordParams={coordParams} />
         )}
       </div>
 

@@ -66,7 +66,9 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
     [contextKeyframes, item, keyframesContext, relativeFrame, storeKeyframes],
   )
 
-  const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id)
+  const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id, {
+    imperativeTranslate: true,
+  })
 
   // Use preview values if available, otherwise use item's stored values
   const shapePropsPreview = itemPreview?.properties

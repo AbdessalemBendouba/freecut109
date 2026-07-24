@@ -29,6 +29,9 @@ interface StashedTimeline {
   keyframes: ItemKeyframes[]
   /** Playhead frame at the time of stashing, so we can restore it on exit */
   currentFrame: number
+  /** Timeline view state kept with the data snapshot for non-navigating persistence. */
+  zoomLevel?: number
+  scrollPosition?: number
   busAudioEq?: AudioEqSettings
   /** Per-timeline markers + in/out range, swapped alongside the clips. */
   markers: ProjectMarker[]
@@ -145,6 +148,8 @@ function captureCurrentTimeline(compositionId: string | null): StashedTimeline {
     transitions: useTransitionsStore.getState().transitions,
     keyframes: useKeyframesStore.getState().keyframes,
     currentFrame: usePlaybackStore.getState().currentFrame,
+    zoomLevel: useZoomStore.getState().level,
+    scrollPosition: useTimelineSettingsStore.getState().scrollPosition,
     busAudioEq: usePlaybackStore.getState().busAudioEq,
     markers: markersState.markers,
     inPoint: markersState.inPoint,
