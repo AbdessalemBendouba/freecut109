@@ -82,6 +82,45 @@ describe('nested transcript captions', () => {
       }),
     ])
   })
+
+  it('uses the shared solo semantics for compound render tracks', () => {
+    const makeTrack = ({
+      id,
+      visible,
+      solo,
+      order,
+    }: {
+      id: string
+      visible: boolean
+      solo: boolean
+      order: number
+    }) => ({
+      id,
+      name: id,
+      order,
+      height: 64,
+      locked: false,
+      visible,
+      muted: false,
+      solo,
+      items: [],
+    })
+    const tracks = buildSubCompositionRenderTracks({
+      fps: 30,
+      width: 1920,
+      height: 1080,
+      items: [],
+      tracks: [
+        makeTrack({ id: 'visible-non-solo', visible: true, solo: false, order: 1 }),
+        makeTrack({ id: 'hidden-solo', visible: false, solo: true, order: 2 }),
+      ],
+    })
+
+    expect(tracks).toEqual([
+      expect.objectContaining({ order: 2, visible: true }),
+      expect.objectContaining({ order: 1, visible: false }),
+    ])
+  })
 })
 
 describe('comparison preview resource selection', () => {

@@ -31,12 +31,16 @@ export function useComparisonCompositionFrame({
   onError,
 }: UseComparisonCompositionFrameOptions): boolean {
   const leaseRef = useRef<ComparisonCompositionRenderLease | null>(null)
+  const scheduleFrameRef = useRef<(frame: number) => void>(() => undefined)
   const lastPresentedFrameRef = useRef<number | null>(null)
   const frameRef = useRef(frame)
   frameRef.current = frame
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
+    lastPresentedFrameRef.current = null
+    setReady(false)
+    scheduleFrameRef.current = () => undefined
     if (!enabled || !input || !sessionKey || typeof OffscreenCanvas === 'undefined') return
 
     const lease = acquireComparisonCompositionRenderSession({
@@ -48,38 +52,83 @@ export function useComparisonCompositionFrame({
       useProxyMedia,
       priorityFrame: frameRef.current,
     })
+    const controller = new AbortController()
+    let active = true
+    let inFlightFrame: number | null = null
+    let pendingFrame: number | null = null
+
     leaseRef.current = lease
-    lastPresentedFrameRef.current = null
-    setReady(false)
+
+    const pumpLatestFrame = () => {
+      if (!active || inFlightFrame !== null || pendingFrame === null) return
+
+      const requestedFrame = pendingFrame
+      const display = displayCanvasRef.current
+      if (!display) return
+
+      pendingFrame = null
+      inFlightFrame = requestedFrame
+
+      void lease
+        .requestFrame(requestedFrame, display, controller.signal)
+        .then((presented) => {
+          if (!active || !presented) return
+          lastPresentedFrameRef.current = requestedFrame
+          setReady(true)
+        })
+        .catch((error) => onError(!active || controller.signal.aborted, error))
+        .finally(() => {
+          if (!active) return
+          inFlightFrame = null
+          if (pendingFrame !== null) {
+            queueMicrotask(pumpLatestFrame)
+          }
+        })
+    }
+
+    const scheduleFrame = (nextFrame: number) => {
+      if (!active) return
+      if (inFlightFrame === nextFrame) {
+        pendingFrame = null
+        return
+      }
+      if (pendingFrame === nextFrame) return
+      if (inFlightFrame === null && lastPresentedFrameRef.current === nextFrame) {
+        pendingFrame = null
+        return
+      }
+      pendingFrame = nextFrame
+      pumpLatestFrame()
+    }
+
+    scheduleFrameRef.current = scheduleFrame
+    scheduleFrame(frameRef.current)
 
     return () => {
+      active = false
+      controller.abort()
+      pendingFrame = null
+      if (scheduleFrameRef.current === scheduleFrame) {
+        scheduleFrameRef.current = () => undefined
+      }
       lease.release()
       if (leaseRef.current === lease) leaseRef.current = null
     }
-  }, [compositionId, enabled, height, input, sessionKey, useProxyMedia, width])
+  }, [
+    compositionId,
+    displayCanvasRef,
+    enabled,
+    height,
+    input,
+    onError,
+    sessionKey,
+    useProxyMedia,
+    width,
+  ])
 
   useEffect(() => {
-    if (!enabled || !sessionKey || lastPresentedFrameRef.current === frame) return
-    const lease = leaseRef.current
-    const display = displayCanvasRef.current
-    if (!lease || !display) return
-
-    let cancelled = false
-    const controller = new AbortController()
-    void lease
-      .requestFrame(frame, display, controller.signal)
-      .then((presented) => {
-        if (cancelled || !presented) return
-        lastPresentedFrameRef.current = frame
-        setReady(true)
-      })
-      .catch((error) => onError(cancelled, error))
-
-    return () => {
-      cancelled = true
-      controller.abort()
-    }
-  }, [displayCanvasRef, enabled, frame, onError, sessionKey])
+    scheduleFrameRef.current(frame)
+  }, [frame])
 
   return ready
 }

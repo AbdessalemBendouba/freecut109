@@ -13,6 +13,8 @@ import {
   type FastScrubBoundarySource,
 } from './preview-constants'
 
+const COMMITTED_SCRUB_SNAPSHOT_GUARD_MS = 30_000
+
 export type RenderPumpFrameState = Pick<
   PlaybackState,
   'currentFrame' | 'currentFrameEpoch' | 'previewFrame' | 'previewFrameEpoch'
@@ -47,6 +49,17 @@ interface ShouldRejectBlankTransportHandoffParams {
   displayedFrameBlank: boolean
 }
 
+interface ShouldRejectBlankReleasedScrubHandoffParams {
+  releaseGuardFrame: number | null
+  renderedFrame: number
+  currentFrame: number
+  previewFrame: number | null
+  isPlaying: boolean
+  snapshotFrame: number | null
+  renderedFrameBlank: boolean
+  snapshotFrameBlank: boolean
+}
+
 interface ShouldPreservePausedTransportPresentationParams {
   holdActive: boolean
   heldFrame: number | null
@@ -69,6 +82,17 @@ interface ShouldRestoreCommittedPreviewSnapshotParams {
   previousPreviewFrame: number | null
   currentFrame: number
   snapshotFrame: number | null
+}
+
+interface ShouldRecoverFailedActivePreseekScheduleParams {
+  effectDisposed: boolean
+  recoveredFailedSchedule: boolean
+  scheduleVersion: number
+  activeScheduleVersion: number
+  mounted: boolean
+  isPlaying: boolean
+  currentTarget: number
+  targetFrame: number
 }
 
 /**
@@ -109,6 +133,38 @@ export function shouldRejectBlankTransportHandoff({
     renderedFrameBlank &&
     !displayedFrameBlank
   )
+}
+
+/**
+ * A committed snapshot is authoritative for the exact frame from which a
+ * ruler skim began. A delayed/cancelled compound render may finish after
+ * release with a cleared canvas; it must not replace that known-good frame or
+ * become the cached representation for the playhead.
+ */
+export function shouldRejectBlankReleasedScrubHandoff({
+  releaseGuardFrame,
+  renderedFrame,
+  currentFrame,
+  previewFrame,
+  isPlaying,
+  snapshotFrame,
+  renderedFrameBlank,
+  snapshotFrameBlank,
+}: ShouldRejectBlankReleasedScrubHandoffParams): boolean {
+  return (
+    releaseGuardFrame !== null &&
+    renderedFrame === releaseGuardFrame &&
+    currentFrame === releaseGuardFrame &&
+    previewFrame === null &&
+    !isPlaying &&
+    snapshotFrame === releaseGuardFrame &&
+    renderedFrameBlank &&
+    !snapshotFrameBlank
+  )
+}
+
+export function resolveReleasedScrubSnapshotGuardUntilMs({ nowMs }: { nowMs: number }): number {
+  return nowMs + COMMITTED_SCRUB_SNAPSHOT_GUARD_MS
 }
 
 /** Prevents a delayed quality/decoder pass from visibly replacing the frame
@@ -153,10 +209,32 @@ export function shouldRestoreCommittedPreviewSnapshot({
   currentFrame,
   snapshotFrame,
 }: ShouldRestoreCommittedPreviewSnapshotParams): boolean {
+  return previewFrame === null && previousPreviewFrame !== null && snapshotFrame === currentFrame
+}
+
+/**
+ * A decoder promise can settle after the render-pump effect that created it
+ * has been replaced. The shared mounted ref may already be true for the new
+ * effect, so the old effect's own disposed state must participate in the
+ * generation check before it can release the active-preview gate.
+ */
+export function shouldRecoverFailedActivePreseekSchedule({
+  effectDisposed,
+  recoveredFailedSchedule,
+  scheduleVersion,
+  activeScheduleVersion,
+  mounted,
+  isPlaying,
+  currentTarget,
+  targetFrame,
+}: ShouldRecoverFailedActivePreseekScheduleParams): boolean {
   return (
-    previewFrame === null &&
-    previousPreviewFrame !== null &&
-    snapshotFrame === currentFrame
+    !effectDisposed &&
+    !recoveredFailedSchedule &&
+    scheduleVersion === activeScheduleVersion &&
+    mounted &&
+    !isPlaying &&
+    currentTarget === targetFrame
   )
 }
 

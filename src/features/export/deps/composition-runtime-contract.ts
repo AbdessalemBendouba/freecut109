@@ -19,6 +19,7 @@ export {
   resolveLiveTransitionRenderPlan,
   collectFrameVideoCandidates,
   resolveFrameRenderScene,
+  resolveTrackRenderState,
 } from '@/runtime/composition-runtime/utils/scene-assembly'
 export type { FrameRenderTask } from '@/runtime/composition-runtime/utils/scene-assembly'
 export { getShapePath, rotatePath } from '@/runtime/composition-runtime/utils/shape-path'

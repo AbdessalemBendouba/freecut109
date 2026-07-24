@@ -859,10 +859,23 @@ export const TimelineMarkers = memo(function TimelineMarkers({
     [getFrameFromClientX, isDragging, isRangeDragging],
   )
 
-  const handleRulerMouseLeave = useCallback(() => {
-    if (isDragging || isRangeDragging) return
-    setPreviewFrameRef.current(null)
-  }, [isDragging, isRangeDragging])
+  const handleRulerMouseLeave = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isDragging || isRangeDragging) return
+
+      const timelineContainer = e.currentTarget.closest('[data-timeline-scroll-container]')
+      if (e.relatedTarget instanceof Node && timelineContainer?.contains(e.relatedTarget)) {
+        // The parent timeline owns skimming across both its ruler and tracks.
+        // Crossing that internal boundary is not a skim release: clearing here
+        // briefly retargets the committed frame and cancels compound-frame work
+        // before the parent publishes the next hovered frame.
+        return
+      }
+
+      setPreviewFrameRef.current(null)
+    },
+    [isDragging, isRangeDragging],
+  )
 
   const handleRangeMouseDown = useCallback(
     (e: React.PointerEvent) => {
