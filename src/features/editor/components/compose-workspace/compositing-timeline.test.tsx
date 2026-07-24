@@ -30,6 +30,7 @@ import {
   trimItemEnd,
 } from '@/features/editor/deps/timeline-motion'
 import { useMediaLibraryStore } from '@/features/editor/deps/media-library-contract'
+import { useGizmoStore } from '@/features/editor/deps/preview'
 import type {
   AudioItem,
   ControllerItem,
@@ -110,10 +111,16 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     useClipboardStore.setState({ itemsClipboard: null, transitionClipboard: null })
     useEditorStore.getState().setKeyframeEditorShortcutScopeActive(false)
     useKeyframeSelectionStore.getState().clearSelection()
+    useGizmoStore.getState().cancelInteraction()
+    useGizmoStore.getState().clearPreview()
+    useGizmoStore.getState().setSnappingEnabled(true)
   })
 
   afterEach(() => {
     cleanup()
+    useGizmoStore.getState().cancelInteraction()
+    useGizmoStore.getState().clearPreview()
+    useGizmoStore.getState().setSnappingEnabled(true)
     resetTimelineCompositionTestState()
   })
 
@@ -1261,6 +1268,9 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
 
+    const layerRow = screen.getByTestId(`motion-layer-row-${shape.id}`)
+    const editor = within(layerRow).getByTestId('dopesheet-editor-root')
+    const expandedHeight = Number.parseFloat(editor.style.height)
     const transformHeader = screen.getByRole('button', { name: /collapse transform/i })
     expect(transformHeader).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /collapse shape/i })).toBeInTheDocument()
@@ -1268,6 +1278,10 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     fireEvent.click(transformHeader)
     expect(screen.queryByRole('spinbutton', { name: /x position value at playhead/i })).toBeNull()
     expect(screen.getByRole('button', { name: /collapse shape/i })).toBeInTheDocument()
+    expect(Number.parseFloat(editor.style.height)).toBeLessThan(expandedHeight)
+
+    fireEvent.click(screen.getByRole('button', { name: /expand transform/i }))
+    expect(Number.parseFloat(editor.style.height)).toBe(expandedHeight)
   })
 
   it('does not create a Vector2 keyframe when a changed axis is blurred', () => {
@@ -1281,6 +1295,99 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
 
     expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
     expect(input).toHaveValue('100.00')
+  })
+
+  it('previews Motion Position scrubs once per animation frame and commits on release', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined)
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    const input = screen.getByLabelText('Position X')
+    fireEvent.pointerDown(input, { button: 0, pointerId: 17, clientX: 100 })
+    fireEvent.pointerMove(input, { pointerId: 17, clientX: 150 })
+    fireEvent.pointerMove(input, { pointerId: 17, clientX: 200 })
+
+    expect(useGizmoStore.getState().preview?.[shape.id]).toBeUndefined()
+    expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
+    expect(frameCallbacks).toHaveLength(1)
+
+    act(() => frameCallbacks[0]?.(16))
+    expect(useGizmoStore.getState().preview?.[shape.id]?.transform).toMatchObject({
+      x: 101,
+      y: 80,
+    })
+    expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
+
+    fireEvent.pointerUp(input, { pointerId: 17, clientX: 200 })
+    expect(useGizmoStore.getState().preview?.[shape.id]).toBeUndefined()
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.vectorProperties?.[0]
+        ?.keyframes[0]?.value,
+    ).toEqual({ x: 101, y: 80 })
+
+    animationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+  })
+
+  it('mirrors a canvas gizmo drag into Motion Position before release once per frame', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined)
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    const input = screen.getByLabelText('Position X')
+    expect(input).toHaveValue('100.00')
+
+    act(() => {
+      const gizmo = useGizmoStore.getState()
+      gizmo.setSnappingEnabled(false)
+      gizmo.startTranslate(
+        shape.id,
+        { x: 0, y: 0 },
+        {
+          x: 100,
+          y: 80,
+          width: 400,
+          height: 220,
+          rotation: 0,
+          opacity: 1,
+        },
+      )
+      gizmo.updateInteraction({ x: 20, y: 0 }, false)
+      gizmo.updateInteraction({ x: 60, y: 0 }, false)
+    })
+
+    expect(input).toHaveValue('100.00')
+    expect(useItemsStore.getState().itemById[shape.id]?.transform?.x).toBe(100)
+    expect(frameCallbacks).toHaveLength(1)
+
+    act(() => frameCallbacks[0]?.(16))
+    expect(input).toHaveValue('160.00')
+    expect(useItemsStore.getState().itemById[shape.id]?.transform?.x).toBe(100)
+
+    act(() => useGizmoStore.getState().cancelInteraction())
+    act(() => frameCallbacks[1]?.(32))
+    expect(input).toHaveValue('100.00')
+
+    animationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
   })
 
   it('keeps expanded property editors off the playback-frame render path', () => {

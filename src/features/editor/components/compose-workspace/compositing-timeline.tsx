@@ -145,15 +145,23 @@ import {
   useKeyframeSelectionStore,
   useTimelineCommandStore,
   useTimelineSettingsStore,
+  useRafCoalescedValue,
   usePropertyLinkPickWhip,
   wouldCreateCompositionCycle,
 } from '@/features/editor/deps/timeline-motion'
+import {
+  useGizmoStore,
+  type ItemPreview,
+} from '@/features/editor/deps/preview'
 import {
   getSourceDimensions,
   resolveItemTransformAtFrame,
   resolveTransform,
 } from '@/features/editor/deps/composition-runtime'
-import { wouldCreateTransformParentCycle } from '@/shared/utils/transform-parenting'
+import {
+  worldToLocalTransform,
+  wouldCreateTransformParentCycle,
+} from '@/shared/utils/transform-parenting'
 import { getLinkedAudioCompanion } from '@/shared/utils/linked-media'
 import {
   beginTextMotionEdit,
@@ -1500,6 +1508,41 @@ function getMotionVectorValue(
   return { x: transform.anchorX, y: transform.anchorY }
 }
 
+type GizmoPositionPreview = { x: number; y: number } | null
+
+/**
+ * Mirrors the active canvas transform into one expanded Motion layer at most
+ * once per painted frame. Inactive layers never update, so a pointer drag does
+ * not put the whole dope sheet on the render path.
+ */
+function useRafCoalescedGizmoPosition(itemId: string): GizmoPositionPreview {
+  const [position, setPosition] = useState<GizmoPositionPreview>(null)
+  const { queue, cancel } = useRafCoalescedValue<GizmoPositionPreview>(setPosition)
+
+  useEffect(() => {
+    let wasActive = false
+    const sync = (state: ReturnType<typeof useGizmoStore.getState>) => {
+      const isActive = state.activeGizmo?.itemId === itemId
+      if (!isActive && !wasActive) return
+      wasActive = isActive
+      queue(
+        isActive && state.previewTransform
+          ? { x: state.previewTransform.x, y: state.previewTransform.y }
+          : null,
+      )
+    }
+
+    sync(useGizmoStore.getState())
+    const unsubscribe = useGizmoStore.subscribe(sync)
+    return () => {
+      unsubscribe()
+      cancel()
+    }
+  }, [cancel, itemId, queue])
+
+  return position
+}
+
 function findMotionVectorKeyframe(
   itemKeyframes: ItemKeyframes | undefined,
   property: VectorAnimatableProperty,
@@ -1873,6 +1916,40 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       vectorBaseTransform,
     ],
   )
+  const gizmoWorldPosition = useRafCoalescedGizmoPosition(item.id)
+  const gizmoLocalPosition = useMemo(() => {
+    if (!gizmoWorldPosition || !vectorResolvedTransform) return null
+    const previewWorldTransform = {
+      ...vectorResolvedTransform,
+      ...gizmoWorldPosition,
+    }
+    const parentId = item.transformParent?.parentItemId
+    const parent = parentId ? itemById[parentId] : undefined
+    const parentWorldTransform = parent
+      ? resolveItemTransformAtFrame(parent, {
+          canvas: { ...canvas, fps },
+          frame: currentFrame,
+          keyframes: allKeyframesByItemId[parent.id],
+          getItem: (candidateId) => itemById[candidateId],
+          getKeyframes: (candidateId) => allKeyframesByItemId[candidateId],
+        })
+      : undefined
+    const local = worldToLocalTransform(
+      previewWorldTransform,
+      item.transformParent,
+      parentWorldTransform,
+    )
+    return { x: local.x, y: local.y }
+  }, [
+    allKeyframesByItemId,
+    canvas,
+    currentFrame,
+    fps,
+    gizmoWorldPosition,
+    item.transformParent,
+    itemById,
+    vectorResolvedTransform,
+  ])
   const selectedVectorValues = useMemo(() => {
     const values = new Map<VectorAnimatableProperty, VectorKeyframe['value']>()
     for (let index = selectedKeyframes.length - 1; index >= 0; index -= 1) {
@@ -2059,6 +2136,66 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     },
     [scaleAxesLinked],
   )
+  const positionScrubPreviewRef = useRef<ItemPreview | null>(null)
+  const positionScrubActiveRef = useRef(false)
+  const {
+    queue: queuePositionScrubPreview,
+    flushNow: flushPositionScrubPreview,
+    cancel: cancelPositionScrubPreview,
+  } = useRafCoalescedValue(
+    useCallback(
+      (position: { x: number; y: number }) => {
+        useGizmoStore.getState().setTransformPreview({
+          [item.id]: position,
+        })
+      },
+      [item.id],
+    ),
+  )
+  const startPositionScrubPreview = useCallback(() => {
+    if (positionScrubActiveRef.current) return
+    positionScrubPreviewRef.current =
+      useGizmoStore.getState().preview?.[item.id] ?? null
+    positionScrubActiveRef.current = true
+  }, [item.id])
+  const restorePositionScrubPreview = useCallback(() => {
+    if (!positionScrubActiveRef.current) return
+    useGizmoStore
+      .getState()
+      .replaceItemPreview(item.id, positionScrubPreviewRef.current)
+    positionScrubPreviewRef.current = null
+    positionScrubActiveRef.current = false
+  }, [item.id])
+  const previewPositionScrub = useCallback(
+    (axis: 'x' | 'y', value: number) => {
+      if (!vectorBaseTransform || !vectorResolvedTransform) return
+      const currentValue = getMotionVectorValue(
+        'position',
+        vectorResolvedTransform,
+        vectorBaseTransform,
+      )
+      queuePositionScrubPreview(
+        applyMotionVectorAxisValue('position', currentValue, axis, value),
+      )
+    },
+    [
+      applyMotionVectorAxisValue,
+      queuePositionScrubPreview,
+      vectorBaseTransform,
+      vectorResolvedTransform,
+    ],
+  )
+  const cancelPositionScrub = useCallback(() => {
+    cancelPositionScrubPreview()
+    restorePositionScrubPreview()
+  }, [cancelPositionScrubPreview, restorePositionScrubPreview])
+  useEffect(
+    () => () => {
+      cancelPositionScrubPreview()
+      restorePositionScrubPreview()
+    },
+    [cancelPositionScrubPreview, restorePositionScrubPreview],
+  )
   const promoteMotionVectorProperty = useCallback(
     (
       property: VectorAnimatableProperty,
@@ -2150,6 +2287,20 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       selectedKeyframes,
     ],
   )
+  const finishPositionScrub = useCallback(
+    (axis: 'x' | 'y', value: number) => {
+      previewPositionScrub(axis, value)
+      flushPositionScrubPreview()
+      handleMotionVectorValueCommit('position', axis, value, { allowCreate: true })
+      restorePositionScrubPreview()
+    },
+    [
+      flushPositionScrubPreview,
+      handleMotionVectorValueCommit,
+      previewPositionScrub,
+      restorePositionScrubPreview,
+    ],
+  )
   const compoundPropertyRows = useMemo(() => {
     if (!vectorBaseTransform || !vectorResolvedTransform || !vectorPreExpressionTransform) return {}
     return Object.fromEntries(
@@ -2159,7 +2310,10 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           vectorResolvedTransform,
           vectorBaseTransform,
         )
-        const value = selectedVectorValues.get(row.property) ?? resolvedValue
+        const value =
+          row.property === 'position' && gizmoLocalPosition
+            ? gizmoLocalPosition
+            : (selectedVectorValues.get(row.property) ?? resolvedValue)
         return [
           row.primary,
           {
@@ -2172,6 +2326,14 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
             ),
             unit: row.unit,
             linkProperty: row.property,
+            ...(row.property === 'position'
+              ? {
+                  onScrubStart: startPositionScrubPreview,
+                  onScrubPreview: previewPositionScrub,
+                  onScrubEnd: finishPositionScrub,
+                  onScrubCancel: cancelPositionScrub,
+                }
+              : {}),
             axisLink:
               row.property === 'scale'
                 ? {
@@ -2190,11 +2352,16 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     )
   }, [
     handleMotionVectorValueCommit,
+    cancelPositionScrub,
+    finishPositionScrub,
+    gizmoLocalPosition,
     item.id,
     item.transform,
     motionVectorRows,
+    previewPositionScrub,
     scaleAxesLinked,
     selectedVectorValues,
+    startPositionScrubPreview,
     vectorBaseTransform,
     vectorPreExpressionTransform,
     vectorResolvedTransform,
@@ -2241,6 +2408,26 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   ).filter((group) => !MOTION_INLINE_PROPERTY_GROUP_ID_SET.has(group.id)).length
   const laneContentHeight =
     visiblePropertyCount * ROW_HEIGHT + visiblePropertyGroupHeaderCount * GROUP_HEADER_HEIGHT
+  const laneContentStructureKey = `${paneMode}:${renderedVisibleProperties.join('|')}`
+  const [reportedLaneContent, setReportedLaneContent] = useState<{
+    structureKey: string
+    height: number
+  } | null>(null)
+  const renderedLaneContentHeight =
+    reportedLaneContent?.structureKey === laneContentStructureKey
+      ? reportedLaneContent.height
+      : laneContentHeight
+  const handleLaneContentHeightChange = useCallback(
+    (height: number) => {
+      setReportedLaneContent((current) => {
+        if (current?.structureKey === laneContentStructureKey && current.height === height) {
+          return current
+        }
+        return { structureKey: laneContentStructureKey, height }
+      })
+    },
+    [laneContentStructureKey],
+  )
 
   const handleSelectionChange = useCallback(
     (keyframeIds: Set<string>, options?: { preserveExternalSelection?: boolean }) => {
@@ -2453,7 +2640,10 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         disabled && 'opacity-60',
       )}
       style={{
-        height: getMotionDopesheetLaneHeight(paneMode, laneContentHeight + expressionDockHeight),
+        height: getMotionDopesheetLaneHeight(
+          paneMode,
+          renderedLaneContentHeight + expressionDockHeight,
+        ),
       }}
       onPointerEnter={() => setKeyframeEditorShortcutScopeActive(true)}
       onPointerLeave={() => setKeyframeEditorShortcutScopeActive(false)}
@@ -2494,6 +2684,9 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
               : undefined
           }
           onExpressionDockHeightChange={paneMode === 'lanes' ? setExpressionDockHeight : undefined}
+          onLaneContentHeightChange={
+            paneMode === 'lanes' ? handleLaneContentHeightChange : undefined
+          }
           propertyLinkSourceLabels={propertyLinkSourceLabels}
           onPropertyLinkPointerDown={propertyLinkHandlers.onPointerDown}
           onRemovePropertyLink={propertyLinkHandlers.onRemove}
@@ -2508,7 +2701,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           height={
             paneMode === 'graph'
               ? Math.max(120, paneSize.height)
-              : Math.max(ROW_HEIGHT, laneContentHeight + expressionDockHeight)
+              : Math.max(ROW_HEIGHT, renderedLaneContentHeight + expressionDockHeight)
           }
           frameViewport={timeViewport}
           onFrameViewportChange={onTimeViewportChange}

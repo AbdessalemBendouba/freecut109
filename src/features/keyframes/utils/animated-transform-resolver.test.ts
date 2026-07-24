@@ -272,6 +272,111 @@ describe('resolveAnimatedTransform', () => {
     expect(resolved.y).toBe(120)
   })
 
+  it('resolves a Position link from its source live preview before commit', () => {
+    const source: ShapeItem = {
+      id: 'preview-source',
+      type: 'shape',
+      shapeType: 'rectangle',
+      trackId: 'track-source',
+      from: 0,
+      durationInFrames: 60,
+      label: 'Preview source',
+      transform: { x: 10, y: 20, width: 100, height: 100 },
+      fillColor: '#fff',
+      strokeColor: '#fff',
+      strokeWidth: 1,
+    }
+    const target: ShapeItem = {
+      ...source,
+      id: 'preview-target',
+      trackId: 'track-target',
+      label: 'Preview target',
+      transform: { x: -50, y: -40, width: 100, height: 100 },
+    }
+    const targetKeyframes: ItemKeyframes = {
+      itemId: target.id,
+      properties: [],
+      expressions: [
+        {
+          type: 'link',
+          targetProperty: 'position',
+          sourceItemId: source.id,
+          sourceProperty: 'position',
+          enabled: true,
+          timeOffsetFrames: 0,
+        },
+      ],
+    }
+    const items = new Map<string, TimelineItem>([
+      [source.id, source],
+      [target.id, target],
+    ])
+
+    const resolved = resolveAnimatedTransform(
+      {
+        x: -50,
+        y: -40,
+        width: 100,
+        height: 100,
+        anchorX: 50,
+        anchorY: 50,
+        rotation: 0,
+        opacity: 1,
+        cornerRadius: 0,
+      },
+      targetKeyframes,
+      0,
+      {
+        globalFrame: 0,
+        canvas: { width: 1920, height: 1080, fps: 30 },
+        getItem: (itemId) => items.get(itemId),
+        getKeyframes: (itemId) => (itemId === target.id ? targetKeyframes : undefined),
+        getPreviewTransform: (itemId) =>
+          itemId === source.id ? { x: 120, y: 180 } : undefined,
+      },
+    )
+
+    expect(resolved.x).toBe(120)
+    expect(resolved.y).toBe(180)
+    expect(source.transform?.x).toBe(10)
+    expect(source.transform?.y).toBe(20)
+
+    const offsetTargetKeyframes: ItemKeyframes = {
+      ...targetKeyframes,
+      expressions: targetKeyframes.expressions?.map((expression) => ({
+        ...expression,
+        timeOffsetFrames: 5,
+      })),
+    }
+    const offsetResolved = resolveAnimatedTransform(
+      {
+        x: -50,
+        y: -40,
+        width: 100,
+        height: 100,
+        anchorX: 50,
+        anchorY: 50,
+        rotation: 0,
+        opacity: 1,
+        cornerRadius: 0,
+      },
+      offsetTargetKeyframes,
+      0,
+      {
+        globalFrame: 0,
+        canvas: { width: 1920, height: 1080, fps: 30 },
+        getItem: (itemId) => items.get(itemId),
+        getKeyframes: (itemId) =>
+          itemId === target.id ? offsetTargetKeyframes : undefined,
+        getPreviewTransform: (itemId) =>
+          itemId === source.id ? { x: 120, y: 180 } : undefined,
+      },
+    )
+
+    expect(offsetResolved.x).toBe(10)
+    expect(offsetResolved.y).toBe(20)
+  })
+
   it('falls back to the authored value for broken references and cycles', () => {
     const itemKeyframes: ItemKeyframes = {
       itemId: 'target',

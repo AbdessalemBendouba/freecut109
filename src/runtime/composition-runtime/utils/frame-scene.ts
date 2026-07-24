@@ -141,7 +141,7 @@ export function resolveItemTransformAtFrame(
           : getPreviewTransform?.(candidate.id),
       expressionContext:
         getItem && getKeyframes
-          ? { globalFrame: frame, canvas, getItem, getKeyframes }
+          ? { globalFrame: frame, canvas, getItem, getKeyframes, getPreviewTransform }
           : undefined,
     })
 

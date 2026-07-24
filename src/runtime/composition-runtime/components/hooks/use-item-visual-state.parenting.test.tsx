@@ -1,5 +1,6 @@
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vite-plus/test'
+import type { ItemKeyframes } from '@/types/keyframe'
 import type { ControllerItem, ShapeItem, TimelineItem } from '@/types/timeline'
 import type { ResolvedTransform } from '@/types/transform'
 import { createTransformParentBinding } from '@/shared/utils/transform-parenting'
@@ -97,5 +98,89 @@ describe('useItemVisualState parenting', () => {
     })
 
     expect(screen.getByTestId('transform-x')).toHaveTextContent('120')
+  })
+
+  it('moves a child during a coalesced parent Position preview before commit', () => {
+    render(
+      <VideoConfigProvider
+        id="parenting-position-preview"
+        width={canvas.width}
+        height={canvas.height}
+        fps={canvas.fps}
+        durationInFrames={120}
+      >
+        <SequenceContext.Provider
+          value={{ from: 0, parentFrom: 0, localFrame: 0, durationInFrames: 120 }}
+        >
+          <KeyframesProvider keyframes={[]} items={[nullObject, child]} canvas={canvas}>
+            <TransformXProbe item={child} />
+          </KeyframesProvider>
+        </SequenceContext.Provider>
+      </VideoConfigProvider>,
+    )
+
+    expect(screen.getByTestId('transform-x')).toHaveTextContent('0')
+
+    act(() => {
+      useGizmoStore.getState().setTransformPreview({
+        [nullObject.id]: { x: 80, y: 0 },
+      })
+    })
+
+    expect(screen.getByTestId('transform-x')).toHaveTextContent('80')
+  })
+
+  it('moves a Position-linked target during its source preview before commit', () => {
+    const linkedTarget: ShapeItem = {
+      ...child,
+      id: 'linked-target',
+      transformParent: undefined,
+    }
+    const linkedTargetKeyframes: ItemKeyframes = {
+      itemId: linkedTarget.id,
+      properties: [],
+      expressions: [
+        {
+          type: 'link',
+          targetProperty: 'position',
+          sourceItemId: nullObject.id,
+          sourceProperty: 'position',
+          enabled: true,
+          timeOffsetFrames: 0,
+        },
+      ],
+    }
+    render(
+      <VideoConfigProvider
+        id="linked-position-preview"
+        width={canvas.width}
+        height={canvas.height}
+        fps={canvas.fps}
+        durationInFrames={120}
+      >
+        <SequenceContext.Provider
+          value={{ from: 0, parentFrom: 0, localFrame: 0, durationInFrames: 120 }}
+        >
+          <KeyframesProvider
+            keyframes={[linkedTargetKeyframes]}
+            items={[nullObject, linkedTarget]}
+            canvas={canvas}
+          >
+            <TransformXProbe item={linkedTarget} />
+          </KeyframesProvider>
+        </SequenceContext.Provider>
+      </VideoConfigProvider>,
+    )
+
+    expect(screen.getByTestId('transform-x')).toHaveTextContent('0')
+
+    act(() => {
+      useGizmoStore.getState().setTransformPreview({
+        [nullObject.id]: { x: 95, y: 0 },
+      })
+    })
+
+    expect(screen.getByTestId('transform-x')).toHaveTextContent('95')
+    expect(nullObject.transform?.x).toBe(0)
   })
 })

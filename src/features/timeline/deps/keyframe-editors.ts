@@ -8,6 +8,7 @@ export {
   PropertyLinkPickWhipOverlay,
   CompactNavigator,
   getKeyframeNavigatorThumbMetrics,
+  useRafCoalescedValue,
   GROUP_HEADER_HEIGHT,
   KEYFRAME_EDGE_INSET,
   ROW_HEIGHT,
