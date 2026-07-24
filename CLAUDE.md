@@ -1,76 +1,9 @@
 # FreeCut Web
 
-## Commands
-
-```bash
-npm run dev          # Vite dev server on port 5173
-npm run build        # Production build
-npm run lint         # Oxlint
-npm run format       # Oxfmt
-npm run format:check # Check formatting with Oxfmt
-npm run test         # Vitest (watch mode)
-npm run test:run     # Vitest (single run)
-npm run routes       # Regenerate TanStack Router tree (tsr generate)
-```
-
-## Architecture
-
 Browser-based multi-track video editor. React 19 + TypeScript + Vite.
-
-```text
-src/
-├── features/              # User-facing UI modules
-│   ├── editor/            # Editor shell, toolbar, panels, stores
-│   ├── timeline/          # Multi-track timeline, actions, services
-│   ├── preview/           # Preview canvas, transform gizmo, scrub renderer
-│   ├── export/            # WebCodecs export pipeline (Web Worker)
-│   ├── effects/           # GPU effect UI panels and registry
-│   ├── keyframes/         # Keyframe animation, Bezier editor, easing
-│   ├── media-library/     # Media import, metadata, OPFS proxies, transcription
-│   ├── project-bundle/    # Project ZIP export/import
-│   ├── projects/          # Project management
-│   ├── scene-browser/     # Caption and scene search UI
-│   ├── settings/          # App settings
-│   └── workspace-gate/    # Workspace picker / permission gate
-├── runtime/               # Playback and rendering engines (not user-facing UI features)
-│   ├── composition-runtime/ # Composition rendering (sequences, items, audio, transitions)
-│   └── player/            # Clock, video source pools, composition playback
-├── infrastructure/        # Platform adapters — browser, storage, GPU, ML, audio
-│   ├── gpu-effects/       # WebGPU effect pipeline + shader definitions
-│   ├── gpu-transitions/   # WebGPU transition pipeline + shaders
-│   ├── gpu-compositor/    # WebGPU blend-mode compositor
-│   ├── gpu-masks/         # Mask combine pipeline + texture manager
-│   ├── gpu-media/         # Media render/blend pipelines
-│   ├── gpu-scopes/        # Waveform/vectorscope/histogram renderers
-│   ├── gpu-shapes/        # Shape render pipeline
-│   ├── gpu-text/          # Glyph-atlas text pipeline
-│   ├── gpu-shared/        # WGSL fragments shared across GPU modules
-│   ├── analysis/          # Scene detection, captioning, embeddings, optical flow
-│   ├── audio/             # SoundTouch-based time-stretch
-│   ├── browser/           # Blob URLs, OPFS, mediabunny adapter
-│   ├── storage/           # Workspace FS persistence + legacy IDB migration
-│   └── thumbnails/        # GPU thumbnail renderer + sampling strategy
-├── shared/                # Framework-agnostic primitives + cross-feature state
-│   ├── timeline/          # Transition engine/registry/renderers, defaults
-│   ├── projects/          # Schema migrations and normalization
-│   ├── state/             # Zustand stores (playback, selection, dialogs, editor)
-│   ├── marquee/           # Marquee-selection hook + overlay (paired unit)
-│   ├── logging/           # Structured logger, frame jitter monitor
-│   ├── ui/                # cn helper, property controls
-│   ├── typography/        # Font loading, text style presets
-│   ├── graphics/          # Shape generators and path helpers
-│   └── utils/             # Managed workers, color/curve math, easing, async, etc.
-├── components/            # shadcn/ui components + brand assets
-├── app/                   # App bootstrap, error boundary, PWA prompt, debug
-├── config/                # Hotkeys + editor layout config
-├── i18n/                  # i18next setup, supported languages, locale JSON + per-feature partials
-├── routes/                # TanStack Router (file-based, auto-generated routeTree)
-└── types/                 # Shared TypeScript types
-```
 
 ## Key Patterns
 
-- **State**: Zustand stores + Zundo for undo/redo
 - **Timeline store split**: `useTimelineStore` (from `timeline-store.ts`) is a **facade** over domain stores (`items-store`, `transitions-store`, `keyframes-store`, `markers-store`, `timeline-settings-store`, `timeline-command-store`). Components use the facade with selectors; action code accesses domain stores via `.getState()` directly
 - **Timeline mutations**: Action modules in `features/timeline/stores/actions/*.ts` use `execute()` wrapper from `shared.ts` for undo/redo integration. Never mutate timeline stores directly — use these actions
 - **TimelineItem composition**: The per-clip component in `features/timeline/components/timeline-item/index.tsx` delegates to dedicated hooks: `useCaptionDialogState`, `useFadeEditors`, `useFadeMath`, `useEditPreviewShifts`, `useTimelineItemBounds`, `useSmartTrimHover`, `useContextMenuState`, plus the existing `useTimelineItemActions` / `useTimelineItemDropHandlers` / `useDragVisualState`. The host file orchestrates these hooks and renders the JSX; sub-components live alongside (`EdgeHalos`, `TransitionDropGhost`, `TranscribeDialogController`, etc.). When adding new clip state, prefer a new hook over inlining
@@ -79,24 +12,18 @@ src/
 - **Compositions**: Pre-compositions (sub-comps) have dedicated stores (`compositions-store.ts`, `composition-navigation-store.ts`). 1-level nesting only. Actions in `composition-actions.ts`
 - **Migrations**: `src/shared/projects/migrations/` — versioned migrations + normalization run on every project load. Increment `CURRENT_SCHEMA_VERSION` in `types.ts` when adding new migrations
 - **Routing**: TanStack Router — run `npm run routes` after adding/changing route files
-- **Path alias**: `@/*` → `src/*`
-- **i18n**: i18next + react-i18next, initialized in `src/i18n/index.ts` (imported once from `main.tsx`). 9 languages (`en`, `es`, `fr`, `de`, `pt-BR`, `tr`, `ja`, `ko`, `zh`) in `src/i18n/languages.ts`. Base strings in `src/i18n/locales/<lang>.json`; per-feature strings live in `src/i18n/locales/partials/<lang>/<name>.json` (file contains the slice directly with no language wrapper key). `en` partials are eagerly bundled into `app-shell`; all other languages load on demand via `loadLanguageResources(lang)` / `changeAppLanguage(lang)` from `@/i18n`. The user's persisted language is preloaded before first render via the exported `i18nReady` promise. In components use `const { t } = useTranslation()`; outside React use `import { i18n } from '@/i18n'` then `i18n.t()` (`@/i18n` is allowed by the boundary checks — it's not `@/features/*`). For strings with inline markup use `<Trans i18nKey=... components={{ strong: <strong/> }} />`. Resources are deliberately untyped (`i18next.d.ts`) so `t()` accepts any key. Language selector lives in the editor Settings dialog (General); persisted to `localStorage` key `freecut-language` by the language detector. When adding new partials, translate all 9 languages and keep identical key structure across all language dirs; never put a bare ASCII `"` inside a JSON string value.
-- **Styling**: Tailwind CSS 4 + shadcn/ui (Radix primitives)
+- **i18n**: i18next + react-i18next, 9 languages. Conventions and the partials layout live in `src/i18n/CLAUDE.md`
 - **Media processing**: Mediabunny for decode, WebCodecs for export, Web Workers for heavy ops
 - **Storage**: Workspace folder via File System Access API (see `infrastructure/storage/workspace-fs/`). Source of truth is a user-picked directory on disk — projects, media metadata, thumbnails, waveforms, gif frames, decoded audio, transcripts all live as plain files. `WorkspaceGate` (`src/features/workspace-gate/`) blocks app render until a workspace is granted. IndexedDB is only used for a tiny handle registry (`freecut-handles-db` v1, at `infrastructure/storage/handles-db.ts`) that stores non-serializable `FileSystem*Handle` references. Legacy `video-editor-db` is read only by the one-time migration path under `infrastructure/storage/legacy-idb/` (reader.ts + migrate.ts); consumers import from the barrel `@/infrastructure/storage` which routes everything to workspace-fs
 
 ## Code Style
 
-- Strict TypeScript (`noUnusedLocals`, `noUnusedParameters`, `noUncheckedIndexedAccess`)
 - `no-console` rule — always use `createLogger` from `src/shared/logging/logger.ts`, never raw `console.*` calls
 - **Logging**: Use wide event pattern for multi-step operations (export, import, save): `log.startEvent(name, opId)` accumulates context, emits one structured event via `.success()` / `.failure()`. Use `createOperationId()` for correlation. Include business context (project ID, item counts, codec, resolution) in events
-- `typescript/no-explicit-any` warned by Oxlint
 
 ## Testing
 
-- Vitest + jsdom + @testing-library/react
 - `src/test/setup.ts` mocks ImageData, WebGPU APIs (`navigator.gpu`), and GPU constants
-- Tests live next to source files: `*.test.ts` / `*.test.tsx`
 - **Pure-logic tests opt out of jsdom.** `vite.config.ts` defaults to `environment: 'jsdom'`, but a test that never touches `document` / `window` / `navigator` / testing-library should start with `// @vitest-environment node` on line 1 (blank line after). Building a jsdom per file is ~30% of the suite's wall clock; 280 files already do this. Keep the jsdom default — a file wrongly marked `node` fails loudly with `document is not defined`, whereas flipping the default would silently break any file someone forgot to annotate. Leave a file on jsdom if it merely *mentions* `window`/`navigator`: a `typeof window !== 'undefined'` branch would take the non-browser path with every assertion still green
 - **Only write tests that exercise real logic.** A test must be able to fail for a reason other than someone editing a constant or a string. Do NOT add tests that: re-assert a static config/registry/preset constant back to itself (config snapshots); assert `typeof x === 'function'` or `has correct initial state` on a store; only verify a mocked function was called / returned its mock value (the real code is stubbed, so nothing real is covered); render a component and assert a passed-in prop/className/style string appears with no branching behind it; exercise library/framework behavior (Radix, jsdom events, controlled inputs). When the only collaborators are mocked, test against the real in-memory fake (e.g. workspace-fs round-trips) instead. Worth testing: algorithm/math (FPS/timeline conversions, transitions, interpolation, color/curve math), reducer/state-machine transitions, schema migrations, edge/boundary cases, and named regressions. If unsure whether a test adds value, prefer no test over a low-value one
 
@@ -106,14 +33,9 @@ src/
 
 ## Toolchain & dependency notes
 
-- The entire dev/build/test/lint/format stack runs through **vite-plus** (`vp`, currently 0.x / pre-1.0) — it wraps Vite, Vitest, Oxlint, Oxfmt and the task runner. There is no plain-Vite fallback configured; if `vp` breaks, pin the last working version in package.json rather than attempting an ad-hoc migration
-- `onnxruntime-web` is intentionally pinned to a **dev build** (`1.26.0-dev.*`) — introduced with the supertonic TTS integration. Don't "upgrade" it casually; moving to a stable release requires re-validating transcription, TTS and scene detection
-- `lucide-react` is held at 0.468.x deliberately (Vite pre-bundles it; see Gotchas about `optimizeDeps`). A major-version bump is a deliberate task, not a routine dep update
-- All production deps are exact-pinned; keep new deps exact-pinned too (no `^`/`~`)
-- **TypeScript 7 needs the `overrides.typescript` entry.** `i18next` and `react-i18next` declare `peerOptional typescript@"^5"`, so any TS >= 6 fails a clean `npm install`/`npm ci` with ERESOLVE (an *incremental* install over an existing tree misleadingly succeeds). The override in package.json forces one TS copy and must be bumped in lockstep with the `typescript` devDependency. `@voidzero-dev/vite-plus-core` also peers `^5 || ^6`, but never loads the package — it shells out to the tsgolint binary — so that one is inert
-- Type checking does **not** run `tsc`. `vp check` type-checks via **tsgolint** (the TypeScript-Go engine), which is why CI already had native-speed checking before the TS 7 bump. Nothing in `package.json` scripts or CI invokes `tsc`; the `typescript` devDependency exists for editor tsserver and ad-hoc `npx tsc`. TS 7.0 ships no stable programmatic API — if a tool ever needs one, alias `@typescript/typescript6`
-- **The fallow allowlists are baselines, not approvals.** `check:unused-exports` and `check:unused-class-members` are ratchets: they fail only on findings *new* since the baseline, plus stale entries. Every entry carries a `reason`, and re-baselined ones are tagged — `parked-ai-feature` (the unwired assistant, see `ai-tab.tsx`), `deps-contract` (adapter surface the boundary rules require), `barrel-surface` (feature `index.ts` public API), `unreviewed` (never traced; start here when cleaning up). Never bulk-`fallow fix` these — trace per export. Re-baseline by regenerating both files from `fallow dead-code --format json`, preserving existing reasons; a stale baseline makes the gate fail permanently and get ignored
-- `oxlint` / `oxfmt` / `@oxc-project/types` are **not** direct deps — vite-plus exact-pins them internally, so they only move when `vp` moves. A `vp` bump can therefore reformat the tree (0.2.4 brought oxfmt 0.57 and reflowed 52 files); land that churn as its own commit
+- All production deps are exact-pinned; keep new deps exact-pinned too (no `^`/`~`). `onnxruntime-web` (dev build) and `lucide-react` (0.468.x) are pinned **deliberately** — never routine-bump either
+- **Never bulk-`fallow fix`.** The `check:unused-exports` / `check:unused-class-members` allowlists are ratchet baselines, not approvals — trace per export
+- Full rationale (vite-plus, the TypeScript 7 `overrides` entry, tsgolint, re-baselining fallow, oxlint/oxfmt churn): see the `toolchain-notes` skill
 
 ## Git
 
