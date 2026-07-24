@@ -153,6 +153,83 @@ describe('render pump preseek helpers', () => {
     )
   })
 
+  it('does not register hidden root tracks as active preview dependencies', () => {
+    const visibleTrack = makeTrack([
+      makeVideoItem({
+        id: 'visible',
+        src: 'visible.mp4',
+        from: 0,
+        durationInFrames: 20,
+        sourceStart: 0,
+        sourceFps: 30,
+        speed: 1,
+      }),
+    ])
+    const hiddenTrack = {
+      ...makeTrack([
+        makeVideoItem({
+          id: 'hidden',
+          trackId: 'track-hidden',
+          src: 'hidden.mp4',
+          from: 0,
+          durationInFrames: 20,
+          sourceStart: 0,
+          sourceFps: 30,
+          speed: 1,
+        }),
+      ]),
+      id: 'track-hidden',
+      visible: false,
+    }
+
+    expectMapCloseTo(
+      collectVisibleTrackVideoSourceTimesBySrc([visibleTrack, hiddenTrack], 10, 30),
+      new Map([['visible.mp4', [10 / 30]]]),
+    )
+  })
+
+  it('registers only solo root tracks when any track is soloed', () => {
+    const visibleNonSoloTrack = {
+      ...makeTrack([
+        makeVideoItem({
+          id: 'visible-non-solo',
+          trackId: 'track-visible',
+          src: 'visible.mp4',
+          from: 0,
+          durationInFrames: 20,
+          sourceStart: 0,
+          sourceFps: 30,
+          speed: 1,
+        }),
+      ]),
+      id: 'track-visible',
+      visible: true,
+      solo: false,
+    }
+    const hiddenSoloTrack = {
+      ...makeTrack([
+        makeVideoItem({
+          id: 'hidden-solo',
+          trackId: 'track-solo',
+          src: 'solo.mp4',
+          from: 0,
+          durationInFrames: 20,
+          sourceStart: 0,
+          sourceFps: 30,
+          speed: 1,
+        }),
+      ]),
+      id: 'track-solo',
+      visible: false,
+      solo: true,
+    }
+
+    expectMapCloseTo(
+      collectVisibleTrackVideoSourceTimesBySrc([visibleNonSoloTrack, hiddenSoloTrack], 10, 30),
+      new Map([['solo.mp4', [10 / 30]]]),
+    )
+  })
+
   it('collects transition clip source times for a frame range', () => {
     const items = [
       makeVideoItem({
@@ -542,6 +619,63 @@ describe('compound clip preseek recursion', () => {
     // relativeFrame 90 -> subCompFrame 90 -> localFrame 30 @30fps = 1.0s
     expect(result.size).toBe(1)
     expect(result.get('blob:fresh')![0]).toBeCloseTo(1.0)
+  })
+
+  it('does not gate a compound frame on video from a hidden nested track', () => {
+    const tracks = [makeMixedTrack([makeCompositionItem()])]
+    const hiddenNestedTrack = {
+      ...makeMixedTrack([]),
+      id: 'sub-track-1',
+      visible: false,
+    }
+    const result = collectVisibleTrackVideoSourceTimesBySrc(tracks, 190, 30, {
+      requireExplicitSourceFps: true,
+      resolveComposition: () => ({
+        fps: 30,
+        items: [makeSubVideoItem()],
+        tracks: [hiddenNestedTrack],
+      }),
+      resolveItemSrc: () => 'blob:hidden',
+    })
+
+    expect(result.size).toBe(0)
+  })
+
+  it('registers only solo nested tracks when a compound track is soloed', () => {
+    const tracks = [makeMixedTrack([makeCompositionItem()])]
+    const visibleNonSoloTrack = {
+      ...makeMixedTrack([]),
+      id: 'sub-track-visible',
+      visible: true,
+      solo: false,
+    }
+    const hiddenSoloTrack = {
+      ...makeMixedTrack([]),
+      id: 'sub-track-solo',
+      visible: false,
+      solo: true,
+    }
+    const result = collectVisibleTrackVideoSourceTimesBySrc(tracks, 190, 30, {
+      requireExplicitSourceFps: true,
+      resolveComposition: () => ({
+        fps: 30,
+        items: [
+          makeSubVideoItem({
+            id: 'visible-non-solo',
+            trackId: 'sub-track-visible',
+            src: 'blob:visible',
+          }),
+          makeSubVideoItem({
+            id: 'hidden-solo',
+            trackId: 'sub-track-solo',
+            src: 'blob:solo',
+          }),
+        ],
+        tracks: [visibleNonSoloTrack, hiddenSoloTrack],
+      }),
+    })
+
+    expectMapCloseTo(result, new Map([['blob:solo', [1]]]))
   })
 
   it('collects video through two nested compound clips', () => {

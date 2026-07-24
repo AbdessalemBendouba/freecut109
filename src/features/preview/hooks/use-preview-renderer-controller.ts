@@ -39,6 +39,7 @@ import {
   copyPreviewDisplayCanvasContent,
   drawSourceToPreviewDisplayCanvas,
   getPreviewDisplayCanvasBackingSize,
+  type CommittedPreviewSnapshotState,
 } from '../utils/preview-display-canvas'
 import { setActivePreviewScrubbingCache } from '../utils/preview-scrubbing-cache-bridge'
 import { warmDecoderPrewarmWorkerPool } from '../utils/decoder-prewarm'
@@ -66,6 +67,45 @@ const CAPTURE_RENDER_LOCK_WAIT_MS = 150
 const CAPTURE_RENDER_LOCK_POLL_MS = 8
 
 export type PreviewCompositionRenderer = CompositionRendererInstance
+
+function wasRendererFrameAborted(renderer: PreviewCompositionRenderer): boolean {
+  return 'wasLastRenderAborted' in renderer && renderer.wasLastRenderAborted?.() === true
+}
+
+function itemOccupiesFrame(item: TimelineItem | undefined, frame: number): boolean {
+  return Boolean(
+    item &&
+    Number.isFinite(item.from) &&
+    Number.isFinite(item.durationInFrames) &&
+    frame >= item.from &&
+    frame < item.from + item.durationInFrames,
+  )
+}
+
+function hasItemChangeAtFrame(
+  previousItems: TimelineItem[],
+  nextItems: TimelineItem[],
+  frame: number,
+): boolean {
+  const previousById = new Map(previousItems.map((item) => [item.id, item]))
+  const nextById = new Map(nextItems.map((item) => [item.id, item]))
+
+  for (const [itemId, previousItem] of previousById) {
+    const nextItem = nextById.get(itemId)
+    if (
+      nextItem !== previousItem &&
+      (itemOccupiesFrame(previousItem, frame) || itemOccupiesFrame(nextItem, frame))
+    ) {
+      return true
+    }
+  }
+  for (const [itemId, nextItem] of nextById) {
+    if (!previousById.has(itemId) && itemOccupiesFrame(nextItem, frame)) {
+      return true
+    }
+  }
+  return false
+}
 
 interface UsePreviewRendererControllerParams {
   fps: number
@@ -107,6 +147,7 @@ interface UsePreviewRendererControllerParams {
   scrubPrewarmedSourceOrderRef: MutableRefObject<string[]>
   scrubPrewarmedSourceTouchFrameRef: MutableRefObject<Map<string, number>>
   scrubOffscreenRenderedFrameRef: MutableRefObject<number | null>
+  committedPreviewSnapshotRef: MutableRefObject<CommittedPreviewSnapshotState>
   playbackTransitionPreparePromiseRef: MutableRefObject<Promise<boolean> | null>
   playbackTransitionPreparingFrameRef: MutableRefObject<number | null>
   deferredPlaybackTransitionPrepareFrameRef: MutableRefObject<number | null>
@@ -169,6 +210,7 @@ export function usePreviewRendererController({
   scrubOffscreenCtxRef,
   scrubRendererStructureKeyRef,
   scrubRenderInFlightRef,
+  scrubRenderGenerationRef,
   scrubRequestedFrameRef,
   bgTransitionRendererRef,
   bgTransitionInitPromiseRef,
@@ -182,6 +224,7 @@ export function usePreviewRendererController({
   scrubPrewarmedSourceOrderRef,
   scrubPrewarmedSourceTouchFrameRef,
   scrubOffscreenRenderedFrameRef,
+  committedPreviewSnapshotRef,
   playbackTransitionPreparePromiseRef,
   playbackTransitionPreparingFrameRef,
   deferredPlaybackTransitionPrepareFrameRef,
@@ -227,6 +270,12 @@ export function usePreviewRendererController({
   const liveScopeCaptureCanvasRef = useRef<OffscreenCanvas | null>(null)
   const liveScopeCaptureCtxRef = useRef<OffscreenCanvasRenderingContext2D | null>(null)
   const liveScopeCaptureStructureKeyRef = useRef<string | null>(null)
+  const invalidateCommittedPreviewSnapshot = useCallback(() => {
+    const snapshot = committedPreviewSnapshotRef.current
+    snapshot.frame = null
+    snapshot.guardFrame = null
+    snapshot.guardUntilMs = 0
+  }, [committedPreviewSnapshotRef])
 
   useLayoutEffect(() => {
     const canvas = scrubCanvasRef.current
@@ -235,16 +284,42 @@ export function usePreviewRendererController({
     if (canvas.width !== backingSize.width) canvas.width = backingSize.width
     if (canvas.height !== backingSize.height) canvas.height = backingSize.height
     if (!showFastScrubOverlayRef.current && !showPlaybackTransitionOverlayRef.current) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const committedSnapshot = committedPreviewSnapshotRef.current
+    const playbackState = usePlaybackStore.getState()
+    if (
+      committedSnapshot.guardFrame !== null &&
+      performance.now() > committedSnapshot.guardUntilMs
+    ) {
+      committedSnapshot.guardFrame = null
+      committedSnapshot.guardUntilMs = 0
+    }
+    if (
+      committedSnapshot.canvas &&
+      committedSnapshot.frame !== null &&
+      committedSnapshot.guardFrame === committedSnapshot.frame &&
+      playbackState.previewFrame === null &&
+      !playbackState.isPlaying &&
+      playbackState.currentFrame === committedSnapshot.frame
+    ) {
+      // Resizing a canvas clears its backing store. During a committed-frame
+      // scrub handoff, repaint from the immutable front-buffer snapshot rather
+      // than the shared offscreen surface that a cancelled render may still be
+      // clearing or mutating.
+      drawSourceToPreviewDisplayCanvas(ctx, canvas, committedSnapshot.canvas)
+      setDisplayedFrame(committedSnapshot.frame)
+      return
+    }
     const renderedFrame = scrubOffscreenRenderedFrameRef.current
     const offscreen = scrubOffscreenCanvasRef.current
     if (renderedFrame === null || !offscreen) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
     drawSourceToPreviewDisplayCanvas(ctx, canvas, offscreen)
     setDisplayedFrame(renderedFrame)
   }, [
     playerRenderSize,
     playerSize,
+    committedPreviewSnapshotRef,
     scrubCanvasRef,
     scrubOffscreenCanvasRef,
     scrubOffscreenRenderedFrameRef,
@@ -254,11 +329,14 @@ export function usePreviewRendererController({
   ])
 
   const disposeFastScrubRenderer = useCallback(() => {
+    // Any renderer disposal invalidates async pump work that may still be
+    // awaiting the previous renderer. The replacement pump must never tag or
+    // present pixels through that stale generation's shared refs.
+    scrubRenderGenerationRef.current += 1
     resetPlaybackStartReadiness()
     scrubInitPromiseRef.current = null
     scrubPreloadPromiseRef.current = null
     scrubRequestedFrameRef.current = null
-    scrubRenderInFlightRef.current = false
     scrubPrewarmQueueRef.current = []
     scrubPrewarmQueuedSetRef.current.clear()
     scrubPrewarmedFramesRef.current = []
@@ -341,7 +419,7 @@ export function usePreviewRendererController({
     scrubPrewarmedSourceOrderRef,
     scrubPrewarmedSourceTouchFrameRef,
     scrubPrewarmedSourcesRef,
-    scrubRenderInFlightRef,
+    scrubRenderGenerationRef,
     scrubRendererRef,
     scrubRendererStructureKeyRef,
     scrubRequestedFrameRef,
@@ -698,6 +776,7 @@ export function usePreviewRendererController({
           )
         }
         await renderer.renderFrame(targetFrame)
+        if (wasRendererFrameAborted(renderer)) return null
         return offscreen
       }
 
@@ -724,6 +803,10 @@ export function usePreviewRendererController({
         }
         if (scrubOffscreenRenderedFrameRef.current !== targetFrame || isPlayingForCapture) {
           await renderer.renderFrame(targetFrame)
+          if (wasRendererFrameAborted(renderer)) {
+            scrubOffscreenRenderedFrameRef.current = null
+            return null
+          }
           scrubOffscreenRenderedFrameRef.current = targetFrame
         }
         return offscreen
@@ -744,6 +827,9 @@ export function usePreviewRendererController({
   useEffect(() => {
     const hadRenderer =
       scrubRendererRef.current !== null || bgTransitionRendererRef.current !== null
+    if (hadRenderer) {
+      invalidateCommittedPreviewSnapshot()
+    }
     disposeFastScrubRenderer()
 
     if (!hadRenderer) {
@@ -772,6 +858,7 @@ export function usePreviewRendererController({
     disposeFastScrubRenderer,
     fastScrubRendererStructureKey,
     forceFastScrubOverlay,
+    invalidateCommittedPreviewSnapshot,
     renderSize.height,
     renderSize.width,
     resumeScrubLoopRef,
@@ -796,6 +883,11 @@ export function usePreviewRendererController({
     })
     if (visualInvalidationRanges.length === 0) {
       return
+    }
+
+    const snapshotFrame = committedPreviewSnapshotRef.current.frame
+    if (snapshotFrame !== null && isFrameInRanges(snapshotFrame, visualInvalidationRanges)) {
+      invalidateCommittedPreviewSnapshot()
     }
 
     const scrubRenderer = scrubRendererRef.current
@@ -857,6 +949,8 @@ export function usePreviewRendererController({
     fastScrubScaledKeyframes,
     fastScrubScaledTracks,
     forceFastScrubOverlay,
+    committedPreviewSnapshotRef,
+    invalidateCommittedPreviewSnapshot,
     lastPausedPrearmTargetRef,
     resumeScrubLoopRef,
     scrubOffscreenRenderedFrameRef,
@@ -907,6 +1001,11 @@ export function usePreviewRendererController({
       return
     }
 
+    const snapshotFrame = committedPreviewSnapshotRef.current.frame
+    if (snapshotFrame !== null && hasItemChangeAtFrame(previousItems, items, snapshotFrame)) {
+      invalidateCommittedPreviewSnapshot()
+    }
+
     const scrubRenderer = scrubRendererRef.current
     const scrubRendererMatchesStructure =
       scrubRendererStructureKeyRef.current === fastScrubRendererStructureKey
@@ -935,6 +1034,8 @@ export function usePreviewRendererController({
   }, [
     fastScrubRendererStructureKey,
     forceFastScrubOverlay,
+    committedPreviewSnapshotRef,
+    invalidateCommittedPreviewSnapshot,
     items,
     resumeScrubLoopRef,
     scrubOffscreenRenderedFrameRef,
@@ -967,7 +1068,6 @@ export function usePreviewRendererController({
         scrubRendererStructureKeyRef.current === fastScrubRendererStructureKey
       const bgRendererMatchesStructure =
         bgTransitionRendererStructureKeyRef.current === fastScrubRendererStructureKey
-      if (!scrubRenderer && !bgRenderer) return
 
       const playbackState = usePlaybackStore.getState()
       const targetFrame = playbackState.previewFrame ?? playbackState.currentFrame
@@ -991,6 +1091,14 @@ export function usePreviewRendererController({
       const normalized = normalizeFrameRanges(ranges)
       const request: FrameInvalidationRequest =
         normalized.length > 0 ? { ranges: normalized } : { frames: [targetFrame] }
+      const snapshotFrame = committedPreviewSnapshotRef.current.frame
+      if (
+        snapshotFrame !== null &&
+        (normalized.length === 0 || isFrameInRanges(snapshotFrame, normalized))
+      ) {
+        invalidateCommittedPreviewSnapshot()
+      }
+      if (!scrubRenderer && !bgRenderer) return
 
       if (scrubRenderer && scrubRendererMatchesStructure) {
         scrubRenderer.invalidateFrameCache(request)
@@ -1049,6 +1157,7 @@ export function usePreviewRendererController({
       ) {
         return
       }
+      invalidateCommittedPreviewSnapshot()
       queueMicrotask(() => {
         const scrubRenderer = scrubRendererRef.current
         const bgRenderer = bgTransitionRendererRef.current
@@ -1090,8 +1199,10 @@ export function usePreviewRendererController({
   }, [
     bgTransitionRendererRef,
     bgTransitionRendererStructureKeyRef,
+    committedPreviewSnapshotRef,
     fastScrubRendererStructureKey,
     forceFastScrubOverlay,
+    invalidateCommittedPreviewSnapshot,
     resumeScrubLoopRef,
     scrubOffscreenRenderedFrameRef,
     scrubRendererRef,
@@ -1137,15 +1248,48 @@ export function usePreviewRendererController({
               ),
             )
 
-            if ('prewarmFrames' in renderer && warmRunwayFrames.length > 0) {
-              await renderer.prewarmFrames?.(warmRunwayFrames)
-            }
-            if ('prewarmItems' in renderer && request.itemIds.length > 0) {
-              await renderer.prewarmItems?.(request.itemIds, request.frame)
-            }
-            if (scrubOffscreenRenderedFrameRef.current !== request.frame) {
-              await renderer.renderFrame(request.frame)
-              scrubOffscreenRenderedFrameRef.current = request.frame
+            const shouldResumeRenderPump = await withScrubRenderLock(async () => {
+              const playbackBeforeWarm = usePlaybackStore.getState()
+              if (
+                scrubRendererRef.current !== renderer ||
+                isResolving ||
+                playbackBeforeWarm.isPlaying ||
+                playbackBeforeWarm.previewFrame !== null ||
+                playbackBeforeWarm.currentFrame !== request.frame
+              ) {
+                return null
+              }
+
+              if ('prewarmFrames' in renderer && warmRunwayFrames.length > 0) {
+                await renderer.prewarmFrames?.(warmRunwayFrames)
+              }
+              if ('prewarmItems' in renderer && request.itemIds.length > 0) {
+                await renderer.prewarmItems?.(request.itemIds, request.frame)
+              }
+
+              const playbackAfterWarm = usePlaybackStore.getState()
+              if (
+                scrubRendererRef.current !== renderer ||
+                isResolving ||
+                playbackAfterWarm.isPlaying ||
+                playbackAfterWarm.previewFrame !== null ||
+                playbackAfterWarm.currentFrame !== request.frame
+              ) {
+                return null
+              }
+
+              if (scrubOffscreenRenderedFrameRef.current !== request.frame) {
+                // Only the render pump may render into and tag the shared
+                // offscreen surface. A warm request can outlive an edit and
+                // overlap a ruler skim; rendering here would let both owners
+                // clear the same canvas and publish a black/stale frame.
+                scrubRequestedFrameRef.current = request.frame
+                return true
+              }
+              return false
+            })
+            if (shouldResumeRenderPump) {
+              void resumeScrubLoopRef.current()
             }
           } catch {
             // Best effort only.
@@ -1167,7 +1311,15 @@ export function usePreviewRendererController({
       pendingPostEditWarmRequestRef.current = request
       void flushPostEditWarmRequest()
     })
-  }, [ensureFastScrubRenderer, isResolving, scrubOffscreenRenderedFrameRef])
+  }, [
+    ensureFastScrubRenderer,
+    isResolving,
+    scrubOffscreenRenderedFrameRef,
+    scrubRendererRef,
+    scrubRequestedFrameRef,
+    resumeScrubLoopRef,
+    withScrubRenderLock,
+  ])
 
   const resolveCaptureTargetFrame = useCallback(
     (options?: CaptureOptions) => {
@@ -1248,6 +1400,7 @@ export function usePreviewRendererController({
         renderer.setDomVideoElementProvider?.(getBestDomVideoElementForItem)
       }
       await renderer.renderFrame(targetFrame)
+      if (wasRendererFrameAborted(renderer)) return null
 
       let snapshot = captureLiveScopeSnapshotCanvasRef.current
       if (!snapshot || snapshot.width !== offscreen.width || snapshot.height !== offscreen.height) {
@@ -1514,6 +1667,10 @@ export function usePreviewRendererController({
             }
             if (scrubOffscreenRenderedFrameRef.current !== targetFrame || isPlayingForCapture) {
               await renderer.renderFrame(targetFrame)
+              if (wasRendererFrameAborted(renderer)) {
+                scrubOffscreenRenderedFrameRef.current = null
+                return null
+              }
               scrubOffscreenRenderedFrameRef.current = targetFrame
             }
 

@@ -20,15 +20,13 @@ import {
   replaceActivePreviewSourceTargets,
   settleActivePreviewRenderTarget,
   subscribeActivePreviewReady,
+  isActivePreviewFrameDecodeReady,
 } from '../utils/decoder-prewarm'
 import { getDirectionalPrewarmOffsets } from '../utils/fast-scrub-prewarm'
 import { resolveProxyUrl } from '../utils/media-resolver'
 import { scheduleScrubProxyFallback } from '../utils/scrub-proxy-fallback'
 import { shouldShowFastScrubOverlay } from '../utils/fast-scrub-overlay-guard'
-import {
-  hasPendingPreviewInput,
-  yieldToPendingPreviewInput,
-} from '../utils/preview-input-yield'
+import { hasPendingPreviewInput, yieldToPendingPreviewInput } from '../utils/preview-input-yield'
 import { resolvePlaybackTransitionOverlayState } from '../utils/playback-transition-overlay'
 import {
   FAST_SCRUB_DIRECTIONAL_PREWARM_BACKWARD_STEPS,
@@ -47,13 +45,16 @@ import {
   resolveActivePreviewPresentationTarget,
   resolveBackwardScrubFlags,
   resolveBackwardScrubFramePlan,
+  resolveReleasedScrubSnapshotGuardUntilMs,
   resolveRenderPumpTargetFrame,
   resolveScrubDirectionPlan,
   selectBoundaryPrewarmFrames,
   selectBoundarySourcePrewarmSources,
   shouldDropStalePausedPreviewRender,
   shouldPreservePausedTransportPresentation,
+  shouldRejectBlankReleasedScrubHandoff,
   shouldRejectBlankTransportHandoff,
+  shouldRecoverFailedActivePreseekSchedule,
   shouldRestoreCommittedPreviewSnapshot,
 } from '../utils/render-pump-frame-plan'
 import {
@@ -85,7 +86,10 @@ import {
   resolveScrubPrewarmIdleDelayMs,
   shouldUseCompositionScrubPrewarm,
 } from '../utils/render-pump-prewarm-plan'
-import { drawSourceToPreviewDisplayCanvas } from '../utils/preview-display-canvas'
+import {
+  drawSourceToPreviewDisplayCanvas,
+  type CommittedPreviewSnapshotState,
+} from '../utils/preview-display-canvas'
 import type { TransitionPreviewSessionTrace } from './use-preview-transition-session-controller'
 import { createLogger } from '@/shared/logging/logger'
 import { isPreviewTraceEnabled, recordPumpTrace } from '@/shared/logging/preview-trace'
@@ -202,6 +206,7 @@ interface UsePreviewRenderPumpParams {
   scrubPrewarmedSourceTouchFrameRef: MutableRefObject<Map<string, number>>
   scrubOffscreenCanvasRef: MutableRefObject<OffscreenCanvas | null>
   scrubOffscreenRenderedFrameRef: MutableRefObject<number | null>
+  committedPreviewSnapshotRef: MutableRefObject<CommittedPreviewSnapshotState>
   bgTransitionRenderInFlightRef: MutableRefObject<boolean>
   resumeScrubLoopRef: MutableRefObject<() => void>
   lastBackwardScrubPreloadAtRef: MutableRefObject<number>
@@ -284,6 +289,7 @@ export function usePreviewRenderPump({
   scrubPrewarmedSourceTouchFrameRef,
   scrubOffscreenCanvasRef,
   scrubOffscreenRenderedFrameRef,
+  committedPreviewSnapshotRef,
   bgTransitionRenderInFlightRef,
   resumeScrubLoopRef,
   lastBackwardScrubPreloadAtRef,
@@ -340,14 +346,18 @@ export function usePreviewRenderPump({
   }, [])
 
   useEffect(() => {
+    let effectDisposed = false
     scrubMountedRef.current = true
 
     let transportSettlingUntilMs = 0
     let pausedTransportHeldFrame: number | null = null
     let pausedTransportHoldUntilMs = 0
     let blankProbeCanvas: OffscreenCanvas | null = null
-    let committedPreviewSnapshotCanvas: OffscreenCanvas | null = null
-    let committedPreviewSnapshotFrame: number | null = null
+    const committedPreviewSnapshot = committedPreviewSnapshotRef.current
+    const clearReleasedScrubSnapshotGuard = () => {
+      committedPreviewSnapshot.guardFrame = null
+      committedPreviewSnapshot.guardUntilMs = 0
+    }
 
     const captureCommittedPreviewSnapshot = (frame: number) => {
       const displayCanvas = scrubCanvasRef.current
@@ -359,24 +369,35 @@ export function usePreviewRenderPump({
         // A hidden scrub canvas is not the visible committed presentation.
         // It may contain an old partial render even though its frame tag still
         // matches the playhead. Never promote those pixels on gesture entry.
-        committedPreviewSnapshotFrame = null
+        // A transient ruler -> track -> ruler handoff can attempt another
+        // capture while the hover frame is on top. Preserve an earlier
+        // authoritative snapshot for the same committed playhead frame.
+        if (committedPreviewSnapshot.frame !== frame) {
+          committedPreviewSnapshot.frame = null
+          clearReleasedScrubSnapshotGuard()
+        }
         return
       }
       if (
-        !committedPreviewSnapshotCanvas ||
-        committedPreviewSnapshotCanvas.width !== displayCanvas.width ||
-        committedPreviewSnapshotCanvas.height !== displayCanvas.height
+        !committedPreviewSnapshot.canvas ||
+        committedPreviewSnapshot.canvas.width !== displayCanvas.width ||
+        committedPreviewSnapshot.canvas.height !== displayCanvas.height
       ) {
-        committedPreviewSnapshotCanvas = new OffscreenCanvas(
+        committedPreviewSnapshot.canvas = new OffscreenCanvas(
           displayCanvas.width,
           displayCanvas.height,
         )
       }
-      const context = committedPreviewSnapshotCanvas.getContext('2d')
+      const context = committedPreviewSnapshot.canvas.getContext('2d')
       if (!context) return
-      context.clearRect(0, 0, committedPreviewSnapshotCanvas.width, committedPreviewSnapshotCanvas.height)
+      context.clearRect(
+        0,
+        0,
+        committedPreviewSnapshot.canvas.width,
+        committedPreviewSnapshot.canvas.height,
+      )
       context.drawImage(displayCanvas, 0, 0)
-      committedPreviewSnapshotFrame = frame
+      committedPreviewSnapshot.frame = frame
     }
 
     const isEffectivelyBlankPreviewSource = (
@@ -392,9 +413,7 @@ export function usePreviewRenderPump({
         let rgbTotal = 0
         for (let index = 0; index < pixels.length; index += 4) {
           rgbTotal +=
-            (pixels.at(index) ?? 0) +
-            (pixels.at(index + 1) ?? 0) +
-            (pixels.at(index + 2) ?? 0)
+            (pixels.at(index) ?? 0) + (pixels.at(index + 1) ?? 0) + (pixels.at(index + 2) ?? 0)
           if (rgbTotal > 8) return false
         }
         return true
@@ -416,6 +435,41 @@ export function usePreviewRenderPump({
       if (!displayCtx) return
       const displayedFrame = usePreviewBridgeStore.getState().displayedFrame
       const playbackState = usePlaybackStore.getState()
+      if (
+        committedPreviewSnapshot.guardFrame !== null &&
+        performance.now() > committedPreviewSnapshot.guardUntilMs
+      ) {
+        clearReleasedScrubSnapshotGuard()
+      }
+      if (
+        committedPreviewSnapshot.guardFrame !== null &&
+        committedPreviewSnapshot.canvas &&
+        shouldRejectBlankReleasedScrubHandoff({
+          releaseGuardFrame: committedPreviewSnapshot.guardFrame,
+          renderedFrame,
+          currentFrame: playbackState.currentFrame,
+          previewFrame: playbackState.previewFrame,
+          isPlaying: playbackState.isPlaying,
+          snapshotFrame: committedPreviewSnapshot.frame,
+          renderedFrameBlank: isEffectivelyBlankPreviewSource(source),
+          snapshotFrameBlank: isEffectivelyBlankPreviewSource(committedPreviewSnapshot.canvas),
+        })
+      ) {
+        if (source === scrubOffscreenCanvasRef.current) {
+          scrubOffscreenRenderedFrameRef.current = null
+          scrubRendererRef.current?.invalidateFrameCache({ frames: [renderedFrame] })
+        }
+        // A resize or layout rebuild can clear the display canvas while this
+        // delayed render is in flight. Reassert the immutable committed copy
+        // instead of merely declining the blank replacement.
+        drawSourceToPreviewDisplayCanvas(displayCtx, displayCanvas, committedPreviewSnapshot.canvas)
+        setDisplayedFrame(renderedFrame)
+        return
+      }
+      const shouldReleaseScrubSnapshotGuardAfterDraw =
+        committedPreviewSnapshot.guardFrame === renderedFrame &&
+        source !== committedPreviewSnapshot.canvas &&
+        !isEffectivelyBlankPreviewSource(source)
       if (
         shouldPreservePausedTransportPresentation({
           holdActive: performance.now() <= pausedTransportHoldUntilMs,
@@ -455,8 +509,16 @@ export function usePreviewRenderPump({
         playbackState.previewFrame === null &&
         playbackState.currentFrame === renderedFrame
       ) {
-        captureCommittedPreviewSnapshot(renderedFrame)
+        if (source !== committedPreviewSnapshot.canvas) {
+          captureCommittedPreviewSnapshot(renderedFrame)
+        }
         settleActivePreviewRenderTarget(renderedFrame)
+      }
+      if (shouldReleaseScrubSnapshotGuardAfterDraw) {
+        // Only a replacement that actually reached the front buffer may
+        // release the guard. Earlier transport/pause checks can reject a
+        // nonblank candidate without presenting it.
+        clearReleasedScrubSnapshotGuard()
       }
       resolvePlaybackColdStartVisibleFrame(renderedFrame, 'rendered_overlay')
     }
@@ -566,6 +628,7 @@ export function usePreviewRenderPump({
     }
 
     const scheduleOpportunisticTransitionPrepare = () => {
+      if (effectDisposed) return
       const deferredFrame = deferredPlaybackTransitionPrepareFrameRef.current
       if (deferredFrame === null) {
         clearScheduledTransitionPrepare()
@@ -577,7 +640,7 @@ export function usePreviewRenderPump({
 
       transitionPrepareTimeoutRef.current = window.setTimeout(() => {
         transitionPrepareTimeoutRef.current = null
-        if (!scrubMountedRef.current) return
+        if (effectDisposed || !scrubMountedRef.current) return
 
         const playbackState = usePlaybackStore.getState()
         if (!playbackState.isPlaying) return
@@ -618,7 +681,7 @@ export function usePreviewRenderPump({
     let scrubPrewarmIdleDelayMs = 40
     let lastActivePreviewTargetAtMs = 0
     let lastActivePreviewSourceTimes = new Map<string, number>()
-    let scrubTargetsInGesture = 0
+    let activeScrubPreseekScheduleVersion = 0
     const cancelScrubPrewarmIdleRestart = () => {
       if (scrubPrewarmIdleTimeoutId === null) return
       clearTimeout(scrubPrewarmIdleTimeoutId)
@@ -626,15 +689,19 @@ export function usePreviewRenderPump({
     }
 
     const scheduleScrubPrewarmIdleRestart = (minimumDelayMs = 0) => {
+      if (effectDisposed) return
       cancelScrubPrewarmIdleRestart()
       const elapsedSinceInput = performance.now() - lastScrubTargetAtMs
-      const remainingDelay = Math.max(
-        minimumDelayMs,
-        scrubPrewarmIdleDelayMs - elapsedSinceInput,
-      )
+      const remainingDelay = Math.max(minimumDelayMs, scrubPrewarmIdleDelayMs - elapsedSinceInput)
       scrubPrewarmIdleTimeoutId = setTimeout(() => {
         scrubPrewarmIdleTimeoutId = null
-        if (!scrubMountedRef.current || scrubPrewarmQueueRef.current.length === 0) return
+        if (
+          effectDisposed ||
+          !scrubMountedRef.current ||
+          scrubPrewarmQueueRef.current.length === 0
+        ) {
+          return
+        }
         if (scrubRequestedFrameRef.current !== null || scrubRenderInFlightRef.current) {
           scheduleScrubPrewarmIdleRestart(16)
           return
@@ -644,10 +711,13 @@ export function usePreviewRenderPump({
     }
 
     const scheduleRenderPumpRestart = () => {
-      if (renderPumpRestartTimeoutId !== null || !scrubMountedRef.current) return
+      if (effectDisposed || renderPumpRestartTimeoutId !== null || !scrubMountedRef.current) {
+        return
+      }
       renderPumpRestartTimeoutId = setTimeout(() => {
         renderPumpRestartTimeoutId = null
         if (
+          !effectDisposed &&
           scrubMountedRef.current &&
           !scrubRenderInFlightRef.current &&
           scrubRequestedFrameRef.current !== null
@@ -667,7 +737,7 @@ export function usePreviewRenderPump({
       // Fast bail-out: check if this pump has been superseded by a newer
       // seek/play cycle. Checked after every await to abandon stale work
       // as early as possible, freeing GPU/decoder resources for the new frame.
-      const isStale = () => scrubRenderGenerationRef.current !== generation
+      const isStale = () => effectDisposed || scrubRenderGenerationRef.current !== generation
 
       try {
         const enqueuePrewarmFrame = (frame: number) => {
@@ -763,7 +833,7 @@ export function usePreviewRenderPump({
         }
 
         let prewarmBudgetStart = 0
-        while (scrubMountedRef.current) {
+        while (!effectDisposed && scrubMountedRef.current) {
           if (isStale()) break
           const inputState = usePlaybackStore.getState()
           if (hasPendingPreviewInput(inputState.isPlaying || inputState.previewFrame !== null)) {
@@ -891,10 +961,7 @@ export function usePreviewRenderPump({
             const renderStartMs = performance.now()
             recordPreviewScrubRenderStarted(frameToRender)
             await renderer.renderFrame(frameToRender)
-            if (
-              'wasLastRenderAborted' in renderer &&
-              renderer.wasLastRenderAborted?.()
-            ) {
+            if ('wasLastRenderAborted' in renderer && renderer.wasLastRenderAborted?.()) {
               recordPreviewScrubRenderCompleted(frameToRender)
               // The renderer clears the shared offscreen canvas before it can
               // discover that a nested source is still settling. Never leave
@@ -903,12 +970,16 @@ export function usePreviewRenderPump({
               scrubOffscreenRenderedFrameRef.current = null
               continue
             }
+            if (isStale()) {
+              recordPreviewScrubRenderCompleted(frameToRender)
+              // Renderer disposal can start a replacement pump before the old
+              // render promise settles. Drop that generation before it reads
+              // or tags the replacement renderer's shared canvas refs.
+              scrubOffscreenRenderedFrameRef.current = null
+              break
+            }
             priorityRenderUsedFallback =
-              'wasLastRenderFallback' in renderer &&
-              renderer.wasLastRenderFallback?.() === true
-            // Don't check isStale() here — the priority frame is fully rendered
-            // and should always be displayed. Discarding it wastes the decode work
-            // and reduces scrub hit rate.
+              'wasLastRenderFallback' in renderer && renderer.wasLastRenderFallback?.() === true
             const renderMs = performance.now() - renderStartMs
             recordPreviewScrubRenderCompleted(frameToRender)
             const renderedSource = scrubOffscreenCanvasRef.current
@@ -1161,10 +1232,7 @@ export function usePreviewRenderPump({
               scheduleOpportunisticTransitionPrepare()
             }
             prewarmBudgetStart = performance.now()
-            if (
-              playbackState.previewFrame !== null &&
-              scrubPrewarmQueueRef.current.length > 0
-            ) {
+            if (playbackState.previewFrame !== null && scrubPrewarmQueueRef.current.length > 0) {
               // Directional decode lookahead shares the same renderer lane as
               // the visible target. Do not enter an uninterruptible prewarm
               // await while pointer input is active; restart after an adaptive
@@ -1189,11 +1257,15 @@ export function usePreviewRenderPump({
           disposeFastScrubRenderer()
         }
       } finally {
-        const isCurrentGeneration = scrubRenderGenerationRef.current === generation
+        const isCurrentGeneration =
+          !effectDisposed && scrubRenderGenerationRef.current === generation
         // A lifecycle change invalidates this request, but never transfers
         // ownership while renderFrame is still touching the shared canvas.
         scrubRenderInFlightRef.current = false
-        if (scrubRequestedFrameRef.current === scrubOffscreenRenderedFrameRef.current) {
+        if (
+          isCurrentGeneration &&
+          scrubRequestedFrameRef.current === scrubOffscreenRenderedFrameRef.current
+        ) {
           scrubRequestedFrameRef.current = null
         }
         if (isCurrentGeneration) {
@@ -1209,7 +1281,13 @@ export function usePreviewRenderPump({
           // Break the promise-recursion chain. Under synchronous test doubles
           // (and occasionally a run of cache hits in browsers), an immediate
           // restart can recurse until the stack overflows.
-          scheduleRenderPumpRestart()
+          if (effectDisposed) {
+            queueMicrotask(() => {
+              void resumeScrubLoopRef.current()
+            })
+          } else {
+            scheduleRenderPumpRestart()
+          }
         }
       }
     }
@@ -1379,7 +1457,7 @@ export function usePreviewRenderPump({
     // main-timeline and sub-comp items alike.
     const resolvePreseekComposition = (compositionId: string) => {
       const comp = useCompositionsStore.getState().compositions.find((c) => c.id === compositionId)
-      return comp ? { fps: comp.fps, items: comp.items } : null
+      return comp ? { fps: comp.fps, items: comp.items, tracks: comp.tracks } : null
     }
     const resolvePreseekItemSrc = (item: VideoItem) => {
       const proxyUrl = item.mediaId ? resolveProxyUrl(item.mediaId) : null
@@ -1408,10 +1486,10 @@ export function usePreviewRenderPump({
       }
 
       const bySource = collectVisibleTrackVideoSourceTimesBySrc(combinedTracks, targetFrame, fps, {
-          requireExplicitSourceFps: true,
-          resolveComposition: resolvePreseekComposition,
-          resolveItemSrc: resolvePreseekItemSrc,
-        })
+        requireExplicitSourceFps: true,
+        resolveComposition: resolvePreseekComposition,
+        resolveItemSrc: resolvePreseekItemSrc,
+      })
       recordPreviewPreseekPlan(targetFrame, bySource)
       runBatchPreseek(bySource)
     }
@@ -1420,7 +1498,9 @@ export function usePreviewRenderPump({
       targetFrame: number,
       direction: -1 | 0 | 1,
       nowMs: number,
+      retryFailedTarget: boolean,
     ) => {
+      const scheduleVersion = ++activeScrubPreseekScheduleVersion
       const bySource = collectVisibleTrackVideoSourceTimesBySrc(combinedTracks, targetFrame, fps, {
         // Match renderVideoItem's sourceFps ?? compositionFps fallback. Older
         // compound items may not persist sourceFps; excluding them here leaves
@@ -1430,7 +1510,14 @@ export function usePreviewRenderPump({
         resolveComposition: resolvePreseekComposition,
         resolveItemSrc: resolvePreseekItemSrc,
       })
-      if (bySource.size === 0) return
+      if (bySource.size === 0) {
+        // There is no worker-backed source to gate this frame. Drop any source
+        // targets left by the previous hover so images/text and the normal
+        // renderer path cannot be held behind an unrelated cancelled decode.
+        setActivePreviewRenderTarget(null)
+        replaceActivePreviewSourceTargets(bySource)
+        return
+      }
 
       recordPreviewPreseekPlan(targetFrame, bySource)
       const elapsedMs =
@@ -1440,6 +1527,48 @@ export function usePreviewRenderPump({
       lastActivePreviewTargetAtMs = nowMs
       const nextSourceTimes = new Map<string, number>()
       let usedDedicatedLane = false
+      let recoveredFailedSchedule = false
+      const requiredPreseekPromises: Array<Promise<ImageBitmap | null>> = []
+      const recoverFailedSchedule = () => {
+        const playbackState = usePlaybackStore.getState()
+        const currentTarget = playbackState.previewFrame ?? playbackState.currentFrame
+        if (
+          !shouldRecoverFailedActivePreseekSchedule({
+            effectDisposed,
+            recoveredFailedSchedule,
+            scheduleVersion,
+            activeScheduleVersion: activeScrubPreseekScheduleVersion,
+            mounted: scrubMountedRef.current,
+            isPlaying: playbackState.isPlaying,
+            currentTarget,
+            targetFrame,
+          })
+        ) {
+          return
+        }
+
+        recoveredFailedSchedule = true
+        // A latest-target worker failure/cancellation has no ready
+        // notification. Leaving the active gate pinned would make every retry
+        // abort forever until the pointer requested a different frame. Unpin
+        // this exact schedule and retry through the normal DOM/MediaBunny
+        // renderer while preserving the visible front buffer.
+        setActivePreviewRenderTarget(null)
+        if (scrubOffscreenRenderedFrameRef.current === targetFrame) {
+          scrubOffscreenRenderedFrameRef.current = null
+        }
+        if (!retryFailedTarget) return
+        scrubRequestedFrameRef.current = targetFrame
+        if (!scrubRenderInFlightRef.current) {
+          void pumpRenderLoop()
+        }
+      }
+      const observeRequiredPreseek = (promise: Promise<ImageBitmap | null>) => {
+        requiredPreseekPromises.push(promise)
+        void promise.then((bitmap) => {
+          if (!bitmap) recoverFailedSchedule()
+        })
+      }
 
       for (const [src, timestamps] of bySource) {
         const exactTimestamp = timestamps[0]
@@ -1449,20 +1578,22 @@ export function usePreviewRenderPump({
 
         if (!usedDedicatedLane) {
           usedDedicatedLane = true
-          void activePreviewPreseek({
-            src,
-            timestamp: exactTimestamp,
-            lookaheadTimestamps: resolveActivePreviewLookaheadTimestamps({
-              sourceTime: exactTimestamp,
-              previousSourceTime: lastActivePreviewSourceTimes.get(src) ?? null,
-              elapsedMs,
-              sourceFps: fps,
-              fallbackDirection: direction,
+          observeRequiredPreseek(
+            activePreviewPreseek({
+              src,
+              timestamp: exactTimestamp,
+              lookaheadTimestamps: resolveActivePreviewLookaheadTimestamps({
+                sourceTime: exactTimestamp,
+                previousSourceTime: lastActivePreviewSourceTimes.get(src) ?? null,
+                elapsedMs,
+                sourceFps: fps,
+                fallbackDirection: direction,
+              }),
             }),
-          })
+          )
           if (timestamps.length > 1) {
             for (const timestamp of timestamps.slice(1)) {
-              void workerBackgroundPreseek(src, timestamp)
+              observeRequiredPreseek(workerBackgroundPreseek(src, timestamp))
             }
           }
           continue
@@ -1471,12 +1602,25 @@ export function usePreviewRenderPump({
         // Stacked secondary sources retain the existing bounded pool. The
         // top active source always owns the isolated latency-critical lane.
         for (const timestamp of timestamps) {
-          void workerBackgroundPreseek(src, timestamp)
+          observeRequiredPreseek(workerBackgroundPreseek(src, timestamp))
         }
       }
 
       replaceActivePreviewSourceTargets(bySource)
       lastActivePreviewSourceTimes = nextSourceTimes
+      void Promise.allSettled(requiredPreseekPromises).then(() => {
+        if (
+          !effectDisposed &&
+          scheduleVersion === activeScrubPreseekScheduleVersion &&
+          !isActivePreviewFrameDecodeReady(targetFrame)
+        ) {
+          // The bounded background queue can resolve an older same-source
+          // request with the newer bitmap that replaced it. Re-check the exact
+          // registered target set after all work settles instead of treating a
+          // non-null promise value as proof that every compound source arrived.
+          recoverFailedSchedule()
+        }
+      })
     }
 
     const primeActivePreviewDecoderAtFrame = (targetFrame: number) => {
@@ -1485,9 +1629,7 @@ export function usePreviewRenderPump({
         resolveComposition: resolvePreseekComposition,
         resolveItemSrc: resolvePreseekItemSrc,
       })
-      const primarySource = bySource.entries().next().value as
-        | [string, number[]]
-        | undefined
+      const primarySource = bySource.entries().next().value as [string, number[]] | undefined
       if (!primarySource) return
 
       const [src, timestamps] = primarySource
@@ -1824,46 +1966,52 @@ export function usePreviewRenderPump({
             pinTransitionPlaybackSession(tw)
             if (lastPausedPrearmTargetRef.current !== pausedPrewarmStartFrame) {
               void (async () => {
-                const mainRenderer = await ensureFastScrubRenderer()
-                if (mainRenderer && 'prewarmItems' in mainRenderer) {
-                  await mainRenderer.prewarmItems?.(
-                    [tw.leftClip.id, tw.rightClip.id],
-                    tw.startFrame,
+                if (bgTransitionRenderInFlightRef.current) return
+                bgTransitionRenderInFlightRef.current = true
+                try {
+                  const bgRenderer = await ensureBgTransitionRenderer()
+                  if (bgRenderer && 'prewarmItems' in bgRenderer) {
+                    await bgRenderer.prewarmItems?.(
+                      [tw.leftClip.id, tw.rightClip.id],
+                      tw.startFrame,
+                    )
+                  }
+                  runBatchPreseek(
+                    collectClipVideoSourceTimesBySrcForFrame(
+                      [tw.leftClip, tw.rightClip],
+                      tw.startFrame,
+                      fps,
+                      { requireExplicitSourceFps: true },
+                    ),
                   )
-                }
-                runBatchPreseek(
-                  collectClipVideoSourceTimesBySrcForFrame(
-                    [tw.leftClip, tw.rightClip],
-                    tw.startFrame,
-                    fps,
-                    { requireExplicitSourceFps: true },
-                  ),
-                )
-                if (!usePlaybackStore.getState().isPlaying && mainRenderer) {
-                  const preRenderCount = Math.min(
-                    playbackTransitionPrerenderRunwayFrames,
-                    tw.endFrame - tw.startFrame,
-                  )
-                  for (let fi = 0; fi < preRenderCount; fi++) {
-                    if (usePlaybackStore.getState().isPlaying) break
-                    const frame = tw.startFrame + fi
-                    try {
-                      await mainRenderer.renderFrame(frame)
-                      if ('getCanvas' in mainRenderer) {
-                        const srcCanvas = (
-                          mainRenderer as { getCanvas: () => OffscreenCanvas }
-                        ).getCanvas()
-                        const snapshot = new OffscreenCanvas(srcCanvas.width, srcCanvas.height)
-                        const snapshotCtx = snapshot.getContext('2d')
-                        if (snapshotCtx) {
-                          snapshotCtx.drawImage(srcCanvas, 0, 0)
-                          transitionSessionBufferedFramesRef.current.set(frame, snapshot)
+                  if (!usePlaybackStore.getState().isPlaying && bgRenderer) {
+                    const preRenderCount = Math.min(
+                      playbackTransitionPrerenderRunwayFrames,
+                      tw.endFrame - tw.startFrame,
+                    )
+                    for (let fi = 0; fi < preRenderCount; fi++) {
+                      if (usePlaybackStore.getState().isPlaying) break
+                      const frame = tw.startFrame + fi
+                      try {
+                        await bgRenderer.renderFrame(frame)
+                        if ('getCanvas' in bgRenderer) {
+                          const srcCanvas = (
+                            bgRenderer as { getCanvas: () => OffscreenCanvas }
+                          ).getCanvas()
+                          const snapshot = new OffscreenCanvas(srcCanvas.width, srcCanvas.height)
+                          const snapshotCtx = snapshot.getContext('2d')
+                          if (snapshotCtx) {
+                            snapshotCtx.drawImage(srcCanvas, 0, 0)
+                            transitionSessionBufferedFramesRef.current.set(frame, snapshot)
+                          }
                         }
+                      } catch {
+                        break
                       }
-                    } catch {
-                      break
                     }
                   }
+                } finally {
+                  bgTransitionRenderInFlightRef.current = false
                 }
               })()
             }
@@ -1903,17 +2051,15 @@ export function usePreviewRenderPump({
 
     const handleScrubTargetUpdate = (state: PlaybackStoreSnapshot, prev: PlaybackStoreSnapshot) => {
       if (state.previewFrame !== null && prev.previewFrame === null) {
-        scrubTargetsInGesture = 1
+        clearReleasedScrubSnapshotGuard()
         // Snapshot at gesture entry, not only when the committed render first
         // completed. The preview controller can be rebuilt between those two
         // moments (resize/workspace/layout changes), while the visible canvas
         // remains the authoritative frame the hover must return to.
         captureCommittedPreviewSnapshot(prev.currentFrame)
-      } else if (
-        state.previewFrame !== null &&
-        state.previewFrame !== prev.previewFrame
-      ) {
-        scrubTargetsInGesture += 1
+      }
+      if (state.isPlaying || state.currentFrame !== prev.currentFrame) {
+        clearReleasedScrubSnapshotGuard()
       }
       if (
         state.isPlaying ||
@@ -1925,30 +2071,29 @@ export function usePreviewRenderPump({
       }
       const settlingReleasedScrubFrame =
         state.previewFrame === null && prev.previewFrame !== null ? state.currentFrame : null
-      const isSequentialSwipeRelease =
-        settlingReleasedScrubFrame !== null && scrubTargetsInGesture >= 3
       const shouldRestoreCommittedSnapshot =
-        committedPreviewSnapshotCanvas &&
+        committedPreviewSnapshot.canvas &&
         shouldRestoreCommittedPreviewSnapshot({
           previewFrame: state.previewFrame,
           previousPreviewFrame: prev.previewFrame,
           currentFrame: state.currentFrame,
-          snapshotFrame: committedPreviewSnapshotFrame,
+          snapshotFrame: committedPreviewSnapshot.frame,
         })
-      if (shouldRestoreCommittedSnapshot && committedPreviewSnapshotCanvas) {
+      if (shouldRestoreCommittedSnapshot && committedPreviewSnapshot.canvas) {
         // Hover skimming may end on a nested frame whose sources were still
         // settling. Restore the last committed pixels synchronously instead
         // of leaving that transient frame visible while currentFrame rerenders.
-        drawSourceToDisplay(committedPreviewSnapshotCanvas, state.currentFrame)
-      } else if (isSequentialSwipeRelease) {
-        // If the gesture began on the live Player, there is no authoritative
-        // canvas snapshot to restore. Hide the skim layer immediately and let
-        // the already-correct Player remain visible while an exact canvas
-        // render for the committed frame is prepared.
-        scrubOffscreenRenderedFrameRef.current = null
-        hideFastScrubOverlay()
+        drawSourceToDisplay(committedPreviewSnapshot.canvas, state.currentFrame)
+        // Keep guarding until a nonblank exact render proves it can replace
+        // this snapshot. Cancelled compound work can complete much later than
+        // the pointer release and otherwise cache/present its cleared canvas.
+        committedPreviewSnapshot.guardFrame = state.currentFrame
+        committedPreviewSnapshot.guardUntilMs = resolveReleasedScrubSnapshotGuardUntilMs({
+          nowMs: performance.now(),
+        })
+      } else if (settlingReleasedScrubFrame !== null) {
+        clearReleasedScrubSnapshotGuard()
       }
-      if (settlingReleasedScrubFrame !== null) scrubTargetsInGesture = 0
       const activePreviewPresentationTarget = resolveActivePreviewPresentationTarget({
         state,
         prev,
@@ -2079,7 +2224,8 @@ export function usePreviewRenderPump({
             prevTargetFrame === null
               ? 0
               : Math.abs(activePreviewPresentationTarget - prevTargetFrame),
-          elapsedMs: lastScrubTargetAtMs === 0 ? Number.POSITIVE_INFINITY : nowMs - lastScrubTargetAtMs,
+          elapsedMs:
+            lastScrubTargetAtMs === 0 ? Number.POSITIVE_INFINITY : nowMs - lastScrubTargetAtMs,
           fps,
         })
         lastScrubTargetAtMs = nowMs
@@ -2095,6 +2241,7 @@ export function usePreviewRenderPump({
           activePreviewPresentationTarget,
           scrubDirectionRef.current,
           nowMs,
+          state.previewFrame !== null || settlingReleasedScrubFrame !== null,
         )
       }
 
@@ -2296,6 +2443,7 @@ export function usePreviewRenderPump({
 
       const playbackState = usePlaybackStore.getState()
       const currentFrame = playbackState.currentFrame
+      clearReleasedScrubSnapshotGuard()
       const gradeBypassChanged =
         state.colorGradeBypassed !== prev.colorGradeBypassed ||
         state.colorGradeComparisonMode !== prev.colorGradeComparisonMode
@@ -2334,6 +2482,7 @@ export function usePreviewRenderPump({
         return
 
       const currentFrame = playbackState.currentFrame
+      clearReleasedScrubSnapshotGuard()
       if (scrubRendererRef.current) {
         scrubRendererRef.current.invalidateFrameCache({ frames: [currentFrame] })
       }
@@ -2356,6 +2505,7 @@ export function usePreviewRenderPump({
       )
         return
 
+      clearReleasedScrubSnapshotGuard()
       if (scrubRendererRef.current) {
         scrubRendererRef.current.invalidateFrameCache({ frames: [targetFrame] })
       }
@@ -2548,6 +2698,7 @@ export function usePreviewRenderPump({
     }
 
     return () => {
+      effectDisposed = true
       scrubMountedRef.current = false
       resetScrubLoopState()
       clearScheduledTransitionPrepare()
@@ -2606,6 +2757,7 @@ export function usePreviewRenderPump({
     bgTransitionRenderInFlightRef,
     bypassPreviewSeekRef,
     cacheTransitionSessionFrame,
+    committedPreviewSnapshotRef,
     combinedTracks,
     deferredPlaybackTransitionPrepareFrameRef,
     ensureBgTransitionRenderer,

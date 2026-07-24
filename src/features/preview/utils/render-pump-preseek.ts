@@ -1,4 +1,7 @@
-import { getVideoTargetTimeSeconds } from '@/features/preview/deps/composition-runtime'
+import {
+  getVideoTargetTimeSeconds,
+  resolveTrackRenderState,
+} from '@/features/preview/deps/composition-runtime'
 import { timelineToSourceFrames } from '@/features/preview/deps/timeline-utils'
 import type { CompositionItem, TimelineItem, TimelineTrack, VideoItem } from '@/types/timeline'
 
@@ -6,6 +9,7 @@ import type { CompositionItem, TimelineItem, TimelineTrack, VideoItem } from '@/
 export interface PreseekSubComposition {
   fps: number
   items: TimelineItem[]
+  tracks?: TimelineTrack[]
 }
 
 export interface RenderPumpSourceTimeOptions {
@@ -148,7 +152,11 @@ function collectSubCompositionVideoSourceTimes(
 
   visitedCompositionIds.add(item.compositionId)
   try {
+    const visibleTrackIds = subComp.tracks
+      ? resolveTrackRenderState(subComp.tracks).visibleTrackIds
+      : null
     for (const subItem of subComp.items) {
+      if (visibleTrackIds && !visibleTrackIds.has(subItem.trackId)) continue
       if (subItem.type === 'composition') {
         collectSubCompositionVideoSourceTimes(
           bySource,
@@ -188,7 +196,7 @@ export function collectVisibleTrackVideoSourceTimesBySrc(
 ): Map<string, number[]> {
   const bySource = new Map<string, number[]>()
 
-  for (const track of tracks) {
+  for (const track of resolveTrackRenderState(tracks).visibleTracks) {
     for (const item of track.items) {
       if (item.type === 'composition') {
         collectSubCompositionVideoSourceTimes(
@@ -443,18 +451,12 @@ export function resolveActivePreviewLookaheadTimestamps({
   const frameDuration = 1 / normalizedFps
   const sourceDelta = previousSourceTime === null ? 0 : sourceTime - previousSourceTime
   const direction: -1 | 0 | 1 =
-    Math.abs(sourceDelta) > frameDuration / 4
-      ? sourceDelta > 0
-        ? 1
-        : -1
-      : fallbackDirection
+    Math.abs(sourceDelta) > frameDuration / 4 ? (sourceDelta > 0 ? 1 : -1) : fallbackDirection
   if (direction === 0) return []
 
   const safeElapsedMs = Number.isFinite(elapsedMs) && elapsedMs > 0 ? elapsedMs : 1000
   const velocityFramesPerSecond =
-    previousSourceTime === null
-      ? 0
-      : (Math.abs(sourceDelta) * normalizedFps * 1000) / safeElapsedMs
+    previousSourceTime === null ? 0 : (Math.abs(sourceDelta) * normalizedFps * 1000) / safeElapsedMs
   const strideFrames =
     velocityFramesPerSecond >= 36
       ? Math.max(4, Math.min(120, Math.round(velocityFramesPerSecond * 0.05)))

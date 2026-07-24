@@ -7,12 +7,15 @@ import {
   resolveBackwardScrubFlags,
   resolveBackwardScrubFramePlan,
   resolveRenderPumpTargetFrame,
+  resolveReleasedScrubSnapshotGuardUntilMs,
   resolveScrubDirectionPlan,
   selectBoundaryPrewarmFrames,
   selectBoundarySourcePrewarmSources,
   shouldDropStalePausedPreviewRender,
   shouldPreservePausedTransportPresentation,
+  shouldRejectBlankReleasedScrubHandoff,
   shouldRejectBlankTransportHandoff,
+  shouldRecoverFailedActivePreseekSchedule,
   shouldRestoreCommittedPreviewSnapshot,
   type RenderPumpFrameState,
 } from './render-pump-frame-plan'
@@ -131,12 +134,69 @@ describe('render pump frame plan', () => {
       displayedFrameBlank: false,
     }
 
-    expect(
-      shouldRejectBlankTransportHandoff({ ...base, isTransportSettling: false }),
-    ).toBe(false)
+    expect(shouldRejectBlankTransportHandoff({ ...base, isTransportSettling: false })).toBe(false)
     expect(shouldRejectBlankTransportHandoff({ ...base, displayedFrame: 98 })).toBe(false)
     expect(shouldRejectBlankTransportHandoff({ ...base, renderedFrameBlank: false })).toBe(false)
     expect(shouldRejectBlankTransportHandoff({ ...base, displayedFrameBlank: true })).toBe(false)
+  })
+
+  it('keeps a known-good committed frame when a delayed scrub-release render is blank', () => {
+    const base = {
+      releaseGuardFrame: 100,
+      renderedFrame: 100,
+      currentFrame: 100,
+      previewFrame: null,
+      isPlaying: false,
+      snapshotFrame: 100,
+      renderedFrameBlank: true,
+      snapshotFrameBlank: false,
+    }
+
+    expect(shouldRejectBlankReleasedScrubHandoff(base)).toBe(true)
+    expect(shouldRejectBlankReleasedScrubHandoff({ ...base, releaseGuardFrame: null })).toBe(false)
+    expect(shouldRejectBlankReleasedScrubHandoff({ ...base, renderedFrame: 101 })).toBe(false)
+    expect(shouldRejectBlankReleasedScrubHandoff({ ...base, previewFrame: 101 })).toBe(false)
+    expect(shouldRejectBlankReleasedScrubHandoff({ ...base, renderedFrameBlank: false })).toBe(
+      false,
+    )
+    expect(shouldRejectBlankReleasedScrubHandoff({ ...base, snapshotFrameBlank: true })).toBe(false)
+  })
+
+  it('bounds committed snapshot ownership so later same-frame edits can take over', () => {
+    expect(
+      resolveReleasedScrubSnapshotGuardUntilMs({
+        nowMs: 2_500,
+      }),
+    ).toBe(32_500)
+  })
+
+  it('does not let a disposed render-pump generation release a newer active preseek gate', () => {
+    const currentSchedule = {
+      effectDisposed: false,
+      recoveredFailedSchedule: false,
+      scheduleVersion: 2,
+      activeScheduleVersion: 2,
+      mounted: true,
+      isPlaying: false,
+      currentTarget: 120,
+      targetFrame: 120,
+    }
+
+    expect(shouldRecoverFailedActivePreseekSchedule(currentSchedule)).toBe(true)
+    expect(
+      shouldRecoverFailedActivePreseekSchedule({
+        ...currentSchedule,
+        // Models an old promise settling after the replacement effect has set
+        // the shared mounted ref back to true.
+        effectDisposed: true,
+      }),
+    ).toBe(false)
+    expect(
+      shouldRecoverFailedActivePreseekSchedule({
+        ...currentSchedule,
+        scheduleVersion: 1,
+      }),
+    ).toBe(false)
   })
 
   it('pins the current rendered frame across forced-overlay play and pause handoffs', () => {

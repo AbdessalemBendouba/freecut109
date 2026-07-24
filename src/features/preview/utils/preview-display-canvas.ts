@@ -10,6 +10,13 @@ type PreviewCanvasSize = {
   height: number
 }
 
+export interface CommittedPreviewSnapshotState {
+  canvas: OffscreenCanvas | null
+  frame: number | null
+  guardFrame: number | null
+  guardUntilMs: number
+}
+
 export function getPreviewDisplayEdgePadding(
   playerSize: PreviewCanvasSize,
   renderSize: PreviewCanvasSize,
@@ -17,17 +24,13 @@ export function getPreviewDisplayEdgePadding(
 ): number {
   const scaleX = renderSize.width > 0 ? playerSize.width / renderSize.width : 1
   const scaleY = renderSize.height > 0 ? playerSize.height / renderSize.height : 1
-  const smallestDeviceScale = Math.max(
-    Number.EPSILON,
-    Math.min(scaleX, scaleY) * devicePixelRatio,
-  )
+  const smallestDeviceScale = Math.max(Number.EPSILON, Math.min(scaleX, scaleY) * devicePixelRatio)
   const minimumPadding = Math.min(
     MAX_PREVIEW_DISPLAY_EDGE_PADDING_PX,
     Math.max(
       MIN_PREVIEW_DISPLAY_EDGE_PADDING_PX,
       Math.ceil(
-        MIN_PREVIEW_DISPLAY_EDGE_OVERSCAN_DEVICE_PX / smallestDeviceScale -
-          PIXEL_ALIGNMENT_EPSILON,
+        MIN_PREVIEW_DISPLAY_EDGE_OVERSCAN_DEVICE_PX / smallestDeviceScale - PIXEL_ALIGNMENT_EPSILON,
       ),
     ),
   )
@@ -36,11 +39,7 @@ export function getPreviewDisplayEdgePadding(
     minimumPadding + MAX_PIXEL_ALIGNMENT_SEARCH_STEPS,
   )
 
-  for (
-    let padding = minimumPadding;
-    padding <= alignmentSearchEnd;
-    padding++
-  ) {
+  for (let padding = minimumPadding; padding <= alignmentSearchEnd; padding++) {
     const xDevicePixels = padding * scaleX * devicePixelRatio
     const yDevicePixels = padding * scaleY * devicePixelRatio
     if (

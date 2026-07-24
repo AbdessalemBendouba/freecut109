@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import type { CompositionInputProps } from '@/types/export'
 
 class FakeOffscreenCanvas {
@@ -49,6 +49,8 @@ const buildSubCompositionInputMock = vi.hoisted(() => vi.fn())
 const buildSubCompositionPreviewSignatureMock = vi.hoisted(() => vi.fn())
 const resolveMediaUrlsMock = vi.hoisted(() => vi.fn())
 const createCompositionRendererMock = vi.hoisted(() => vi.fn())
+let clearDisplayCanvasMock: ReturnType<typeof vi.fn>
+let drawDisplayCanvasMock: ReturnType<typeof vi.fn>
 
 vi.mock('@/shared/state/playback', () => {
   const usePlaybackStore = Object.assign(
@@ -92,12 +94,14 @@ import { disposeComparisonCompositionRenderSessionsForTest } from './comparison-
 describe('InlineCompositionPreview', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearDisplayCanvasMock = vi.fn()
+    drawDisplayCanvasMock = vi.fn()
     const canvasPrototype = HTMLCanvasElement.prototype as unknown as {
       getContext: () => CanvasRenderingContext2D
     }
     vi.spyOn(canvasPrototype, 'getContext').mockReturnValue({
-      clearRect: vi.fn(),
-      drawImage: vi.fn(),
+      clearRect: clearDisplayCanvasMock,
+      drawImage: drawDisplayCanvasMock,
     } as unknown as CanvasRenderingContext2D)
     signatureState.counter += 1
     signatureState.value = `composition-graph-${signatureState.counter}`
@@ -286,6 +290,61 @@ describe('InlineCompositionPreview', () => {
     expect(createCompositionRendererMock).toHaveBeenCalledTimes(1)
     expect(renderer.preload).toHaveBeenCalledTimes(1)
     expect(renderer.dispose).not.toHaveBeenCalled()
+  })
+
+  it('presents an in-flight frame and coalesces continuous drag updates', async () => {
+    const pendingRenders: Array<{ frame: number; resolve: () => void }> = []
+    const renderer = {
+      preload: vi.fn().mockResolvedValue(undefined),
+      renderFrame: vi.fn(
+        (renderFrame: number) =>
+          new Promise<void>((resolve) => {
+            pendingRenders.push({ frame: renderFrame, resolve })
+          }),
+      ),
+      warmGpuPipeline: vi.fn().mockResolvedValue(undefined),
+      dispose: vi.fn(),
+    }
+    createCompositionRendererMock.mockResolvedValue(renderer)
+
+    const renderFramePreview = (seekFrame: number) => (
+      <InlineCompositionPreview
+        compositionId="composition-1"
+        seekFrame={seekFrame}
+        containerSize={{ width: 320, height: 180 }}
+        presentation="frame"
+      />
+    )
+    const { rerender } = render(renderFramePreview(12))
+
+    await waitFor(() => expect(renderer.renderFrame).toHaveBeenCalledWith(12))
+    await waitFor(() => expect(screen.getByText('Loading compound clip...')).toBeTruthy())
+
+    rerender(renderFramePreview(13))
+    rerender(renderFramePreview(14))
+    rerender(renderFramePreview(15))
+
+    expect(renderer.renderFrame).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      const firstRender = pendingRenders[0]
+      if (!firstRender) throw new Error('Expected the initial comparison frame render')
+      firstRender.resolve()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => expect(drawDisplayCanvasMock).toHaveBeenCalledOnce())
+    await waitFor(() => expect(screen.queryByText('Loading compound clip...')).toBeNull())
+    await waitFor(() => expect(renderer.renderFrame).toHaveBeenCalledTimes(2))
+    expect(pendingRenders.map(({ frame }) => frame)).toEqual([12, 15])
+
+    await act(async () => {
+      const latestRender = pendingRenders[1]
+      if (!latestRender) throw new Error('Expected the latest comparison frame render')
+      latestRender.resolve()
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(drawDisplayCanvasMock).toHaveBeenCalledTimes(2))
   })
 
   it('renders priority video-only frames before background preload completes', async () => {

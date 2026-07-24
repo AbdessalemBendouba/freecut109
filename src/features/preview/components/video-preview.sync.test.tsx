@@ -15,6 +15,8 @@ import { useMediaLibraryStore } from '@/features/preview/deps/media-library'
 import { useGizmoStore } from '../stores/gizmo-store'
 import { useMaskEditorStore } from '../stores/mask-editor-store'
 
+const DEFAULT_PROJECT = { width: 1920, height: 1080, backgroundColor: '#000000' }
+
 const seekToMock = vi.fn<(frame: number) => void>()
 const playMock = vi.fn()
 const pauseMock = vi.fn()
@@ -78,6 +80,8 @@ let completeDeferredPlayerSeek: ((frameOverride?: number) => void) | null = null
 let lastPlayerDimensions: { width: number; height: number } | null = null
 let playerDimensionsHistory: Array<{ width: number; height: number }> = []
 let canvasGetContextSpy: ReturnType<typeof vi.spyOn> | null = null
+let canvasPixelReadbackEnabled = false
+let blankCanvasState = new WeakSet<HTMLCanvasElement>()
 let lastCompositionKeyframes: Array<{
   itemId: string
   properties: Array<{
@@ -131,12 +135,34 @@ const rendererMockState = vi.hoisted(() => {
 
 const createCompositionRendererMock = rendererMockState.create
 
-function createMockCanvasContext(): CanvasRenderingContext2D {
+function setMockCanvasBlank(canvas: HTMLCanvasElement, blank: boolean) {
+  if (blank) {
+    blankCanvasState.add(canvas)
+  } else {
+    blankCanvasState.delete(canvas)
+  }
+}
+
+function createMockCanvasContext(canvas?: HTMLCanvasElement): CanvasRenderingContext2D {
   return {
-    clearRect: vi.fn(),
-    drawImage: vi.fn(),
+    canvas,
+    clearRect: vi.fn(() => {
+      if (canvasPixelReadbackEnabled && canvas) setMockCanvasBlank(canvas, true)
+    }),
+    drawImage: vi.fn((source: CanvasImageSource) => {
+      if (!canvasPixelReadbackEnabled || !canvas) return
+      setMockCanvasBlank(
+        canvas,
+        source instanceof HTMLCanvasElement && blankCanvasState.has(source),
+      )
+    }),
     fillRect: vi.fn(),
-    getImageData: vi.fn(),
+    getImageData: vi.fn(() => {
+      if (!canvasPixelReadbackEnabled) return undefined
+      const data = new Uint8ClampedArray(8 * 8 * 4)
+      if (!canvas || !blankCanvasState.has(canvas)) data[0] = 255
+      return { data }
+    }),
     putImageData: vi.fn(),
     save: vi.fn(),
     restore: vi.fn(),
@@ -419,6 +445,16 @@ vi.mock('@/features/preview/deps/composition-runtime', () => ({
         ),
       ),
   ),
+  resolveTrackRenderState: (tracks: Array<{ id: string; visible?: boolean; solo?: boolean }>) => {
+    const hasSoloTracks = tracks.some((track) => track.solo)
+    const visibleTracks = tracks.filter((track) =>
+      hasSoloTracks ? track.solo === true : track.visible !== false,
+    )
+    return {
+      visibleTracks,
+      visibleTrackIds: new Set(visibleTracks.map((track) => track.id)),
+    }
+  },
 }))
 
 vi.mock('./gizmo-overlay', () => ({
@@ -511,6 +547,7 @@ function resetStores() {
     captureFrame: null,
     captureFrameImageData: null,
     captureCanvasSource: null,
+    postEditWarmRequest: null,
   })
 
   useItemsStore.getState().setTracks([])
@@ -705,10 +742,7 @@ function setCrossfadeTransitionFixture() {
 
 function renderDefaultPreview() {
   return render(
-    <VideoPreview
-      project={{ width: 1920, height: 1080, backgroundColor: '#000000' }}
-      containerSize={{ width: 1280, height: 720 }}
-    />,
+    <VideoPreview project={DEFAULT_PROJECT} containerSize={{ width: 1280, height: 720 }} />,
   )
 }
 
@@ -789,7 +823,8 @@ async function renderReadySingleRendererPreview(
   expectedFrame: number,
   options: { expectedDisplayedFrame?: number; expectVisible?: boolean } = {},
 ) {
-  const { container } = renderDefaultPreview()
+  const rendered = renderDefaultPreview()
+  const { container } = rendered
   const scrubCanvas = getScrubCanvas(container)
 
   const renderer = await waitFor(() => {
@@ -800,7 +835,7 @@ async function renderReadySingleRendererPreview(
 
   await waitForRendererFrame(renderer, expectedFrame, scrubCanvas, options)
 
-  return { container, renderer, scrubCanvas }
+  return { ...rendered, renderer, scrubCanvas }
 }
 
 async function waitForSingleRendererFrame(
@@ -826,7 +861,13 @@ async function waitForLatestRendererFrame(
 ) {
   const renderer = await waitFor(() => {
     expect(rendererMockState.instances.length).toBeGreaterThan(0)
-    return rendererMockState.instances[rendererMockState.instances.length - 1]!
+    const rendererForFrame = [...rendererMockState.instances]
+      .reverse()
+      .find((instance) =>
+        instance.renderFrame.mock.calls.some(([frame]) => frame === expectedFrame),
+      )
+    expect(rendererForFrame).toBeDefined()
+    return rendererForFrame!
   })
 
   await waitForRendererFrame(renderer, expectedFrame, scrubCanvas, options)
@@ -865,6 +906,8 @@ describe('VideoPreview sync behavior', () => {
     resolveProxyUrlMock.mockClear()
     createCompositionRendererMock.mockClear()
     rendererMockState.instances.length = 0
+    canvasPixelReadbackEnabled = false
+    blankCanvasState = new WeakSet<HTMLCanvasElement>()
     canvasGetContextSpy?.mockRestore()
     canvasGetContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
     ;(
@@ -873,9 +916,9 @@ describe('VideoPreview sync behavior', () => {
           implementation: (contextId: string) => CanvasRenderingContext2D | null,
         ) => void
       }
-    ).mockImplementation((contextId) => {
+    ).mockImplementation(function (this: HTMLCanvasElement, contextId) {
       if (contextId === '2d') {
-        return createMockCanvasContext()
+        return createMockCanvasContext(this)
       }
       return null
     })
@@ -2846,6 +2889,115 @@ describe('VideoPreview sync behavior', () => {
     })
   })
 
+  it('serializes a post-edit warm request with a compound ruler skim', async () => {
+    setSingleCompoundItemWithGpuEffectAtFrame(47)
+    const { scrubCanvas, renderer } = await renderReadySingleRendererPreview(47)
+
+    renderer.renderFrame.mockClear()
+    renderer.prewarmFrames.mockClear()
+
+    let resolveWarm: (() => void) | null = null
+    let activeRendererOperations = 0
+    let maxActiveRendererOperations = 0
+    let shouldHoldWarm = true
+    renderer.prewarmFrames.mockImplementation(async () => {
+      activeRendererOperations += 1
+      maxActiveRendererOperations = Math.max(maxActiveRendererOperations, activeRendererOperations)
+      try {
+        if (shouldHoldWarm) {
+          shouldHoldWarm = false
+          await new Promise<void>((resolve) => {
+            resolveWarm = resolve
+          })
+        }
+      } finally {
+        activeRendererOperations -= 1
+      }
+    })
+    renderer.renderFrame.mockImplementation(async () => {
+      activeRendererOperations += 1
+      maxActiveRendererOperations = Math.max(maxActiveRendererOperations, activeRendererOperations)
+      await Promise.resolve()
+      activeRendererOperations -= 1
+    })
+
+    act(() => {
+      usePreviewBridgeStore.getState().requestPostEditWarm(47, ['compound-item'], [47, 48, 49])
+    })
+    await waitFor(() => {
+      expect(renderer.prewarmFrames).toHaveBeenCalled()
+    })
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(48)
+    })
+    expect(getDisplayedFrame()).toBe(47)
+    expect(scrubCanvas.style.visibility).toBe('visible')
+
+    await act(async () => {
+      resolveWarm?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(48)
+      expect(getDisplayedFrame()).toBe(48)
+      expect(scrubCanvas.style.visibility).toBe('visible')
+    })
+    expect(renderer.renderFrame).not.toHaveBeenCalledWith(47)
+    expect(maxActiveRendererOperations).toBe(1)
+  })
+
+  it('hands an in-flight compound skim to the replacement render-pump generation', async () => {
+    setSingleCompoundItemWithGpuEffectAtFrame(47)
+    const { scrubCanvas, renderer, rerender } = await renderReadySingleRendererPreview(47)
+
+    let resolveOldFrame48: (() => void) | null = null
+    renderer.renderFrame.mockClear()
+    renderer.renderFrame.mockImplementation(async (frame: number) => {
+      if (frame === 48) {
+        await new Promise<void>((resolve) => {
+          resolveOldFrame48 = resolve
+        })
+      }
+    })
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(48)
+    })
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(48)
+      expect(resolveOldFrame48).not.toBeNull()
+    })
+
+    rerender(
+      <VideoPreview
+        project={{ ...DEFAULT_PROJECT, backgroundColor: '#010101' }}
+        containerSize={{ width: 1280, height: 720 }}
+      />,
+    )
+    await waitFor(() => {
+      expect(renderer.dispose).toHaveBeenCalled()
+    })
+
+    await act(async () => {
+      resolveOldFrame48?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const replacementRenderer = await waitFor(() => {
+      expect(rendererMockState.instances.length).toBe(2)
+      return rendererMockState.instances[1]!
+    })
+    await waitFor(() => {
+      expect(replacementRenderer.renderFrame).toHaveBeenCalledWith(48)
+      expect(getDisplayedFrame()).toBe(48)
+      expect(scrubCanvas.style.visibility).toBe('visible')
+    })
+  })
+
   it('drops an in-flight compound skim frame after the pointer leaves the ruler', async () => {
     setSingleCompoundItemWithGpuEffectAtFrame(47)
     const { scrubCanvas, renderer } = await renderReadySingleRendererPreview(47)
@@ -2944,7 +3096,7 @@ describe('VideoPreview sync behavior', () => {
     expect(scrubCanvas.style.visibility).toBe('visible')
   })
 
-  it('does not restore a hidden stale scrub canvas after a fast ruler swipe', async () => {
+  it('keeps the last valid front buffer visible until a fast ruler swipe settles', async () => {
     setSingleVideoItemAtFrame({ id: 'item-fast-swipe-release' }, 47)
     const { scrubCanvas, renderer } = await renderReadySingleRendererPreview(47, {
       expectVisible: false,
@@ -2981,11 +3133,162 @@ describe('VideoPreview sync behavior', () => {
       usePlaybackStore.getState().setPreviewFrame(null)
     })
 
-    expect(scrubCanvas.style.visibility).toBe('hidden')
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(47)
+      expect(resolveCommittedFrame).not.toBeNull()
+    })
+    expect(getDisplayedFrame()).toBe(50)
+    expect(scrubCanvas.style.visibility).toBe('visible')
 
     await act(async () => {
       resolveCommittedFrame?.()
       await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(47)
+      expect(scrubCanvas.style.visibility).toBe('visible')
+    })
+  })
+
+  it('rejects and evicts a delayed blank render after restoring the committed scrub frame', async () => {
+    canvasPixelReadbackEnabled = true
+    setSingleCompoundItemWithGpuEffectAtFrame(47)
+    const { scrubCanvas, renderer, rerender } = await renderReadySingleRendererPreview(47)
+    const rendererCanvas = (
+      createCompositionRendererMock.mock.calls[0] as unknown as [unknown, HTMLCanvasElement]
+    )[1]
+    expect(rendererCanvas).toBeDefined()
+    expect(blankCanvasState.has(scrubCanvas)).toBe(false)
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(48)
+    })
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(48)
+    })
+
+    let resolveBlankCommittedFrame: (() => void) | null = null
+    renderer.renderFrame.mockImplementation(async (frame: number) => {
+      if (frame !== 47) {
+        setMockCanvasBlank(rendererCanvas, false)
+        return
+      }
+      await new Promise<void>((resolve) => {
+        resolveBlankCommittedFrame = resolve
+      })
+      setMockCanvasBlank(rendererCanvas, true)
+    })
+    renderer.renderFrame.mockClear()
+    renderer.invalidateFrameCache.mockClear()
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(null)
+    })
+    await waitFor(() => {
+      expect(resolveBlankCommittedFrame).not.toBeNull()
+      expect(getDisplayedFrame()).toBe(47)
+    })
+
+    // Model a layout resize clearing the visible canvas while the stale render
+    // is outstanding. The layout presenter must redraw the immutable snapshot
+    // without consulting the in-flight shared offscreen surface.
+    setMockCanvasBlank(scrubCanvas, true)
+    rerender(
+      <VideoPreview project={DEFAULT_PROJECT} containerSize={{ width: 1200, height: 675 }} />,
+    )
+    await waitFor(() => {
+      expect(blankCanvasState.has(scrubCanvas)).toBe(false)
+      expect(getDisplayedFrame()).toBe(47)
+    })
+
+    // The delayed blank completion must still be rejected and evicted.
+    setMockCanvasBlank(scrubCanvas, true)
+    await act(async () => {
+      resolveBlankCommittedFrame?.()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(renderer.invalidateFrameCache).toHaveBeenCalledWith({ frames: [47] })
+      expect(getDisplayedFrame()).toBe(47)
+      expect(blankCanvasState.has(scrubCanvas)).toBe(false)
+    })
+  })
+
+  it('allows an intentional same-frame blank after an item edit invalidates the release guard', async () => {
+    canvasPixelReadbackEnabled = true
+    setSingleCompoundItemWithGpuEffectAtFrame(47)
+    const { scrubCanvas, renderer } = await renderReadySingleRendererPreview(47)
+    const rendererCanvas = (
+      createCompositionRendererMock.mock.calls[0] as unknown as [unknown, HTMLCanvasElement]
+    )[1]
+
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(48)
+    })
+    await waitFor(() => {
+      expect(getDisplayedFrame()).toBe(48)
+    })
+
+    renderer.renderFrame.mockImplementation(async (frame: number) => {
+      if (frame === 47) setMockCanvasBlank(rendererCanvas, true)
+    })
+    renderer.renderFrame.mockClear()
+    renderer.invalidateFrameCache.mockClear()
+    act(() => {
+      usePlaybackStore.getState().setPreviewFrame(null)
+    })
+    await waitFor(() => {
+      expect(renderer.invalidateFrameCache).toHaveBeenCalledWith({ frames: [47] })
+      expect(getDisplayedFrame()).toBe(47)
+      expect(blankCanvasState.has(scrubCanvas)).toBe(false)
+    })
+
+    // A same-frame item edit invalidates the old release snapshot. Its
+    // deliberately blank result must be allowed through instead of being
+    // mistaken for the cancelled render above.
+    renderer.renderFrame.mockImplementation(async () => {
+      setMockCanvasBlank(rendererCanvas, true)
+    })
+    renderer.renderFrame.mockClear()
+    act(() => {
+      useItemsStore
+        .getState()
+        .setItems(
+          useItemsStore
+            .getState()
+            .items.map((item) =>
+              item.id === 'compound-gpu-item' ? { ...item, label: 'Edited Compound GPU' } : item,
+            ),
+        )
+    })
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(47)
+      expect(getDisplayedFrame()).toBe(47)
+      expect(blankCanvasState.has(scrubCanvas)).toBe(true)
+    })
+
+    renderer.renderFrame.mockImplementation(async () => {
+      setMockCanvasBlank(rendererCanvas, false)
+    })
+    renderer.renderFrame.mockClear()
+    renderer.invalidateFrameCache.mockClear()
+    act(() => {
+      useItemsStore
+        .getState()
+        .setItems(
+          useItemsStore
+            .getState()
+            .items.map((item) =>
+              item.id === 'compound-gpu-item' ? { ...item, label: 'Compound GPU' } : item,
+            ),
+        )
+    })
+    await waitFor(() => {
+      expect(renderer.renderFrame).toHaveBeenCalledWith(47)
+      expect(blankCanvasState.has(scrubCanvas)).toBe(false)
     })
   })
 
@@ -3031,6 +3334,43 @@ describe('VideoPreview sync behavior', () => {
     })
 
     expect(renderer.renderFrame).toHaveBeenCalledWith(30)
+  })
+
+  it('does not tag an aborted shared-canvas capture as a rendered frame', async () => {
+    setSingleVideoItemAtFrame({ id: 'item-aborted-scope-capture' })
+    const { renderer } = await renderReadySingleRendererPreview(24, { expectVisible: false })
+    const captureCanvasSource = await waitFor(() => {
+      const fn = usePreviewBridgeStore.getState().captureCanvasSource
+      expect(fn).not.toBeNull()
+      return fn!
+    })
+
+    act(() => {
+      // Prefer-rendered capture follows this presented frame without changing
+      // playback, so the render pump cannot race the capture under test.
+      usePreviewBridgeStore.getState().setDisplayedFrame(25)
+    })
+    renderer.renderFrame.mockClear()
+    let abortNextCapture = true
+    renderer.wasLastRenderAborted.mockImplementation(() => {
+      const aborted = abortNextCapture
+      abortNextCapture = false
+      return aborted
+    })
+
+    let abortedSource: OffscreenCanvas | HTMLCanvasElement | null = null
+    await act(async () => {
+      abortedSource = await captureCanvasSource({ fresh: true, preferRenderedFrame: true })
+    })
+    expect(abortedSource).toBeNull()
+
+    let recoveredSource: OffscreenCanvas | HTMLCanvasElement | null = null
+    await act(async () => {
+      recoveredSource = await captureCanvasSource({ fresh: true, preferRenderedFrame: true })
+    })
+
+    expect(recoveredSource).not.toBeNull()
+    expect(renderer.renderFrame.mock.calls.filter(([frame]) => frame === 25)).toHaveLength(2)
   })
 
   it('captures a refreshed paused scope sample after a live gpu effect preview changes', async () => {
@@ -3947,9 +4287,7 @@ describe('VideoPreview sync behavior', () => {
       const displayedFrame = getDisplayedFrame()
       expect(displayedFrame).not.toBeNull()
       expect(
-        document.querySelector(
-          '[data-dom-text-scrub-overlay] [data-testid="mock-player-frame"]',
-        ),
+        document.querySelector('[data-dom-text-scrub-overlay] [data-testid="mock-player-frame"]'),
       ).toHaveTextContent(String(displayedFrame))
       const keyframesForItem = lastCompositionKeyframes.find((entry) => entry.itemId === 'item-1')
       const xProperty = keyframesForItem?.properties.find((property) => property.property === 'x')

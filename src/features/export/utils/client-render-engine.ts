@@ -87,6 +87,7 @@ import {
   collectFrameVideoCandidates,
   getVideoTargetTimeSeconds,
   resolveFrameRenderScene,
+  resolveTrackRenderState,
 } from '@/features/export/deps/composition-runtime'
 import {
   renderItem,
@@ -123,16 +124,19 @@ export function buildSubCompositionRenderTracks(
     items: subComp.items.filter((item) => item.trackId === track.id),
   }))
 
-  return appendVirtualTranscriptCaptionTrack(
+  const renderTracks = appendVirtualTranscriptCaptionTrack(
     tracksWithItems,
     subComp.fps,
     subComp.width,
     subComp.height,
   )
+  const { visibleTrackIds } = resolveTrackRenderState(renderTracks)
+
+  return renderTracks
     .sort((left, right) => (right.order ?? 0) - (left.order ?? 0))
     .map((track) => ({
       order: track.order ?? 0,
-      visible: track.visible !== false,
+      visible: visibleTrackIds.has(track.id),
       items: (track.items ?? []).filter(
         (item) => item.type !== 'audio' && item.type !== 'adjustment',
       ),
@@ -1167,8 +1171,7 @@ export async function createCompositionRenderer(
       subKfMap.set(kf.itemId, kf)
     }
     const subAdjustmentLayers: AdjustmentLayerWithTrackOrder[] = []
-    for (const t of subComp.tracks) {
-      if (t.visible === false) continue
+    for (const t of resolveTrackRenderState(subComp.tracks).visibleTracks) {
       const trackOrder = t.order ?? 0
       for (const i of subComp.items) {
         if (i.trackId === t.id && i.type === 'adjustment') {

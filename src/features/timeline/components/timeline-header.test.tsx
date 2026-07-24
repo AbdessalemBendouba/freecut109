@@ -6,7 +6,10 @@ import { useZoomStore } from '../stores/zoom-store'
 import { useSelectionStore } from '@/shared/state/selection'
 import { TimelineHeader } from './timeline-header'
 
-const { micRenderSpy } = vi.hoisted(() => ({ micRenderSpy: vi.fn() }))
+const { micRenderSpy, sliderInput } = vi.hoisted(() => ({
+  micRenderSpy: vi.fn(),
+  sliderInput: { value: 0.75 },
+}))
 
 vi.mock('@/components/ui/slider', async () => {
   const { forwardRef } = await vi.importActual<typeof import('react')>('react')
@@ -30,8 +33,8 @@ vi.mock('@/components/ui/slider', async () => {
               type="button"
               role="slider"
               aria-valuenow={value?.[0]}
-              onMouseDown={() => onValueChange?.([0.75])}
-              onMouseUp={() => onValueCommit?.([0.75])}
+              onMouseDown={() => onValueChange?.([sliderInput.value])}
+              onMouseUp={() => onValueCommit?.([sliderInput.value])}
             />
           </span>
         </span>
@@ -50,6 +53,7 @@ vi.mock('./mic-record-control', () => ({
 describe('TimelineHeader zoom slider', () => {
   beforeEach(() => {
     micRenderSpy.mockClear()
+    sliderInput.value = 0.75
     useZoomStore.getState().setZoomLevelSynchronized(1)
     useSelectionStore.setState({
       selectedItemIds: [],
@@ -88,6 +92,23 @@ describe('TimelineHeader zoom slider', () => {
     expect(micRenderSpy).toHaveBeenCalledTimes(1)
 
     animationFrameSpy.mockRestore()
+  })
+
+  it('releases a max-zoom preview when a later zoom supersedes its queued target', () => {
+    sliderInput.value = 1
+    const onZoomChange = vi.fn()
+
+    render(<TimelineHeader onZoomChange={onZoomChange} />)
+    const slider = screen.getByTestId('zoom-slider')
+
+    fireEvent.mouseDown(screen.getByRole('slider'))
+    fireEvent.mouseUp(screen.getByRole('slider'))
+    expect(onZoomChange).toHaveBeenLastCalledWith(ZOOM_MAX)
+
+    act(() => useZoomStore.getState().setZoomLevelSynchronized(ZOOM_MIN))
+
+    expect(Number(slider.dataset.value)).toBeCloseTo(0)
+    expect(screen.getByRole('slider')).toHaveAttribute('aria-valuenow', '0')
   })
 
   it('toggles the keyframe panel without a selected clip', () => {

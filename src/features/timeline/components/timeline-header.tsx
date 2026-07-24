@@ -34,6 +34,7 @@ import { formatHotkeyBinding } from '@/config/hotkeys'
 import { useTimelineZoom } from '../hooks/use-timeline-zoom'
 import { useTimelineStore } from '../stores/timeline-store'
 import { useTimelineCommandStore } from '../stores/timeline-command-store'
+import { useZoomStore } from '../stores/zoom-store'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useEditorStore } from '@/shared/state/editor'
 import { useSelectionStore } from '@/shared/state/selection'
@@ -95,6 +96,11 @@ function isDifferentSliderValue(previousValue: number | null, nextValue: number)
   return previousValue === null || Math.abs(previousValue - nextValue) > 0.000001
 }
 
+function isSameZoomLevel(left: number, right: number): boolean {
+  const tolerance = Math.max(0.000001, Math.max(Math.abs(left), Math.abs(right)) * 0.0001)
+  return Math.abs(left - right) <= tolerance
+}
+
 function blurActiveElement(): void {
   if (document.activeElement instanceof HTMLElement) {
     document.activeElement.blur()
@@ -113,6 +119,8 @@ const TimelineZoomControls = memo(function TimelineZoomControls({
   const sliderRafRef = useRef<number | null>(null)
   const pendingSliderValueRef = useRef<number | null>(null)
   const latestSliderValueRef = useRef<number | null>(null)
+  const sliderInteractionRef = useRef<'idle' | 'dragging' | 'awaiting-zoom'>('idle')
+  const sliderCommitBaseZoomRef = useRef<number | null>(null)
   const btnSize = {
     width: EDITOR_LAYOUT_CSS_VALUES.toolbarButtonSize,
     height: EDITOR_LAYOUT_CSS_VALUES.toolbarButtonSize,
@@ -168,12 +176,17 @@ const TimelineZoomControls = memo(function TimelineZoomControls({
   useLayoutEffect(() => {
     const sliderPreviewValue = latestSliderValueRef.current
     if (sliderPreviewValue === null) return
-    const previewZoom = sliderToZoom(sliderPreviewValue)
-    const tolerance = Math.max(0.000001, previewZoom * 0.0001)
-    if (Math.abs(zoomLevel - previewZoom) <= tolerance) {
-      latestSliderValueRef.current = null
-    }
-  }, [sliderToZoom, zoomLevel])
+    if (sliderInteractionRef.current === 'dragging') return
+
+    const commitBaseZoom = sliderCommitBaseZoomRef.current
+    if (commitBaseZoom !== null && isSameZoomLevel(zoomLevel, commitBaseZoom)) return
+
+    // The first store update after release owns the controlled value even when
+    // another zoom gesture superseded the slider's queued target.
+    latestSliderValueRef.current = null
+    sliderCommitBaseZoomRef.current = null
+    sliderInteractionRef.current = 'idle'
+  }, [zoomLevel])
 
   useEffect(() => {
     return () => {
@@ -186,6 +199,8 @@ const TimelineZoomControls = memo(function TimelineZoomControls({
   const handleSliderChange = useCallback(
     (values: number[]) => {
       const sliderValue = values[0] ?? 0.5
+      sliderInteractionRef.current = 'dragging'
+      sliderCommitBaseZoomRef.current = null
       latestSliderValueRef.current = sliderValue
       renderSliderPreview(sliderValue)
       if (onZoomChange) {
@@ -229,6 +244,8 @@ const TimelineZoomControls = memo(function TimelineZoomControls({
     (values: number[]) => {
       const sliderValue = values[0] ?? 0.5
       const latestSliderValue = latestSliderValueRef.current
+      sliderInteractionRef.current = 'awaiting-zoom'
+      sliderCommitBaseZoomRef.current = useZoomStore.getState().level
       latestSliderValueRef.current = sliderValue
       renderSliderPreview(sliderValue)
       commitSliderZoom(sliderValue, latestSliderValue)
@@ -236,6 +253,15 @@ const TimelineZoomControls = memo(function TimelineZoomControls({
     },
     [commitSliderZoom, renderSliderPreview],
   )
+
+  const controlledSliderValue = zoomToSlider(zoomLevel)
+  const sliderCommitBaseZoom = sliderCommitBaseZoomRef.current
+  const shouldRenderSliderPreview =
+    latestSliderValueRef.current !== null &&
+    (sliderInteractionRef.current === 'dragging' ||
+      (sliderInteractionRef.current === 'awaiting-zoom' &&
+        sliderCommitBaseZoom !== null &&
+        isSameZoomLevel(zoomLevel, sliderCommitBaseZoom)))
 
   return (
     <div className="flex items-center justify-end gap-1.5">
@@ -252,7 +278,11 @@ const TimelineZoomControls = memo(function TimelineZoomControls({
 
       <Slider
         ref={sliderRef}
-        value={[latestSliderValueRef.current ?? zoomToSlider(zoomLevel)]}
+        value={[
+          shouldRenderSliderPreview
+            ? (latestSliderValueRef.current ?? controlledSliderValue)
+            : controlledSliderValue,
+        ]}
         onValueChange={handleSliderChange}
         onValueCommit={handleSliderCommit}
         min={0}

@@ -8,9 +8,7 @@ export {
   resolveTransform,
   getSourceDimensions,
 } from '@/runtime/composition-runtime/utils/transform-resolver'
-export {
-  resolveItemTransformAtFrame,
-} from '@/runtime/composition-runtime/utils/frame-scene'
+export { resolveItemTransformAtFrame } from '@/runtime/composition-runtime/utils/frame-scene'
 export type { PreviewPathVerticesOverride } from '@/runtime/composition-runtime/utils/preview-path-override'
 export { expandTextTransformToFitContent } from '@/runtime/composition-runtime/utils/text-layout'
 export {
@@ -26,6 +24,7 @@ export {
   getVideoTargetTimeSeconds,
   snapSourceTime,
 } from '@/runtime/composition-runtime/utils/video-timing'
+export { resolveTrackRenderState } from '@/runtime/composition-runtime/utils/scene-assembly'
 export {
   ensureAudioContextResumed,
   getPreviewAudioContextState,

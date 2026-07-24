@@ -125,6 +125,67 @@ describe('TimelineMarkers ruler scrub cancellation', () => {
     expect(playhead).toHaveStyle({ transform: 'translate3d(23px, 0, 0)' })
   })
 
+  it('keeps the skim target while moving from the ruler into timeline tracks', () => {
+    const { container } = render(
+      <div className="timeline-container" data-timeline-scroll-container>
+        <TimelineMarkers duration={10} width={1000} />
+        <div data-testid="timeline-track" />
+      </div>,
+    )
+    const ruler = container.querySelector('[style*="cursor: ew-resize"]') as HTMLDivElement
+    const track = container.querySelector('[data-testid="timeline-track"]') as HTMLDivElement
+
+    ruler.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 34,
+      width: 1000,
+      height: 34,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.mouseMove(ruler, { clientX: 100 })
+    expect(usePlaybackStore.getState().previewFrame).toBe(30)
+
+    fireEvent.mouseLeave(ruler, { relatedTarget: track })
+
+    expect(usePlaybackStore.getState().previewFrame).toBe(30)
+  })
+
+  it('clears the skim target when the pointer truly leaves the timeline', () => {
+    const { container } = render(
+      <div className="timeline-container" data-timeline-scroll-container>
+        <TimelineMarkers duration={10} width={1000} />
+      </div>,
+    )
+    const ruler = container.querySelector('[style*="cursor: ew-resize"]') as HTMLDivElement
+    const outside = document.createElement('div')
+    document.body.appendChild(outside)
+
+    ruler.getBoundingClientRect = () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 34,
+      width: 1000,
+      height: 34,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.mouseMove(ruler, { clientX: 100 })
+    expect(usePlaybackStore.getState().previewFrame).toBe(30)
+
+    fireEvent.mouseLeave(ruler, { relatedTarget: outside })
+
+    expect(usePlaybackStore.getState().previewFrame).toBeNull()
+    outside.remove()
+  })
+
   it('keeps the IO strip in its own lane above the viewport ruler canvas', () => {
     useTimelineStore.setState({ inPoint: 15, outPoint: 45 })
 
