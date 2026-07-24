@@ -231,6 +231,8 @@ export function NumberInput({
       <input
         ref={inputRef}
         type="text"
+        autoComplete="off"
+        data-bwignore="true"
         inputMode="decimal"
         value={localValue}
         onChange={handleInputChange}

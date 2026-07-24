@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useSettingsStore } from '@/features/preview/deps/settings'
 import {
+  useItemsStore,
   useKeyframesStore,
   useTimelineSettingsStore,
   useTimelineStore,
@@ -63,6 +64,7 @@ import {
 import { CROP_EDGE_PROPERTY, type CropEdge } from '../utils/crop-gizmo'
 
 interface GizmoOverlayProps {
+  itemsSnapshot: TimelineItem[]
   containerRect: DOMRect | null
   playerSize: { width: number; height: number }
   projectSize: { width: number; height: number }
@@ -117,6 +119,7 @@ function toResolvedTransform(transform: Transform): ResolvedTransform {
  * Positioned absolutely over the video player.
  */
 export function GizmoOverlay({
+  itemsSnapshot,
   containerRect,
   playerSize,
   projectSize,
@@ -159,13 +162,44 @@ export function GizmoOverlay({
   // Create Set for O(1) lookups instead of O(n) includes()
   const selectedItemIdsSet = useMemo(() => new Set(selectedItemIds), [selectedItemIds])
 
-  // Timeline state and actions - use derived selector for visual items only
-  // This avoids re-renders when audio items change (audio has no gizmo overlay)
-  // useShallow prevents infinite loops from array reference changes
-  const visualItems = useTimelineStore(
-    useShallow((s) =>
-      s.items.filter((item) => item.type !== 'audio' && item.type !== 'adjustment'),
+  const liveTransforms = useItemsStore(
+    useShallow(
+      useCallback(
+        (state) =>
+          itemsSnapshot.map((item) => {
+            const liveItem = state.itemById[item.id]
+            if (liveItem && 'transform' in liveItem) return liveItem.transform
+            return 'transform' in item ? item.transform : undefined
+          }),
+        [itemsSnapshot],
+      ),
     ),
+  )
+  const itemsWithLiveTransforms = useMemo(
+    () =>
+      itemsSnapshot.map((item, index) => {
+        const liveTransform = liveTransforms[index]
+        if (
+          !liveTransform ||
+          !('transform' in item) ||
+          Object.is(liveTransform, item.transform)
+        ) {
+          return item
+        }
+        return { ...item, transform: liveTransform } as TimelineItem
+      }),
+    [itemsSnapshot, liveTransforms],
+  )
+
+  // Stay on VideoPreview's transform-stable scene membership while merging
+  // current transforms locally. A transform commit updates this overlay and
+  // its hit targets without invalidating VideoPreview/MainComposition.
+  const visualItems = useMemo(
+    () =>
+      itemsWithLiveTransforms.filter(
+        (item) => item.type !== 'audio' && item.type !== 'adjustment',
+      ),
+    [itemsWithLiveTransforms],
   )
   const tracks = useTimelineStore((s) => s.tracks)
   const fps = useTimelineSettingsStore((s) => s.fps)
@@ -699,7 +733,11 @@ export function GizmoOverlay({
   ])
 
   // Get visual transforms for all visible items (base + keyframes + preview).
-  const visualTransformsMap = useVisualTransforms(visibleItems, projectSize)
+  const visualTransformsMap = useVisualTransforms(
+    visibleItems,
+    projectSize,
+    itemsWithLiveTransforms,
+  )
 
   // Create marquee items with pre-computed bounding rects for collision detection
   // Rects are calculated once when items/coords change, not on every mouse move
@@ -1154,9 +1192,7 @@ export function GizmoOverlay({
         },
         operation: 'move',
         afterFinish: () => {
-          requestAnimationFrame(() => {
-            clearInteraction(interactionId)
-          })
+          clearInteraction(interactionId)
         },
       })
     },

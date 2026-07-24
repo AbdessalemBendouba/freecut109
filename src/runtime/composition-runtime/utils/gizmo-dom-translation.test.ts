@@ -50,6 +50,22 @@ describe('resolveGizmoDomTranslation', () => {
     ).toEqual({ x: 7, y: -0.5 })
   })
 
+  it('applies the parent delta to an imperatively presented descendant', () => {
+    expect(
+      resolveGizmoDomTranslation({
+        itemId: 'text',
+        followsActiveItem: true,
+        activeItemId: 'polygon',
+        activeStartTransform: transform(100, 80),
+        previewTransform: transform(124, 68),
+        renderedTransform: resolved(210, 160),
+        interactionStartTransform: resolved(200, 170),
+        scaleX: 0.5,
+        scaleY: 0.25,
+      }),
+    ).toEqual({ x: 7, y: -0.5 })
+  })
+
   it('does not touch unrelated DOM items', () => {
     expect(
       resolveGizmoDomTranslation({

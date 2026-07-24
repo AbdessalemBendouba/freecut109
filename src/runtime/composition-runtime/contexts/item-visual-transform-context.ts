@@ -1,10 +1,12 @@
 import { createContext, useContext } from 'react'
 import type { ResolvedTransform } from '@/types/transform'
 
-const ItemVisualTransformContext = createContext<ResolvedTransform | null>(null)
+type ItemVisualSize = Pick<ResolvedTransform, 'width' | 'height'>
+
+const ItemVisualTransformContext = createContext<ItemVisualSize | null>(null)
 
 export const ItemVisualTransformProvider = ItemVisualTransformContext.Provider
 
-export function useItemVisualTransform(): ResolvedTransform | null {
+export function useItemVisualTransform(): ItemVisualSize | null {
   return useContext(ItemVisualTransformContext)
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Link2, Unlink2 } from 'lucide-react'
 import { setPointerCaptureSafely } from './dopesheet-utils'
 import { getScrubbedPropertyValue } from './property-value-scrub'
@@ -162,6 +162,12 @@ function AxisInput({
 export interface CompoundPropertyInputConfig {
   label: string
   value: { x: number; y: number }
+  /**
+   * Optional high-frequency presentation value. Each axis subscribes directly,
+   * so a live canvas gesture can refresh these two inputs without re-rendering
+   * the parent DopesheetEditor.
+   */
+  liveValueSource?: CompoundPropertyLiveValueSource
   preExpressionValue?: { x: number; y: number }
   unit: string
   /** Vector2 property exposed by the row's Property Link pick whip. */
@@ -184,6 +190,13 @@ export interface CompoundPropertyInputConfig {
   decimals?: number
 }
 
+export interface CompoundPropertyLiveValueSource {
+  subscribe: (listener: () => void) => () => void
+  getSnapshot: () => { x: number; y: number } | null
+}
+
+const subscribeToNoLiveValue = () => () => {}
+
 function createCompoundAxisCallbacks(config: CompoundPropertyInputConfig, axis: 'x' | 'y') {
   return {
     onCommit: (value: number, options: { allowCreate: boolean }) =>
@@ -204,10 +217,21 @@ function CompoundAxisInput({
   axis: 'x' | 'y'
   config: CompoundPropertyInputConfig
 }) {
+  const source = config.liveValueSource
+  const getAxisSnapshot = useCallback(
+    () => source?.getSnapshot()?.[axis] ?? config.value[axis],
+    [axis, config.value, source],
+  )
+  const value = useSyncExternalStore(
+    source?.subscribe ?? subscribeToNoLiveValue,
+    getAxisSnapshot,
+    getAxisSnapshot,
+  )
+
   return (
     <AxisInput
       axis={axis}
-      value={config.value[axis]}
+      value={value}
       unit={config.unit}
       propertyLabel={config.label}
       disabled={config.disabled ?? false}

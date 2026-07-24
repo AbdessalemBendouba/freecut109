@@ -1,10 +1,10 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   useTimelineStore,
-  useItemsStore,
   useTransitionsStore,
   useMediaDependencyStore,
 } from '@/features/preview/deps/timeline-store'
+import type { TimelineItem } from '@/types/timeline'
 import {
   useRollingEditPreviewStore,
   useRippleEditPreviewStore,
@@ -18,7 +18,6 @@ import {
 } from '@/features/preview/deps/media-library'
 import { useBlobUrlVersion } from '@/infrastructure/browser/blob-url-manager'
 import { usePlaybackStore } from '@/shared/state/playback'
-import { useGizmoStore } from '../stores/gizmo-store'
 import { useMaskEditorStore } from '../stores/mask-editor-store'
 import { isMarqueeJustFinished } from '@/shared/marquee/use-marquee-selection'
 import { getPreviewNeedsOverflow, getPreviewPlayerSize } from '../utils/preview-pixel-snap'
@@ -37,12 +36,17 @@ interface UsePreviewViewModelParams {
   project: PreviewProjectDimensions
   containerSize: PreviewContainerDimensions
   suspendOverlay: boolean
+  itemsSnapshot: {
+    items: TimelineItem[]
+    itemsByTrackId: Record<string, TimelineItem[]>
+  }
 }
 
 export function usePreviewViewModel({
   project,
   containerSize,
   suspendOverlay,
+  itemsSnapshot,
 }: UsePreviewViewModelParams) {
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const backgroundRef = useRef<HTMLDivElement>(null)
@@ -51,8 +55,7 @@ export function usePreviewViewModel({
   const fps = useTimelineStore((s) => s.fps)
   const tracks = useTimelineStore((s) => s.tracks)
   const keyframes = useTimelineStore((s) => s.keyframes)
-  const items = useItemsStore((s) => s.items)
-  const itemsByTrackId = useItemsStore((s) => s.itemsByTrackId)
+  const { items, itemsByTrackId } = itemsSnapshot
   const mediaDependencyVersion = useMediaDependencyStore((s) => s.mediaDependencyVersion)
   const transitions = useTransitionsStore((s) => s.transitions)
   const mediaById = useMediaLibraryStore((s) => s.mediaById)
@@ -65,8 +68,6 @@ export function usePreviewViewModel({
   const hasRipple2Up = useRippleEditPreviewStore((s) => Boolean(s.trimmedItemId && s.handle))
   const hasSlip4Up = useSlipEditPreviewStore((s) => Boolean(s.itemId))
   const hasSlide4Up = useSlideEditPreviewStore((s) => Boolean(s.itemId))
-  const activeGizmoItemId = useGizmoStore((s) => s.activeGizmo?.itemId ?? null)
-  const isGizmoInteracting = useGizmoStore((s) => s.activeGizmo !== null)
   const isMaskEditingActive = useMaskEditorStore((s) => s.isEditing)
   const zoom = usePlaybackStore((s) => s.zoom)
   const useProxy = usePlaybackStore((s) => s.useProxy)
@@ -80,14 +81,6 @@ export function usePreviewViewModel({
     }
     return count
   }, [proxyStatus])
-
-  const activeGizmoItemType = useMemo(
-    () =>
-      activeGizmoItemId
-        ? (items.find((item) => item.id === activeGizmoItemId)?.type ?? null)
-        : null,
-    [activeGizmoItemId, items],
-  )
 
   const containerWidth = containerSize.width
   const containerHeight = containerSize.height
@@ -184,9 +177,6 @@ export function usePreviewViewModel({
     hasRipple2Up,
     hasSlip4Up,
     hasSlide4Up,
-    activeGizmoItemId,
-    activeGizmoItemType,
-    isGizmoInteracting,
     isMaskEditingActive,
     zoom,
     useProxy,

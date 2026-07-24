@@ -1,8 +1,57 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { CompoundPropertyInputs } from './compound-property-inputs'
 
 describe('CompoundPropertyInputs', () => {
+  it('updates only the two axis subscribers from a live value source', () => {
+    const listeners = new Set<() => void>()
+    let liveValue: { x: number; y: number } | null = null
+    const source = {
+      subscribe: (listener: () => void) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      getSnapshot: () => liveValue,
+    }
+    const parentRender = vi.fn()
+
+    function Harness() {
+      parentRender()
+      return (
+        <CompoundPropertyInputs
+          config={{
+            label: 'Position',
+            value: { x: 10, y: 20 },
+            liveValueSource: source,
+            unit: 'px',
+            onCommit: vi.fn(),
+          }}
+        />
+      )
+    }
+
+    render(<Harness />)
+    expect(screen.getByLabelText('Position X')).toHaveValue('10.00')
+    expect(screen.getByLabelText('Position Y')).toHaveValue('20.00')
+
+    act(() => {
+      liveValue = { x: 45, y: 60 }
+      for (const listener of listeners) listener()
+    })
+
+    expect(screen.getByLabelText('Position X')).toHaveValue('45.00')
+    expect(screen.getByLabelText('Position Y')).toHaveValue('60.00')
+    expect(parentRender).toHaveBeenCalledOnce()
+
+    act(() => {
+      liveValue = null
+      for (const listener of listeners) listener()
+    })
+    expect(screen.getByLabelText('Position X')).toHaveValue('10.00')
+    expect(screen.getByLabelText('Position Y')).toHaveValue('20.00')
+    expect(parentRender).toHaveBeenCalledOnce()
+  })
+
   it('commits changed axes on blur without authoring a new keyframe', () => {
     const onCommit = vi.fn()
     render(

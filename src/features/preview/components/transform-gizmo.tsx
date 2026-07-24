@@ -61,6 +61,7 @@ export function TransformGizmo({
   const [activeCropEdge, setActiveCropEdge] = useState<CropEdge | null>(null)
   const cancelCropInteractionRef = useRef<(() => void) | null>(null)
   const transformNodeRef = useRef<HTMLDivElement>(null)
+  const acknowledgedHandoffRef = useRef<number | null>(null)
 
   const isTransformInteracting = activeGizmo?.itemId === item.id
   const isInteracting = isTransformInteracting || activeCropEdge !== null
@@ -114,37 +115,61 @@ export function TransformGizmo({
   }, [animatedTransform, isTransformInteracting, previewTransform, item, itemPreview])
   const renderedTransformRef = useRef(currentTransform)
 
+  const syncTranslatePresentation = useCallback(
+    (state: ReturnType<typeof useGizmoStore.getState>) => {
+      const transformNode = transformNodeRef.current
+      if (!transformNode) return
+
+      const active = state.activeGizmo
+      const handoff = state.presentationHandoff
+      const liveTransform =
+        active?.itemId === item.id && active.mode === 'translate'
+          ? state.previewTransform
+          : null
+      const settlingTransform =
+        !liveTransform && handoff?.itemId === item.id && handoff.mode === 'translate'
+          ? handoff.finalTransform
+          : null
+      const interactionId = liveTransform
+        ? active!.interactionId
+        : settlingTransform
+          ? handoff!.interactionId
+          : null
+
+      if (
+        interactionId === null ||
+        (!liveTransform && acknowledgedHandoffRef.current === interactionId)
+      ) {
+        transformNode.style.removeProperty('translate')
+        return
+      }
+      if (liveTransform) acknowledgedHandoffRef.current = null
+
+      const target = liveTransform ?? settlingTransform!
+      const scale = getEffectiveScale(coordParams)
+      const x = (target.x - renderedTransformRef.current.x) * scale
+      const y = (target.y - renderedTransformRef.current.y) * scale
+      if (!liveTransform && Math.abs(x) < 0.01 && Math.abs(y) < 0.01) {
+        acknowledgedHandoffRef.current = interactionId
+        transformNode.style.removeProperty('translate')
+        requestAnimationFrame(() =>
+          useGizmoStore.getState().completePresentationHandoff(interactionId),
+        )
+        return
+      }
+      transformNode.style.setProperty('translate', `${x}px ${y}px`)
+    },
+    [coordParams, item.id],
+  )
+
   useLayoutEffect(() => {
     renderedTransformRef.current = currentTransform
-    transformNodeRef.current?.style.removeProperty('translate')
-  }, [currentTransform])
+    syncTranslatePresentation(useGizmoStore.getState())
+  }, [currentTransform, syncTranslatePresentation])
 
   useEffect(
-    () =>
-      useGizmoStore.subscribe((state) => {
-        const transformNode = transformNodeRef.current
-        if (!transformNode) return
-
-        const interaction = state.activeGizmo
-        const liveTransform = state.previewTransform
-        if (
-          interaction?.itemId !== item.id ||
-          interaction.mode !== 'translate' ||
-          !liveTransform
-        ) {
-          transformNode.style.removeProperty('translate')
-          return
-        }
-
-        const scale = getEffectiveScale(coordParams)
-        transformNode.style.setProperty(
-          'translate',
-          `${(liveTransform.x - renderedTransformRef.current.x) * scale}px ${
-            (liveTransform.y - renderedTransformRef.current.y) * scale
-          }px`,
-        )
-      }),
-    [coordParams, item.id],
+    () => useGizmoStore.subscribe(syncTranslatePresentation),
+    [syncTranslatePresentation],
   )
 
   const sourceDimensions = useMemo(() => {
@@ -249,14 +274,7 @@ export function TransformGizmo({
         onTransformEnd,
         operation: 'move',
         afterFinish: () => {
-          // Wait 2 animation frames before clearing preview to ensure React has
-          // processed the timeline store update and re-rendered with new item values.
-          // Single RAF was causing snap-back because item prop was still stale.
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              clearInteraction(interactionId)
-            })
-          })
+          clearInteraction(interactionId)
         },
       })
     },
@@ -301,8 +319,6 @@ export function TransformGizmo({
         onTransformEnd,
         operation: 'resize',
         afterFinish: () => {
-          // Wait 2 animation frames before clearing preview to ensure React has
-          // processed the timeline store update and re-rendered with new item values.
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
               clearInteraction(interactionId)
@@ -351,8 +367,6 @@ export function TransformGizmo({
         onTransformEnd,
         operation: 'rotate',
         afterFinish: () => {
-          // Wait 2 animation frames before clearing preview to ensure React has
-          // processed the timeline store update and re-rendered with new item values.
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
               clearInteraction(interactionId)

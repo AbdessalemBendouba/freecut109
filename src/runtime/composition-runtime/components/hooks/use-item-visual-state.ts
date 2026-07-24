@@ -29,6 +29,11 @@ import {
   resolveAnimatedCrop,
   resolveAnimatedTextItem,
 } from '@/runtime/composition-runtime/deps/keyframes'
+import { worldToLocalTransform } from '@/shared/utils/transform-parenting'
+import {
+  type ItemTransformDependencyPlan,
+  useLiveTransformDependencySignature,
+} from '../../contexts/live-item-transform-context'
 
 /**
  * Consolidated visual state for an item.
@@ -88,6 +93,7 @@ interface ItemVisualState {
 export function useItemVisualState(
   item: TimelineItem & { _sequenceFrameOffset?: number },
   masks: MaskInfo[] = [],
+  options: { transformDependencyPlan?: ItemTransformDependencyPlan } = {},
 ): ItemVisualState {
   const { width: renderWidth, height: renderHeight, fps } = useVideoConfig()
   const compositionSpace = useCompositionSpace()
@@ -126,8 +132,20 @@ export function useItemVisualState(
     imperativeTranslate: true,
   })
   const transformParentId = item.transformParent?.parentItemId
-  const parentGizmoPreview = useGizmoStore((state) =>
-    transformParentId && state.activeGizmo?.itemId === transformParentId
+  const exactDependencyPreviewItemId = useGizmoStore((state) => {
+    const active = state.activeGizmo
+    if (!active || active.mode !== 'translate' || !state.previewTransform) return null
+    const plan = options.transformDependencyPlan
+    if (!plan) return active.itemId === transformParentId ? active.itemId : null
+    if (plan.linearTranslateSourceItemIds.has(active.itemId)) return null
+    return plan.hasExpressionDependencies || plan.sourceItemIds.has(active.itemId)
+      ? active.itemId
+      : null
+  })
+  const exactDependencyWorldPreview = useGizmoStore((state) =>
+    exactDependencyPreviewItemId !== null &&
+    state.activeGizmo?.itemId === exactDependencyPreviewItemId &&
+    state.activeGizmo.mode === 'translate'
       ? state.previewTransform
       : null,
   )
@@ -135,6 +153,64 @@ export function useItemVisualState(
 
   const itemKeyframes = useRuntimeItemKeyframes(item.id)
   const keyframesContext = useContext(KeyframesContext)
+  const liveTransformDependencySignature = useLiveTransformDependencySignature(
+    item,
+    keyframesContext?.getItemKeyframes,
+  )
+  const exactDependencyLocalPreview = useMemo(() => {
+    if (
+      exactDependencyPreviewItemId === null ||
+      !exactDependencyWorldPreview ||
+      !keyframesContext
+    ) {
+      return null
+    }
+
+    const sourceItem = keyframesContext.getItem(exactDependencyPreviewItemId)
+    if (!sourceItem) return null
+    const worldPreview: ResolvedTransform = {
+      x: exactDependencyWorldPreview.x,
+      y: exactDependencyWorldPreview.y,
+      width: exactDependencyWorldPreview.width,
+      height: exactDependencyWorldPreview.height,
+      anchorX:
+        exactDependencyWorldPreview.anchorX ??
+        exactDependencyWorldPreview.width / 2,
+      anchorY:
+        exactDependencyWorldPreview.anchorY ??
+        exactDependencyWorldPreview.height / 2,
+      rotation: exactDependencyWorldPreview.rotation,
+      opacity: exactDependencyWorldPreview.opacity,
+      cornerRadius: exactDependencyWorldPreview.cornerRadius ?? 0,
+    }
+    const parentId = sourceItem.transformParent?.parentItemId
+    const parent = parentId ? keyframesContext.getItem(parentId) : undefined
+    const parentWorld = parent
+      ? resolveItemTransformAtFrame(parent, {
+          canvas: logicalCanvas,
+          frame: item.from + visualFrame,
+          keyframes: keyframesContext.getItemKeyframes(parent.id),
+          getItem: keyframesContext.getItem,
+          getKeyframes: keyframesContext.getItemKeyframes,
+          getPreviewTransform: (candidateId) =>
+            allItemPreviews?.[candidateId]?.transform,
+        })
+      : undefined
+
+    return worldToLocalTransform(
+      worldPreview,
+      sourceItem.transformParent,
+      parentWorld,
+    )
+  }, [
+    allItemPreviews,
+    exactDependencyPreviewItemId,
+    exactDependencyWorldPreview,
+    item.from,
+    keyframesContext,
+    logicalCanvas,
+    visualFrame,
+  ])
   const maskIds = useMemo(() => new Set(masks.map((mask) => mask.shape.id)), [masks])
   const previewMaskEditingItemId = useMaskEditorStore(
     useCallback(
@@ -161,6 +237,7 @@ export function useItemVisualState(
 
   // === TRANSFORM COMPUTATION ===
   const { transform, transformStyle, fadeOpacity, finalOpacity, animatedCrop } = useMemo(() => {
+    void liveTransformDependencySignature
     // Check if this item has an active single-item gizmo preview
     const isGizmoPreviewActive = activeGizmo?.itemId === item.id && previewTransform !== null
 
@@ -184,8 +261,8 @@ export function useItemVisualState(
     const getPreviewTransform = (itemId: string) =>
       activeGizmo?.itemId === itemId && previewTransform
         ? previewTransform
-        : transformParentId === itemId && parentGizmoPreview
-          ? parentGizmoPreview
+        : exactDependencyPreviewItemId === itemId && exactDependencyLocalPreview
+          ? exactDependencyLocalPreview
           : allItemPreviews?.[itemId]?.transform
     let resolved = keyframesContext
       ? resolveItemTransformAtFrame(item, {
@@ -302,15 +379,16 @@ export function useItemVisualState(
   }, [
     activeGizmo,
     previewTransform,
-    parentGizmoPreview,
+    exactDependencyLocalPreview,
+    exactDependencyPreviewItemId,
     itemPreview,
     allItemPreviews,
     item,
-    transformParentId,
     logicalCanvas,
     renderCanvas,
     itemKeyframes,
     keyframesContext,
+    liveTransformDependencySignature,
     visualFrame,
     fps,
     scaleX,

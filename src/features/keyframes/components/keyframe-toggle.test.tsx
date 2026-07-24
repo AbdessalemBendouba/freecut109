@@ -99,7 +99,30 @@ describe('KeyframeToggle multi-selection', () => {
     expect(mocks.removeKeyframes).not.toHaveBeenCalled()
   })
 
+  it('resolves a lazily supplied current value only when adding a keyframe', () => {
+    const getCurrentValue = vi.fn(() => 123)
+    render(
+      <TooltipProvider>
+        <KeyframeToggle
+          itemIds={[VIDEO_ITEM.id]}
+          property="x"
+          currentValue={0}
+          getCurrentValue={getCurrentValue}
+        />
+      </TooltipProvider>,
+    )
+
+    expect(getCurrentValue).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button'))
+
+    expect(getCurrentValue).toHaveBeenCalledOnce()
+    expect(mocks.addKeyframes).toHaveBeenCalledWith([
+      { itemId: VIDEO_ITEM.id, property: 'x', frame: 10, value: 123 },
+    ])
+  })
+
   it('removes the current keyframe from every selected item as one batch', () => {
+    const getCurrentValue = vi.fn(() => 999)
     useKeyframesStore.setState({
       keyframesByItemId: {
         [VIDEO_ITEM.id]: {
@@ -122,10 +145,20 @@ describe('KeyframeToggle multi-selection', () => {
         },
       },
     })
-    renderToggle()
+    render(
+      <TooltipProvider>
+        <KeyframeToggle
+          itemIds={[VIDEO_ITEM.id, COMPOSITION_ITEM.id]}
+          property="cropLeft"
+          currentValue={0}
+          getCurrentValue={getCurrentValue}
+        />
+      </TooltipProvider>,
+    )
 
     fireEvent.click(screen.getByRole('button'))
 
+    expect(getCurrentValue).not.toHaveBeenCalled()
     expect(mocks.removeKeyframes).toHaveBeenCalledWith([
       { itemId: VIDEO_ITEM.id, property: 'cropLeft', keyframeId: 'video-key' },
       { itemId: COMPOSITION_ITEM.id, property: 'cropLeft', keyframeId: 'composition-key' },

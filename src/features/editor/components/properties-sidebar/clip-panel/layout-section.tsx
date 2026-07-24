@@ -1,4 +1,4 @@
-import { useCallback, useMemo, memo } from 'react'
+import { useCallback, useMemo, useRef, memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Move, RotateCcw, Link2, Link2Off } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -6,9 +6,14 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import type { TimelineItem, VideoItem, CompositionItem } from '@/types/timeline'
 import type { TransformProperties, CanvasSettings } from '@/types/transform'
+import type { ItemKeyframes } from '@/types/keyframe'
 import { useGizmoStore, useThrottledFrame } from '@/features/editor/deps/preview'
 import { useMediaLibraryStore } from '@/features/editor/deps/media-library'
-import { useKeyframesStore, useTimelineStore } from '@/features/editor/deps/timeline-store'
+import {
+  useItemsStore,
+  useKeyframesStore,
+  useTimelineStore,
+} from '@/features/editor/deps/timeline-store'
 import { resolveTransform, getSourceDimensions } from '@/features/editor/deps/composition-runtime'
 import {
   getAutoKeyframeOperation as getAutoKeyframeOp,
@@ -29,6 +34,7 @@ interface LayoutSectionProps {
 }
 
 type MixedValue = number | 'mixed'
+type PositionAxis = 'x' | 'y'
 
 /** Common transform properties that both gizmo and resolved transforms share */
 type TransformValues = {
@@ -40,6 +46,160 @@ type TransformValues = {
   anchorY: number
   rotation: number
 }
+
+const MemoizedKeyframeToggle = memo(KeyframeToggle)
+
+function useStableItemIds(items: readonly TimelineItem[]): string[] {
+  const nextItemIds = useMemo(() => items.map((item) => item.id), [items])
+  const itemIdsRef = useRef(nextItemIds)
+  if (
+    itemIdsRef.current.length !== nextItemIds.length ||
+    itemIdsRef.current.some((itemId, index) => itemId !== nextItemIds[index])
+  ) {
+    itemIdsRef.current = nextItemIds
+  }
+  return itemIdsRef.current
+}
+
+interface PositionAxisControlProps {
+  axis: PositionAxis
+  itemIds: string[]
+  canvas: CanvasSettings
+  onChange: (value: number) => void
+  onLiveChange: (value: number) => void
+}
+
+function resolveMixedPositionValue({
+  axis,
+  itemIds,
+  canvas,
+  currentFrame,
+  itemsById,
+  keyframesByItemId,
+}: {
+  axis: PositionAxis
+  itemIds: readonly string[]
+  canvas: CanvasSettings
+  currentFrame: number
+  itemsById: Readonly<Record<string, TimelineItem | undefined>>
+  keyframesByItemId: Readonly<Record<string, ItemKeyframes | undefined>>
+}): MixedValue {
+  const values = itemIds.flatMap((itemId) => {
+    const item = itemsById[itemId]
+    if (!item) return []
+    const baseResolved = resolveTransform(item, canvas, getSourceDimensions(item))
+    const resolved = resolveAnimatedTransform(
+      baseResolved,
+      keyframesByItemId[item.id],
+      currentFrame - item.from,
+      {
+        globalFrame: currentFrame,
+        canvas,
+        getItem: (candidateId) => itemsById[candidateId],
+        getKeyframes: (candidateId) => keyframesByItemId[candidateId],
+      },
+    )
+    return [resolved[axis]]
+  })
+  if (values.length === 0) return 0
+
+  const firstValue = values[0]!
+  return values.every((value) => Math.abs(value - firstValue) < 0.1)
+    ? firstValue
+    : 'mixed'
+}
+
+const PositionAxisControl = memo(function PositionAxisControl({
+  axis,
+  itemIds,
+  canvas,
+  onChange,
+  onLiveChange,
+}: PositionAxisControlProps) {
+  const currentFrame = useThrottledFrame()
+  const canonicalValueFromItems = useItemsStore(
+    useCallback(
+      (state) =>
+        resolveMixedPositionValue({
+          axis,
+          itemIds,
+          canvas,
+          currentFrame,
+          itemsById: state.itemById,
+          keyframesByItemId: useKeyframesStore.getState().keyframesByItemId,
+        }),
+      [axis, canvas, currentFrame, itemIds],
+    ),
+  )
+  const canonicalValueFromKeyframes = useKeyframesStore(
+    useCallback(
+      (state) =>
+        resolveMixedPositionValue({
+          axis,
+          itemIds,
+          canvas,
+          currentFrame,
+          itemsById: useItemsStore.getState().itemById,
+          keyframesByItemId: state.keyframesByItemId,
+        }),
+      [axis, canvas, currentFrame, itemIds],
+    ),
+  )
+  const selectedItemIdSet = useMemo(() => new Set(itemIds), [itemIds])
+  const liveValue = useGizmoStore(
+    useCallback(
+      (state) => {
+        if (
+          !state.activeGizmo ||
+          !state.previewTransform ||
+          !selectedItemIdSet.has(state.activeGizmo.itemId)
+        ) {
+          return null
+        }
+        return state.previewTransform[axis]
+      },
+      [axis, selectedItemIdSet],
+    ),
+  )
+  // Both selectors recompute against the other store's current snapshot. The
+  // second subscription exists so a keyframe/link-only commit wakes this leaf;
+  // by render time both values describe the same canonical state.
+  const canonicalValue =
+    canonicalValueFromItems === canonicalValueFromKeyframes
+      ? canonicalValueFromItems
+      : resolveMixedPositionValue({
+          axis,
+          itemIds,
+          canvas,
+          currentFrame,
+          itemsById: useItemsStore.getState().itemById,
+          keyframesByItemId: useKeyframesStore.getState().keyframesByItemId,
+        })
+  const currentValueRef = useRef(0)
+  currentValueRef.current = canonicalValue === 'mixed' ? 0 : canonicalValue
+  const getCurrentValue = useCallback(() => currentValueRef.current, [])
+  const displayedValue = liveValue ?? canonicalValue
+
+  return (
+    <div className="flex items-center gap-0.5">
+      <NumberInput
+        value={displayedValue}
+        onChange={onChange}
+        onLiveChange={onLiveChange}
+        label={axis.toUpperCase()}
+        unit="px"
+        step={1}
+        className="flex-1"
+      />
+      <MemoizedKeyframeToggle
+        itemIds={itemIds}
+        property={axis}
+        currentValue={0}
+        getCurrentValue={getCurrentValue}
+      />
+    </div>
+  )
+})
 
 /**
  * Transform section - position, dimensions, and rotation.
@@ -54,12 +214,11 @@ export const LayoutSection = memo(function LayoutSection({
   onAspectLockToggle,
 }: LayoutSectionProps) {
   const { t } = useTranslation()
-  const itemIds = useMemo(() => items.map((item) => item.id), [items])
+  const itemIds = useStableItemIds(items)
   const mediaTransformItemIds = useMemo(
     () => mediaTransformItems.map((item) => item.id),
     [mediaTransformItems],
   )
-  const itemIdSet = useMemo(() => new Set(itemIds), [itemIds])
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
 
   // Get current playhead frame for keyframe animation (throttled to reduce re-renders)
@@ -82,41 +241,24 @@ export const LayoutSection = memo(function LayoutSection({
   const setTransformPreview = useGizmoStore((s) => s.setTransformPreview)
   const clearPreview = useGizmoStore((s) => s.clearPreview)
   const clearInteraction = useGizmoStore((s) => s.clearInteraction)
-  const activeGizmo = useGizmoStore((s) => s.activeGizmo)
-  const previewTransform = useGizmoStore((s) => s.previewTransform)
 
   const clearTransformUiState = useCallback(() => {
     clearPreview()
     clearInteraction()
   }, [clearInteraction, clearPreview])
 
-  // Build gizmo preview context if gizmo is active for one of our items
-  const gizmoPreview = useMemo(() => {
-    if (!activeGizmo || !previewTransform) return null
-    // Check if the gizmo's active item is in our selection
-    if (!itemIdSet.has(activeGizmo.itemId)) return null
-    return {
-      itemId: activeGizmo.itemId,
-      transform: previewTransform,
-    }
-  }, [activeGizmo, previewTransform, itemIdSet])
-
-  // Resolve transforms once for all items, applying keyframe animation and
-  // gizmo preview overrides. Reused by mixed-value fields and align/distribute.
+  // Resolve committed transforms once for all items. Live gizmo position is
+  // subscribed at the two tiny axis controls below so the full section and its
+  // keyframe controls stay out of the canvas pointer hot path.
   const resolvedTransformsByItem = useMemo(() => {
     const resolved = new Map<string, TransformValues>()
     for (const item of items) {
-      const transform = (() => {
-        if (gizmoPreview && gizmoPreview.itemId === item.id) {
-          return gizmoPreview.transform
-        }
-        const sourceDimensions = getSourceDimensions(item)
-        const baseResolved = resolveTransform(item, canvas, sourceDimensions)
-        const itemKeyframes = keyframesByItemId.get(item.id) ?? undefined
-        if (!itemKeyframes) return baseResolved
-        const relativeFrame = currentFrame - item.from
-        return resolveAnimatedTransform(baseResolved, itemKeyframes, relativeFrame)
-      })()
+      const sourceDimensions = getSourceDimensions(item)
+      const baseResolved = resolveTransform(item, canvas, sourceDimensions)
+      const itemKeyframes = keyframesByItemId.get(item.id) ?? undefined
+      const transform = itemKeyframes
+        ? resolveAnimatedTransform(baseResolved, itemKeyframes, currentFrame - item.from)
+        : baseResolved
 
       resolved.set(item.id, {
         x: transform.x,
@@ -129,12 +271,12 @@ export const LayoutSection = memo(function LayoutSection({
       })
     }
     return resolved
-  }, [items, canvas, gizmoPreview, keyframesByItemId, currentFrame])
+  }, [items, canvas, keyframesByItemId, currentFrame])
 
   // Memoize all transform values at once to avoid repeated iterations.
-  const { x, y, width, height, rotation } = useMemo(() => {
+  const { width, height, rotation } = useMemo(() => {
     if (items.length === 0) {
-      return { x: 0, y: 0, width: 0, height: 0, rotation: 0 }
+      return { width: 0, height: 0, rotation: 0 }
     }
 
     const resolvedValues = items
@@ -142,7 +284,7 @@ export const LayoutSection = memo(function LayoutSection({
       .filter((value): value is TransformValues => value !== undefined)
 
     if (resolvedValues.length === 0) {
-      return { x: 0, y: 0, width: 0, height: 0, rotation: 0 }
+      return { width: 0, height: 0, rotation: 0 }
     }
 
     const getValue = (getter: (resolved: TransformValues) => number): MixedValue => {
@@ -152,8 +294,6 @@ export const LayoutSection = memo(function LayoutSection({
     }
 
     return {
-      x: getValue((r) => r.x),
-      y: getValue((r) => r.y),
       width: getValue((r) => r.width),
       height: getValue((r) => r.height),
       rotation: getValue((r) => r.rotation),
@@ -646,30 +786,20 @@ export const LayoutSection = memo(function LayoutSection({
       <PropertyRow label={t('editor.layoutSection.position')}>
         <div className="flex items-start gap-1 w-full">
           <div className="grid grid-cols-2 gap-1 flex-1">
-            <div className="flex items-center gap-0.5">
-              <NumberInput
-                value={x}
-                onChange={handleXChange}
-                onLiveChange={handleXLiveChange}
-                label="X"
-                unit="px"
-                step={1}
-                className="flex-1"
-              />
-              <KeyframeToggle itemIds={itemIds} property="x" currentValue={x === 'mixed' ? 0 : x} />
-            </div>
-            <div className="flex items-center gap-0.5">
-              <NumberInput
-                value={y}
-                onChange={handleYChange}
-                onLiveChange={handleYLiveChange}
-                label="Y"
-                unit="px"
-                step={1}
-                className="flex-1"
-              />
-              <KeyframeToggle itemIds={itemIds} property="y" currentValue={y === 'mixed' ? 0 : y} />
-            </div>
+            <PositionAxisControl
+              axis="x"
+              itemIds={itemIds}
+              canvas={canvas}
+              onChange={handleXChange}
+              onLiveChange={handleXLiveChange}
+            />
+            <PositionAxisControl
+              axis="y"
+              itemIds={itemIds}
+              canvas={canvas}
+              onChange={handleYChange}
+              onLiveChange={handleYLiveChange}
+            />
           </div>
           <Button
             variant="ghost"

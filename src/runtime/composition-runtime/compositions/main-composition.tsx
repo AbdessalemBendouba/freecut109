@@ -25,6 +25,11 @@ import { KeyframesProvider } from '../contexts/keyframes-context'
 import { CompositionSpaceProvider } from '../contexts/composition-space-context'
 import { NestedMediaResolutionProvider } from '../contexts/nested-media-resolution-context'
 import {
+  type LiveItemTransformSource,
+  useLiveTransformDependencySignatureForItems,
+} from '../contexts/live-item-transform-context'
+import { LiveItemTransformProvider } from '../contexts/live-item-transform-provider'
+import {
   buildCompoundAudioTransitionSegments,
   buildStandaloneAudioSegments,
   buildTransitionVideoAudioSegments,
@@ -79,8 +84,15 @@ const FrameActiveMasksProvider: React.FC<{
   const { fps } = useVideoConfig()
   const keyframesCtx = React.useContext(KeyframesContext)
   const previousMasksRef = React.useRef<MaskInfo[]>(EMPTY_MASK_INFOS)
+  const maskItems = useMemo(() => masks.map(({ mask }) => mask), [masks])
+  const liveMaskDependencySignature =
+    useLiveTransformDependencySignatureForItems(
+      maskItems,
+      keyframesCtx?.getItemKeyframes,
+    )
 
   const activeMasks = useMemo<MaskInfo[]>(() => {
+    void liveMaskDependencySignature
     if (masks.length === 0) {
       previousMasksRef.current = EMPTY_MASK_INFOS
       return EMPTY_MASK_INFOS
@@ -97,7 +109,15 @@ const FrameActiveMasksProvider: React.FC<{
     const stableMasks = reuseStableMaskInfos(previousMasksRef.current, nextMasks)
     previousMasksRef.current = stableMasks
     return stableMasks
-  }, [masks, canvasWidth, canvasHeight, fps, frame, keyframesCtx])
+  }, [
+    masks,
+    canvasWidth,
+    canvasHeight,
+    fps,
+    frame,
+    keyframesCtx,
+    liveMaskDependencySignature,
+  ])
 
   return <ActiveMasksContext.Provider value={activeMasks}>{children}</ActiveMasksContext.Provider>
 }
@@ -150,6 +170,7 @@ const MaskedItem: React.FC<{
 type MainCompositionProps = CompositionInputProps & {
   useProxyMedia?: boolean
   transparentBackground?: boolean
+  liveItemTransformSource?: LiveItemTransformSource
 }
 
 export const MainComposition: React.FC<MainCompositionProps> = ({
@@ -162,6 +183,7 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
   height: compositionHeight,
   useProxyMedia = false,
   transparentBackground = false,
+  liveItemTransformSource,
 }) => {
   const { fps, width: renderWidth, height: renderHeight } = useVideoConfig()
 
@@ -393,15 +415,16 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
   )
 
   return (
-    <NestedMediaResolutionProvider value={useProxyMedia ? 'proxy' : 'source'}>
-      <KeyframesProvider keyframes={keyframes} items={expressionItems} canvas={expressionCanvas}>
-        <CompositionSpaceProvider
-          projectWidth={projectWidth}
-          projectHeight={projectHeight}
-          renderWidth={renderWidth}
-          renderHeight={renderHeight}
-        >
-          <AbsoluteFill>
+    <LiveItemTransformProvider source={liveItemTransformSource}>
+      <NestedMediaResolutionProvider value={useProxyMedia ? 'proxy' : 'source'}>
+        <KeyframesProvider keyframes={keyframes} items={expressionItems} canvas={expressionCanvas}>
+          <CompositionSpaceProvider
+            projectWidth={projectWidth}
+            projectHeight={projectHeight}
+            renderWidth={renderWidth}
+            renderHeight={renderHeight}
+          >
+            <AbsoluteFill>
             {/* SVG MASK DEFINITIONS - kept for backward compat with feather/invert that need SVG mask */}
             {/* Shape mask animation is now handled per-item via ActiveMasksProvider + MaskedItem */}
 
@@ -690,9 +713,10 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
                   })}
               </AbsoluteFill>
             </FrameActiveMasksProvider>
-          </AbsoluteFill>
-        </CompositionSpaceProvider>
-      </KeyframesProvider>
-    </NestedMediaResolutionProvider>
+            </AbsoluteFill>
+          </CompositionSpaceProvider>
+        </KeyframesProvider>
+      </NestedMediaResolutionProvider>
+    </LiveItemTransformProvider>
   )
 }

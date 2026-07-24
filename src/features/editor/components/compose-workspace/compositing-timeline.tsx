@@ -38,6 +38,7 @@ import {
   Unlock,
 } from 'lucide-react'
 import { cn } from '@/shared/ui/cn'
+import { useRafDeferredValue } from '@/shared/hooks/use-raf-deferred-value'
 import { hasEnabledProceduralMotion } from '@/shared/timeline/procedural-motion'
 import { PlayheadMarks } from '@/shared/ui/playhead-marks'
 import {
@@ -82,6 +83,7 @@ import {
 import type { BlendMode } from '@/types/blend-modes'
 import { BLEND_MODE_GROUPS, BLEND_MODE_LABELS } from '@/types/blend-modes'
 import type { TimelineItem, TimelineTrack } from '@/types/timeline'
+import type { ResolvedTransform } from '@/types/transform'
 import type { TextMotionSlot } from '@/types/text-motion'
 import {
   getTextMotionTimelineBands,
@@ -1365,6 +1367,7 @@ const MotionRowContextMenu = memo(function MotionRowContextMenu({
 
 interface MotionDopesheetLanesProps {
   item: TimelineItem
+  itemById: Record<string, TimelineItem>
   properties: AnimatableProperty[]
   compositionDurationInFrames: number
   fps: number
@@ -1430,6 +1433,7 @@ function areMotionDopesheetLanesPropsEqual(
     previous.onRemovePropertyLink === next.onRemovePropertyLink &&
     previous.onSetPropertyExpression === next.onSetPropertyExpression &&
     previous.onRemovePropertyExpression === next.onRemovePropertyExpression &&
+    previous.itemById === next.itemById &&
     previous.properties.length === next.properties.length &&
     previous.properties.every((property, index) => property === next.properties[index])
   )
@@ -1510,37 +1514,147 @@ function getMotionVectorValue(
 
 type GizmoPositionPreview = { x: number; y: number } | null
 
-/**
- * Mirrors the active canvas transform into one expanded Motion layer at most
- * once per painted frame. Inactive layers never update, so a pointer drag does
- * not put the whole dope sheet on the render path.
- */
-function useRafCoalescedGizmoPosition(itemId: string): GizmoPositionPreview {
-  const [position, setPosition] = useState<GizmoPositionPreview>(null)
-  const { queue, cancel } = useRafCoalescedValue<GizmoPositionPreview>(setPosition)
+interface MotionPositionValueSource {
+  subscribe: (listener: () => void) => () => void
+  getSnapshot: () => GizmoPositionPreview
+}
 
-  useEffect(() => {
-    let wasActive = false
-    const sync = (state: ReturnType<typeof useGizmoStore.getState>) => {
-      const isActive = state.activeGizmo?.itemId === itemId
-      if (!isActive && !wasActive) return
-      wasActive = isActive
-      queue(
-        isActive && state.previewTransform
-          ? { x: state.previewTransform.x, y: state.previewTransform.y }
-          : null,
-      )
+interface MotionPositionValueContext {
+  item: TimelineItem
+  resolvedTransform: ResolvedTransform | null
+  committedValue: { x: number; y: number } | null
+  itemById: Record<string, TimelineItem>
+  allKeyframesByItemId: Record<string, ItemKeyframes>
+  canvas: { width: number; height: number }
+  fps: number
+  currentFrame: number
+}
+
+function areMotionPositionsEqual(
+  previous: GizmoPositionPreview,
+  next: GizmoPositionPreview,
+): boolean {
+  return (
+    previous === next ||
+    (previous !== null &&
+      next !== null &&
+      previous.x === next.x &&
+      previous.y === next.y)
+  )
+}
+
+function createMotionPositionValueSource(
+  getContext: () => MotionPositionValueContext,
+): MotionPositionValueSource {
+  const listeners = new Set<() => void>()
+  let unsubscribeFromGizmo: (() => void) | null = null
+  let animationFrameId: number | null = null
+  let cachedSnapshot: GizmoPositionPreview = null
+  let emittedSnapshot: GizmoPositionPreview = null
+  let acknowledgedHandoffId: number | null = null
+
+  const cacheSnapshot = (next: GizmoPositionPreview): GizmoPositionPreview => {
+    if (areMotionPositionsEqual(cachedSnapshot, next)) return cachedSnapshot
+    cachedSnapshot = next
+    return cachedSnapshot
+  }
+
+  const getSnapshot = (): GizmoPositionPreview => {
+    const context = getContext()
+    const gizmoState = useGizmoStore.getState()
+    const active =
+      gizmoState.activeGizmo?.itemId === context.item.id && gizmoState.previewTransform
+        ? {
+            interactionId: gizmoState.activeGizmo.interactionId,
+            transform: gizmoState.previewTransform,
+          }
+        : null
+    const handoff =
+      !active && gizmoState.presentationHandoff?.itemId === context.item.id
+        ? gizmoState.presentationHandoff
+        : null
+
+    if (!active && (!handoff || acknowledgedHandoffId === handoff.interactionId)) {
+      return cacheSnapshot(null)
+    }
+    if (!context.resolvedTransform) return cacheSnapshot(null)
+    if (active) acknowledgedHandoffId = null
+
+    const target = active?.transform ?? handoff!.finalTransform
+    const previewWorldTransform = {
+      ...context.resolvedTransform,
+      x: target.x,
+      y: target.y,
+    }
+    const parentId = context.item.transformParent?.parentItemId
+    const parent = parentId ? context.itemById[parentId] : undefined
+    const parentWorldTransform = parent
+      ? resolveItemTransformAtFrame(parent, {
+          canvas: { ...context.canvas, fps: context.fps },
+          frame: context.currentFrame,
+          keyframes: context.allKeyframesByItemId[parent.id],
+          getItem: (candidateId) => context.itemById[candidateId],
+          getKeyframes: (candidateId) => context.allKeyframesByItemId[candidateId],
+        })
+      : undefined
+    const local = worldToLocalTransform(
+      previewWorldTransform,
+      context.item.transformParent,
+      parentWorldTransform,
+    )
+
+    if (
+      handoff &&
+      context.committedValue &&
+      Math.abs(local.x - context.committedValue.x) < 0.001 &&
+      Math.abs(local.y - context.committedValue.y) < 0.001
+    ) {
+      acknowledgedHandoffId = handoff.interactionId
+      return cacheSnapshot(null)
     }
 
-    sync(useGizmoStore.getState())
-    const unsubscribe = useGizmoStore.subscribe(sync)
-    return () => {
-      unsubscribe()
-      cancel()
-    }
-  }, [cancel, itemId, queue])
+    return cacheSnapshot({ x: local.x, y: local.y })
+  }
 
-  return position
+  const flush = () => {
+    animationFrameId = null
+    const next = getSnapshot()
+    if (next === emittedSnapshot) return
+    emittedSnapshot = next
+    for (const listener of listeners) listener()
+  }
+
+  const schedule = () => {
+    if (animationFrameId !== null) return
+    animationFrameId = requestAnimationFrame(flush)
+  }
+
+  return {
+    subscribe: (listener) => {
+      listeners.add(listener)
+      if (listeners.size === 1) {
+        emittedSnapshot = getSnapshot()
+        unsubscribeFromGizmo = useGizmoStore.subscribe(schedule)
+      }
+      return () => {
+        listeners.delete(listener)
+        if (listeners.size > 0) return
+        unsubscribeFromGizmo?.()
+        unsubscribeFromGizmo = null
+        if (animationFrameId !== null) cancelAnimationFrame(animationFrameId)
+        animationFrameId = null
+      }
+    },
+    getSnapshot,
+  }
+}
+
+function useMotionPositionValueSource(
+  context: MotionPositionValueContext,
+): MotionPositionValueSource {
+  const contextRef = useRef(context)
+  contextRef.current = context
+  return useMemo(() => createMotionPositionValueSource(() => contextRef.current), [])
 }
 
 function findMotionVectorKeyframe(
@@ -1725,6 +1839,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   onRemovePropertyLink,
   onSetPropertyExpression,
   onRemovePropertyExpression,
+  itemById,
 }: MotionDopesheetLanesProps) {
   const currentFrame = useSettledMotionFrame()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -1739,7 +1854,6 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     useCallback((state) => state.keyframesByItemId[item.id], [item.id]),
   )
   const allKeyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
-  const itemById = useItemsStore((state) => state.itemById)
   const _updateKeyframe = useKeyframesStore((state) => state._updateKeyframe)
   const _updateKeyframes = useKeyframesStore((state) => state._updateKeyframes)
   const _updateVectorKeyframe = useKeyframesStore((state) => state._updateVectorKeyframe)
@@ -1916,40 +2030,6 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       vectorBaseTransform,
     ],
   )
-  const gizmoWorldPosition = useRafCoalescedGizmoPosition(item.id)
-  const gizmoLocalPosition = useMemo(() => {
-    if (!gizmoWorldPosition || !vectorResolvedTransform) return null
-    const previewWorldTransform = {
-      ...vectorResolvedTransform,
-      ...gizmoWorldPosition,
-    }
-    const parentId = item.transformParent?.parentItemId
-    const parent = parentId ? itemById[parentId] : undefined
-    const parentWorldTransform = parent
-      ? resolveItemTransformAtFrame(parent, {
-          canvas: { ...canvas, fps },
-          frame: currentFrame,
-          keyframes: allKeyframesByItemId[parent.id],
-          getItem: (candidateId) => itemById[candidateId],
-          getKeyframes: (candidateId) => allKeyframesByItemId[candidateId],
-        })
-      : undefined
-    const local = worldToLocalTransform(
-      previewWorldTransform,
-      item.transformParent,
-      parentWorldTransform,
-    )
-    return { x: local.x, y: local.y }
-  }, [
-    allKeyframesByItemId,
-    canvas,
-    currentFrame,
-    fps,
-    gizmoWorldPosition,
-    item.transformParent,
-    itemById,
-    vectorResolvedTransform,
-  ])
   const selectedVectorValues = useMemo(() => {
     const values = new Map<VectorAnimatableProperty, VectorKeyframe['value']>()
     for (let index = selectedKeyframes.length - 1; index >= 0; index -= 1) {
@@ -1966,6 +2046,20 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     }
     return values
   }, [item.id, itemKeyframes, selectedKeyframes])
+  const resolvedPositionValue =
+    vectorBaseTransform && vectorResolvedTransform
+      ? getMotionVectorValue('position', vectorResolvedTransform, vectorBaseTransform)
+      : null
+  const positionValueSource = useMotionPositionValueSource({
+    item,
+    resolvedTransform: vectorResolvedTransform,
+    committedValue: selectedVectorValues.get('position') ?? resolvedPositionValue,
+    itemById,
+    allKeyframesByItemId,
+    canvas,
+    fps,
+    currentFrame,
+  })
   const resolveMotionVectorValueAtFrame = useCallback(
     (property: VectorAnimatableProperty, frame: number) => {
       if (!vectorBaseTransform) return null
@@ -2310,10 +2404,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           vectorResolvedTransform,
           vectorBaseTransform,
         )
-        const value =
-          row.property === 'position' && gizmoLocalPosition
-            ? gizmoLocalPosition
-            : (selectedVectorValues.get(row.property) ?? resolvedValue)
+        const value = selectedVectorValues.get(row.property) ?? resolvedValue
         return [
           row.primary,
           {
@@ -2326,6 +2417,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
             ),
             unit: row.unit,
             linkProperty: row.property,
+            liveValueSource: row.property === 'position' ? positionValueSource : undefined,
             ...(row.property === 'position'
               ? {
                   onScrubStart: startPositionScrubPreview,
@@ -2354,10 +2446,10 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     handleMotionVectorValueCommit,
     cancelPositionScrub,
     finishPositionScrub,
-    gizmoLocalPosition,
     item.id,
     item.transform,
     motionVectorRows,
+    positionValueSource,
     previewPositionScrub,
     scaleAxesLinked,
     selectedVectorValues,
@@ -3042,6 +3134,71 @@ interface CompositingTimelineProps {
   defaults?: { width: number; height: number; fps: number }
 }
 
+interface CompositingTimelineItemsSnapshot {
+  items: TimelineItem[]
+  tracks: TimelineTrack[]
+  itemById: Record<string, TimelineItem>
+}
+
+interface CompositingTimelineCoreProps extends CompositingTimelineProps {
+  itemsSnapshot: CompositingTimelineItemsSnapshot
+}
+
+function isSameItemExceptPosition(previous: TimelineItem, next: TimelineItem): boolean {
+  if (previous === next) return true
+  if (previous.id !== next.id || previous.type !== next.type) return false
+
+  const previousRecord = previous as unknown as Record<string, unknown>
+  const nextRecord = next as unknown as Record<string, unknown>
+  const keys = new Set([...Object.keys(previousRecord), ...Object.keys(nextRecord)])
+  for (const key of keys) {
+    if (key === 'transform') continue
+    if (!Object.is(previousRecord[key], nextRecord[key])) return false
+  }
+
+  const previousTransform = previous.transform
+  const nextTransform = next.transform
+  if (previousTransform === nextTransform) return true
+  if (!previousTransform || !nextTransform) return false
+
+  const previousTransformRecord = previousTransform as unknown as Record<string, unknown>
+  const nextTransformRecord = nextTransform as unknown as Record<string, unknown>
+  const transformKeys = new Set([
+    ...Object.keys(previousTransformRecord),
+    ...Object.keys(nextTransformRecord),
+  ])
+  for (const key of transformKeys) {
+    if (key === 'x' || key === 'y') continue
+    if (!Object.is(previousTransformRecord[key], nextTransformRecord[key])) return false
+  }
+  return true
+}
+
+function isTranslateOnlyItemsSnapshotChange(
+  previous: CompositingTimelineItemsSnapshot,
+  next: CompositingTimelineItemsSnapshot,
+  itemId: string,
+): boolean {
+  if (previous === next) return false
+  if (previous.tracks !== next.tracks || previous.items.length !== next.items.length) return false
+
+  let changedItemFound = false
+  for (let index = 0; index < previous.items.length; index += 1) {
+    const previousItem = previous.items[index]
+    const nextItem = next.items[index]
+    if (!previousItem || !nextItem || previousItem.id !== nextItem.id) return false
+    if (previousItem === nextItem) continue
+    if (
+      previousItem.id !== itemId ||
+      !isSameItemExceptPosition(previousItem, nextItem)
+    ) {
+      return false
+    }
+    changedItemFound = true
+  }
+  return changedItemFound
+}
+
 function createLayerTrack(params: {
   id: string
   name: string
@@ -3088,6 +3245,8 @@ const LayerFrameInput = memo(function LayerFrameInput({
       <input
         key={value}
         type="number"
+        autoComplete="off"
+        data-bwignore="true"
         defaultValue={value}
         min={min}
         max={max}
@@ -3118,10 +3277,11 @@ const LayerFrameInput = memo(function LayerFrameInput({
  */
 // This workspace shell intentionally owns the composition-wide interaction state.
 // fallow-ignore-next-line complexity
-export const CompositingTimeline = memo(function CompositingTimeline({
+const CompositingTimelineCore = memo(function CompositingTimelineCore({
   className,
   defaults,
-}: CompositingTimelineProps) {
+  itemsSnapshot,
+}: CompositingTimelineCoreProps) {
   const { t } = useTranslation()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [dropActive, setDropActive] = useState(false)
@@ -3212,13 +3372,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       [activeCompositionId],
     ),
   )
-  const { items, tracks, itemById } = useItemsStore(
-    useShallow((state) => ({
-      items: state.items,
-      tracks: state.tracks,
-      itemById: state.itemById,
-    })),
-  )
+  const { items, tracks, itemById } = itemsSnapshot
   const keyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
   const setScrubFrame = usePlaybackStore((state) => state.setScrubFrame)
   const setPreviewFrame = usePlaybackStore((state) => state.setPreviewFrame)
@@ -5998,6 +6152,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
                         ) : null}
                         <MotionDopesheetLanes
                           item={item}
+                          itemById={itemById}
                           properties={properties}
                           compositionDurationInFrames={durationInFrames}
                           fps={fps}
@@ -6048,6 +6203,7 @@ export const CompositingTimeline = memo(function CompositingTimeline({
           >
             <MotionDopesheetLanes
               item={activeCurveItem}
+              itemById={itemById}
               disabled={isActiveCurveLocked}
               properties={activeCurveProperties}
               compositionDurationInFrames={durationInFrames}
@@ -6131,4 +6287,71 @@ export const CompositingTimeline = memo(function CompositingTimeline({
       />
     </>
   )
+})
+
+/**
+ * Keep the mandatory external-store notification tiny. The canonical timeline
+ * transform and undo entry are still committed synchronously, while the large
+ * Motion tree consumes the coherent item/index snapshot as interruptible work.
+ */
+export const CompositingTimeline = memo(function CompositingTimeline(
+  props: CompositingTimelineProps,
+) {
+  const itemsSnapshot = useItemsStore(
+    useShallow((state) => ({
+      items: state.items,
+      tracks: state.tracks,
+      itemById: state.itemById,
+    })),
+  )
+  return <DeferredCompositingTimeline {...props} itemsSnapshot={itemsSnapshot} />
+})
+
+/**
+ * The external-store bridge above stays on a separate fiber so a later store
+ * notification cannot promote this transition into the pointer-up task.
+ * Structural edits remain synchronous; only the one translate commit that
+ * matches the current gizmo interaction is allowed to catch up concurrently.
+ */
+const DeferredCompositingTimeline = memo(function DeferredCompositingTimeline({
+  itemsSnapshot,
+  ...props
+}: CompositingTimelineCoreProps) {
+  const deferredItemsSnapshot = useRafDeferredValue(itemsSnapshot)
+  const pendingTranslateInteractionRef = useRef<number | null>(null)
+  const gizmoState = useGizmoStore.getState()
+  const presentation =
+    gizmoState.activeGizmo?.mode === 'translate'
+      ? {
+          interactionId: gizmoState.activeGizmo.interactionId,
+          itemId: gizmoState.activeGizmo.itemId,
+        }
+      : gizmoState.presentationHandoff?.mode === 'translate'
+        ? {
+            interactionId: gizmoState.presentationHandoff.interactionId,
+            itemId: gizmoState.presentationHandoff.itemId,
+          }
+        : null
+  const isPendingTranslateCommit =
+    deferredItemsSnapshot !== itemsSnapshot &&
+    presentation !== null &&
+    isTranslateOnlyItemsSnapshotChange(
+      deferredItemsSnapshot,
+      itemsSnapshot,
+      presentation.itemId,
+    )
+
+  if (isPendingTranslateCommit) {
+    pendingTranslateInteractionRef.current = presentation.interactionId
+  } else if (deferredItemsSnapshot === itemsSnapshot) {
+    pendingTranslateInteractionRef.current = null
+  }
+
+  const renderedSnapshot =
+    isPendingTranslateCommit &&
+    pendingTranslateInteractionRef.current === presentation?.interactionId
+      ? deferredItemsSnapshot
+      : itemsSnapshot
+
+  return <CompositingTimelineCore {...props} itemsSnapshot={renderedSnapshot} />
 })

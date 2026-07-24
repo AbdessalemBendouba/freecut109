@@ -13,6 +13,7 @@ import {
 import { useTranslation } from 'react-i18next'
 import { HeadlessPlayer, type PlayerRef } from '@/features/preview/deps/player-core'
 import { MainComposition } from '@/features/preview/deps/composition-runtime'
+import { useItemsStore } from '@/features/preview/deps/timeline-store'
 import type { CompositionInputProps } from '@/types/export'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { EDITOR_LAYOUT_CSS_VALUES } from '@/config/editor-layout'
@@ -415,7 +416,11 @@ export const PreviewStage = memo(function PreviewStage({
                 onFrameChange={onFrameChange}
                 onPlayStateChange={onPlayStateChange}
               >
-                <MainComposition {...inputProps} useProxyMedia={useProxy} />
+                <MainComposition
+                  {...inputProps}
+                  useProxyMedia={useProxy}
+                  liveItemTransformSource={useItemsStore}
+                />
               </HeadlessPlayer>
 
               {FAST_SCRUB_RENDERER_ENABLED && (

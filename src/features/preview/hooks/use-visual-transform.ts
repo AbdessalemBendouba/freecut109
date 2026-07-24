@@ -38,9 +38,10 @@ function applyTextExpansion(
 export function useVisualTransforms(
   items: TimelineItem[],
   projectSize: ProjectSize,
+  allItemsOverride?: TimelineItem[],
 ): Map<string, ResolvedTransform> {
   const fps = useTimelineSettingsStore((s) => s.fps)
-  const allItems = useItemsStore((state) => state.items)
+  const allItems = useItemsStore((state) => allItemsOverride ?? state.items)
   const keyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
   // Translate previews are presented imperatively by the item wrapper and
   // transform gizmo. Keeping them out of this scene-wide resolver prevents

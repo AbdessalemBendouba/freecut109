@@ -2427,13 +2427,18 @@ export function usePreviewRenderPump({
     const unsubscribeGizmo = useGizmoStore.subscribe((state, prev) => {
       const playbackState = usePlaybackStore.getState()
       const previewFrame = playbackState.previewFrame
-      const requiresRenderedPresentation =
-        forceFastScrubOverlay ||
-        isPausedTransitionOverlayActive(playbackState.currentFrame, playbackState)
-      const prefersDomGizmo = shouldPreferDomPlayerForGizmo(
-        requiresRenderedPresentation,
-        state.activeGizmo?.itemType ?? null,
+      const pausedTransitionPresentation = isPausedTransitionOverlayActive(
+        playbackState.currentFrame,
+        playbackState,
       )
+      const requiresRenderedPresentation =
+        forceFastScrubOverlay || pausedTransitionPresentation
+      const prefersDomGizmo =
+        !pausedTransitionPresentation &&
+        shouldPreferDomPlayerForGizmo(
+          requiresRenderedPresentation,
+          state.activeGizmo?.itemType ?? null,
+        )
       if (prefersDomGizmo) {
         // Vector transforms already update in the DOM Player. Drop any scrub
         // canvas that remained visible after a prior seek before it can

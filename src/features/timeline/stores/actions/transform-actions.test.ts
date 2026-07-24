@@ -57,6 +57,45 @@ describe('transform actions', () => {
       expect(getTransform('a').x).toBe(10)
     })
 
+    it('does not invalidate items for an empty transform commit', () => {
+      const itemsBefore = useItemsStore.getState().items
+      const undoDepth = useTimelineCommandStore.getState().undoStack.length
+
+      updateItemTransform('a', {})
+
+      expect(useItemsStore.getState().items).toBe(itemsBefore)
+      expect(useTimelineCommandStore.getState().undoStack).toHaveLength(undoDepth)
+    })
+
+    it('keeps the items reference stable for a keyframe-only transform commit', () => {
+      const itemsBefore = useItemsStore.getState().items
+
+      updateItemTransform(
+        'a',
+        {},
+        {
+          autoKeyframeOperations: [
+            {
+              type: 'vector-add',
+              itemId: 'a',
+              property: 'position',
+              frame: 10,
+              value: { x: 40, y: 50 },
+              easing: 'linear',
+            },
+          ],
+        },
+      )
+
+      expect(useItemsStore.getState().items).toBe(itemsBefore)
+      expect(
+        useKeyframesStore
+          .getState()
+          .getKeyframesForItem('a')
+          ?.vectorProperties?.[0]?.keyframes[0]?.value,
+      ).toEqual({ x: 40, y: 50 })
+    })
+
     it('commits coupled gizmo keyframes and base changes in one undo step', () => {
       const undoDepth = useTimelineCommandStore.getState().undoStack.length
 
@@ -114,6 +153,16 @@ describe('transform actions', () => {
       expect(getTransform('a').x).toBe(1)
       expect(getTransform('b').x).toBe(2)
       expect(useTimelineCommandStore.getState().undoStack.length).toBe(undoDepth + 1)
+    })
+
+    it('does not create history or invalidate items for an empty transform map', () => {
+      const itemsBefore = useItemsStore.getState().items
+      const undoDepth = useTimelineCommandStore.getState().undoStack.length
+
+      updateItemsTransformMap(new Map())
+
+      expect(useItemsStore.getState().items).toBe(itemsBefore)
+      expect(useTimelineCommandStore.getState().undoStack).toHaveLength(undoDepth)
     })
   })
 

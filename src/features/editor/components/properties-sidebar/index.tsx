@@ -11,7 +11,6 @@ import {
 } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { useTranslation } from 'react-i18next'
-import { useShallow } from 'zustand/react/shallow'
 import { i18n } from '@/i18n'
 import { Button } from '@/components/ui/button'
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Settings2 } from 'lucide-react'
@@ -138,24 +137,30 @@ export const PropertiesSidebar = memo(function PropertiesSidebar() {
   const selectedMarkerId = useSelectionStore((s) => s.selectedMarkerId)
   const selectedTransitionId = useSelectionStore((s) => s.selectedTransitionId)
   const prefersReducedMotion = useReducedMotion()
-  const selectedItems = useItemsStore(
-    useShallow(
-      useCallback(
-        (s) => {
-          const items: HeaderItem[] = []
-
-          for (const itemId of selectedItemIds) {
-            const item = s.itemById[itemId]
-            if (item) {
-              items.push(item)
-            }
-          }
-
-          return items
-        },
-        [selectedItemIds],
-      ),
+  const selectedItemHeaderSignature = useItemsStore(
+    useCallback(
+      (state) =>
+        JSON.stringify(
+          selectedItemIds.flatMap((itemId) => {
+            const item = state.itemById[itemId]
+            return item
+              ? [
+                  {
+                    id: item.id,
+                    label: item.label,
+                    linkedGroupId: item.linkedGroupId,
+                    type: item.type,
+                  } satisfies HeaderItem,
+                ]
+              : []
+          }),
+        ),
+      [selectedItemIds],
     ),
+  )
+  const selectedItems = useMemo(
+    () => JSON.parse(selectedItemHeaderSignature) as HeaderItem[],
+    [selectedItemHeaderSignature],
   )
 
   const hasClipSelection = selectedItemIds.length > 0
@@ -339,9 +344,11 @@ export const PropertiesSidebar = memo(function PropertiesSidebar() {
                       <LazyClipPanel />
                     </Suspense>
                   </div>
-                  <div hidden={hasClipSelection}>
-                    <CanvasPanel />
-                  </div>
+                  {!hasClipSelection && (
+                    <div>
+                      <CanvasPanel />
+                    </div>
+                  )}
                 </>
               )}
             </div>

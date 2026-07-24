@@ -3,6 +3,7 @@ import type { ItemKeyframes } from '@/types/keyframe'
 import type { TimelineItem } from '@/types/timeline'
 import type { CanvasSettings } from '@/types/transform'
 import { KeyframesContext } from './keyframes-context-core'
+import { useLiveTimelineItemResolver } from './live-item-transform-context'
 
 interface KeyframesProviderProps {
   keyframes: ItemKeyframes[] | undefined
@@ -29,7 +30,11 @@ export const KeyframesProvider: FC<KeyframesProviderProps> = ({
 
   const getItemKeyframes = useCallback((itemId: string) => keyframesMap.get(itemId), [keyframesMap])
   const itemsMap = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
-  const getItem = useCallback((itemId: string) => itemsMap.get(itemId), [itemsMap])
+  const getLiveItem = useLiveTimelineItemResolver()
+  const getItem = useCallback(
+    (itemId: string) => getLiveItem(itemId) ?? itemsMap.get(itemId),
+    [getLiveItem, itemsMap],
+  )
 
   const value = useMemo(
     () => ({

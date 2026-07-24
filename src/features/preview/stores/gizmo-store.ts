@@ -156,11 +156,25 @@ export interface ItemPreview {
   lottie?: LottiePreview
 }
 
+export interface GizmoPresentationHandoff {
+  interactionId: number
+  mode: GizmoState['mode']
+  itemId: string
+  startTransform: Transform
+  finalTransform: Transform
+}
+
 interface GizmoStoreState {
   /** Current gizmo interaction state (null when not interacting) */
   activeGizmo: GizmoState | null
   /** Preview transform during single-item gizmo drag (before commit) */
   previewTransform: Transform | null
+  /**
+   * Final transform retained after input ownership ends. DOM presentation
+   * bridges use this until the committed timeline transform has painted,
+   * avoiding a fixed-RAF race on release.
+   */
+  presentationHandoff: GizmoPresentationHandoff | null
   /** Canvas dimensions for calculations */
   canvasSize: { width: number; height: number }
   /**
@@ -257,6 +271,9 @@ interface GizmoStoreActions {
   /** Clear interaction state (call after timeline is updated) */
   clearInteraction: (expectedInteractionId?: number) => void
 
+  /** Clear a final presentation handoff after the canonical transform has painted. */
+  completePresentationHandoff: (interactionId: number) => void
+
   /** Cancel interaction without committing changes */
   cancelInteraction: () => void
 
@@ -324,6 +341,7 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
   // State
   activeGizmo: null,
   previewTransform: null,
+  presentationHandoff: null,
   canvasSize: { width: 1920, height: 1080 },
   canvasScale: 1,
   snapLines: [],
@@ -362,6 +380,7 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
         strokeWidth,
       },
       previewTransform: { ...transform },
+      presentationHandoff: null,
       snapLines: [],
     })
     return interactionId
@@ -386,6 +405,7 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
         strokeWidth,
       },
       previewTransform: { ...transform },
+      presentationHandoff: null,
       snapLines: [],
     })
     return interactionId
@@ -409,6 +429,7 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
         strokeWidth,
       },
       previewTransform: { ...transform },
+      presentationHandoff: null,
       snapLines: [],
     })
     return interactionId
@@ -505,16 +526,44 @@ export const useGizmoStore = create<GizmoStoreState & GizmoStoreActions>((set, g
   },
 
   clearInteraction: (expectedInteractionId) => {
+    const state = get()
     if (
       expectedInteractionId !== undefined &&
-      get().activeGizmo?.interactionId !== expectedInteractionId
+      state.activeGizmo?.interactionId !== expectedInteractionId
     ) {
       return
     }
-    set({ activeGizmo: null, previewTransform: null, snapLines: [] })
+    const activeGizmo = state.activeGizmo
+    const finalTransform = state.previewTransform
+    set({
+      activeGizmo: null,
+      previewTransform: null,
+      presentationHandoff:
+        activeGizmo && finalTransform
+          ? {
+              interactionId: activeGizmo.interactionId,
+              mode: activeGizmo.mode,
+              itemId: activeGizmo.itemId,
+              startTransform: activeGizmo.startTransform,
+              finalTransform,
+            }
+          : null,
+      snapLines: [],
+    })
   },
 
-  cancelInteraction: () => set({ activeGizmo: null, previewTransform: null, snapLines: [] }),
+  completePresentationHandoff: (interactionId) => {
+    if (get().presentationHandoff?.interactionId !== interactionId) return
+    set({ presentationHandoff: null })
+  },
+
+  cancelInteraction: () =>
+    set({
+      activeGizmo: null,
+      previewTransform: null,
+      presentationHandoff: null,
+      snapLines: [],
+    }),
 
   setSnapLines: (lines) => set({ snapLines: lines }),
 

@@ -1,4 +1,13 @@
-import { useMemo, useCallback, useEffect, memo, lazy, Suspense } from 'react'
+import {
+  useMemo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useSyncExternalStore,
+  memo,
+  lazy,
+  Suspense,
+} from 'react'
 import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import {
@@ -11,7 +20,6 @@ import {
   Shapes,
   type LucideIcon,
 } from 'lucide-react'
-import { useShallow } from 'zustand/react/shallow'
 import { cn } from '@/shared/ui/cn'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
@@ -31,6 +39,7 @@ import type { TimelineState, TimelineActions } from '@/features/editor/deps/time
 import type { TransformProperties } from '@/types/transform'
 import type { TimelineItem, VideoItem, CompositionItem } from '@/types/timeline'
 import { getLinkedAudioCompanion } from '@/shared/utils/linked-media'
+import { useGizmoStore } from '@/features/editor/deps/preview'
 
 import { LayoutSection } from './layout-section'
 import { FillSection } from './fill-section'
@@ -115,12 +124,300 @@ function computeItemTypeInfo(items: TimelineItem[]) {
   }
 }
 
+export const ClipPanel = memo(function ClipPanel() {
+  const selectedItemIds = useSelectionStore(
+    (s: SelectionState & SelectionActions) => s.selectedItemIds,
+  )
+  const snapshotBridge = useMemo(
+    () => createClipPanelSnapshotBridge(selectedItemIds),
+    [selectedItemIds],
+  )
+  const snapshot = useSyncExternalStore(
+    snapshotBridge.subscribe,
+    snapshotBridge.getSnapshot,
+    snapshotBridge.getSnapshot,
+  )
+
+  return <DeferredClipPanel snapshot={snapshot} />
+})
+
+interface ClipPanelSnapshot {
+  selectedItems: TimelineItem[]
+  audioPanelItems: TimelineItem[]
+}
+
+type ItemsStoreState = ReturnType<typeof useItemsStore.getState>
+type GizmoStoreState = ReturnType<typeof useGizmoStore.getState>
+
+function readClipPanelSnapshot(
+  state: ItemsStoreState,
+  selectedItemIds: readonly string[],
+): ClipPanelSnapshot {
+  const selectedItems = selectedItemIds.flatMap((itemId) => {
+    const item = state.itemById[itemId]
+    return item ? [item] : []
+  })
+  const audioPanelItems = selectedItemIds.flatMap((itemId) => {
+    const item = state.itemById[itemId]
+    if (!item || (item.type !== 'video' && item.type !== 'audio')) return []
+    if (item.type === 'audio') return [item]
+    return [getLinkedAudioCompanion(state.items, item) ?? item]
+  })
+  return { selectedItems, audioPanelItems }
+}
+
+function areItemListsReferentiallyEqual(
+  previous: readonly TimelineItem[],
+  next: readonly TimelineItem[],
+): boolean {
+  return (
+    previous.length === next.length &&
+    previous.every((item, index) => item === next[index])
+  )
+}
+
+function areRecordsEqualExceptKeys(
+  previous: Readonly<Record<string, unknown>>,
+  next: Readonly<Record<string, unknown>>,
+  ignoredKeys: ReadonlySet<string>,
+): boolean {
+  const keys = new Set([...Object.keys(previous), ...Object.keys(next)])
+  for (const key of keys) {
+    if (!ignoredKeys.has(key) && previous[key] !== next[key]) return false
+  }
+  return true
+}
+
+const ITEM_TRANSFORM_KEY = new Set(['transform'])
+const POSITION_TRANSFORM_KEYS = new Set(['x', 'y'])
+
+function isTranslateOnlyItemChange(previous: TimelineItem, next: TimelineItem): boolean {
+  if (previous.id !== next.id) return false
+  if (previous === next) return true
+  if (
+    !areRecordsEqualExceptKeys(
+      previous as unknown as Readonly<Record<string, unknown>>,
+      next as unknown as Readonly<Record<string, unknown>>,
+      ITEM_TRANSFORM_KEY,
+    )
+  ) {
+    return false
+  }
+
+  return areRecordsEqualExceptKeys(
+    (previous.transform ?? {}) as Readonly<Record<string, unknown>>,
+    (next.transform ?? {}) as Readonly<Record<string, unknown>>,
+    POSITION_TRANSFORM_KEYS,
+  )
+}
+
+function isTranslateOnlyItemListChange(
+  previous: readonly TimelineItem[],
+  next: readonly TimelineItem[],
+  activeItemId: string,
+): { valid: boolean; changed: boolean } {
+  if (previous.length !== next.length) return { valid: false, changed: false }
+
+  let changed = false
+  for (const [index, previousItem] of previous.entries()) {
+    const nextItem = next[index]
+    if (!nextItem || previousItem.id !== nextItem.id) {
+      return { valid: false, changed: false }
+    }
+    if (previousItem === nextItem) continue
+    if (
+      previousItem.id !== activeItemId ||
+      !isTranslateOnlyItemChange(previousItem, nextItem)
+    ) {
+      return { valid: false, changed: false }
+    }
+    changed = true
+  }
+
+  return { valid: true, changed }
+}
+
+function isTranslateOnlySnapshotChange(
+  previous: ClipPanelSnapshot,
+  next: ClipPanelSnapshot,
+  activeItemId: string,
+): boolean {
+  const selectedChange = isTranslateOnlyItemListChange(
+    previous.selectedItems,
+    next.selectedItems,
+    activeItemId,
+  )
+  if (!selectedChange.valid) return false
+
+  const audioChange = isTranslateOnlyItemListChange(
+    previous.audioPanelItems,
+    next.audioPanelItems,
+    activeItemId,
+  )
+  return audioChange.valid && (selectedChange.changed || audioChange.changed)
+}
+
+function areSnapshotsReferentiallyEqual(
+  previous: ClipPanelSnapshot,
+  next: ClipPanelSnapshot,
+): boolean {
+  return (
+    areItemListsReferentiallyEqual(previous.selectedItems, next.selectedItems) &&
+    areItemListsReferentiallyEqual(previous.audioPanelItems, next.audioPanelItems)
+  )
+}
+
+function scheduleInspectorCatchUp(callback: () => void): () => void {
+  if (typeof window.requestIdleCallback === 'function') {
+    const idleId = window.requestIdleCallback(callback, { timeout: 120 })
+    return () => window.cancelIdleCallback(idleId)
+  }
+
+  const animationFrameId = window.requestAnimationFrame(callback)
+  return () => window.cancelAnimationFrame(animationFrameId)
+}
+
+function createClipPanelSnapshotBridge(selectedIds: readonly string[]): {
+  subscribe: (listener: () => void) => () => void
+  getSnapshot: () => ClipPanelSnapshot
+} {
+  const selectedItemIds = [...selectedIds]
+  let observedSnapshot = readClipPanelSnapshot(useItemsStore.getState(), selectedItemIds)
+  let renderedSnapshot = observedSnapshot
+  let lastRetainedTranslateInteractionId: number | null = null
+  let lastObservedHandoffInteractionId: number | null = null
+  let cancelScheduledCatchUp: (() => void) | null = null
+  let unsubscribeItems: (() => void) | null = null
+  let unsubscribeGizmo: (() => void) | null = null
+  const listeners = new Set<() => void>()
+
+  const emit = () => {
+    for (const listener of listeners) listener()
+  }
+  const publishCanonicalSnapshot = () => {
+    cancelScheduledCatchUp = null
+    if (useGizmoStore.getState().activeGizmo) return
+
+    const nextSnapshot = readClipPanelSnapshot(useItemsStore.getState(), selectedItemIds)
+    observedSnapshot = nextSnapshot
+    if (areSnapshotsReferentiallyEqual(renderedSnapshot, nextSnapshot)) return
+    renderedSnapshot = nextSnapshot
+    emit()
+  }
+  const handleItemsChange = (state: ItemsStoreState) => {
+    const nextObserved = readClipPanelSnapshot(state, selectedItemIds)
+    if (areSnapshotsReferentiallyEqual(observedSnapshot, nextObserved)) return
+
+    const gizmoState = useGizmoStore.getState()
+    const translateInteraction =
+      gizmoState.activeGizmo?.mode === 'translate'
+        ? gizmoState.activeGizmo
+        : gizmoState.presentationHandoff?.mode === 'translate'
+          ? gizmoState.presentationHandoff
+          : null
+    const shouldRetain =
+      translateInteraction !== null &&
+      translateInteraction.interactionId !== lastRetainedTranslateInteractionId &&
+      isTranslateOnlySnapshotChange(
+        observedSnapshot,
+        nextObserved,
+        translateInteraction.itemId,
+      )
+
+    observedSnapshot = nextObserved
+    if (shouldRetain) {
+      lastRetainedTranslateInteractionId = translateInteraction.interactionId
+      return
+    }
+    if (areSnapshotsReferentiallyEqual(renderedSnapshot, nextObserved)) return
+    renderedSnapshot = nextObserved
+    emit()
+  }
+  const handleGizmoChange = (state: GizmoStoreState) => {
+    if (state.activeGizmo) {
+      cancelScheduledCatchUp?.()
+      cancelScheduledCatchUp = null
+    }
+
+    const handoffInteractionId =
+      state.presentationHandoff?.mode === 'translate'
+        ? state.presentationHandoff.interactionId
+        : null
+    if (handoffInteractionId === lastObservedHandoffInteractionId) return
+    lastObservedHandoffInteractionId = handoffInteractionId
+    // Canonical visual acknowledgement clears the handoff quickly. Keep the
+    // already scheduled inspector catch-up alive; only a new interaction
+    // should cancel it.
+    if (handoffInteractionId === null) return
+
+    cancelScheduledCatchUp?.()
+    cancelScheduledCatchUp = null
+
+    if (handoffInteractionId === lastRetainedTranslateInteractionId) {
+      cancelScheduledCatchUp = scheduleInspectorCatchUp(publishCanonicalSnapshot)
+    }
+  }
+
+  return {
+    getSnapshot: () => renderedSnapshot,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      if (listeners.size === 1) {
+        unsubscribeItems = useItemsStore.subscribe(handleItemsChange)
+        unsubscribeGizmo = useGizmoStore.subscribe(handleGizmoChange)
+        handleItemsChange(useItemsStore.getState())
+        handleGizmoChange(useGizmoStore.getState())
+      }
+
+      return () => {
+        listeners.delete(listener)
+        if (listeners.size > 0) return
+        unsubscribeItems?.()
+        unsubscribeItems = null
+        unsubscribeGizmo?.()
+        unsubscribeGizmo = null
+        cancelScheduledCatchUp?.()
+        cancelScheduledCatchUp = null
+        lastObservedHandoffInteractionId = null
+      }
+    },
+  }
+}
+
+/**
+ * Keep transition state on a component that does not subscribe to the external
+ * items store. Otherwise a later synchronous store notification can promote an
+ * unfinished inspector render back into the canvas pointer-up task.
+ */
+const DeferredClipPanel = memo(function DeferredClipPanel({
+  snapshot,
+}: {
+  snapshot: ClipPanelSnapshot
+}) {
+  const deferredSnapshot = useDeferredValue(snapshot)
+  return (
+    <ClipPanelCore
+      selectedItems={deferredSnapshot.selectedItems}
+      audioPanelItems={deferredSnapshot.audioPanelItems}
+    />
+  )
+})
+
 /**
  * Clip properties panel - shown when one or more clips are selected.
  * Displays and allows editing of clip visual, audio, and effect properties.
- * Memoized to prevent re-renders when props haven't changed.
+ *
+ * The store bridge above defers transform-only snapshots so the large inspector
+ * does not join the canvas mouseup commit. The final gizmo handoff keeps the
+ * preview exact while these controls catch up.
  */
-export const ClipPanel = memo(function ClipPanel() {
+const ClipPanelCore = memo(function ClipPanelCore({
+  selectedItems,
+  audioPanelItems,
+}: {
+  selectedItems: TimelineItem[]
+  audioPanelItems: TimelineItem[]
+}) {
   const { t } = useTranslation()
   // Granular selectors with explicit types
   const clipInspectorTab = useEditorStore((s) => s.clipInspectorTab)
@@ -128,9 +425,6 @@ export const ClipPanel = memo(function ClipPanel() {
   const setClipInspectorTab = useEditorStore((s) => s.setClipInspectorTab)
   const setWorkspace = useEditorStore((s) => s.setWorkspace)
   const handleEditInColor = useCallback(() => setWorkspace('color'), [setWorkspace])
-  const selectedItemIds = useSelectionStore(
-    (s: SelectionState & SelectionActions) => s.selectedItemIds,
-  )
   const updateItemsTransform = useTimelineStore(
     (s: TimelineState & TimelineActions) => s.updateItemsTransform,
   )
@@ -141,39 +435,6 @@ export const ClipPanel = memo(function ClipPanel() {
     (s) => s.currentProject?.metadata.height ?? DEFAULT_PROJECT_HEIGHT,
   )
   const projectFps = useProjectStore((s) => s.currentProject?.metadata.fps ?? DEFAULT_PROJECT_FPS)
-  const selectedItems = useItemsStore(
-    useShallow(
-      useCallback(
-        (s) => {
-          const items: TimelineItem[] = []
-
-          for (const itemId of selectedItemIds) {
-            const item = s.itemById[itemId]
-            if (item) {
-              items.push(item)
-            }
-          }
-
-          return items
-        },
-        [selectedItemIds],
-      ),
-    ),
-  )
-  const audioPanelItems = useItemsStore(
-    useShallow(
-      useCallback(
-        (state) =>
-          selectedItemIds.flatMap((itemId) => {
-            const item = state.itemById[itemId]
-            if (!item || (item.type !== 'video' && item.type !== 'audio')) return []
-            if (item.type === 'audio') return [item]
-            return [getLinkedAudioCompanion(state.items, item) ?? item]
-          }),
-        [selectedItemIds],
-      ),
-    ),
-  )
   // Canvas settings
   const canvas = useMemo(
     () => ({

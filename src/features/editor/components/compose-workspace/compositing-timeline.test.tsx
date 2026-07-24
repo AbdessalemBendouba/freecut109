@@ -41,6 +41,13 @@ import type {
 import { useComposeUiStore } from './compose-ui-store'
 import { CompositingTimeline } from './compositing-timeline'
 
+const perfMarkMocks = vi.hoisted(() => ({ mark: vi.fn() }))
+
+vi.mock('@/shared/logging/perf-marks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/shared/logging/perf-marks')>()
+  return { ...actual, perfMarkRender: perfMarkMocks.mark }
+})
+
 vi.mock('@/features/editor/deps/media-library-contract', async (importOriginal) => {
   const actual =
     await importOriginal<typeof import('@/features/editor/deps/media-library-contract')>()
@@ -114,6 +121,7 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     useGizmoStore.getState().cancelInteraction()
     useGizmoStore.getState().clearPreview()
     useGizmoStore.getState().setSnappingEnabled(true)
+    perfMarkMocks.mark.mockClear()
   })
 
   afterEach(() => {
@@ -1354,11 +1362,13 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
 
     const input = screen.getByLabelText('Position X')
     expect(input).toHaveValue('100.00')
+    perfMarkMocks.mark.mockClear()
 
+    let interactionId = 0
     act(() => {
       const gizmo = useGizmoStore.getState()
       gizmo.setSnappingEnabled(false)
-      gizmo.startTranslate(
+      interactionId = gizmo.startTranslate(
         shape.id,
         { x: 0, y: 0 },
         {
@@ -1381,11 +1391,94 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     act(() => frameCallbacks[0]?.(16))
     expect(input).toHaveValue('160.00')
     expect(useItemsStore.getState().itemById[shape.id]?.transform?.x).toBe(100)
+    expect(perfMarkMocks.mark).not.toHaveBeenCalledWith('DopesheetEditor')
+
+    act(() => useGizmoStore.getState().clearInteraction(interactionId))
+    act(() => frameCallbacks[1]?.(32))
+    expect(input).toHaveValue('160.00')
+    expect(useGizmoStore.getState().presentationHandoff?.finalTransform.x).toBe(160)
+    expect(perfMarkMocks.mark).not.toHaveBeenCalledWith('DopesheetEditor')
+
+    act(() => useGizmoStore.getState().cancelInteraction())
+    act(() => frameCallbacks[2]?.(48))
+    expect(input).toHaveValue('100.00')
+    expect(perfMarkMocks.mark).not.toHaveBeenCalledWith('DopesheetEditor')
+
+    animationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+  })
+
+  it('converts a parented gizmo world preview back to the child Position inputs', () => {
+    const parentTrack = makeTimelineTrack({
+      id: 'parent-track',
+      name: 'Parent',
+      kind: 'video',
+      order: 1,
+    })
+    const parent: ControllerItem = {
+      id: 'parent-1',
+      type: 'controller',
+      controllerKind: 'null',
+      trackId: parentTrack.id,
+      from: 0,
+      durationInFrames: 120,
+      label: 'Parent',
+      transform: { x: 50, y: 0, width: 100, height: 100, rotation: 0 },
+    }
+    const child: ShapeItem = {
+      ...shape,
+      transformParent: {
+        parentItemId: parent.id,
+        parentReference: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+        childLocalReference: { x: 100, y: 80, width: 400, height: 220, rotation: 0 },
+        childWorldReference: { x: 100, y: 80, width: 400, height: 220, rotation: 0 },
+      },
+    }
+    useItemsStore.getState().setTracks([track, parentTrack])
+    useItemsStore.getState().setItems([child, parent])
+
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined)
+    render(<CompositingTimeline />)
+    const childRow = screen.getByTestId(`motion-layer-row-${child.id}`)
+    fireEvent.click(within(childRow).getByRole('button', { name: 'Expand layer properties' }))
+
+    const input = within(childRow).getByLabelText('Position X')
+    expect(input).toHaveValue('100.00')
+    perfMarkMocks.mark.mockClear()
+
+    act(() => {
+      const gizmo = useGizmoStore.getState()
+      gizmo.setSnappingEnabled(false)
+      gizmo.startTranslate(
+        child.id,
+        { x: 0, y: 0 },
+        {
+          x: 150,
+          y: 80,
+          width: 400,
+          height: 220,
+          rotation: 0,
+          opacity: 1,
+        },
+      )
+      gizmo.updateInteraction({ x: 20, y: 0 }, false)
+    })
+    act(() => frameCallbacks[0]?.(16))
+
+    expect(input).toHaveValue('120.00')
+    expect(perfMarkMocks.mark).not.toHaveBeenCalledWith('DopesheetEditor')
 
     act(() => useGizmoStore.getState().cancelInteraction())
     act(() => frameCallbacks[1]?.(32))
-    expect(input).toHaveValue('100.00')
-
     animationFrameSpy.mockRestore()
     cancelAnimationFrameSpy.mockRestore()
   })

@@ -1075,7 +1075,7 @@ export const MediaSidebar = memo(function MediaSidebar() {
             <div
               className={`min-h-0 flex-1 overflow-hidden ${activeTab === 'transitions' ? 'block' : 'hidden'}`}
             >
-              <TransitionsPanel />
+              {activeTab === 'transitions' && <TransitionsPanel />}
             </div>
 
             {/* Lottie Browser Tab */}

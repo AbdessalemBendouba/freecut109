@@ -1,7 +1,17 @@
-import { useMemo, useCallback, memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  useMemo,
+  useCallback,
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
+import { useRafDeferredValue } from '@/shared/hooks/use-raf-deferred-value'
 import { usePreviewBridgeStore } from '@/shared/state/preview-bridge'
 import { usePlaybackStore } from '@/shared/state/playback'
 import type { ItemEffect } from '@/types/effects'
+import type { TimelineItem } from '@/types/timeline'
 import { GizmoOverlay } from './gizmo-overlay'
 import { MaskEditorContainer } from './mask-editor-container'
 import { CornerPinContainer } from './corner-pin-container'
@@ -32,9 +42,12 @@ import { usePreviewRendererController } from '../hooks/use-preview-renderer-cont
 import { usePreviewRuntimeRefs } from '../hooks/use-preview-runtime-refs'
 import { usePreviewSourceWarm } from '../hooks/use-preview-source-warm'
 import { usePreviewTransitionModel } from '../hooks/use-preview-transition-model'
+import { useTransformStableItemsSnapshot } from '../hooks/use-transform-stable-items-snapshot'
 import { usePreviewViewModel } from '../hooks/use-preview-view-model'
 import { usePreviewTransitionSessionController } from '../hooks/use-preview-transition-session-controller'
 import { useGizmoStore } from '../stores/gizmo-store'
+import { useCornerPinStore } from '../stores/corner-pin-store'
+import { useMaskEditorStore } from '../stores/mask-editor-store'
 import { usePowerWindowEditorStore } from '../stores/power-window-editor-store'
 import { useSpatialEffectEditorStore } from '../stores/spatial-effect-editor-store'
 import { FAST_SCRUB_RENDERER_ENABLED } from '../utils/preview-constants'
@@ -62,6 +75,11 @@ interface VideoPreviewProps {
 
 type PreviewOverlayChrome = 'edit' | 'color'
 
+interface PreviewItemsSnapshot {
+  items: TimelineItem[]
+  itemsByTrackId: Record<string, TimelineItem[]>
+}
+
 /**
  * Video Preview Component
  *
@@ -79,7 +97,11 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
   containerSize,
   suspendOverlay = false,
   overlayChrome,
-}: VideoPreviewProps & { overlayChrome: PreviewOverlayChrome }) {
+  itemsSnapshot,
+}: VideoPreviewProps & {
+  overlayChrome: PreviewOverlayChrome
+  itemsSnapshot: PreviewItemsSnapshot
+}) {
   const previewRuntimeRefs = usePreviewRuntimeRefs()
   const colorGradeComparisonMode = useGizmoStore((s) => s.colorGradeComparisonMode)
   const colorGradeSplitPosition = useGizmoStore((s) => s.colorGradeSplitPosition)
@@ -145,8 +167,6 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     hasRipple2Up,
     hasSlip4Up,
     hasSlide4Up,
-    activeGizmoItemType,
-    isGizmoInteracting,
     zoom,
     useProxy,
     busAudioEq,
@@ -163,6 +183,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     project,
     containerSize,
     suspendOverlay,
+    itemsSnapshot,
   })
   useSelectedComparisonCompositionPrewarm({
     fps,
@@ -176,6 +197,8 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     scrubOffscreenCanvasRef,
     scrubFrameDirtyRef,
   )
+  const isMaskEditing = useMaskEditorStore((s) => s.isEditing)
+  const isCornerPinEditing = useCornerPinStore((s) => s.isEditing)
   const isPowerWindowEditing = usePowerWindowEditorStore((s) => s.isEditing)
   const isSpatialEffectEditing = useSpatialEffectEditorStore((s) => s.isEditing)
   const setCaptureFrame = usePreviewBridgeStore((s) => s.setCaptureFrame)
@@ -564,8 +587,6 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     fps,
     combinedTracks,
     keyframes,
-    activeGizmoItemType,
-    isGizmoInteracting,
     forceFastScrubOverlay,
     domTextScrubOverlayEnabled: domTextScrubOverlayPlan.enabled,
     previewPerfRef,
@@ -714,6 +735,7 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
     <>
       {overlayChrome === 'edit' && (
         <GizmoOverlay
+          itemsSnapshot={itemsSnapshot.items}
           containerRect={playerContainerRect}
           playerSize={playerSize}
           projectSize={{ width: project.width, height: project.height }}
@@ -721,30 +743,38 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
           hitAreaRef={backgroundRef as React.RefObject<HTMLDivElement>}
         />
       )}
-      <MaskEditorContainer
-        containerRect={playerContainerRect}
-        playerSize={playerSize}
-        projectSize={{ width: project.width, height: project.height }}
-        zoom={zoom}
-      />
-      <CornerPinContainer
-        containerRect={playerContainerRect}
-        playerSize={playerSize}
-        projectSize={{ width: project.width, height: project.height }}
-        zoom={zoom}
-      />
-      <PowerWindowOverlayContainer
-        containerRect={playerContainerRect}
-        playerSize={playerSize}
-        projectSize={{ width: project.width, height: project.height }}
-        zoom={zoom}
-      />
-      <SpatialEffectPointOverlayContainer
-        containerRect={playerContainerRect}
-        playerSize={playerSize}
-        projectSize={{ width: project.width, height: project.height }}
-        zoom={zoom}
-      />
+      {isMaskEditing && (
+        <MaskEditorContainer
+          containerRect={playerContainerRect}
+          playerSize={playerSize}
+          projectSize={{ width: project.width, height: project.height }}
+          zoom={zoom}
+        />
+      )}
+      {isCornerPinEditing && (
+        <CornerPinContainer
+          containerRect={playerContainerRect}
+          playerSize={playerSize}
+          projectSize={{ width: project.width, height: project.height }}
+          zoom={zoom}
+        />
+      )}
+      {isPowerWindowEditing && (
+        <PowerWindowOverlayContainer
+          containerRect={playerContainerRect}
+          playerSize={playerSize}
+          projectSize={{ width: project.width, height: project.height }}
+          zoom={zoom}
+        />
+      )}
+      {isSpatialEffectEditing && (
+        <SpatialEffectPointOverlayContainer
+          containerRect={playerContainerRect}
+          playerSize={playerSize}
+          projectSize={{ width: project.width, height: project.height }}
+          zoom={zoom}
+        />
+      )}
     </>
   ) : null
   const shouldShowAfterDuringSplitPlayback = isPlayingForSplitComparison
@@ -883,7 +913,30 @@ const VideoPreviewBase = memo(function VideoPreviewBase({
 
 export const VideoPreview = memo(function VideoPreview(props: VideoPreviewProps) {
   const { chrome = 'edit', ...previewProps } = props
-  return <VideoPreviewBase {...previewProps} overlayChrome={chrome} />
+  const itemsSnapshot = useTransformStableItemsSnapshot()
+  return (
+    <DeferredVideoPreview
+      {...previewProps}
+      overlayChrome={chrome}
+      itemsSnapshot={itemsSnapshot}
+    />
+  )
+})
+
+const DeferredVideoPreview = memo(function DeferredVideoPreview({
+  itemsSnapshot,
+  ...props
+}: VideoPreviewProps & {
+  overlayChrome: PreviewOverlayChrome
+  itemsSnapshot: PreviewItemsSnapshot
+}) {
+  const deferredItemsSnapshot = useRafDeferredValue(itemsSnapshot)
+  return (
+    <VideoPreviewBase
+      {...props}
+      itemsSnapshot={deferredItemsSnapshot}
+    />
+  )
 })
 
 export const ColorVideoPreview = memo(function ColorVideoPreview(props: VideoPreviewProps) {

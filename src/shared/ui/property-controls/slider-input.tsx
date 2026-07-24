@@ -229,15 +229,22 @@ export const SliderInput = memo(function SliderInput({
 
       if (!handleRef.current) return
 
-      const trackWidth = trackRef.current?.offsetWidth ?? 200
-      const labelWidth = labelRef.current?.offsetWidth ?? 30
-      const valueWidth = valueSpanRef.current?.offsetWidth ?? 40
-      const handleBuffer = 8
-      const leftThreshold = ((8 + labelWidth + handleBuffer) / trackWidth) * 100
-      const rightThreshold = ((trackWidth - 8 - valueWidth - handleBuffer) / trackWidth) * 100
-      const valueDodge = nextFillPercent < leftThreshold || nextFillPercent > rightThreshold
       const isActiveNow = options?.active ?? (isInteracting || isHovered)
       const isDraggingNow = options?.dragging ?? isDragging
+      let valueDodge = false
+
+      // Inactive sliders hide their handle, so measuring label/value overlap is
+      // wasted work. offsetWidth would also force layout when an unrelated
+      // property update rerenders a large inspector.
+      if (isActiveNow) {
+        const trackWidth = trackRef.current?.offsetWidth ?? 200
+        const labelWidth = labelRef.current?.offsetWidth ?? 30
+        const valueWidth = valueSpanRef.current?.offsetWidth ?? 40
+        const handleBuffer = 8
+        const leftThreshold = ((8 + labelWidth + handleBuffer) / trackWidth) * 100
+        const rightThreshold = ((trackWidth - 8 - valueWidth - handleBuffer) / trackWidth) * 100
+        valueDodge = nextFillPercent < leftThreshold || nextFillPercent > rightThreshold
+      }
       const handleOpacity = !isActiveNow ? 0 : valueDodge ? 0.1 : isDraggingNow ? 0.9 : 0.5
 
       handleRef.current.style.left = `max(4px, calc(${clampedFillPercent}% - 1.5px))`
@@ -543,14 +550,9 @@ export const SliderInput = memo(function SliderInput({
 
   // Handle dodge — fade handle when it overlaps label or value
   const isActive = isInteracting || isHovered
-  const HANDLE_BUFFER = 8
-  const trackWidth = trackRef.current?.offsetWidth ?? 200
-  const labelWidth = labelRef.current?.offsetWidth ?? 30
-  const valueWidth = valueSpanRef.current?.offsetWidth ?? 40
-  const leftThreshold = ((8 + labelWidth + HANDLE_BUFFER) / trackWidth) * 100
-  const rightThreshold = ((trackWidth - 8 - valueWidth - HANDLE_BUFFER) / trackWidth) * 100
-  const valueDodge = fillPercent < leftThreshold || fillPercent > rightThreshold
-  const handleOpacity = !isActive ? 0 : valueDodge ? 0.1 : isDragging ? 0.9 : 0.5
+  // Accurate overlap styling is applied imperatively by updateFillVisual after
+  // render. Avoid synchronous DOM measurements in React's render phase.
+  const handleOpacity = !isActive ? 0 : isDragging ? 0.9 : 0.5
 
   // Hash marks — decile tick marks
   const discreteSteps = (max - min) / step
@@ -622,7 +624,7 @@ export const SliderInput = memo(function SliderInput({
           className="absolute top-1/2 w-[3px] h-3.5 rounded-full bg-foreground/90 pointer-events-none"
           style={{
             left: `max(4px, calc(${Math.max(0, Math.min(100, fillPercentRef.current))}% - 1.5px))`,
-            transform: `translateY(-50%) scaleX(${isActive ? 1 : 0.25}) scaleY(${isActive && valueDodge ? 0.75 : 1})`,
+            transform: `translateY(-50%) scaleX(${isActive ? 1 : 0.25}) scaleY(1)`,
             opacity: handleOpacity,
             transition: 'opacity 150ms, transform 200ms var(--ease-out-strong)',
           }}
@@ -643,6 +645,8 @@ export const SliderInput = memo(function SliderInput({
           <input
             ref={inputRef}
             type="text"
+            autoComplete="off"
+            data-bwignore="true"
             inputMode="decimal"
             className="absolute right-1.5 top-1/2 -translate-y-1/2 w-14 h-5 text-xs font-mono tabular-nums text-foreground text-right bg-background/80 border border-ring rounded px-1 outline-none"
             value={inputValue}

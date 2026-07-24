@@ -279,7 +279,18 @@ export function usePreviewCompositionModel({
   const getLiveItemSnapshot = useCallback((itemId: string) => {
     const item = fastScrubLiveItemsByIdRef.current.get(itemId)
     if (!item) return undefined
-    return mergeLiveItemPreview(item, useGizmoStore.getState().preview?.[itemId])
+    const liveItem = useItemsStore.getState().itemById[itemId]
+    const itemWithLiveTransform =
+      liveItem &&
+      'transform' in liveItem &&
+      'transform' in item &&
+      liveItem.transform !== item.transform
+        ? ({ ...item, transform: liveItem.transform } as TimelineItem)
+        : item
+    return mergeLiveItemPreview(
+      itemWithLiveTransform,
+      useGizmoStore.getState().preview?.[itemId],
+    )
   }, [])
 
   const getLiveKeyframes = useCallback((itemId: string) => {

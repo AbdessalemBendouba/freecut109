@@ -8,6 +8,7 @@ interface PositionTransform {
 interface ResolveGizmoDomTranslationParams {
   itemId: string
   positionSourceItemId?: string
+  followsActiveItem?: boolean
   activeItemId: string
   activeStartTransform: PositionTransform
   previewTransform: PositionTransform
@@ -22,12 +23,14 @@ interface ResolveGizmoDomTranslationParams {
  * latest gizmo store value and the last React-painted item transform.
  *
  * The selected item follows the preview directly. A Position-linked follower
- * receives the same source delta, preserving its offset without re-resolving
- * the full composition tree in the pointer hot path.
+ * or transform descendant receives the same source delta, preserving its
+ * offset without re-resolving the full composition tree in the pointer hot
+ * path.
  */
 export function resolveGizmoDomTranslation({
   itemId,
   positionSourceItemId,
+  followsActiveItem = false,
   activeItemId,
   activeStartTransform,
   previewTransform,
@@ -42,7 +45,7 @@ export function resolveGizmoDomTranslation({
   if (itemId === activeItemId) {
     targetX = previewTransform.x
     targetY = previewTransform.y
-  } else if (positionSourceItemId === activeItemId) {
+  } else if (followsActiveItem || positionSourceItemId === activeItemId) {
     targetX =
       interactionStartTransform.x + (previewTransform.x - activeStartTransform.x)
     targetY =
