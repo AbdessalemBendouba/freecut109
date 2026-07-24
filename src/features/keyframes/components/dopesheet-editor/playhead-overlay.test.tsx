@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { TimelinePreviewScrubberVisual } from '@/shared/ui/timeline-preview-scrubber-visual'
 import { DopesheetEditor } from './index'
+import { DopesheetPlayheadLine } from './dopesheet-playhead-line'
 import { PROPERTY_COLUMN_WIDTH } from './dopesheet-constants'
 import {
   mainTimelineScrubActiveRef,
@@ -36,6 +37,38 @@ describe('DopesheetEditor playhead overlay', () => {
     mainTimelineScrubActiveRef.current = false
     mainTimelineScrubHandoffFrameRef.current = null
     resetTimelineSkimmerScrubForTest()
+  })
+
+  it('skips playhead transform assignments until playback reaches the next pixel', () => {
+    usePlaybackStore.setState({ isPlaying: true })
+    render(
+      <DopesheetPlayheadLine
+        relativeFrame={0}
+        itemFrom={0}
+        totalFrames={100}
+        frameToX={(frame) => Math.floor(frame / 2)}
+        maxLeft={100}
+      />,
+    )
+    const playhead = screen.getByTestId('dopesheet-playhead-line')
+    expect(playhead).toHaveStyle({ transform: 'translate3d(0px, 0, 0)' })
+
+    let transform = playhead.style.transform
+    const transformAssignments: string[] = []
+    Object.defineProperty(playhead.style, 'transform', {
+      configurable: true,
+      get: () => transform,
+      set: (value: string) => {
+        transform = value
+        transformAssignments.push(value)
+      },
+    })
+
+    act(() => usePlaybackStore.setState({ currentFrame: 1 }))
+    expect(transformAssignments).toEqual([])
+
+    act(() => usePlaybackStore.setState({ currentFrame: 2 }))
+    expect(transformAssignments).toEqual(['translate3d(1px, 0, 0)'])
   })
 
   it('clamps the playhead to the left edge when the current frame is before the viewport', () => {

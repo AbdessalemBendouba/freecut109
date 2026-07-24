@@ -71,7 +71,11 @@ function AxisInput({
       <input
         ref={inputRef}
         aria-label={`${propertyLabel} ${axis.toUpperCase()}`}
+        // Timeline parameter fields are never credentials. Keep password-manager
+        // overlays from rescanning this dense surface on every playback mutation.
+        autoComplete="off"
         className="min-w-0 flex-1 cursor-ew-resize select-none bg-transparent text-right font-mono text-[9px] tabular-nums outline-none disabled:cursor-default disabled:opacity-50"
+        data-bwignore="true"
         disabled={disabled}
         inputMode="decimal"
         value={draft}

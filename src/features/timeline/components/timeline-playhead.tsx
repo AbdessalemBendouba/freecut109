@@ -36,6 +36,11 @@ interface TimelinePlayheadProps {
   coordinateSurfaceRef?: RefObject<HTMLDivElement | null>
 }
 
+function setTranslateXIfChanged(element: HTMLElement, left: number): void {
+  const transform = `translate3d(${left}px, 0, 0)`
+  if (element.style.transform !== transform) element.style.transform = transform
+}
+
 function getPlayheadDragSurfaces({
   playhead,
   explicitCoordinateSurface,
@@ -163,7 +168,7 @@ export function TimelinePlayhead({
       if (!playheadRef.current) return
       const leftPosition = Math.round(frameToPixelsRef.current(frame))
       // Use transform (compositor-only) instead of style.left (triggers layout).
-      playheadRef.current.style.transform = `translate3d(${leftPosition}px, 0, 0)`
+      setTranslateXIfChanged(playheadRef.current, leftPosition)
     }
 
     // Initial update
@@ -188,7 +193,7 @@ export function TimelinePlayhead({
         ? playbackState.previewFrame
         : playbackState.currentFrame
     const leftPosition = Math.round(frameToPixels(frame))
-    playheadRef.current.style.transform = `translate3d(${leftPosition}px, 0, 0)`
+    setTranslateXIfChanged(playheadRef.current, leftPosition)
   }, [frameToPixels, isDragging])
 
   useEffect(() => {
@@ -200,7 +205,7 @@ export function TimelinePlayhead({
         .detail
       if (source !== 'keyframe' || !playheadRef.current) return
       const viewportX = getTimelineScrubViewportX(viewportProgress, scrollContainer.clientWidth - 1)
-      playheadRef.current.style.transform = `translate3d(${scrollContainer.scrollLeft + viewportX}px, 0, 0)`
+      setTranslateXIfChanged(playheadRef.current, scrollContainer.scrollLeft + viewportX)
     }
 
     scrollContainer.addEventListener(TIMELINE_SCRUB_VISUAL_FRAME_EVENT, updateFromLinkedScrub)
@@ -341,7 +346,7 @@ export function TimelinePlayhead({
           ),
         )
         for (const element of scrubPlayheadElementsRef.current) {
-          element.style.transform = `translate3d(${visualTimelineX}px, 0, 0)`
+          setTranslateXIfChanged(element, visualTimelineX)
         }
         notifyTimelineScrubVisualFrame(scrollContainer, {
           frame: targetFrame,

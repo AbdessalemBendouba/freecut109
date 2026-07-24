@@ -3900,6 +3900,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
             ) : (
               <Input
                 type={isColorAnimatableProperty(row.property) ? 'text' : 'number'}
+                autoComplete="off"
+                data-bwignore="true"
                 value={valueDrafts[row.property] ?? ''}
                 onChange={(event) => handleRowValueChange(row.property, event.target.value)}
                 onPointerDown={(event) => handleValueScrubStart(event, row.property)}

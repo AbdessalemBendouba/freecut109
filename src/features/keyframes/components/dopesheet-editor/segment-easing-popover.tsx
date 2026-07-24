@@ -447,6 +447,8 @@ export function SegmentEasingPopover({
                     <div className="flex items-center gap-1">
                       <Input
                         autoFocus
+                        autoComplete="off"
+                        data-bwignore="true"
                         value={savingName}
                         onChange={(event) => setSavingName(event.target.value)}
                         onKeyDown={(event) => {

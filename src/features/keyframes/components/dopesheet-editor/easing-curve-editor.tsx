@@ -448,6 +448,8 @@ function SliderRow({
         aria-label={label}
       />
       <Input
+        autoComplete="off"
+        data-bwignore="true"
         value={draft ?? value.toFixed(decimals)}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={commitDraft}

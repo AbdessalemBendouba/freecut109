@@ -98,7 +98,7 @@ export function TimelinePreviewScrubberVisual({
         ),
       })
     ) {
-      node.style.display = 'none'
+      if (node.style.display !== 'none') node.style.display = 'none'
       return
     }
 
@@ -112,16 +112,21 @@ export function TimelinePreviewScrubberVisual({
     // rounding on different sides of scrollLeft makes their skim lines disagree
     // by a pixel during wheel zoom.
     const leftPosition = frameToPixelsRef.current(clampedFrame)
-    node.style.display = ''
-    node.style.transform = `translate3d(${leftPosition}px, 0, 0)`
+    if (node.style.display !== '') node.style.display = ''
+    const transform = `translate3d(${leftPosition}px, 0, 0)`
+    if (node.style.transform !== transform) node.style.transform = transform
     if (tooltipRef.current) {
-      tooltipRef.current.textContent = formatTimecode(clampedFrame, fpsRef.current)
+      const timecode = formatTimecode(clampedFrame, fpsRef.current)
+      if (tooltipRef.current.textContent !== timecode) tooltipRef.current.textContent = timecode
     }
   }, [])
 
   useEffect(() => {
     updatePosition(usePlaybackStore.getState().previewFrame)
-    return usePlaybackStore.subscribe((state) => updatePosition(state.previewFrame))
+    return usePlaybackStore.subscribe((state, previousState) => {
+      if (state.previewFrame === previousState.previewFrame) return
+      updatePosition(state.previewFrame)
+    })
   }, [updatePosition])
 
   useEffect(() => {
