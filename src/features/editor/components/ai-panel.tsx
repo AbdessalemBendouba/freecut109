@@ -1066,18 +1066,17 @@ export const AiPanel = memo(function AiPanel() {
               />
             </div>
 
-            <SliderInput
-              label={t('editor.aiPanel.length')}
-              value={musicDuration}
-              onChange={(value) => setMusicDuration(Math.round(value))}
-              min={currentMusicModel.minDurationSeconds}
-              max={currentMusicModel.maxDurationSeconds}
-              step={1}
-              unit="s"
-              disabled={isMusicGenerating}
-            />
-
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center gap-2">
+              <SliderInput
+                label={t('editor.aiPanel.length')}
+                value={musicDuration}
+                onChange={(value) => setMusicDuration(Math.round(value))}
+                min={currentMusicModel.minDurationSeconds}
+                max={currentMusicModel.maxDurationSeconds}
+                step={1}
+                unit="s"
+                disabled={isMusicGenerating}
+              />
               {isMusicGenerating && (
                 <Button
                   variant="ghost"
@@ -1104,7 +1103,7 @@ export const AiPanel = memo(function AiPanel() {
                 ) : (
                   <WandSparkles className="h-3.5 w-3.5" />
                 )}
-                {isMusicGenerating ? t('editor.tts.generating') : t('editor.aiPanel.generateMusic')}
+                {isMusicGenerating ? t('editor.tts.generating') : t('editor.tts.generate')}
               </Button>
             </div>
 
