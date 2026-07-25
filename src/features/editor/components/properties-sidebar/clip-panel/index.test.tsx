@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { flushSync } from 'react-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { useEditorStore } from '@/shared/state/editor'
 import { useSelectionStore } from '@/shared/state/selection'
@@ -15,6 +16,7 @@ import { ClipPanel } from './index'
 
 const clipPanelTestState = vi.hoisted(() => ({
   layoutRenderCount: 0,
+  latestLayoutItemId: null as string | null,
   latestLayoutX: null as number | null,
   nextIdleCallbackId: 1,
   idleCallbacks: new Map<number, IdleRequestCallback>(),
@@ -24,6 +26,7 @@ vi.mock('./layout-section', () => ({
   LayoutSection: ({ items }: { items: TimelineItem[] }) => {
     clipPanelTestState.layoutRenderCount += 1
     const firstItem = items[0]
+    clipPanelTestState.latestLayoutItemId = firstItem?.id ?? null
     clipPanelTestState.latestLayoutX =
       firstItem && 'transform' in firstItem ? (firstItem.transform?.x ?? null) : null
     return <div>Layout Body</div>
@@ -165,6 +168,7 @@ function resetStores(items: TimelineItem[], selectedItemIds: string[]) {
 describe('ClipPanel inspector tabs', () => {
   beforeEach(() => {
     clipPanelTestState.layoutRenderCount = 0
+    clipPanelTestState.latestLayoutItemId = null
     clipPanelTestState.latestLayoutX = null
     clipPanelTestState.nextIdleCallbackId = 1
     clipPanelTestState.idleCallbacks.clear()
@@ -253,6 +257,26 @@ describe('ClipPanel inspector tabs', () => {
     await waitFor(() => {
       expect(clipPanelTestState.layoutRenderCount).toBeGreaterThan(caughtUpRenderCount)
       expect(clipPanelTestState.latestLayoutX).toBe(0)
+    })
+  })
+
+  it('shows a newly selected item without waiting for deferred inspector work', () => {
+    const secondVideo: VideoItem = {
+      ...VIDEO_ITEM,
+      id: 'clip-video-2',
+      trackId: 'track-2',
+      label: 'second.mp4',
+    }
+    resetStores([VIDEO_ITEM, secondVideo], [VIDEO_ITEM.id])
+    render(<ClipPanel />)
+
+    expect(clipPanelTestState.latestLayoutItemId).toBe(VIDEO_ITEM.id)
+
+    act(() => {
+      flushSync(() => {
+        useSelectionStore.getState().selectItems([secondVideo.id])
+      })
+      expect(clipPanelTestState.latestLayoutItemId).toBe(secondVideo.id)
     })
   })
 

@@ -628,7 +628,7 @@ interface MotionMiddlePanState {
   startClientY: number
   startScrollTop: number
 }
-const MOTION_INLINE_PROPERTY_GROUP_IDS = ['crop', 'audio', 'effects', 'other'] as const
+const MOTION_INLINE_PROPERTY_GROUP_IDS = ['crop', 'audio', 'effects'] as const
 const MOTION_GRAPH_INLINE_PROPERTY_GROUP_IDS = [
   'transform',
   ...MOTION_INLINE_PROPERTY_GROUP_IDS,

@@ -26,6 +26,90 @@ describe('getPropertyAccordionGroups', () => {
       },
     ])
   })
+
+  it('separates composite and text properties into the Properties-panel order', () => {
+    expect(
+      getPropertyAccordionGroups([
+        'strokeWidth',
+        'backgroundRadius',
+        'opacity',
+        'lineHeight',
+        'cornerRadius',
+        'textShadowBlur',
+        'fontSize',
+        'textPadding',
+        'textShadowOffsetY',
+        'textStyleScale',
+        'textShadowOffsetX',
+        'rotation',
+      ]),
+    ).toEqual([
+      {
+        id: 'transform',
+        label: 'Transform',
+        properties: ['rotation'],
+      },
+      {
+        id: 'composite',
+        label: 'Composite',
+        properties: ['opacity', 'cornerRadius'],
+      },
+      {
+        id: 'textTypography',
+        label: 'Text Typography',
+        properties: ['textStyleScale', 'fontSize', 'lineHeight'],
+      },
+      {
+        id: 'textBackground',
+        label: 'Text Background',
+        properties: ['textPadding', 'backgroundRadius'],
+      },
+      {
+        id: 'textAppearance',
+        label: 'Text Appearance',
+        properties: [
+          'textShadowOffsetX',
+          'textShadowOffsetY',
+          'textShadowBlur',
+          'strokeWidth',
+        ],
+      },
+    ])
+  })
+
+  it('keeps crop, audio, shape, and effects in their existing groups', () => {
+    const blurRadius = buildEffectAnimatableProperty('gpu-gaussian-blur', 'blur-1', 'radius')
+
+    expect(
+      getPropertyAccordionGroups([
+        'cropSoftness',
+        'volume',
+        'trimPathEnd',
+        blurRadius,
+      ]),
+    ).toEqual([
+      {
+        id: 'crop',
+        label: 'Crop',
+        properties: ['cropSoftness'],
+      },
+      {
+        id: 'audio',
+        label: 'Audio',
+        properties: ['volume'],
+      },
+      {
+        id: 'shape',
+        label: 'Shape',
+        properties: ['trimPathEnd'],
+      },
+      {
+        id: 'effects',
+        label: 'Effects',
+        properties: [blurRadius],
+      },
+    ])
+  })
 })
 
 describe('getPropertyDisplayGroups', () => {

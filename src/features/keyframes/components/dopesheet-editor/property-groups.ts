@@ -19,17 +19,27 @@ const PROPERTY_GROUP_DEFINITIONS: Array<{
   {
     id: 'transform',
     label: 'Transform',
-    properties: [
-      'x',
-      'y',
-      'width',
-      'height',
-      'anchorX',
-      'anchorY',
-      'rotation',
-      'opacity',
-      'cornerRadius',
-    ],
+    properties: ['x', 'y', 'width', 'height', 'anchorX', 'anchorY', 'rotation'],
+  },
+  {
+    id: 'composite',
+    label: 'Composite',
+    properties: ['opacity', 'cornerRadius'],
+  },
+  {
+    id: 'textTypography',
+    label: 'Text Typography',
+    properties: ['textStyleScale', 'fontSize', 'lineHeight'],
+  },
+  {
+    id: 'textBackground',
+    label: 'Text Background',
+    properties: ['textPadding', 'backgroundRadius'],
+  },
+  {
+    id: 'textAppearance',
+    label: 'Text Appearance',
+    properties: ['textShadowOffsetX', 'textShadowOffsetY', 'textShadowBlur', 'strokeWidth'],
   },
   {
     id: 'crop',
