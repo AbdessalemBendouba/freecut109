@@ -1554,7 +1554,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     presentation === 'classic' &&
     linkedTimelineViewportWidth !== undefined &&
     linkedTimelineViewportWidth > 0
-  const timelineCellBorderWidth = presentation === 'classic' && !hasLinkedTimelineAxis ? 1 : 0
+  const timelineCellBorderWidth =
+    presentation === 'classic'
+      ? hasLinkedTimelineAxis
+        ? 0
+        : 1
+      : presentation === 'lanes'
+        ? 1
+        : 0
   const effectiveTimelineWidth = Math.max(
     hasLinkedTimelineAxis
       ? linkedTimelineViewportWidth

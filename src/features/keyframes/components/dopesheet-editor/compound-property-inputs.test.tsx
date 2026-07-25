@@ -137,6 +137,25 @@ describe('CompoundPropertyInputs', () => {
     expect(screen.getByLabelText('Anchor Y')).toHaveValue('540.00')
   })
 
+  it('can hide visible axis glyphs without removing accessible axis names', () => {
+    render(
+      <CompoundPropertyInputs
+        config={{
+          label: 'Position',
+          value: { x: 10, y: 20 },
+          unit: 'px',
+          showAxisLabels: false,
+          onCommit: vi.fn(),
+        }}
+      />,
+    )
+
+    expect(screen.queryByText('X')).not.toBeInTheDocument()
+    expect(screen.queryByText('Y')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Position X')).toHaveValue('10.00')
+    expect(screen.getByLabelText('Position Y')).toHaveValue('20.00')
+  })
+
   it('exposes an explicit axes link without stealing either numeric input', () => {
     const onChange = vi.fn()
     render(
