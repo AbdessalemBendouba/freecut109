@@ -41,6 +41,7 @@
       "motionBaked_other": "已在 {{count}} 个片段上烘焙运动",
       "transitionBlocked": "无法在转场区域内添加关键帧——请将播放头移出高亮区域。",
       "transitionBlockedPill": "转场区域",
+      "lockAllRowsHint": "按住 Shift 单击可锁定或解锁所有行",
       "emptyState": {
         "title": "尚无关键帧",
         "intro": "为任意参数添加关键帧来为此片段制作动画。",
@@ -79,7 +80,7 @@
         "sheetMode": "表格 — 在一个网格中查看并移动所有参数的关键帧。",
         "iconsHeading": "行控件",
         "iconCurve": "在曲线视图中显示此参数的曲线。",
-        "iconLock": "锁定该行，使其关键帧无法移动或编辑。",
+        "iconLock": "锁定该行，使其关键帧无法移动或编辑。按住 Shift 单击可锁定或解锁所有行。",
         "iconAutoKey": "自动关键帧：每当你更改此数值时自动记录一个关键帧。",
         "iconDiamond": "在播放头处添加或移除关键帧。",
         "colorsHeading": "关键帧",

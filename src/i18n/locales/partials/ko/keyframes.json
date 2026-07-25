@@ -41,6 +41,7 @@
       "motionBaked_other": "{{count}}개 클립의 모션을 베이크했습니다",
       "transitionBlocked": "전환 구간 안에는 키프레임을 추가할 수 없습니다 — 재생 헤드를 강조된 영역 밖으로 옮기세요.",
       "transitionBlockedPill": "전환 구간",
+      "lockAllRowsHint": "Shift + 클릭하면 모든 행을 잠그거나 잠금 해제합니다",
       "emptyState": {
         "title": "아직 키프레임이 없습니다",
         "intro": "원하는 매개변수에 키프레임을 추가하여 이 클립을 애니메이션화하세요.",
@@ -79,7 +80,7 @@
         "sheetMode": "시트 — 모든 매개변수의 키프레임을 하나의 격자에서 보고 이동합니다.",
         "iconsHeading": "행 컨트롤",
         "iconCurve": "이 매개변수의 곡선을 그래프 보기에 표시합니다.",
-        "iconLock": "행을 잠가 키프레임을 이동하거나 편집할 수 없게 합니다.",
+        "iconLock": "행을 잠가 키프레임을 이동하거나 편집할 수 없게 합니다. Shift + 클릭하면 모든 행을 잠그거나 잠금 해제합니다.",
         "iconAutoKey": "자동 키: 이 값을 변경할 때마다 키프레임을 자동으로 기록합니다.",
         "iconDiamond": "재생 헤드 위치에 키프레임을 추가하거나 제거합니다.",
         "colorsHeading": "키프레임",

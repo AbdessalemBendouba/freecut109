@@ -41,6 +41,7 @@
       "motionBaked_other": "Movimento consolidado em {{count}} clipes",
       "transitionBlocked": "Não é possível adicionar quadros-chave dentro de uma transição — mova o cursor para fora da região destacada.",
       "transitionBlockedPill": "Na transição",
+      "lockAllRowsHint": "Shift + clique para bloquear ou desbloquear todas as linhas",
       "emptyState": {
         "title": "Nenhum keyframe ainda",
         "intro": "Anime este clipe adicionando keyframes a qualquer parâmetro.",
@@ -79,7 +80,7 @@
         "sheetMode": "Planilha — veja e mova os quadros-chave de todos os parâmetros em uma única grade.",
         "iconsHeading": "Controles da linha",
         "iconCurve": "Mostrar a curva deste parâmetro na visualização de gráfico.",
-        "iconLock": "Bloqueia a linha para que seus quadros-chave não possam ser movidos nem editados.",
+        "iconLock": "Bloqueia a linha para que seus quadros-chave não possam ser movidos nem editados. Shift + clique para bloquear ou desbloquear todas as linhas.",
         "iconAutoKey": "Chave automática: captura um quadro-chave automaticamente sempre que você altera este valor.",
         "iconDiamond": "Adicionar ou remover um quadro-chave no cursor de reprodução.",
         "colorsHeading": "Quadros-chave",

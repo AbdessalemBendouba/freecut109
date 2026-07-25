@@ -30,6 +30,7 @@ import {
   openComposition,
   trimItemEnd,
 } from '@/features/editor/deps/timeline-motion'
+import { useTimelineStore } from '@/features/editor/deps/timeline-store'
 import { useMediaLibraryStore } from '@/features/editor/deps/media-library-contract'
 import { useGizmoStore } from '@/features/editor/deps/preview'
 import type {
@@ -818,6 +819,123 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     animationFrameSpy.mockRestore()
   })
 
+  it('clamps repeated right-edge auto-pan to the authored composition end', () => {
+    // The layer intentionally hangs 120 frames past the 120-frame composition.
+    // Manual navigation can inspect that overhang, but drag auto-pan must stop
+    // at the authored comp boundary.
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
+    useTimelineStore.getState().setInPoint(30)
+    useTimelineStore.getState().setOutPoint(90)
+
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(300)
+
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom To Fit' }))
+    const navigator = screen.getByTestId('motion-time-navigator')
+    expect(navigator).toHaveAttribute('data-start-frame', '30')
+    expect(navigator).toHaveAttribute('data-end-frame', '90')
+
+    const ruler = document.querySelector<HTMLElement>('[data-motion-ruler-surface]')!
+    vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 28,
+      width: 300,
+      height: 28,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(ruler, { pointerId: 41, button: 0, clientX: 300 })
+    for (let frame = 1; frame <= 40 && frameCallbacks.length > 0; frame += 1) {
+      act(() => frameCallbacks.shift()?.(frame * 16))
+      expect(Number(navigator.dataset.endFrame)).toBeLessThanOrEqual(120)
+    }
+    expect(navigator).toHaveAttribute('data-start-frame', '60')
+    expect(navigator).toHaveAttribute('data-end-frame', '120')
+    expect(frameCallbacks).toHaveLength(0)
+
+    // More pointer movement while still held at the edge cannot accumulate an
+    // out-of-bounds viewport or leave a stale RAF running.
+    fireEvent.pointerMove(ruler, { pointerId: 41, buttons: 1, clientX: 300 })
+    expect(frameCallbacks).toHaveLength(1)
+    act(() => frameCallbacks.shift()?.(800))
+    expect(navigator).toHaveAttribute('data-start-frame', '60')
+    expect(navigator).toHaveAttribute('data-end-frame', '120')
+    expect(frameCallbacks).toHaveLength(0)
+
+    fireEvent.pointerUp(ruler, { pointerId: 41, clientX: 300 })
+    expect(navigator).toHaveAttribute('data-start-frame', '60')
+    expect(navigator).toHaveAttribute('data-end-frame', '120')
+    clientWidthSpy.mockRestore()
+    animationFrameSpy.mockRestore()
+  })
+
+  it('clamps repeated left-edge auto-pan to composition frame zero', () => {
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
+    useTimelineStore.getState().setInPoint(30)
+    useTimelineStore.getState().setOutPoint(90)
+
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(300)
+
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom To Fit' }))
+    const navigator = screen.getByTestId('motion-time-navigator')
+    const ruler = document.querySelector<HTMLElement>('[data-motion-ruler-surface]')!
+    vi.spyOn(ruler, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 28,
+      width: 300,
+      height: 28,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.pointerDown(ruler, { pointerId: 42, button: 0, clientX: 0 })
+    for (let frame = 1; frame <= 40 && frameCallbacks.length > 0; frame += 1) {
+      act(() => frameCallbacks.shift()?.(frame * 16))
+      expect(Number(navigator.dataset.startFrame)).toBeGreaterThanOrEqual(0)
+    }
+    expect(navigator).toHaveAttribute('data-start-frame', '0')
+    expect(navigator).toHaveAttribute('data-end-frame', '60')
+    expect(frameCallbacks).toHaveLength(0)
+
+    fireEvent.pointerMove(ruler, { pointerId: 42, buttons: 1, clientX: 0 })
+    act(() => frameCallbacks.shift()?.(800))
+    expect(navigator).toHaveAttribute('data-start-frame', '0')
+    expect(navigator).toHaveAttribute('data-end-frame', '60')
+    expect(frameCallbacks).toHaveLength(0)
+
+    fireEvent.pointerUp(ruler, { pointerId: 42, clientX: 0 })
+    expect(navigator).toHaveAttribute('data-start-frame', '0')
+    expect(navigator).toHaveAttribute('data-end-frame', '60')
+    clientWidthSpy.mockRestore()
+    animationFrameSpy.mockRestore()
+  })
+
   it('keeps expanded property editors render-idle until a scrub settles', () => {
     useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 0, 100)
     useKeyframesStore.getState()._addKeyframe(shape.id, 'x', 60, 300)
@@ -1032,7 +1150,9 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
       const fitButton = screen.getByRole('button', { name: 'Zoom To Fit' })
       const fpsReadout = screen.getByText('120f · 30fps')
 
-      expect(fpsReadout.nextElementSibling).toBe(fitButton)
+      const trimButton = screen.getByRole('button', { name: 'Trim Comp to Active Region' })
+      expect(fpsReadout.nextElementSibling).toBe(trimButton)
+      expect(trimButton.nextElementSibling).toBe(fitButton)
       expect(fitButton).toHaveAttribute('data-tooltip', 'Zoom To Fit')
 
       fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
@@ -1417,6 +1537,94 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(thumb.style.left).toBe(previewThumbLeft)
     expect(resolveSegmentPixels(segment.style.left)).toBeCloseTo(previewSegmentLeft, 5)
     expect(resolveSegmentPixels(segment.style.width)).toBeCloseTo(previewSegmentWidth, 5)
+
+    timeoutSpy.mockRestore()
+    clientWidthSpy.mockRestore()
+    animationFrameSpy.mockRestore()
+  })
+
+  it('keeps Motion I/O live and identical through zoom and pan settle', () => {
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
+    useTimelineStore.getState().setInPoint(30)
+    useTimelineStore.getState().setOutPoint(90)
+
+    const frameCallbacks: FrameRequestCallback[] = []
+    let settleCallback: (() => void) | null = null
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const clientWidthSpy = vi
+      .spyOn(HTMLElement.prototype, 'clientWidth', 'get')
+      .mockReturnValue(1000)
+    const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation((callback, delay) => {
+      if (delay === 100 && typeof callback === 'function') settleCallback = callback
+      return 1 as unknown as ReturnType<typeof window.setTimeout>
+    })
+
+    render(<CompositingTimeline />)
+
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+    const ioStrip = screen.getByTestId('motion-io-strip')
+    const ioIn = screen.getByTestId('motion-io-in-handle').parentElement as HTMLElement
+    const ioOut = screen.getByTestId('motion-io-out-handle').parentElement as HTMLElement
+    const resolvePixels = (value: string) =>
+      value.endsWith('%') ? (Number.parseFloat(value) / 100) * 1000 : Number.parseFloat(value)
+    const captureRegionGeometry = () => ({
+      stripLeft: resolvePixels(ioStrip.style.left),
+      stripWidth: resolvePixels(ioStrip.style.width),
+      inLeft: resolvePixels(ioIn.style.left),
+      outLeft: resolvePixels(ioOut.style.left),
+    })
+    const expectRegionGeometry = (expected: ReturnType<typeof captureRegionGeometry>) => {
+      const settled = captureRegionGeometry()
+      for (const key of Object.keys(expected) as Array<keyof typeof expected>) {
+        expect(settled[key]).toBeCloseTo(expected[key], 5)
+      }
+    }
+
+    fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
+    expect(settleCallback).not.toBeNull()
+    expect(ioStrip).toHaveAttribute('data-from-frame', '30')
+    expect(ioStrip).toHaveAttribute('data-to-frame', '90')
+    act(() => frameCallbacks.shift()?.(performance.now()))
+    // These are imperative RAF writes: React's 100ms settle callback has not
+    // run, yet the real ruler DOM already moved into the live pixel geometry.
+    expect(ioStrip.style.left).toMatch(/px$/)
+    expect(ioIn.style.left).toMatch(/px$/)
+    expect(ioOut.style.left).toMatch(/px$/)
+    const zoomPreview = captureRegionGeometry()
+    expect(ioIn).toBeInTheDocument()
+
+    act(() => settleCallback?.())
+    expectRegionGeometry(zoomPreview)
+
+    const panEvent = createEvent.wheel(scrollArea, {
+      clientX: 750,
+      deltaY: 7,
+      cancelable: true,
+    })
+    fireEvent(scrollArea, panEvent)
+    expect(panEvent.defaultPrevented).toBe(true)
+    act(() => frameCallbacks.shift()?.(performance.now()))
+    const panPreview = captureRegionGeometry()
+    expect(panPreview.stripLeft).not.toBeCloseTo(zoomPreview.stripLeft, 5)
+
+    act(() => settleCallback?.())
+    expectRegionGeometry(panPreview)
 
     timeoutSpy.mockRestore()
     clientWidthSpy.mockRestore()
@@ -2397,9 +2605,10 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     fireEvent.click(curveButton)
 
     expect(screen.getByTestId('dopesheet-graph-pane')).toBeInTheDocument()
+    // top = ruler height: tick labels (28) + the in/out render-range lane (12).
     expect(screen.getByTestId('motion-graph-pane')).toHaveStyle({
       left: '621px',
-      top: '28px',
+      top: '40px',
     })
     expect(screen.getByTestId('motion-graph-pane')).toHaveClass('bottom-0', 'right-0')
     expect(screen.queryByTestId(`motion-layer-span-${shape.id}`)).not.toBeInTheDocument()
@@ -3348,6 +3557,182 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     fireEvent.pointerMove(childSpan, { pointerId: 7, buttons: 1, clientX: 40 })
     fireEvent.pointerUp(childSpan, { pointerId: 7, clientX: 40 })
     expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(0)
+  })
+
+  it('dims the axis past the comp end without a redundant top extent bar', () => {
+    // A layer that outlives the 120-frame comp doubles the axis, so the comp
+    // occupies the first half of the ruler and the overhang is dimmed.
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
+
+    render(<CompositingTimeline />)
+
+    expect(screen.queryByTestId('motion-comp-extent-bar')).not.toBeInTheDocument()
+    expect(screen.getByTestId('motion-comp-end-ruler-dim')).toHaveStyle({ left: '50%' })
+    expect(screen.getByTestId('motion-comp-end-dim')).toHaveStyle({ left: '50%' })
+  })
+
+  it('reports the authored composition duration when content overhangs at fractional fps', () => {
+    useCompositionsStore.getState().updateComposition('comp-1', {
+      durationInFrames: 100,
+      fps: 29.97,
+    })
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
+
+    render(<CompositingTimeline />)
+
+    expect(screen.getByTestId('motion-composition-duration')).toHaveTextContent('100f · 29.97fps')
+    expect(screen.queryByText('240f · 29.97fps')).not.toBeInTheDocument()
+  })
+
+  it('leaves the axis undimmed when nothing runs past the comp end', () => {
+    render(<CompositingTimeline />)
+
+    expect(screen.queryByTestId('motion-comp-extent-bar')).not.toBeInTheDocument()
+    expect(screen.getByTestId('motion-comp-end-ruler-dim')).toHaveStyle({ left: '100%' })
+    expect(screen.getByTestId('motion-comp-end-dim')).toHaveStyle({ left: '100%' })
+  })
+
+  it('fits the active region when one is marked, else the comp', () => {
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
+    render(<CompositingTimeline />)
+
+    const navigator = () => screen.getByTestId('motion-time-navigator')
+    // Content runs to 240 but the comp ends at 120: the overhang is not fitted.
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom To Fit' }))
+    expect(Number(navigator().dataset.startFrame)).toBe(0)
+    expect(Number(navigator().dataset.endFrame)).toBe(120)
+
+    useTimelineStore.getState().setInPoint(30)
+    useTimelineStore.getState().setOutPoint(90)
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom To Fit' }))
+
+    expect(Number(navigator().dataset.startFrame)).toBe(30)
+    expect(Number(navigator().dataset.endFrame)).toBe(90)
+  })
+
+  it('enables Trim Comp to Active Region only while a region is marked', () => {
+    render(<CompositingTimeline />)
+
+    const trimButton = () => screen.getByRole('button', { name: 'Trim Comp to Active Region' })
+    expect(trimButton()).toBeDisabled()
+
+    act(() => {
+      useTimelineStore.getState().setInPoint(30)
+      useTimelineStore.getState().setOutPoint(90)
+    })
+    expect(trimButton()).toBeEnabled()
+
+    // Start from a viewport that is zoomed and offset within the original comp.
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom To Fit' }))
+    const navigator = screen.getByTestId('motion-time-navigator')
+    expect(navigator).toHaveAttribute('data-start-frame', '30')
+    expect(navigator).toHaveAttribute('data-end-frame', '90')
+
+    fireEvent.click(trimButton())
+
+    // The 120-frame comp becomes the 60-frame region, and the shape rebases onto it.
+    expect(useCompositionsStore.getState().getComposition('comp-1')?.durationInFrames).toBe(60)
+    expect(useItemsStore.getState().itemById[shape.id]?.from).toBe(0)
+    expect(useTimelineStore.getState().inPoint).toBe(0)
+    expect(useTimelineStore.getState().outPoint).toBe(60)
+    expect(screen.getByTestId('motion-io-strip')).toHaveAttribute('data-from-frame', '0')
+    expect(screen.getByTestId('motion-io-strip')).toHaveAttribute('data-to-frame', '60')
+    expect(screen.getByTestId('motion-io-in-handle')).toBeInTheDocument()
+    expect(screen.getByTestId('motion-io-out-handle')).toBeInTheDocument()
+    expect(navigator).toHaveAttribute('data-start-frame', '0')
+    expect(navigator).toHaveAttribute('data-end-frame', '60')
+    expect(trimButton()).toBeDisabled()
+  })
+
+  it('positions the Motion in/out lane against the visible time viewport', () => {
+    // Duration is 120 frames and the viewport starts fitted, so 30–90 is the
+    // middle half of the ruler.
+    useTimelineStore.getState().setInPoint(30)
+    useTimelineStore.getState().setOutPoint(90)
+
+    render(<CompositingTimeline />)
+
+    expect(screen.getByTestId('motion-io-strip')).toHaveStyle({ left: '25%', width: '50%' })
+    expect(screen.getByTestId('motion-io-in-handle')).toBeInTheDocument()
+    expect(screen.getByTestId('motion-io-out-handle')).toBeInTheDocument()
+  })
+
+  it('drags the Motion in point through the time viewport into the composition range', () => {
+    useTimelineStore.getState().setInPoint(30)
+    useTimelineStore.getState().setOutPoint(90)
+
+    render(<CompositingTimeline />)
+
+    const lane = screen.getByTestId('motion-io-lane')
+    vi.spyOn(lane, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 12,
+      width: 1000,
+      height: 12,
+      toJSON: () => ({}),
+    })
+
+    // The grip is decorative; the wide invisible hit area next to it takes the drag.
+    const hitArea = screen.getByTestId('motion-io-in-handle').nextElementSibling as HTMLElement
+    fireEvent.pointerDown(hitArea, { pointerId: 1, button: 0, clientX: 500 })
+    fireEvent.pointerUp(document, { pointerId: 1, clientX: 500 })
+
+    // Half the lane width across a 0–120 viewport.
+    expect(useTimelineStore.getState().inPoint).toBe(60)
+    expect(useTimelineStore.getState().outPoint).toBe(90)
+  })
+
+  it('shift-clicking a layer lock toggles every layer and layer group', () => {
+    const layerGroup = makeTimelineTrack({
+      id: 'shift-lock-group',
+      name: 'Layer Group 1',
+      kind: 'video',
+      order: 0,
+      isGroup: true,
+    })
+    const groupedTrack = makeTimelineTrack({
+      ...track,
+      id: 'grouped-track',
+      order: 1,
+      parentTrackId: layerGroup.id,
+    })
+    const looseTrack = makeTimelineTrack({
+      id: 'loose-track',
+      name: 'Circle',
+      kind: 'video',
+      order: 2,
+    })
+    const secondShape: ShapeItem = {
+      ...shape,
+      id: 'shape-2',
+      trackId: looseTrack.id,
+      label: 'Circle',
+    }
+    useItemsStore.getState().setTracks([layerGroup, groupedTrack, looseTrack])
+    useItemsStore.getState().setItems([{ ...shape, trackId: groupedTrack.id }, secondShape])
+
+    render(<CompositingTimeline />)
+
+    const lockButtons = screen.getAllByRole('button', { name: 'Lock layer' })
+    expect(lockButtons).toHaveLength(2)
+    fireEvent.click(lockButtons[0]!, { shiftKey: true })
+
+    expect(useItemsStore.getState().tracks.map((candidate) => candidate.locked)).toEqual([
+      true,
+      true,
+      true,
+    ])
+
+    // The group row is the way back out once its children's buttons are disabled.
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock layer group' }), { shiftKey: true })
+
+    expect(useItemsStore.getState().tracks.every((candidate) => candidate.locked !== true)).toBe(
+      true,
+    )
   })
 
   it('removes the empty former layer group when all of its children are regrouped', () => {

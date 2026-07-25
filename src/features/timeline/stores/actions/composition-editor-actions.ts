@@ -5,3 +5,7 @@ export {
   renameCompositionControl,
 } from './composition-control-actions'
 export { repairCompositeCompositionEditorialLeak } from './composition-actions'
+export {
+  setCompositionDuration,
+  trimCompositionToActiveRegion,
+} from './composition-duration-actions'

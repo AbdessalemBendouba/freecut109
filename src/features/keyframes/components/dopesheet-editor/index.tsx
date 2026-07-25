@@ -1366,6 +1366,15 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     onExpandedGroupsChange,
   })
 
+  // Shift-clicking any row's lock icon applies that row's next lock state to
+  // every visible row, so "lock everything except this one" is two clicks.
+  const setAllRowsLocked = useCallback(
+    (locked: boolean) => {
+      setGroupLocked(visibleProperties, locked)
+    },
+    [setGroupLocked, visibleProperties],
+  )
+
   const resetParameterView = useCallback(() => {
     setShowKeyframedOnly(false)
     setVisibleGroups(
@@ -3687,9 +3696,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 )}
                 onClick={(event) => {
                   event.stopPropagation()
+                  if (event.shiftKey) {
+                    setAllRowsLocked(!rowLocked)
+                    return
+                  }
                   toggleLockedProperty(row.property)
                 }}
-                title={
+                title={`${
                   rowLocked
                     ? t('timeline.keyframeEditor.unlockPropertyRow', {
                         property: rowLabel,
@@ -3699,7 +3712,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                         property: rowLabel,
                         defaultValue: `Lock ${rowLabel} row`,
                       })
-                }
+                } — ${t('timeline.keyframeEditor.lockAllRowsHint', {
+                  defaultValue: 'Shift-click to lock or unlock every row',
+                })}`}
                 aria-label={
                   rowLocked
                     ? t('timeline.keyframeEditor.unlockPropertyRow', {
@@ -4230,6 +4245,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       presentation,
       selectedProperty,
       selectedCurveVisibleExternally,
+      setAllRowsLocked,
       t,
       togglePropertyCurve,
       toggleLockedProperty,
@@ -4314,10 +4330,14 @@ export const DopesheetEditor = memo(function DopesheetEditor({
               )}
               onClick={(event) => {
                 event.stopPropagation()
+                if (event.shiftKey) {
+                  setAllRowsLocked(!allRowsLocked)
+                  return
+                }
                 setGroupLocked(groupProperties, !allRowsLocked)
               }}
               disabled={groupProperties.length === 0}
-              title={
+              title={`${
                 allRowsLocked
                   ? t('timeline.keyframeEditor.unlockGroupRows', {
                       group: groupLabel,
@@ -4327,7 +4347,9 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                       group: groupLabel,
                       defaultValue: `Lock ${groupLabel} rows`,
                     })
-              }
+              } — ${t('timeline.keyframeEditor.lockAllRowsHint', {
+                defaultValue: 'Shift-click to lock or unlock every row',
+              })}`}
               aria-label={
                 allRowsLocked
                   ? t('timeline.keyframeEditor.unlockGroupRows', {
@@ -4478,6 +4500,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       onNavigateToKeyframe,
       onResetPropertiesToDefault,
       setAllGroupsExpanded,
+      setAllRowsLocked,
       setGroupLocked,
       t,
       toggleGroupCurves,

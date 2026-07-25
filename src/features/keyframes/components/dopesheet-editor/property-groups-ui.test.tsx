@@ -788,6 +788,57 @@ describe('DopesheetEditor property groups', () => {
     ).not.toBeDisabled()
   })
 
+  it('shift-clicking a row lock toggles every row across groups', () => {
+    renderEditor({
+      keyframesByProperty: { x: [], y: [], volume: [] },
+      propertyValues: { x: 100, y: 200, volume: -6 },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /lock x position row/i }), {
+      shiftKey: true,
+    })
+
+    for (const label of [/unlock x position row/i, /unlock y position row/i, /unlock volume/i]) {
+      expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'true')
+    }
+
+    // Shift-clicking any locked row releases the whole sheet again.
+    fireEvent.click(screen.getByRole('button', { name: /unlock volume/i }), { shiftKey: true })
+
+    for (const label of [/lock x position row/i, /lock y position row/i, /lock volume/i]) {
+      expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'false')
+    }
+  })
+
+  it('shift-clicking a group lock toggles rows outside that group', () => {
+    renderEditor({
+      keyframesByProperty: { x: [], y: [], volume: [] },
+      propertyValues: { x: 100, y: 200, volume: -6 },
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /^lock transform rows$/i }), {
+      shiftKey: true,
+    })
+
+    expect(screen.getByRole('button', { name: /^unlock volume/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByRole('button', { name: /^unlock audio rows$/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /^unlock transform rows$/i }), {
+      shiftKey: true,
+    })
+
+    expect(screen.getByRole('button', { name: /^lock volume/i })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
   it('uses the curve button to toggle graph property visibility', () => {
     const onPropertyChange = vi.fn()
     renderEditor({

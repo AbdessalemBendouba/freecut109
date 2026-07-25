@@ -159,10 +159,19 @@ self.onmessage = async (event: MessageEvent<ExportRenderWorkerRequest>) => {
     // Surface the stack: bare mediabunny asserts report only "Assertion failed",
     // so without the stack the failing call site is invisible on the main thread.
     log.error('Export worker failed', { requestId, error: messageText, stack })
+    // A DOM global reaching worker code is a bug in that code, not something the
+    // user can act on — and it used to fail the whole export. Report it as a
+    // main-thread fallback instead: the render still completes, and the reason
+    // (with the original message) lands in the export's wide event so the
+    // offending call site stays visible rather than being silently absorbed.
+    const isDomDependency =
+      error instanceof ReferenceError && /\b(document|navigator|HTML\w*Element)\b/.test(messageText)
     const failure: ExportRenderWorkerResponse = {
       type: 'error',
       requestId,
-      error: messageText,
+      error: isDomDependency
+        ? `WORKER_REQUIRES_MAIN_THREAD:dom-dependency:${messageText}`
+        : messageText,
     }
     self.postMessage(failure)
   } finally {

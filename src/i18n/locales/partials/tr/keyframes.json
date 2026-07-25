@@ -41,6 +41,7 @@
       "motionBaked_other": "{{count}} klipte hareket pişirildi",
       "transitionBlocked": "Bir geçişin içine anahtar kare eklenemez — oynatma kafasını vurgulanan bölgenin dışına taşıyın.",
       "transitionBlockedPill": "Geçişte",
+      "lockAllRowsHint": "Tüm satırları kilitlemek veya kilidini açmak için Shift + tıklayın",
       "emptyState": {
         "title": "Henüz anahtar kare yok",
         "intro": "Herhangi bir parametreye anahtar kare ekleyerek bu klibi canlandırın.",
@@ -79,7 +80,7 @@
         "sheetMode": "Sayfa — tüm parametrelerin anahtar karelerini tek bir ızgarada görün ve taşıyın.",
         "iconsHeading": "Satır denetimleri",
         "iconCurve": "Bu parametrenin eğrisini Grafik görünümünde göster.",
-        "iconLock": "Satırı kilitler, böylece anahtar kareleri taşınamaz veya düzenlenemez.",
+        "iconLock": "Satırı kilitler, böylece anahtar kareleri taşınamaz veya düzenlenemez. Tüm satırları kilitlemek veya kilidini açmak için Shift + tıklayın.",
         "iconAutoKey": "Otomatik anahtar: bu değeri her değiştirdiğinizde otomatik olarak bir anahtar kare yakalar.",
         "iconDiamond": "Oynatma başlığında bir anahtar kare ekleyin veya kaldırın.",
         "colorsHeading": "Anahtar kareler",

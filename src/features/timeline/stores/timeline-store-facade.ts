@@ -21,7 +21,8 @@ import { useKeyframesStore } from './keyframes-store'
 import { useMarkersStore } from './markers-store'
 import { useTimelineSettingsStore } from './timeline-settings-store'
 import { useTimelineCommandStore } from './timeline-command-store'
-import { getEffectiveTimelineMaxFrame, sanitizeInOutPoints } from '../utils/in-out-points'
+import { sanitizeInOutPoints } from '../utils/in-out-points'
+import { getActiveInOutMaxFrame } from './in-out-bound'
 
 // Actions
 import * as timelineActions from './timeline-actions'
@@ -327,7 +328,7 @@ function createTimelineStoreFacade(): TimelineStoreFacade {
       const sanitizedInOutPoints = sanitizeInOutPoints({
         inPoint: nextInPoint,
         outPoint: nextOutPoint,
-        maxFrame: getEffectiveTimelineMaxFrame(nextItems, nextFps),
+        maxFrame: getActiveInOutMaxFrame(nextItems, nextFps),
       })
       useMarkersStore.getState().setInPoint(sanitizedInOutPoints.inPoint)
       useMarkersStore.getState().setOutPoint(sanitizedInOutPoints.outPoint)

@@ -41,6 +41,7 @@
       "motionBaked_other": "Bewegung auf {{count}} Clips gebacken",
       "transitionBlocked": "In einem Übergang können keine Keyframes hinzugefügt werden — bewege den Abspielkopf aus dem markierten Bereich.",
       "transitionBlockedPill": "Im Übergang",
+      "lockAllRowsHint": "Umschalt + Klick sperrt oder entsperrt alle Zeilen",
       "emptyState": {
         "title": "Noch keine Keyframes",
         "intro": "Animiere diesen Clip, indem du Keyframes zu einem beliebigen Parameter hinzufügst.",
@@ -79,7 +80,7 @@
         "sheetMode": "Tabelle — sieh und verschiebe die Keyframes aller Parameter in einem Raster.",
         "iconsHeading": "Zeilensteuerung",
         "iconCurve": "Die Kurve dieses Parameters in der Graph-Ansicht anzeigen.",
-        "iconLock": "Sperrt die Zeile, sodass ihre Keyframes nicht verschoben oder bearbeitet werden können.",
+        "iconLock": "Sperrt die Zeile, sodass ihre Keyframes nicht verschoben oder bearbeitet werden können. Umschalt + Klick sperrt oder entsperrt alle Zeilen.",
         "iconAutoKey": "Auto-Key: erfasst automatisch einen Keyframe, sobald du diesen Wert änderst.",
         "iconDiamond": "Einen Keyframe am Abspielkopf hinzufügen oder entfernen.",
         "colorsHeading": "Keyframes",

@@ -41,6 +41,7 @@
       "motionBaked_other": "Mouvement cuit sur {{count}} clips",
       "transitionBlocked": "Impossible d’ajouter des images clés dans une transition — déplacez la tête de lecture hors de la zone surlignée.",
       "transitionBlockedPill": "Dans la transition",
+      "lockAllRowsHint": "Maj + clic pour verrouiller ou déverrouiller toutes les lignes",
       "emptyState": {
         "title": "Aucune image clé pour le moment",
         "intro": "Animez ce clip en ajoutant des images clés à n’importe quel paramètre.",
@@ -79,7 +80,7 @@
         "sheetMode": "Feuille — visualisez et déplacez les images clés de tous les paramètres sur une seule grille.",
         "iconsHeading": "Commandes de ligne",
         "iconCurve": "Afficher la courbe de ce paramètre dans la vue Courbe.",
-        "iconLock": "Verrouille la ligne pour que ses images clés ne puissent pas être déplacées ni modifiées.",
+        "iconLock": "Verrouille la ligne pour que ses images clés ne puissent pas être déplacées ni modifiées. Maj + clic pour verrouiller ou déverrouiller toutes les lignes.",
         "iconAutoKey": "Image clé auto : capture automatiquement une image clé à chaque modification de cette valeur.",
         "iconDiamond": "Ajouter ou supprimer une image clé à la tête de lecture.",
         "colorsHeading": "Images clés",

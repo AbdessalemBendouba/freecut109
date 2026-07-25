@@ -22,6 +22,10 @@ interface NumberInputProps {
   className?: string
   /** Width of the unit suffix area - use consistent value across inputs for alignment */
   unitWidth?: number
+  /** Makes the unit suffix a button — for inputs whose unit can be switched. */
+  onUnitClick?: () => void
+  /** Tooltip / accessible name for the unit button. */
+  unitTitle?: string
 }
 
 /**
@@ -48,6 +52,8 @@ export function NumberInput({
   placeholder,
   className,
   unitWidth = 20,
+  onUnitClick,
+  unitTitle,
 }: NumberInputProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [localValue, setLocalValue] = useState(() => {
@@ -247,13 +253,30 @@ export function NumberInput({
         )}
       />
 
-      {/* Unit suffix - fixed width for alignment across different units */}
-      <span
-        className="pr-2 text-[10px] text-muted-foreground select-none pointer-events-none text-right"
-        style={{ minWidth: unitWidth }}
-      >
-        {unit}
-      </span>
+      {/* Unit suffix - fixed width for alignment across different units. With
+          onUnitClick it becomes the unit toggle (e.g. frames ⇄ seconds); the
+          scrub handler on the wrapper must not also fire, hence stopPropagation. */}
+      {onUnitClick ? (
+        <button
+          type="button"
+          onClick={onUnitClick}
+          onMouseDown={(event) => event.stopPropagation()}
+          disabled={disabled}
+          title={unitTitle}
+          aria-label={unitTitle}
+          className="pr-2 pl-1 text-[10px] text-muted-foreground select-none text-right cursor-pointer hover:text-foreground disabled:cursor-not-allowed"
+          style={{ minWidth: unitWidth }}
+        >
+          {unit}
+        </button>
+      ) : (
+        <span
+          className="pr-2 text-[10px] text-muted-foreground select-none pointer-events-none text-right"
+          style={{ minWidth: unitWidth }}
+        >
+          {unit}
+        </span>
+      )}
     </div>
   )
 }

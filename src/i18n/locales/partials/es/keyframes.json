@@ -41,6 +41,7 @@
       "motionBaked_other": "Movimiento horneado en {{count}} clips",
       "transitionBlocked": "No se pueden añadir fotogramas clave dentro de una transición: mueve el cabezal fuera de la región resaltada.",
       "transitionBlockedPill": "En transición",
+      "lockAllRowsHint": "Mayús + clic para bloquear o desbloquear todas las filas",
       "emptyState": {
         "title": "Aún no hay fotogramas clave",
         "intro": "Anima este clip añadiendo fotogramas clave a cualquier parámetro.",
@@ -79,7 +80,7 @@
         "sheetMode": "Hoja: ve y mueve los fotogramas clave de todos los parámetros en una sola cuadrícula.",
         "iconsHeading": "Controles de fila",
         "iconCurve": "Mostrar la curva de este parámetro en la vista de gráfico.",
-        "iconLock": "Bloquea la fila para que sus fotogramas clave no se puedan mover ni editar.",
+        "iconLock": "Bloquea la fila para que sus fotogramas clave no se puedan mover ni editar. Mayús + clic para bloquear o desbloquear todas las filas.",
         "iconAutoKey": "Clave automática: captura un fotograma clave automáticamente cada vez que cambias este valor.",
         "iconDiamond": "Añadir o quitar un fotograma clave en el cabezal de reproducción.",
         "colorsHeading": "Fotogramas clave",

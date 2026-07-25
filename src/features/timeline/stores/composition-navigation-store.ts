@@ -176,12 +176,13 @@ function saveCurrentToComposition(compositionId: string) {
   const currentComposition = useCompositionsStore.getState().getComposition(compositionId)
   const contentEnd =
     items.length > 0 ? Math.max(...items.map((i) => i.from + i.durationInFrames)) : 0
-  // Layer compositions have an explicit canvas duration that must survive an
-  // empty scene and short layers. Editorial compound clips retain their
-  // content-derived duration behavior.
+  // A layer composition's canvas duration is authored (see setCompositionDuration)
+  // and must survive an empty scene, short layers *and* layers that run past the
+  // end — extending it to fit content here would undo any duration the user set in
+  // the properties panel. Editorial compound clips stay content-derived.
   const durationInFrames =
     currentComposition?.editorKind === 'composite-2d'
-      ? Math.max(1, currentComposition.durationInFrames, contentEnd)
+      ? Math.max(1, currentComposition.durationInFrames)
       : contentEnd
   const markersState = useMarkersStore.getState()
 
