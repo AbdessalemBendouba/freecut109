@@ -546,12 +546,16 @@ function getExpressionReferenceCandidate(
   return { row, value: { itemId, property } }
 }
 
-function resolveExpressionReferenceCandidate(
+function resolveExpressionReferenceTarget(
   clientX: number,
   clientY: number,
   origin: ExpressionReferenceDragOrigin,
 ) {
-  return getExpressionReferenceCandidate(document.elementFromPoint(clientX, clientY), origin)
+  const candidate = getExpressionReferenceCandidate(
+    document.elementFromPoint(clientX, clientY),
+    origin,
+  )
+  return candidate ? { status: 'valid' as const, ...candidate } : null
 }
 
 function formatExpressionValue(value: ExpressionValue | undefined): string {
@@ -1030,7 +1034,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         pickWhipRootRef.current?.closest<HTMLElement>(
           '[data-pick-whip-scroll-area], [data-testid="motion-layer-scroll-area"]',
         ) ?? pickWhipRootRef.current,
-      resolveCandidate: resolveExpressionReferenceCandidate,
+      resolveTarget: resolveExpressionReferenceTarget,
       onCommit: insertExpressionReference,
     })
   useEffect(() => {

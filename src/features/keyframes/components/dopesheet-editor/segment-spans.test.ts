@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { buildSegmentSpans } from './dopesheet-timeline-cells'
+import { buildSegmentSpans } from './segment-spans'
 
 describe('buildSegmentSpans', () => {
   it('pairs consecutive points in frame order regardless of input order', () => {
