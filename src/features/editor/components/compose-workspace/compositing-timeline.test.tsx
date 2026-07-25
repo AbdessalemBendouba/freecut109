@@ -733,6 +733,102 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     animationFrameSpy.mockRestore()
   })
 
+  it('fits the Motion timeline from the compact control beside the FPS readout', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const settleCallbacks: Array<() => void> = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation((callback, delay) => {
+      if (delay === 100 && typeof callback === 'function') {
+        settleCallbacks.push(callback)
+      }
+      return settleCallbacks.length as unknown as ReturnType<typeof window.setTimeout>
+    })
+
+    try {
+      render(<CompositingTimeline />)
+      const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+      vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 400,
+        width: 1000,
+        height: 400,
+        toJSON: () => ({}),
+      })
+      const navigator = screen.getByTestId('motion-time-navigator')
+      const fitButton = screen.getByRole('button', { name: 'Zoom To Fit' })
+      const fpsReadout = screen.getByText('120f · 30fps')
+
+      expect(fpsReadout.nextElementSibling).toBe(fitButton)
+      expect(fitButton).toHaveAttribute('data-tooltip', 'Zoom To Fit')
+
+      fireEvent.wheel(scrollArea, { ctrlKey: true, clientX: 750, deltaY: -100 })
+      act(() => frameCallbacks.shift()?.(performance.now()))
+      expect(navigator).toHaveAttribute('data-start-frame', '8')
+      expect(navigator).toHaveAttribute('data-end-frame', '104')
+
+      fireEvent.click(fitButton)
+      expect(navigator).toHaveAttribute('data-start-frame', '0')
+      expect(navigator).toHaveAttribute('data-end-frame', '120')
+
+      act(() => settleCallbacks.shift()?.())
+      expect(navigator).toHaveAttribute('data-start-frame', '0')
+      expect(navigator).toHaveAttribute('data-end-frame', '120')
+    } finally {
+      animationFrameSpy.mockRestore()
+      timeoutSpy.mockRestore()
+    }
+  })
+
+  it('keeps compact in and out trim controls accessible without visible I/O glyphs', () => {
+    render(<CompositingTimeline />)
+
+    const inFrameInput = screen.getByRole('spinbutton', { name: 'In frame' })
+    const outFrameInput = screen.getByRole('spinbutton', { name: 'Out frame' })
+    const inFrameLabel = inFrameInput.closest('label')
+    const outFrameLabel = outFrameInput.closest('label')
+
+    expect(inFrameLabel).not.toBeNull()
+    expect(outFrameLabel).not.toBeNull()
+    expect(inFrameLabel).toHaveAttribute('title', 'In frame')
+    expect(outFrameLabel).toHaveAttribute('title', 'Out frame')
+    expect(within(inFrameLabel!).getByText('I')).toHaveClass('sr-only')
+    expect(within(outFrameLabel!).getByText('O')).toHaveClass('sr-only')
+
+    inFrameInput.focus()
+    expect(inFrameInput).toHaveFocus()
+    outFrameInput.focus()
+    expect(outFrameInput).toHaveFocus()
+  })
+
+  it('rebalances layer columns without shrinking parent or frame controls below usable sizes', () => {
+    render(<CompositingTimeline />)
+
+    const nameCell = screen.getByTestId(`motion-layer-name-cell-${shape.id}`)
+    const parentCell = screen.getByTestId(`motion-parent-cell-${shape.id}`)
+    const timingCell = screen.getByTestId(`motion-timing-cell-${shape.id}`)
+
+    expect(nameCell.parentElement).toHaveStyle({ width: '620px' })
+    expect(nameCell).toHaveClass('min-w-0', 'flex-1')
+    expect(screen.getByTestId('motion-parent-header')).toHaveStyle({ width: '148px' })
+    expect(parentCell).toHaveStyle({ width: '148px' })
+    expect(screen.getByTestId('motion-timing-header')).toHaveStyle({ width: '128px' })
+    expect(timingCell).toHaveStyle({ width: '128px' })
+    expect(within(timingCell).getByRole('spinbutton', { name: 'In frame' })).toHaveClass('w-14')
+    expect(within(timingCell).getByRole('spinbutton', { name: 'Out frame' })).toHaveClass('w-14')
+    expect(
+      within(parentCell).getByRole('combobox', { name: `Parent for ${shape.label}` }),
+    ).toHaveClass('min-w-0', 'flex-1')
+  })
+
   it('flushes the final wheel geometry when settle wins before the queued animation frame', () => {
     const frameCallbacks: FrameRequestCallback[] = []
     const settleCallbacks: Array<() => void> = []
@@ -1752,9 +1848,12 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     const addItemButton = screen.getByRole('button', { name: 'Add Item' })
     fireEvent.pointerDown(addItemButton, { button: 0, ctrlKey: false })
     fireEvent.click(screen.getByRole('menuitem', { name: 'Null Object' }))
+    fireEvent.pointerDown(addItemButton, { button: 0, ctrlKey: false })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Text' }))
 
     const state = useItemsStore.getState()
     const nullObject = state.items.find((item) => item.type === 'controller')
+    const textLayer = state.items.find((item) => item.type === 'text')
     expect(nullObject).toMatchObject({
       type: 'controller',
       controllerKind: 'null',
@@ -1763,7 +1862,33 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(state.tracks.find((candidate) => candidate.id === nullObject?.trackId)?.name).toBe(
       'Null Object',
     )
-    expect(screen.getByLabelText('Null Object (does not render)')).toBeInTheDocument()
+    const nullObjectName = screen.getByRole('button', {
+      name: /Null Object \(does not render\)/,
+    })
+    expect(nullObjectName).toHaveAttribute('title', 'Null Object (does not render)')
+    const reservedIconSlot = screen.getByTestId(`motion-null-object-icon-slot-${nullObject?.id}`)
+    expect(reservedIconSlot).toHaveClass('h-[18px]', 'w-[18px]', 'shrink-0')
+    expect(reservedIconSlot).toHaveAttribute('aria-hidden', 'true')
+    expect(reservedIconSlot).toBeEmptyDOMElement()
+    const nullObjectTypeIcon = screen.getByTestId(`motion-layer-type-icon-${nullObject?.id}`)
+    expect(nullObjectName).toContainElement(nullObjectTypeIcon)
+    expect(nullObjectName).toHaveClass('px-0')
+    expect(nullObjectTypeIcon.previousElementSibling).toHaveClass(
+      'mr-0.5',
+      'w-3',
+      'text-right',
+      'tabular-nums',
+    )
+    expect(nullObjectTypeIcon).toHaveClass('mr-1', 'h-3', 'w-3', 'text-muted-foreground')
+    expect(nullObjectTypeIcon).toHaveAttribute('aria-hidden', 'true')
+    expect(nullObjectTypeIcon).toHaveAttribute('data-motion-layer-type-icon', 'controller')
+    const shapeTypeIcon = screen.getByTestId(`motion-layer-type-icon-${shape.id}`)
+    expect(shapeTypeIcon).toHaveAttribute('data-motion-layer-type-icon', 'shape')
+    expect(shapeTypeIcon).toHaveAttribute('aria-hidden', 'true')
+    const textTypeIcon = screen.getByTestId(`motion-layer-type-icon-${textLayer?.id}`)
+    expect(textTypeIcon).toHaveAttribute('data-motion-layer-type-icon', 'text')
+    expect(textTypeIcon).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getAllByRole('button', { name: 'Hide layer' })).toHaveLength(2)
   })
 
   it('labels composition and item creation actions in the Motion header', () => {

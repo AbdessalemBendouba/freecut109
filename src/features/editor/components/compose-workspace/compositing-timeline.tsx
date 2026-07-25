@@ -20,6 +20,7 @@ import type { TFunction } from 'i18next'
 import {
   ChevronDown,
   ChevronRight,
+  Captions,
   ClipboardPaste,
   Copy,
   CopyPlus,
@@ -28,15 +29,22 @@ import {
   Eye,
   EyeOff,
   Group,
+  Image as ImageIcon,
+  Layers,
   Lock,
+  Maximize2,
+  Music,
   Plus,
   Pencil,
   Spline,
   Square,
+  Sticker,
   Type,
   Trash2,
   Ungroup,
   Unlock,
+  Video,
+  type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/shared/ui/cn'
 import { useRafDeferredValue } from '@/shared/hooks/use-raf-deferred-value'
@@ -208,8 +216,8 @@ import {
 } from './motion-vector-rows'
 
 const LAYER_COLUMN_WIDTH = 620
-const LAYER_PARENT_COLUMN_WIDTH = 172
-const LAYER_TIMING_COLUMN_WIDTH = 142
+const LAYER_PARENT_COLUMN_WIDTH = 148
+const LAYER_TIMING_COLUMN_WIDTH = 128
 const LAYER_MODE_COLUMN_WIDTH = 100
 const TIMELINE_CONTENT_LEFT = LAYER_COLUMN_WIDTH + 1
 const RULER_HEIGHT = 28
@@ -2954,6 +2962,33 @@ function getItemProperties(item: TimelineItem): AnimatableProperty[] {
   return getAnimatablePropertiesForItem(item)
 }
 
+function getMotionLayerTypeIcon(itemType: TimelineItem['type']): LucideIcon {
+  switch (itemType) {
+    case 'video':
+      return Video
+    case 'audio':
+      return Music
+    case 'image':
+      return ImageIcon
+    case 'lottie':
+      return Sticker
+    case 'text':
+      return Type
+    case 'shape':
+      return Square
+    case 'adjustment':
+      return Layers
+    case 'controller':
+      return Crosshair
+    case 'composition':
+      return Layers
+    case 'subtitle':
+      return Captions
+    default:
+      return itemType satisfies never
+  }
+}
+
 function getBasePropertyValue(
   item: TimelineItem,
   property: AnimatableProperty,
@@ -3287,7 +3322,7 @@ const LayerFrameInput = memo(function LayerFrameInput({
 }: LayerFrameInputProps) {
   return (
     <label className="flex items-center gap-0.5 text-[8px] text-muted-foreground" title={ariaLabel}>
-      {label}
+      <span className="sr-only">{label}</span>
       <input
         key={value}
         type="number"
@@ -3399,6 +3434,17 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
   const wheelMotionViewportRef = useRef<MotionTimeViewport | null>(null)
   const wheelMotionViewportAnimationFrameRef = useRef<number | null>(null)
   const wheelMotionViewportCommitTimerRef = useRef<number | null>(null)
+  const cancelQueuedMotionViewport = useCallback(() => {
+    if (wheelMotionViewportCommitTimerRef.current !== null) {
+      window.clearTimeout(wheelMotionViewportCommitTimerRef.current)
+      wheelMotionViewportCommitTimerRef.current = null
+    }
+    if (wheelMotionViewportAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(wheelMotionViewportAnimationFrameRef.current)
+      wheelMotionViewportAnimationFrameRef.current = null
+    }
+    wheelMotionViewportRef.current = null
+  }, [])
   const middlePanRef = useRef<MotionMiddlePanState | null>(null)
   const latestScrubFrameRef = useRef<number | null>(null)
   const scrubAnimationFrameRef = useRef<number | null>(null)
@@ -3703,6 +3749,17 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
     },
     [discardMotionTimeViewportPreview, updateTimeViewport],
   )
+  const fitMotionTimeViewport = useCallback(() => {
+    cancelQueuedMotionViewport()
+    const fittedViewport = { startFrame: 0, endFrame: durationInFrames }
+    previewMotionTimeViewport(fittedViewport)
+    commitMotionTimeViewport(fittedViewport)
+  }, [
+    cancelQueuedMotionViewport,
+    commitMotionTimeViewport,
+    durationInFrames,
+    previewMotionTimeViewport,
+  ])
   useEffect(() => clearMotionTimeViewportPreview, [clearMotionTimeViewportPreview])
   const queueMotionViewportUpdate = useCallback(
     (update: MotionViewportUpdate) => {
@@ -3755,29 +3812,10 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
     ],
   )
   const prepareNavigatorMotionTimeViewportPreview = useCallback(() => {
-    if (wheelMotionViewportCommitTimerRef.current !== null) {
-      window.clearTimeout(wheelMotionViewportCommitTimerRef.current)
-      wheelMotionViewportCommitTimerRef.current = null
-    }
-    if (wheelMotionViewportAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(wheelMotionViewportAnimationFrameRef.current)
-      wheelMotionViewportAnimationFrameRef.current = null
-    }
-    wheelMotionViewportRef.current = null
+    cancelQueuedMotionViewport()
     prepareMotionTimeViewportPreview()
-  }, [prepareMotionTimeViewportPreview])
-  useEffect(
-    () => () => {
-      wheelMotionViewportRef.current = null
-      if (wheelMotionViewportAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(wheelMotionViewportAnimationFrameRef.current)
-      }
-      if (wheelMotionViewportCommitTimerRef.current !== null) {
-        window.clearTimeout(wheelMotionViewportCommitTimerRef.current)
-      }
-    },
-    [],
-  )
+  }, [cancelQueuedMotionViewport, prepareMotionTimeViewportPreview])
+  useEffect(() => cancelQueuedMotionViewport, [cancelQueuedMotionViewport])
   const visibleFrameRange = Math.max(1, timeViewport.endFrame - timeViewport.startFrame)
   const frameToMotionPercent = useCallback(
     (frame: number) => ((frame - timeViewport.startFrame) / visibleFrameRange) * 100,
@@ -5549,6 +5587,15 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
         <span className="text-[10px] tabular-nums text-muted-foreground">
           {durationInFrames}f · {fps}fps
         </span>
+        <button
+          type="button"
+          onClick={fitMotionTimeViewport}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border/70 bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={t('timeline.header.zoomToFit')}
+          data-tooltip={t('timeline.header.zoomToFitTooltip')}
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       <div ref={motionViewportPreviewRootRef} className="relative min-h-0 flex-1">
@@ -5604,12 +5651,14 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                   </Select>
                 </div>
                 <div
+                  data-testid="motion-parent-header"
                   className="flex shrink-0 items-center border-l border-border px-2"
                   style={{ width: LAYER_PARENT_COLUMN_WIDTH }}
                 >
                   {t('editor.compose.parentColumn', { defaultValue: 'Parent' })}
                 </div>
                 <div
+                  data-testid="motion-timing-header"
                   className="flex shrink-0 items-center justify-around border-l border-border px-2"
                   style={{ width: LAYER_TIMING_COLUMN_WIDTH }}
                 >
@@ -5698,6 +5747,13 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                   : undefined
                 const isParentLayerGroupLocked = parentLayerGroup?.locked === true
                 const isLayerLocked = track?.locked === true || isParentLayerGroupLocked
+                const nullObjectNonRenderingLabel =
+                  item.type === 'controller'
+                    ? t('editor.compose.nullObjectNonRendering', {
+                        defaultValue: 'Null Object (does not render)',
+                      })
+                    : undefined
+                const MotionLayerTypeIcon = getMotionLayerTypeIcon(item.type)
                 const properties = getItemProperties(item)
                 const proceduralBands = getProceduralBands(
                   item.motionModifiers,
@@ -5755,6 +5811,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                           style={{ width: LAYER_COLUMN_WIDTH }}
                         >
                           <div
+                            data-testid={`motion-layer-name-cell-${item.id}`}
                             className="flex min-w-0 flex-1 items-center gap-1 px-1.5"
                             style={{ paddingLeft: 6 + depth * 16 }}
                           >
@@ -5811,16 +5868,10 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                             )}
                             {item.type === 'controller' ? (
                               <span
-                                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-primary/80"
-                                title={t('editor.compose.nullObjectNonRendering', {
-                                  defaultValue: 'Null Object (does not render)',
-                                })}
-                                aria-label={t('editor.compose.nullObjectNonRendering', {
-                                  defaultValue: 'Null Object (does not render)',
-                                })}
-                              >
-                                <Crosshair className="h-3.5 w-3.5" />
-                              </span>
+                                className="h-[18px] w-[18px] shrink-0"
+                                data-testid={`motion-null-object-icon-slot-${item.id}`}
+                                aria-hidden="true"
+                              />
                             ) : (
                               <button
                                 type="button"
@@ -5921,12 +5972,25 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                                     item.label || item.type,
                                   )
                                 }
-                                className="min-w-0 flex-1 truncate px-1 text-left text-[11px] font-medium text-foreground"
-                                title={item.label || item.type}
+                                className="min-w-0 flex-1 truncate px-0 text-left text-[11px] font-medium text-foreground"
+                                title={nullObjectNonRenderingLabel ?? (item.label || item.type)}
+                                aria-label={
+                                  nullObjectNonRenderingLabel
+                                    ? `${index + 1}. ${nullObjectNonRenderingLabel}`
+                                    : undefined
+                                }
                               >
-                                <span className="mr-1.5 text-[9px] tabular-nums text-muted-foreground/70">
+                                <span
+                                  className="mr-0.5 inline-block w-3 shrink-0 text-right text-[9px] tabular-nums text-muted-foreground/70"
+                                >
                                   {index + 1}
                                 </span>
+                                <MotionLayerTypeIcon
+                                  className="mr-1 inline-block h-3 w-3 shrink-0 align-[-2px] text-muted-foreground"
+                                  data-testid={`motion-layer-type-icon-${item.id}`}
+                                  data-motion-layer-type-icon={item.type}
+                                  aria-hidden="true"
+                                />
                                 {item.label || item.type}
                               </button>
                             )}
@@ -6010,6 +6074,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                             </Select>
                           </div>
                           <div
+                            data-testid={`motion-timing-cell-${item.id}`}
                             className="flex shrink-0 items-center gap-1 border-l border-border px-1"
                             style={{ width: LAYER_TIMING_COLUMN_WIDTH }}
                           >
