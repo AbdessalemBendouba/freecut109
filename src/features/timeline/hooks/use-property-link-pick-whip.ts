@@ -27,7 +27,11 @@ function resolvePropertyCandidateElement(element: Element | null, origin: Proper
 }
 
 function resolvePropertyCandidate(clientX: number, clientY: number, origin: PropertyEndpoint) {
-  return resolvePropertyCandidateElement(document.elementFromPoint(clientX, clientY), origin)
+  const candidate = resolvePropertyCandidateElement(
+    document.elementFromPoint(clientX, clientY),
+    origin,
+  )
+  return candidate ? { status: 'valid' as const, ...candidate } : null
 }
 
 function resolveEligiblePropertyRows(origin: PropertyEndpoint): HTMLElement[] {
@@ -68,7 +72,7 @@ export function usePropertyLinkPickWhip() {
     hoverAttribute: 'data-expression-link-hover',
     eligibleAttribute: 'data-expression-link-eligible',
     resolveEligibleRows: resolveEligiblePropertyRows,
-    resolveCandidate: resolvePropertyCandidate,
+    resolveTarget: resolvePropertyCandidate,
     onCommit: commit,
   })
 

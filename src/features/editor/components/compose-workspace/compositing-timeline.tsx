@@ -16,6 +16,7 @@ import { flushSync } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 import { toast } from 'sonner'
+import type { TFunction } from 'i18next'
 import {
   ChevronDown,
   ChevronRight,
@@ -83,7 +84,7 @@ import {
 import type { BlendMode } from '@/types/blend-modes'
 import { BLEND_MODE_GROUPS, BLEND_MODE_LABELS } from '@/types/blend-modes'
 import type { TimelineItem, TimelineTrack } from '@/types/timeline'
-import type { ResolvedTransform } from '@/types/transform'
+import type { CanvasSettings, ResolvedTransform } from '@/types/transform'
 import type { TextMotionSlot } from '@/types/text-motion'
 import {
   getTextMotionTimelineBands,
@@ -162,7 +163,6 @@ import {
 } from '@/features/editor/deps/composition-runtime'
 import {
   worldToLocalTransform,
-  wouldCreateTransformParentCycle,
 } from '@/shared/utils/transform-parenting'
 import { getLinkedAudioCompanion } from '@/shared/utils/linked-media'
 import {
@@ -180,6 +180,10 @@ import { useComposeUiStore } from './compose-ui-store'
 import { NewCompositionDialog } from './new-composition-dialog'
 import { TransformParentPickWhipOverlay } from './transform-parent-pick-whip-overlay'
 import { useTransformParentPickWhip } from './use-transform-parent-pick-whip'
+import {
+  getTransformParentRejection,
+  getTransformParentRejectionMessage,
+} from './transform-parent-validation'
 import {
   buildMotionSelectionDragState,
   buildMotionSelectionFrameUpdates,
@@ -215,6 +219,48 @@ const PLAYHEAD_EDGE_SCROLL_ZONE_PX = 48
 const PLAYHEAD_EDGE_SCROLL_MAX_PX_PER_SECOND = 720
 const EMPTY_LAYER_IDS: string[] = []
 const NO_TRANSFORM_PARENT = '__none__'
+
+interface TransformParentMenuSelection {
+  value: string
+  currentParentItemId: string | undefined
+  childItemId: string
+  itemById: Record<string, TimelineItem>
+  keyframesByItemId: Record<string, ItemKeyframes>
+  canvas: CanvasSettings
+  t: TFunction
+}
+
+function applyTransformParentMenuSelection({
+  value,
+  currentParentItemId,
+  childItemId,
+  itemById,
+  keyframesByItemId,
+  canvas,
+  t,
+}: TransformParentMenuSelection): void {
+  const nextParentItemId = value === NO_TRANSFORM_PARENT ? undefined : value
+  if (nextParentItemId === currentParentItemId) return
+  const rejection = nextParentItemId
+    ? getTransformParentRejection({
+        childItemId,
+        parentItemId: nextParentItemId,
+        itemById,
+        keyframesByItemId,
+      })
+    : null
+  if (rejection) {
+    toast.error(getTransformParentRejectionMessage(t, rejection))
+    return
+  }
+  const playback = usePlaybackStore.getState()
+  setTransformParents({
+    childItemIds: [childItemId],
+    parentItemId: nextParentItemId,
+    frame: playback.previewFrame ?? playback.currentFrame,
+    canvas,
+  })
+}
 const POSITION_VECTOR_ROW = MOTION_VECTOR_ROW_DEFINITIONS.find(
   (row) => row.property === 'position',
 )!
@@ -5644,12 +5690,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                   const isEligible =
                     candidate.id !== item.id &&
                     candidate.type !== 'audio' &&
-                    candidate.type !== 'adjustment' &&
-                    !wouldCreateTransformParentCycle(
-                      item.id,
-                      candidate.id,
-                      (candidateId) => itemById[candidateId],
-                    )
+                    candidate.type !== 'adjustment'
                   return isEligible ? [{ ...entry, layerNumber: layerIndex + 1 }] : []
                 })
                 const expanded = expandedLayerIdSet.has(item.id)
@@ -5688,6 +5729,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                       'relative border-b border-border/70',
                       isDragging && 'z-30 opacity-85 shadow-lg',
                       'data-[transform-parent-link-hover=true]:bg-orange-500/10 data-[transform-parent-link-hover=true]:ring-1 data-[transform-parent-link-hover=true]:ring-inset data-[transform-parent-link-hover=true]:ring-orange-400/70',
+                      'data-[transform-parent-link-rejected=true]:bg-red-500/10 data-[transform-parent-link-rejected=true]:ring-1 data-[transform-parent-link-rejected=true]:ring-inset data-[transform-parent-link-rejected=true]:ring-red-400/70',
                     )}
                   >
                     <MotionRowContextMenu
@@ -5924,22 +5966,17 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                             <Select
                               disabled={isLayerLocked}
                               value={parentItemId ?? NO_TRANSFORM_PARENT}
-                              onValueChange={(value) => {
-                                const nextParentItemId =
-                                  value === NO_TRANSFORM_PARENT ? undefined : value
-                                if (nextParentItemId === parentItemId) return
-                                const playback = usePlaybackStore.getState()
-                                setTransformParents({
-                                  childItemIds: [item.id],
-                                  parentItemId: nextParentItemId,
-                                  frame: playback.previewFrame ?? playback.currentFrame,
-                                  canvas: {
-                                    width: composition?.width ?? 1920,
-                                    height: composition?.height ?? 1080,
-                                    fps,
-                                  },
+                              onValueChange={(value) =>
+                                applyTransformParentMenuSelection({
+                                  value,
+                                  currentParentItemId: parentItemId,
+                                  childItemId: item.id,
+                                  itemById,
+                                  keyframesByItemId,
+                                  canvas: transformParentCanvas,
+                                  t,
                                 })
-                              }}
+                              }
                             >
                               <SelectTrigger
                                 aria-label={t('editor.compose.parentForLayer', {

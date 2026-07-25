@@ -20,12 +20,26 @@ interface MotionPickWhipCandidate<TValue> {
   value: TValue
 }
 
+export type MotionPickWhipTarget<TValue> =
+  | {
+      status: 'valid'
+      row: HTMLElement
+      value: TValue
+    }
+  | {
+      status: 'invalid'
+      row: HTMLElement
+      message: string
+    }
+  | null
+
 export interface MotionPickWhipOverlaySnapshot {
   startX: number
   startY: number
   currentX: number
   currentY: number
   valid: boolean
+  rejectionMessage?: string | null
   clipBounds: MotionPickWhipClipBounds
 }
 
@@ -51,21 +65,28 @@ interface MotionPickWhipDragState<TOrigin, TCandidate> {
   currentY: number
   moved: boolean
   candidate: MotionPickWhipCandidate<TCandidate> | null
+  rejection: { row: HTMLElement; message: string } | null
   clipBounds: MotionPickWhipClipBounds
   presentation: MotionPickWhipPresentation
 }
 
 interface UseMotionPickWhipDragOptions<TOrigin, TCandidate> {
   hoverAttribute: string
+  rejectionHoverAttribute?: string
   eligibleAttribute?: string
   resolveEligibleRows?: (origin: TOrigin) => Iterable<HTMLElement>
   getClipRoot?: (originElement: HTMLElement) => HTMLElement | null
-  resolveCandidate: (
+  resolveTarget: (
     clientX: number,
     clientY: number,
     origin: TOrigin,
-  ) => MotionPickWhipCandidate<TCandidate> | null
+  ) => MotionPickWhipTarget<TCandidate>
   onCommit: (origin: TOrigin, candidate: TCandidate, modifiers: MotionPickWhipModifiers) => void
+  onReject?: (
+    origin: TOrigin,
+    message: string,
+    modifiers: MotionPickWhipModifiers,
+  ) => void
 }
 
 const AUTO_SCROLL_EDGE_PX = 48
@@ -139,6 +160,7 @@ function getOverlaySnapshot<TOrigin, TCandidate>(
     currentX: drag.currentX,
     currentY: drag.currentY,
     valid: Boolean(drag.candidate),
+    rejectionMessage: drag.rejection?.message ?? null,
     clipBounds: drag.clipBounds,
   }
 }
@@ -151,6 +173,7 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
   const [drag, setDrag] = useState<MotionPickWhipDragState<TOrigin, TCandidate> | null>(null)
   const dragRef = useRef<MotionPickWhipDragState<TOrigin, TCandidate> | null>(null)
   const hoverRef = useRef<HTMLElement | null>(null)
+  const rejectionHoverRef = useRef<HTMLElement | null>(null)
   const eligibleRowsRef = useRef<Set<HTMLElement>>(new Set())
   const originElementRef = useRef<HTMLElement | null>(null)
   const clipRootRef = useRef<HTMLElement | null>(null)
@@ -180,6 +203,7 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
       currentY: event.clientY,
       moved: false,
       candidate: null,
+      rejection: null,
       clipBounds,
       presentation: createPresentation({
         startX,
@@ -187,6 +211,7 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
         currentX: event.clientX,
         currentY: event.clientY,
         valid: false,
+        rejectionMessage: null,
         clipBounds,
       }),
     }
@@ -205,6 +230,10 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
 
   useEffect(() => {
     const clearHover = () => updateHover(hoverRef, null, optionsRef.current.hoverAttribute)
+    const clearRejectionHover = () => {
+      const attribute = optionsRef.current.rejectionHoverAttribute
+      if (attribute) updateHover(rejectionHoverRef, null, attribute)
+    }
     const clearEligibleRows = () => {
       const eligibleAttribute = optionsRef.current.eligibleAttribute
       if (eligibleAttribute) {
@@ -223,15 +252,28 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
       presentationFrameRef.current = null
       const current = dragRef.current
       if (!current) return
-      const candidate = optionsRef.current.resolveCandidate(
+      const target = optionsRef.current.resolveTarget(
         current.currentX,
         current.currentY,
         current.origin,
       )
+      const candidate =
+        target?.status === 'valid'
+          ? { row: target.row, value: target.value }
+          : null
+      const rejection =
+        target?.status === 'invalid'
+          ? { row: target.row, message: target.message }
+          : null
       updateHover(hoverRef, candidate?.row ?? null, optionsRef.current.hoverAttribute)
+      const rejectionAttribute = optionsRef.current.rejectionHoverAttribute
+      if (rejectionAttribute) {
+        updateHover(rejectionHoverRef, rejection?.row ?? null, rejectionAttribute)
+      }
       let next: MotionPickWhipDragState<TOrigin, TCandidate> = {
         ...current,
         candidate,
+        rejection,
       }
       if (layoutRefreshPendingRef.current) {
         const originElement = originElementRef.current
@@ -322,11 +364,17 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
     const finish = (event: PointerEvent, commit: boolean) => {
       const current = dragRef.current
       if (!current || current.pointerId !== event.pointerId) return
-      const candidate =
+      const target =
         commit && current.moved
-          ? optionsRef.current.resolveCandidate(event.clientX, event.clientY, current.origin)
+          ? optionsRef.current.resolveTarget(event.clientX, event.clientY, current.origin)
           : null
+      const candidate =
+        target?.status === 'valid'
+          ? { row: target.row, value: target.value }
+          : null
+      const rejection = target?.status === 'invalid' ? target : null
       clearHover()
+      clearRejectionHover()
       clearEligibleRows()
       cancelPresentation()
       cancelAutoScroll()
@@ -334,19 +382,24 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
       originElementRef.current = null
       clipRootRef.current = null
       setDrag(null)
-      if (!candidate) return
-      optionsRef.current.onCommit(current.origin, candidate.value, {
+      const modifiers = {
         shiftKey: event.shiftKey,
         altKey: event.altKey,
         ctrlKey: event.ctrlKey,
         metaKey: event.metaKey,
-      })
+      }
+      if (candidate) {
+        optionsRef.current.onCommit(current.origin, candidate.value, modifiers)
+      } else if (rejection) {
+        optionsRef.current.onReject?.(current.origin, rejection.message, modifiers)
+      }
     }
     const pointerUp = (event: PointerEvent) => finish(event, true)
     const pointerCancel = (event: PointerEvent) => finish(event, false)
     const keyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || !dragRef.current) return
       clearHover()
+      clearRejectionHover()
       clearEligibleRows()
       cancelPresentation()
       cancelAutoScroll()
@@ -364,6 +417,7 @@ export function useMotionPickWhipDrag<TOrigin, TCandidate>(
     window.addEventListener('resize', scheduleLayoutRefresh)
     return () => {
       clearHover()
+      clearRejectionHover()
       clearEligibleRows()
       cancelPresentation()
       cancelAutoScroll()

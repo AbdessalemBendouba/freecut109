@@ -9,6 +9,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
+import { toast } from 'sonner'
 import type { MediaMetadata } from '@/types/storage'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useSelectionStore } from '@/shared/state/selection'
@@ -1844,6 +1845,152 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
       useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId,
     ).toBeUndefined()
     Reflect.deleteProperty(document, 'elementFromPoint')
+  })
+
+  it('explains when a Parent pick whip target would create a circular dependency', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    const childTrack = makeTimelineTrack({
+      id: 'cycle-child-track',
+      name: 'Cycle child',
+      kind: 'video',
+      order: 1,
+    })
+    const cycleChild: ControllerItem = {
+      id: 'cycle-child',
+      type: 'controller',
+      controllerKind: 'null',
+      trackId: childTrack.id,
+      from: 0,
+      durationInFrames: 120,
+      label: 'Cycle child',
+      transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+      transformParent: {
+        parentItemId: shape.id,
+        parentReference: { x: 100, y: 80, width: 400, height: 220, rotation: 0 },
+        childLocalReference: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+        childWorldReference: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+      },
+    }
+    useItemsStore.getState().setTracks([track, childTrack])
+    useItemsStore.getState().setItems([shape, cycleChild])
+    render(<CompositingTimeline />)
+
+    const rejectedRow = screen.getByTestId(`motion-layer-row-${cycleChild.id}`)
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => rejectedRow),
+    })
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: 'Parent pick whip for Hero rectangle' }),
+      { button: 0, pointerId: 43, clientX: 0, clientY: 0 },
+    )
+    fireEvent.pointerMove(window, { pointerId: 43, clientX: 32, clientY: 24 })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('transform-parent-pick-whip-feedback')).toHaveTextContent(
+        'This parent link would create a circular dependency.',
+      )
+      expect(rejectedRow).toHaveAttribute('data-transform-parent-link-rejected', 'true')
+    })
+    const overlay = screen.getByTestId('transform-parent-pick-whip')
+    expect(overlay.querySelector('path')).toHaveAttribute('stroke', 'rgb(248 113 113)')
+
+    fireEvent.pointerUp(window, { pointerId: 43, clientX: 32, clientY: 24 })
+
+    expect(useItemsStore.getState().itemById[shape.id]?.transformParent).toBeUndefined()
+    expect(screen.queryByTestId('transform-parent-pick-whip')).toBeNull()
+    expect(rejectedRow).not.toHaveAttribute('data-transform-parent-link-rejected')
+    Reflect.deleteProperty(document, 'elementFromPoint')
+
+    toastError.mockClear()
+    const parentSelect = screen.getByRole('combobox', {
+      name: 'Parent for Hero rectangle',
+    })
+    fireEvent.click(parentSelect)
+    fireEvent.click(await screen.findByRole('option', { name: /Cycle child/ }))
+
+    expect(toastError).toHaveBeenCalledWith(
+      'This parent link would create a circular dependency.',
+    )
+    expect(useItemsStore.getState().itemById[shape.id]?.transformParent).toBeUndefined()
+    expect(parentSelect).toHaveTextContent('None')
+    toastError.mockRestore()
+  })
+
+  it('explains when parenting would duplicate an existing transform link', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    const sourceTrack = makeTimelineTrack({
+      id: 'linked-parent-track',
+      name: 'Linked source',
+      kind: 'video',
+      order: 1,
+    })
+    const linkedSource: ControllerItem = {
+      id: 'linked-source',
+      type: 'controller',
+      controllerKind: 'null',
+      trackId: sourceTrack.id,
+      from: 0,
+      durationInFrames: 120,
+      label: 'Linked source',
+      transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+    }
+    useItemsStore.getState().setTracks([track, sourceTrack])
+    useItemsStore.getState().setItems([shape, linkedSource])
+    useKeyframesStore.setState({
+      keyframesByItemId: {
+        [shape.id]: {
+          itemId: shape.id,
+          properties: [],
+          propertyLinks: [
+            {
+              type: 'link',
+              targetProperty: 'position',
+              sourceItemId: linkedSource.id,
+              sourceProperty: 'position',
+              enabled: true,
+              timeOffsetFrames: 0,
+            },
+          ],
+        },
+      },
+    })
+    render(<CompositingTimeline />)
+
+    const rejectedRow = screen.getByTestId(`motion-layer-row-${linkedSource.id}`)
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => rejectedRow),
+    })
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: 'Parent pick whip for Hero rectangle' }),
+      { button: 0, pointerId: 44, clientX: 0, clientY: 0 },
+    )
+    fireEvent.pointerMove(window, { pointerId: 44, clientX: 32, clientY: 24 })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('transform-parent-pick-whip-feedback')).toHaveTextContent(
+        'Linked source already drives this layer’s transform. Parenting it would apply the transform twice.',
+      )
+      expect(rejectedRow).toHaveAttribute('data-transform-parent-link-rejected', 'true')
+    })
+
+    fireEvent.pointerCancel(window, { pointerId: 44 })
+    expect(rejectedRow).not.toHaveAttribute('data-transform-parent-link-rejected')
+    Reflect.deleteProperty(document, 'elementFromPoint')
+
+    const parentSelect = screen.getByRole('combobox', {
+      name: 'Parent for Hero rectangle',
+    })
+    fireEvent.click(parentSelect)
+    fireEvent.click(await screen.findByRole('option', { name: /Linked source/ }))
+
+    expect(toastError).toHaveBeenCalledWith(
+      'Linked source already drives this layer’s transform. Parenting it would apply the transform twice.',
+    )
+    expect(useItemsStore.getState().itemById[shape.id]?.transformParent).toBeUndefined()
+    expect(parentSelect).toHaveTextContent('None')
+    toastError.mockRestore()
   })
 
   it('uses Ctrl to toggle layers and Shift to add a visible layer range', () => {
