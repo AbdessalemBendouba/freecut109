@@ -338,6 +338,38 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByTestId('procedural-band-rotation')).toBeInTheDocument()
   })
 
+  it('contains and hides the motion badge until a segment has 44px of usable width', () => {
+    useItemsStore.getState().setItems([
+      {
+        ...shape,
+        durationInFrames: 1,
+        motionModifiers: [
+          {
+            id: 'tiny-drift',
+            type: 'float-drift',
+            enabled: true,
+            amplitude: 1,
+            frequency: 0.6,
+            phaseFrames: 0,
+            seed: 1,
+          },
+        ],
+      },
+    ])
+
+    render(<CompositingTimeline />)
+
+    expect(screen.getByTestId(`motion-layer-span-${shape.id}`)).toHaveClass(
+      '@container',
+      'overflow-hidden',
+    )
+    expect(screen.getByTestId(`motion-procedural-badge-${shape.id}`)).toHaveClass(
+      'hidden',
+      '@min-[44px]:block',
+      'right-2',
+    )
+  })
+
   it('shows procedural text-motion slots on collapsed and expanded text layers', () => {
     useItemsStore.getState().setItems([
       {

@@ -6111,7 +6111,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                                   event.stopPropagation()
                                 }}
                                 className={cn(
-                                  'absolute top-1/2 h-5 -translate-y-1/2 touch-none rounded-sm border px-1 text-left text-[9px] shadow-sm transition-colors',
+                                  '@container absolute top-1/2 h-5 -translate-y-1/2 touch-none overflow-hidden rounded-sm border px-1 text-left text-[9px] shadow-sm transition-colors',
                                   isLayerLocked
                                     ? 'cursor-not-allowed opacity-55'
                                     : 'cursor-grab active:cursor-grabbing',
@@ -6163,7 +6163,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                                 {hasProceduralMotion ? (
                                   <span
                                     data-testid={`motion-procedural-badge-${item.id}`}
-                                    className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-sm border border-sky-300/45 bg-sky-950/75 px-1 font-mono text-[8px] font-semibold text-sky-200"
+                                    className="pointer-events-none absolute right-2 top-1/2 hidden -translate-y-1/2 rounded-sm border border-sky-300/45 bg-sky-950/75 px-1 font-mono text-[8px] font-semibold text-sky-200 @min-[44px]:block"
                                     title={t('timeline.clipIndicators.hasMotion')}
                                   >
                                     ƒx
