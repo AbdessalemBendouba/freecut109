@@ -1247,10 +1247,6 @@ export function GizmoOverlay({
   const handleItemDragStart = useCallback(
     (itemId: string, e: React.MouseEvent, transform: Transform) => {
       if (!coordParams || isExclusiveCanvasEditorActive) return
-      if (positionLinkByItemId.has(itemId)) {
-        showPositionLinkFeedback(itemId)
-        return
-      }
 
       const startTransformSnapshot = { ...transform }
       const point = screenToCanvas(e.clientX, e.clientY, coordParams)
@@ -1283,8 +1279,6 @@ export function GizmoOverlay({
       handleTransformEnd,
       isExclusiveCanvasEditorActive,
       visibleItems,
-      positionLinkByItemId,
-      showPositionLinkFeedback,
     ],
   )
 
@@ -1431,6 +1425,7 @@ export function GizmoOverlay({
                 onDragStart={(e, transform) => handleItemDragStart(item.id, e, transform)}
                 translateBlocked={!!positionLinkFeedback}
                 translateBlockedLabel={positionLinkFeedback?.label}
+                onTranslateBlocked={() => showPositionLinkFeedback(item.id)}
               />
             )
           })}

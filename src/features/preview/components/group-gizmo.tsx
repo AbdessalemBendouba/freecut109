@@ -26,6 +26,7 @@ import {
   type SnapLine,
 } from '../utils/canvas-snap-utils'
 import { useGizmoStore, type ItemPreview } from '../stores/gizmo-store'
+import { notifyOnBlockedMouseDragIntent } from '../utils/mouse-drag-intent'
 
 interface GroupGizmoProps {
   items: TimelineItem[]
@@ -272,7 +273,9 @@ export function GroupGizmo({
       e.stopPropagation()
       e.preventDefault()
       if (translateBlocked) {
-        onTranslateBlocked?.()
+        if (onTranslateBlocked) {
+          notifyOnBlockedMouseDragIntent(e, onTranslateBlocked)
+        }
         return
       }
 

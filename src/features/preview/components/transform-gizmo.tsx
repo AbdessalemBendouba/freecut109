@@ -19,6 +19,7 @@ import {
   attachWindowTransformInteraction,
   suppressReleaseClick,
 } from '../utils/gizmo-transform-interaction'
+import { notifyOnBlockedMouseDragIntent } from '../utils/mouse-drag-intent'
 import { getSourceDimensions, hasCornerPin } from '@/features/preview/deps/composition-runtime'
 import { expandTextTransformForPreview } from '../utils/text-layout'
 import { calculateMediaCropLayout, resolveCropSettings } from '@/shared/utils/media-crop'
@@ -262,7 +263,9 @@ export function TransformGizmo({
       e.stopPropagation()
       e.preventDefault()
       if (translateBlocked) {
-        onTranslateBlocked?.()
+        if (onTranslateBlocked) {
+          notifyOnBlockedMouseDragIntent(e, onTranslateBlocked)
+        }
         return
       }
       const point = toCanvasPoint(e)

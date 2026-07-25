@@ -107,7 +107,7 @@ export function GizmoHandles({
     <>
       {/* Selection border */}
       <div
-        className={`absolute ${translateBlocked ? 'cursor-not-allowed' : 'cursor-move'}`}
+        className="absolute cursor-move"
         style={{
           inset: -2,
           border: `2px dashed ${borderColor}`,
