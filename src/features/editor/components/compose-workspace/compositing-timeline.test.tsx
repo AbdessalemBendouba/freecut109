@@ -1738,13 +1738,18 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     render(<CompositingTimeline />)
 
     expect(screen.getByRole('button', { name: 'New composition' })).toHaveTextContent('New Comp')
-    expect(screen.getByRole('button', { name: 'Add Item' })).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Create Layer Group from selected layers' }),
-    ).toHaveAttribute(
+    const addItemButton = screen.getByRole('button', { name: 'Add Item' })
+    const layerGroupButton = screen.getByRole('button', {
+      name: 'Create Layer Group from selected layers',
+    })
+    expect(addItemButton.nextElementSibling).toBe(layerGroupButton)
+    expect(layerGroupButton).toHaveAttribute(
       'title',
       'Organize layers and move them together. Use Parent for transform inheritance.',
     )
+    expect(
+      screen.queryByText('Drop media, text, shapes, or compositions here'),
+    ).not.toBeInTheDocument()
   })
 
   it('parents and unparents a layer from the Parent dropdown', async () => {

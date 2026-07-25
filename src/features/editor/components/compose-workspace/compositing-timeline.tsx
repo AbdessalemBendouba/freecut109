@@ -5533,17 +5533,11 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground/70">
-          {t('editor.compose.dropAssetsHint')}
-        </span>
-        <span className="text-[10px] tabular-nums text-muted-foreground">
-          {durationInFrames}f · {fps}fps
-        </span>
         <button
           type="button"
           onClick={createGroupFromSelection}
           disabled={!canGroupSelectedLayers}
-          className="flex h-6 items-center gap-1 rounded px-1.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+          className="flex h-6 shrink-0 items-center gap-1 rounded border border-border/70 bg-background px-2 text-[10px] font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
           aria-label={t('editor.compose.groupSelected')}
           aria-description={t('editor.compose.layerGroupDescription')}
           title={t('editor.compose.layerGroupDescription')}
@@ -5551,6 +5545,10 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
           <Group className="h-3 w-3" />
           {t('editor.compose.group')}
         </button>
+        <span className="flex-1" aria-hidden="true" />
+        <span className="text-[10px] tabular-nums text-muted-foreground">
+          {durationInFrames}f · {fps}fps
+        </span>
       </div>
 
       <div ref={motionViewportPreviewRootRef} className="relative min-h-0 flex-1">
