@@ -11,6 +11,9 @@ interface SelectableItemProps {
   onSelect: (e: React.MouseEvent) => void
   /** Called on mousedown to start dragging immediately */
   onDragStart?: (e: React.MouseEvent, transform: Transform) => void
+  /** Linked Position owns translation, but the item remains selectable. */
+  translateBlocked?: boolean
+  translateBlockedLabel?: string
 }
 
 /**
@@ -25,6 +28,8 @@ export function SelectableItem({
   isSelected = false,
   onSelect,
   onDragStart,
+  translateBlocked = false,
+  translateBlockedLabel,
 }: SelectableItemProps) {
   const [isHovered, setIsHovered] = useState(false)
   const transformOrigin = useMemo(() => {
@@ -77,7 +82,7 @@ export function SelectableItem({
 
   return (
     <div
-      className="absolute cursor-move"
+      className={`absolute ${translateBlocked ? 'cursor-not-allowed' : 'cursor-move'}`}
       style={{
         left: screenBounds.left,
         top: screenBounds.top,
@@ -91,6 +96,9 @@ export function SelectableItem({
         border: showHover ? '3px solid rgba(249, 115, 22, 0.4)' : '2px solid transparent',
       }}
       data-gizmo="selectable-item"
+      data-translate-blocked={translateBlocked || undefined}
+      aria-label={translateBlocked ? translateBlockedLabel : undefined}
+      title={translateBlocked ? translateBlockedLabel : undefined}
       onMouseDown={handleMouseDown}
       onDoubleClick={(e) => e.stopPropagation()}
       onMouseEnter={() => setIsHovered(true)}

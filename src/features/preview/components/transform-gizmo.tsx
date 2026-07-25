@@ -32,6 +32,10 @@ interface TransformGizmoProps {
   onCropEnd: (edge: CropEdge, ratio: number) => void
   /** Whether video is currently playing - gizmo shows at lower opacity during playback */
   isPlaying?: boolean
+  /** Position is driven by a property link, so direct translation is rejected. */
+  translateBlocked?: boolean
+  translateBlockedLabel?: string
+  onTranslateBlocked?: () => void
 }
 
 /**
@@ -45,6 +49,9 @@ export function TransformGizmo({
   onTransformEnd,
   onCropEnd,
   isPlaying = false,
+  translateBlocked = false,
+  translateBlockedLabel,
+  onTranslateBlocked,
 }: TransformGizmoProps) {
   const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id, {
     imperativeTranslate: true,
@@ -254,6 +261,10 @@ export function TransformGizmo({
     (e: React.MouseEvent) => {
       e.stopPropagation()
       e.preventDefault()
+      if (translateBlocked) {
+        onTranslateBlocked?.()
+        return
+      }
       const point = toCanvasPoint(e)
       const startTransformSnapshot = { ...currentTransform }
       const interactionId = startTranslate(
@@ -290,6 +301,8 @@ export function TransformGizmo({
       onTransformStart,
       onTransformEnd,
       strokeWidth,
+      translateBlocked,
+      onTranslateBlocked,
     ],
   )
 
@@ -557,6 +570,8 @@ export function TransformGizmo({
         isInteracting={isInteracting}
         isMask={item.type === 'shape' && item.isMask}
         onTranslateStart={handleTranslateStart}
+        translateBlocked={translateBlocked}
+        translateBlockedLabel={translateBlockedLabel}
         onScaleStart={handleScaleStart}
         onRotateStart={handleRotateStart}
         cropRect={

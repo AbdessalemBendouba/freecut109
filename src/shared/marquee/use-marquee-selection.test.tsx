@@ -7,7 +7,7 @@ import { useMarqueeSelection, type Rect } from './use-marquee-selection'
 interface MarqueeHarnessProps {
   children?: ReactNode
   onSelectionChange: (ids: string[]) => void
-  onPreviewSelectionChange: (ids: string[]) => void
+  onPreviewSelectionChange?: (ids: string[]) => void
   onGestureEnd: (event: MouseEvent, wasActualDrag: boolean) => void
 }
 
@@ -127,6 +127,38 @@ describe('useMarqueeSelection deferred commits', () => {
     expect(onGestureEnd).toHaveBeenCalledTimes(1)
     expect(onGestureEnd.mock.calls[0]?.[1]).toBe(true)
     expect(onPreviewSelectionChange).toHaveBeenLastCalledWith([])
+    expect(onSelectionChange).toHaveBeenCalledTimes(1)
+    expect(onSelectionChange).toHaveBeenCalledWith(['clip-1', 'clip-2'])
+  })
+
+  it('keeps global selection frozen during a release-only canvas marquee', () => {
+    const onSelectionChange = vi.fn<(ids: string[]) => void>()
+    const onGestureEnd = vi.fn<(event: MouseEvent, wasActualDrag: boolean) => void>()
+    const { getByTestId } = render(
+      <MarqueeHarness onSelectionChange={onSelectionChange} onGestureEnd={onGestureEnd} />,
+    )
+    const container = getByTestId('marquee-container')
+
+    Object.defineProperties(container, {
+      clientWidth: { configurable: true, value: 200 },
+      clientHeight: { configurable: true, value: 200 },
+      getBoundingClientRect: {
+        configurable: true,
+        value: () => createRect(0, 0, 200, 200),
+      },
+    })
+
+    fireEvent.mouseDown(container, { button: 0, clientX: 5, clientY: 5 })
+    fireEvent.mouseMove(document, { clientX: 50, clientY: 50 })
+    flushAnimationFrames()
+    fireEvent.mouseMove(document, { clientX: 100, clientY: 100 })
+    flushAnimationFrames()
+
+    expect(onSelectionChange).not.toHaveBeenCalled()
+
+    fireEvent.mouseUp(document, { clientX: 100, clientY: 100 })
+
+    expect(onGestureEnd).toHaveBeenCalledTimes(1)
     expect(onSelectionChange).toHaveBeenCalledTimes(1)
     expect(onSelectionChange).toHaveBeenCalledWith(['clip-1', 'clip-2'])
   })

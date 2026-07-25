@@ -39,6 +39,10 @@ interface GroupGizmoProps {
   onItemClick?: (itemId: string) => void
   /** Whether video is currently playing - gizmo shows at lower opacity during playback */
   isPlaying?: boolean
+  /** At least one selected item has link-owned Position and cannot be translated. */
+  translateBlocked?: boolean
+  translateBlockedLabel?: string
+  onTranslateBlocked?: () => void
 }
 
 type InteractionMode = 'idle' | 'translate' | 'scale' | 'rotate'
@@ -55,6 +59,9 @@ export function GroupGizmo({
   onTransformEnd,
   onItemClick,
   isPlaying = false,
+  translateBlocked = false,
+  translateBlockedLabel,
+  onTranslateBlocked,
 }: GroupGizmoProps) {
   // Local interaction state
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('idle')
@@ -264,6 +271,10 @@ export function GroupGizmo({
     (e: React.MouseEvent) => {
       e.stopPropagation()
       e.preventDefault()
+      if (translateBlocked) {
+        onTranslateBlocked?.()
+        return
+      }
 
       const point = toCanvasPoint(e)
       const groupState = initializeGroupState(
@@ -369,6 +380,8 @@ export function GroupGizmo({
       onItemClick,
       findItemAtPoint,
       scale,
+      translateBlocked,
+      onTranslateBlocked,
     ],
   )
 
@@ -567,6 +580,8 @@ export function GroupGizmo({
         rotation={groupRotation}
         isInteracting={isInteracting}
         onTranslateStart={handleTranslateStart}
+        translateBlocked={translateBlocked}
+        translateBlockedLabel={translateBlockedLabel}
         onScaleStart={handleScaleStart}
         onRotateStart={handleRotateStart}
       />

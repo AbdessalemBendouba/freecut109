@@ -33,6 +33,9 @@ interface GizmoHandlesProps {
   isMask?: boolean
   /** Called when dragging starts on the border (translate) */
   onTranslateStart: (e: React.MouseEvent) => void
+  /** Whether translation is owned by a linked Position property. */
+  translateBlocked?: boolean
+  translateBlockedLabel?: string
   /** Called when dragging starts on a scale handle */
   onScaleStart: (handle: GizmoHandle, e: React.MouseEvent) => void
   /** Called when dragging starts on the rotation handle */
@@ -59,6 +62,8 @@ export function GizmoHandles({
   isInteracting,
   isMask = false,
   onTranslateStart,
+  translateBlocked = false,
+  translateBlockedLabel,
   onScaleStart,
   onRotateStart,
   cropRect,
@@ -102,7 +107,7 @@ export function GizmoHandles({
     <>
       {/* Selection border */}
       <div
-        className="absolute cursor-move"
+        className={`absolute ${translateBlocked ? 'cursor-not-allowed' : 'cursor-move'}`}
         style={{
           inset: -2,
           border: `2px dashed ${borderColor}`,
@@ -110,9 +115,15 @@ export function GizmoHandles({
           zIndex: 101,
         }}
         role="button"
-        aria-label="Move selected element"
+        aria-label={
+          translateBlocked
+            ? (translateBlockedLabel ?? 'Position is controlled by a property link')
+            : 'Move selected element'
+        }
+        aria-disabled={translateBlocked || undefined}
         tabIndex={0}
         data-gizmo="border"
+        data-translate-blocked={translateBlocked || undefined}
         onMouseDown={onTranslateStart}
         onDoubleClick={(e) => e.stopPropagation()}
       />

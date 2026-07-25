@@ -1,6 +1,7 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { toast } from 'sonner'
 import { useShallow } from 'zustand/react/shallow'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useSettingsStore } from '@/features/preview/deps/settings'
@@ -22,6 +23,7 @@ import { MotionPathOverlay } from './motion-path-overlay'
 import { SnapGuides } from './snap-guides'
 import {
   getEffectiveScale,
+  getScreenTransformOrigin,
   screenToCanvas,
   transformToScreenBounds,
 } from '../utils/coordinate-transform'
@@ -62,6 +64,11 @@ import {
   resolveGizmoCommitParentWorld,
 } from '../utils/gizmo-transform-commit'
 import { CROP_EDGE_PROPERTY, type CropEdge } from '../utils/crop-gizmo'
+import {
+  MARQUEE_CANDIDATE_ATTRIBUTE,
+  updateMarqueeCandidateElements,
+} from '../utils/marquee-candidate-preview'
+import { getPositionLinkOwner } from '../utils/position-link-ownership'
 
 interface GizmoOverlayProps {
   itemsSnapshot: TimelineItem[]
@@ -161,6 +168,31 @@ export function GizmoOverlay({
 
   // Create Set for O(1) lookups instead of O(n) includes()
   const selectedItemIdsSet = useMemo(() => new Set(selectedItemIds), [selectedItemIds])
+  const marqueeCandidateElementsRef = useRef<Map<string, HTMLElement>>(new Map())
+  const marqueeCandidateIdsRef = useRef<Set<string>>(new Set())
+  const bindMarqueeCandidateElement = useCallback(
+    (itemId: string, element: HTMLDivElement | null) => {
+      if (!element) {
+        marqueeCandidateElementsRef.current.delete(itemId)
+        return
+      }
+      marqueeCandidateElementsRef.current.set(itemId, element)
+      if (marqueeCandidateIdsRef.current.has(itemId)) {
+        element.setAttribute(MARQUEE_CANDIDATE_ATTRIBUTE, 'true')
+      }
+    },
+    [],
+  )
+  const updateMarqueeCandidatePreview = useCallback((ids: string[]) => {
+    marqueeCandidateIdsRef.current = updateMarqueeCandidateElements(
+      marqueeCandidateElementsRef.current,
+      marqueeCandidateIdsRef.current,
+      ids,
+    )
+  }, [])
+  const clearMarqueeCandidatePreview = useCallback(() => {
+    updateMarqueeCandidatePreview([])
+  }, [updateMarqueeCandidatePreview])
 
   const liveTransforms = useItemsStore(
     useShallow(
@@ -396,6 +428,45 @@ export function GizmoOverlay({
     ),
   )
   const keyframesByItemId = useKeyframesStore((s) => s.keyframesByItemId)
+  const itemLabelById = useMemo(
+    () =>
+      new Map(
+        itemsSnapshot.map((item) => [
+          item.id,
+          item.label || item.type || 'the source layer',
+        ]),
+      ),
+    [itemsSnapshot],
+  )
+  const positionLinkByItemId = useMemo(() => {
+    const links = new Map<string, ReturnType<typeof getPositionLinkOwner>>()
+    for (const item of visibleItems) {
+      const link = getPositionLinkOwner(keyframesByItemId[item.id])
+      if (link) links.set(item.id, link)
+    }
+    return links
+  }, [keyframesByItemId, visibleItems])
+  const getPositionLinkFeedback = useCallback(
+    (itemId: string) => {
+      const link = positionLinkByItemId.get(itemId)
+      if (!link) return null
+      const sourceLabel = itemLabelById.get(link.sourceItemId) ?? 'the source layer'
+      return {
+        label: `Position is linked to ${sourceLabel}. Select ${sourceLabel} in Layers to move it, or use Position's link control to unlink.`,
+      }
+    },
+    [itemLabelById, positionLinkByItemId],
+  )
+  const showPositionLinkFeedback = useCallback(
+    (itemId: string) => {
+      const feedback = getPositionLinkFeedback(itemId)
+      if (!feedback) return
+      toast.warning(feedback.label, {
+        id: `canvas-position-link-guidance-${itemId}`,
+      })
+    },
+    [getPositionLinkFeedback],
+  )
 
   // Associate keyframes with items by id rather than array position so
   // consumers stay correct if the selection ordering changes.
@@ -795,6 +866,9 @@ export function GizmoOverlay({
       },
       [selectItems],
     ),
+    onPreviewSelectionChange: updateMarqueeCandidatePreview,
+    onGestureEnd: clearMarqueeCandidatePreview,
+    commitSelectionOnMouseUp: true,
     threshold: 5,
   })
 
@@ -1173,6 +1247,10 @@ export function GizmoOverlay({
   const handleItemDragStart = useCallback(
     (itemId: string, e: React.MouseEvent, transform: Transform) => {
       if (!coordParams || isExclusiveCanvasEditorActive) return
+      if (positionLinkByItemId.has(itemId)) {
+        showPositionLinkFeedback(itemId)
+        return
+      }
 
       const startTransformSnapshot = { ...transform }
       const point = screenToCanvas(e.clientX, e.clientY, coordParams)
@@ -1205,6 +1283,8 @@ export function GizmoOverlay({
       handleTransformEnd,
       isExclusiveCanvasEditorActive,
       visibleItems,
+      positionLinkByItemId,
+      showPositionLinkFeedback,
     ],
   )
 
@@ -1287,12 +1367,50 @@ export function GizmoOverlay({
           />
         )}
 
+        {/* Candidate membership changes imperatively during marquee drag. This
+            keeps the committed selection and gizmo stable while avoiding a
+            selection-dependent React render for every item intersection. */}
+        {!isExclusiveCanvasEditorActive &&
+          visibleItems.map((item) => {
+            const resolved = visualTransformsMap.get(item.id)
+            if (!resolved) return null
+            const transform: Transform = {
+              x: resolved.x,
+              y: resolved.y,
+              width: resolved.width,
+              height: resolved.height,
+              anchorX: resolved.anchorX,
+              anchorY: resolved.anchorY,
+              rotation: resolved.rotation,
+              opacity: resolved.opacity,
+              cornerRadius: resolved.cornerRadius,
+            }
+            const bounds = transformToScreenBounds(transform, coordParams)
+            return (
+              <div
+                key={`marquee-candidate-${item.id}`}
+                ref={(element) => bindMarqueeCandidateElement(item.id, element)}
+                data-marquee-candidate-item-id={item.id}
+                className="pointer-events-none absolute z-[6] hidden rounded-sm border-2 border-dashed border-white/65 bg-white/10 shadow-[0_0_0_1px_rgba(255,255,255,0.12)] data-[marquee-candidate=true]:block"
+                style={{
+                  left: bounds.left,
+                  top: bounds.top,
+                  width: bounds.width,
+                  height: bounds.height,
+                  transform: `rotate(${transform.rotation}deg)`,
+                  transformOrigin: getScreenTransformOrigin(transform, coordParams),
+                }}
+              />
+            )
+          })}
+
         {/* Clickable areas for UNSELECTED visible items */}
         {/* Selected items are handled by their respective gizmos (TransformGizmo or GroupGizmo) */}
         {!isExclusiveCanvasEditorActive &&
           unselectedItems.map((item) => {
             const resolved = visualTransformsMap.get(item.id)
             if (!resolved) return null
+            const positionLinkFeedback = getPositionLinkFeedback(item.id)
             return (
               <SelectableItem
                 key={item.id}
@@ -1311,6 +1429,8 @@ export function GizmoOverlay({
                 coordParams={coordParams}
                 onSelect={(e) => handleItemClick(item.id, e)}
                 onDragStart={(e, transform) => handleItemDragStart(item.id, e, transform)}
+                translateBlocked={!!positionLinkFeedback}
+                translateBlockedLabel={positionLinkFeedback?.label}
               />
             )
           })}
@@ -1326,6 +1446,9 @@ export function GizmoOverlay({
             }
             onCropEnd={(edge, ratio) => handleCropEnd(selectedItems[0]!.id, edge, ratio)}
             isPlaying={isPlaying}
+            translateBlocked={positionLinkByItemId.has(selectedItems[0].id)}
+            translateBlockedLabel={getPositionLinkFeedback(selectedItems[0].id)?.label}
+            onTranslateBlocked={() => showPositionLinkFeedback(selectedItems[0]!.id)}
           />
         ) : selectedItems.length > 1 ? (
           <GroupGizmo
@@ -1335,6 +1458,16 @@ export function GizmoOverlay({
             onTransformEnd={handleGroupTransformEnd}
             onItemClick={(itemId) => selectItems([itemId])}
             isPlaying={isPlaying}
+            translateBlocked={selectedItems.some((item) => positionLinkByItemId.has(item.id))}
+            translateBlockedLabel={
+              getPositionLinkFeedback(
+                selectedItems.find((item) => positionLinkByItemId.has(item.id))?.id ?? '',
+              )?.label
+            }
+            onTranslateBlocked={() => {
+              const blockedItem = selectedItems.find((item) => positionLinkByItemId.has(item.id))
+              if (blockedItem) showPositionLinkFeedback(blockedItem.id)
+            }}
           />
         ) : null}
 
