@@ -153,6 +153,7 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
 
   afterEach(() => {
     cleanup()
+    vi.unstubAllGlobals()
     useGizmoStore.getState().cancelInteraction()
     useGizmoStore.getState().clearPreview()
     useGizmoStore.getState().setSnappingEnabled(true)
@@ -172,6 +173,21 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getAllByText('Hero rectangle')).toHaveLength(2)
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+    const embeddedEditor = within(
+      screen.getByTestId(`motion-layer-row-${shape.id}`),
+    ).getByTestId('dopesheet-editor-root')
+    expect(embeddedEditor).toHaveStyle({ width: '100%' })
+    expect(embeddedEditor).toHaveAttribute('data-motion-shared-grid-divisions', '10')
+    const embeddedGrid =
+      embeddedEditor.querySelector<HTMLElement>('[data-motion-grid-frames]')
+    const embeddedGridFrames = (embeddedGrid?.dataset.motionGridFrames ?? '')
+      .split(',')
+      .map(Number)
+    expect(embeddedGridFrames).toHaveLength(11)
+    expect(embeddedGridFrames[0]).toBe(0)
+    expect(embeddedGridFrames.at(-1)).toBe(120)
+    expect(embeddedGridFrames[1]! - embeddedGridFrames[0]!).toBe(12)
+    expect(embeddedGrid?.style.left).toBe('-1px')
     expect(screen.getByText('Position')).toBeInTheDocument()
     expect(screen.getByText('Opacity')).toBeInTheDocument()
     expect(screen.getByLabelText('Position X')).toHaveValue('100.00')
@@ -193,6 +209,150 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(
       screen.queryByRole('button', { name: 'Separate Position dimensions' }),
     ).not.toBeInTheDocument()
+  })
+
+  it('mounts heavy Motion dope-sheet content only for expanded rows near the viewport', () => {
+    const secondTrack = makeTimelineTrack({
+      id: 'second-layer-track',
+      name: 'Second rectangle',
+      kind: 'video',
+      order: 1,
+    })
+    const secondShape: ShapeItem = {
+      ...shape,
+      id: 'shape-2',
+      trackId: secondTrack.id,
+      label: 'Second rectangle',
+      transform: { ...shape.transform, x: 600 },
+    }
+    useItemsStore.getState().setTracks([track, secondTrack])
+    useItemsStore.getState().setItems([shape, secondShape])
+    useComposeUiStore.getState().setAllLayersExpanded('comp-1', [shape.id, secondShape.id], true)
+
+    const observed: Array<{
+      callback: IntersectionObserverCallback
+      observer: IntersectionObserver
+      target: Element
+    }> = []
+    class MockIntersectionObserver {
+      readonly root = null
+      readonly rootMargin = '160px 0px'
+      readonly thresholds = [0]
+      constructor(private readonly callback: IntersectionObserverCallback) {}
+      observe = (target: Element) => {
+        observed.push({
+          callback: this.callback,
+          observer: this as unknown as IntersectionObserver,
+          target,
+        })
+      }
+      disconnect = vi.fn()
+      unobserve = vi.fn()
+      takeRecords = () => []
+    }
+    vi.stubGlobal(
+      'IntersectionObserver',
+      MockIntersectionObserver as unknown as typeof IntersectionObserver,
+    )
+    const settleCallbacks: Array<() => void> = []
+    const timeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation((callback, delay) => {
+      if (delay === 100 && typeof callback === 'function') settleCallbacks.push(callback)
+      return settleCallbacks.length as unknown as ReturnType<typeof window.setTimeout>
+    })
+
+    render(<CompositingTimeline />)
+
+    const firstShell = screen.getByTestId(`motion-dopesheet-shell-${shape.id}`)
+    const secondShell = screen.getByTestId(`motion-dopesheet-shell-${secondShape.id}`)
+    expect(firstShell).toHaveAttribute('data-motion-dopesheet-near-viewport', 'false')
+    expect(secondShell).toHaveAttribute('data-motion-dopesheet-near-viewport', 'false')
+    expect(screen.queryByTestId('dopesheet-editor-root')).not.toBeInTheDocument()
+
+    const firstShellObserver = observed.find((entry) => entry.target === firstShell)
+    expect(firstShellObserver).toBeDefined()
+    act(() => {
+      firstShellObserver?.callback(
+        [
+          { isIntersecting: true, target: firstShell } as unknown as IntersectionObserverEntry,
+        ],
+        firstShellObserver.observer,
+      )
+    })
+
+    expect(firstShell).toHaveAttribute('data-motion-dopesheet-near-viewport', 'true')
+    expect(within(firstShell).getByTestId('dopesheet-editor-root')).toBeInTheDocument()
+    expect(within(secondShell).queryByTestId('dopesheet-editor-root')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('dopesheet-editor-root')).toHaveLength(1)
+    const navigator = screen.getByTestId('motion-time-navigator')
+    const initialEndFrame = Number(navigator.dataset.endFrame)
+    const nearGrid = firstShell.querySelector<HTMLElement>('[data-motion-grid-frames]')
+    expect(nearGrid).not.toBeNull()
+    const initialGridFrames = nearGrid?.dataset.motionGridFrames
+    const scrollArea = screen.getByTestId('motion-layer-scroll-area')
+    vi.spyOn(scrollArea, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 400,
+      width: 1000,
+      height: 400,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.wheel(scrollArea, {
+      ctrlKey: true,
+      clientX: 750,
+      deltaY: -100,
+    })
+    act(() => settleCallbacks[0]?.())
+
+    expect(Number(navigator.dataset.endFrame)).toBeLessThan(initialEndFrame)
+    expect(within(firstShell).getByTestId('dopesheet-editor-root')).toBeInTheDocument()
+    expect(within(secondShell).queryByTestId('dopesheet-editor-root')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('dopesheet-editor-root')).toHaveLength(1)
+    expect(nearGrid?.dataset.motionGridFrames).not.toBe(initialGridFrames)
+
+    const focusedPropertyControl = within(firstShell).getByRole('button', {
+      name: 'Collapse Transform',
+    })
+    const expandedShellHeight = Number.parseFloat(firstShell.style.height)
+    fireEvent.click(focusedPropertyControl)
+    const collapsedShellHeight = Number.parseFloat(firstShell.style.height)
+    expect(collapsedShellHeight).toBeLessThan(expandedShellHeight)
+    const collapsedPropertyControl = within(firstShell).getByRole('button', {
+      name: 'Expand Transform',
+    })
+    collapsedPropertyControl.focus()
+    act(() => {
+      firstShellObserver?.callback(
+        [
+          { isIntersecting: false, target: firstShell } as unknown as IntersectionObserverEntry,
+        ],
+        firstShellObserver.observer,
+      )
+    })
+    expect(within(firstShell).getByTestId('dopesheet-editor-root')).toBeInTheDocument()
+
+    const externalControl = screen.getByRole('button', { name: 'New composition' })
+    fireEvent.focusOut(collapsedPropertyControl, { relatedTarget: externalControl })
+    expect(firstShell).toHaveAttribute('data-motion-dopesheet-near-viewport', 'false')
+    expect(within(firstShell).queryByTestId('dopesheet-editor-root')).not.toBeInTheDocument()
+    expect(Number.parseFloat(firstShell.style.height)).toBe(collapsedShellHeight)
+
+    act(() => {
+      firstShellObserver?.callback(
+        [{ isIntersecting: true, target: firstShell } as unknown as IntersectionObserverEntry],
+        firstShellObserver.observer,
+      )
+    })
+    expect(within(firstShell).getByTestId('dopesheet-editor-root')).toBeInTheDocument()
+    expect(within(firstShell).getByRole('button', { name: 'Expand Transform' })).toBeInTheDocument()
+    expect(Number.parseFloat(firstShell.style.height)).toBe(collapsedShellHeight)
+
+    timeoutSpy.mockRestore()
+    vi.unstubAllGlobals()
   })
 
   it('shows a linked audiovisual pair as one Motion layer', () => {

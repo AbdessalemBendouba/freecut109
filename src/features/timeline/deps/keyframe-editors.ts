@@ -18,6 +18,7 @@ export {
   getEffectPropertyBaseValue,
   getProceduralBands,
   getPropertyAccordionGroups,
+  getPropertyDisplayGroups,
   buildVectorPromotionPlan,
   resolveAnimatedTransform,
   getShapeAnimatableBaseValue,

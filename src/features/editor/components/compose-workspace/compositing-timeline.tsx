@@ -120,6 +120,7 @@ import {
   getEffectPropertyBaseValue,
   getProceduralBands,
   getPropertyAccordionGroups,
+  getPropertyDisplayGroups,
   getShapeAnimatableBaseValue,
   getDroppedMediaDurationInFrames,
   isTimelineTemplateDragData,
@@ -1424,6 +1425,7 @@ const MotionRowContextMenu = memo(function MotionRowContextMenu({
 interface MotionDopesheetLanesProps {
   item: TimelineItem
   itemById: Record<string, TimelineItem>
+  itemKeyframes: ItemKeyframes | undefined
   properties: AnimatableProperty[]
   compositionDurationInFrames: number
   fps: number
@@ -1490,6 +1492,7 @@ function areMotionDopesheetLanesPropsEqual(
     previous.onSetPropertyExpression === next.onSetPropertyExpression &&
     previous.onRemovePropertyExpression === next.onRemovePropertyExpression &&
     previous.itemById === next.itemById &&
+    previous.itemKeyframes === next.itemKeyframes &&
     previous.properties.length === next.properties.length &&
     previous.properties.every((property, index) => property === next.properties[index])
   )
@@ -1499,7 +1502,9 @@ function useNearMotionScrollViewport(
   rootRef: React.RefObject<HTMLDivElement | null>,
   enabled: boolean,
 ): boolean {
-  const [isNearScrollViewport, setIsNearScrollViewport] = useState(true)
+  const [isNearScrollViewport, setIsNearScrollViewport] = useState(
+    () => !enabled || typeof IntersectionObserver === 'undefined',
+  )
   useEffect(() => {
     if (!enabled) {
       setIsNearScrollViewport(true)
@@ -1508,9 +1513,11 @@ function useNearMotionScrollViewport(
     const node = rootRef.current
     if (!node || typeof IntersectionObserver === 'undefined') return
     const motionScrollRoot = node.closest('[data-testid="motion-layer-scroll-area"]')
+    let isIntersecting = true
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry) return
+        isIntersecting = entry.isIntersecting
         if (!entry.isIntersecting && node.contains(document.activeElement)) return
         setIsNearScrollViewport(entry.isIntersecting)
       },
@@ -1519,10 +1526,82 @@ function useNearMotionScrollViewport(
         rootMargin: '160px 0px',
       },
     )
+    const handleFocusOut = (event: FocusEvent) => {
+      if (isIntersecting || node.contains(event.relatedTarget as Node | null)) return
+      setIsNearScrollViewport(false)
+    }
     observer.observe(node)
-    return () => observer.disconnect()
+    node.addEventListener('focusout', handleFocusOut)
+    return () => {
+      observer.disconnect()
+      node.removeEventListener('focusout', handleFocusOut)
+    }
   }, [enabled, rootRef])
   return isNearScrollViewport
+}
+
+function getEstimatedMotionDopesheetLaneHeight({
+  item,
+  itemKeyframes,
+  properties,
+  propertyFilter,
+  expandedGroups,
+}: Pick<
+  MotionDopesheetLanesProps,
+  'item' | 'itemKeyframes' | 'properties' | 'propertyFilter'
+> & {
+  expandedGroups?: Readonly<Record<string, boolean>>
+}): number {
+  const supportsVectorTransform = item.type !== 'audio' && item.type !== 'adjustment'
+  const hiddenPropertyRows = new Set<AnimatableProperty>(
+    supportsVectorTransform
+      ? MOTION_VECTOR_ROW_DEFINITIONS.filter(
+          (row) =>
+            properties.includes(row.primary) &&
+            properties.includes(row.secondary) &&
+            shouldUseMotionVectorRow(itemKeyframes, row),
+        ).map((row) => row.secondary)
+      : [],
+  )
+  const scalarKeyframesByProperty = new Map(
+    (itemKeyframes?.properties ?? []).map((entry) => [entry.property, entry.keyframes] as const),
+  )
+  const keyframesByProperty = Object.fromEntries(
+    properties.map((property) => [property, scalarKeyframesByProperty.get(property) ?? []]),
+  ) as Partial<Record<AnimatableProperty, Keyframe[]>>
+  const proceduralPropertyIds = new Set(
+    getProceduralBands(item.motionModifiers, item.durationInFrames, item.from).keys(),
+  )
+  const visibleProperties =
+    propertyFilter === 'keyframed'
+      ? properties.filter((property) =>
+          isMotionPropertyVisible(
+            property,
+            keyframesByProperty,
+            itemKeyframes,
+            proceduralPropertyIds,
+          ),
+        )
+      : properties
+  const renderedVisibleProperties = visibleProperties.filter(
+    (property) => !hiddenPropertyRows.has(property),
+  )
+  if (propertyFilter === 'keyframed' && renderedVisibleProperties.length === 0) return ROW_HEIGHT
+  const displayGroups = getPropertyDisplayGroups(renderedVisibleProperties)
+  const nonInlineGroups = displayGroups.filter(
+    (group) => !MOTION_INLINE_PROPERTY_GROUP_ID_SET.has(group.id),
+  )
+  const visiblePropertyCount = displayGroups.reduce(
+    (count, group) =>
+      MOTION_INLINE_PROPERTY_GROUP_ID_SET.has(group.id) || expandedGroups?.[group.id] !== false
+        ? count + group.properties.length
+        : count,
+    0,
+  )
+  return Math.max(
+    ROW_HEIGHT,
+    visiblePropertyCount * ROW_HEIGHT + nonInlineGroups.length * GROUP_HEADER_HEIGHT,
+  )
 }
 
 function getMotionDopesheetLaneHeight(
@@ -1530,14 +1609,6 @@ function getMotionDopesheetLaneHeight(
   laneContentHeight: number,
 ): number | undefined {
   return paneMode === 'lanes' ? Math.max(ROW_HEIGHT, laneContentHeight) : undefined
-}
-
-function shouldRenderMotionDopesheet(
-  paneWidth: number,
-  paneMode: 'lanes' | 'graph',
-  isNearScrollViewport: boolean,
-): boolean {
-  return paneWidth > 0 && (paneMode === 'graph' || isNearScrollViewport)
 }
 
 function withoutPropertyExpressions(itemKeyframes: ItemKeyframes | undefined) {
@@ -1908,10 +1979,19 @@ function useMotionPropertySystems(params: {
   }
 }
 
+interface MotionDopesheetContentProps extends MotionDopesheetLanesProps {
+  initialExpandedGroups?: Readonly<Record<string, boolean>>
+  onExpandedGroupsChange?: (expandedGroups: Record<string, boolean>) => void
+  onRenderedHeightChange?: (height: number) => void
+}
+
 // This orchestration component coordinates independent memoized lane interactions.
+// It is mounted only by the near-viewport shell below so its store subscriptions
+// and property derivations never run for distant expanded rows.
 // fallow-ignore-next-line complexity
-const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
+const MotionDopesheetContent = memo(function MotionDopesheetContent({
   item,
+  itemKeyframes,
   properties,
   compositionDurationInFrames,
   fps,
@@ -1929,8 +2009,11 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   onRemovePropertyLink,
   onSetPropertyExpression,
   onRemovePropertyExpression,
+  initialExpandedGroups,
+  onExpandedGroupsChange,
+  onRenderedHeightChange,
   itemById,
-}: MotionDopesheetLanesProps) {
+}: MotionDopesheetContentProps) {
   const currentFrame = useSettledMotionFrame()
   const rootRef = useRef<HTMLDivElement>(null)
   const dragSnapshotRef = useRef<ReturnType<typeof captureSnapshot> | null>(null)
@@ -1939,10 +2022,6 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   const crossLayerPreviewFrameRef = useRef<number | null>(null)
   const [paneSize, setPaneSize] = useState({ width: 0, height: 0 })
   const [expressionDockHeight, setExpressionDockHeight] = useState(0)
-  const isNearScrollViewport = useNearMotionScrollViewport(rootRef, paneMode === 'lanes')
-  const itemKeyframes = useKeyframesStore(
-    useCallback((state) => state.keyframesByItemId[item.id], [item.id]),
-  )
   const allKeyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
   const _updateKeyframe = useKeyframesStore((state) => state._updateKeyframe)
   const _updateKeyframes = useKeyframesStore((state) => state._updateKeyframes)
@@ -2703,6 +2782,13 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     reportedLaneContent?.structureKey === laneContentStructureKey
       ? reportedLaneContent.height
       : laneContentHeight
+  const renderedLaneHeight = getMotionDopesheetLaneHeight(
+    paneMode,
+    renderedLaneContentHeight + expressionDockHeight,
+  )
+  useLayoutEffect(() => {
+    if (renderedLaneHeight !== undefined) onRenderedHeightChange?.(renderedLaneHeight)
+  }, [onRenderedHeightChange, renderedLaneHeight])
   const handleLaneContentHeightChange = useCallback(
     (height: number) => {
       setReportedLaneContent((current) => {
@@ -2926,10 +3012,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         disabled && 'opacity-60',
       )}
       style={{
-        height: getMotionDopesheetLaneHeight(
-          paneMode,
-          renderedLaneContentHeight + expressionDockHeight,
-        ),
+        height: renderedLaneHeight,
       }}
       onPointerEnter={() => setKeyframeEditorShortcutScopeActive(true)}
       onPointerLeave={() => setKeyframeEditorShortcutScopeActive(false)}
@@ -2941,7 +3024,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         }
       }}
     >
-      {shouldRenderMotionDopesheet(paneSize.width, paneMode, isNearScrollViewport) ? (
+      {paneSize.width > 0 ? (
         <DopesheetEditor
           itemId={item.id}
           motionModifiers={item.motionModifiers}
@@ -2973,6 +3056,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           onLaneContentHeightChange={
             paneMode === 'lanes' ? handleLaneContentHeightChange : undefined
           }
+          initialExpandedGroups={initialExpandedGroups}
+          onExpandedGroupsChange={onExpandedGroupsChange}
           propertyLinkSourceLabels={propertyLinkSourceLabels}
           onPropertyLinkPointerDown={propertyLinkHandlers.onPointerDown}
           onRemovePropertyLink={propertyLinkHandlers.onRemove}
@@ -3080,6 +3165,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           visualizationMode={paneMode === 'graph' ? 'graph' : 'dopesheet'}
           presentation="lanes"
           propertyColumnWidth={paneMode === 'graph' ? 0 : LAYER_COLUMN_WIDTH}
+          timelineGridDivisions={paneMode === 'lanes' ? RULER_DIVISIONS : undefined}
           singleCurveMode
           selectedCurveVisibleExternally={paneMode === 'lanes' && inlineCurveProperty !== null}
           propertyFilter={propertyFilter}
@@ -3092,6 +3178,62 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
               : MOTION_INLINE_PROPERTY_GROUP_IDS
           }
           spacious
+        />
+      ) : null}
+    </div>
+  )
+}, areMotionDopesheetLanesPropsEqual)
+
+const MotionDopesheetLanes = memo(function MotionDopesheetLanes(
+  props: MotionDopesheetLanesProps,
+) {
+  const { item, itemKeyframes, properties, propertyFilter, paneMode = 'lanes' } = props
+  const shellRef = useRef<HTMLDivElement>(null)
+  const isNearScrollViewport = useNearMotionScrollViewport(shellRef, paneMode === 'lanes')
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
+  const estimatedHeight = useMemo(
+    () =>
+      getEstimatedMotionDopesheetLaneHeight({
+        item,
+        itemKeyframes,
+        properties,
+        propertyFilter,
+        expandedGroups,
+      }),
+    [expandedGroups, item, itemKeyframes, properties, propertyFilter],
+  )
+  const heightStructureKey = `${propertyFilter}:${properties.join('|')}:${estimatedHeight}`
+  const [reportedHeight, setReportedHeight] = useState<{
+    structureKey: string
+    height: number
+  } | null>(null)
+  const renderedHeight =
+    reportedHeight?.structureKey === heightStructureKey ? reportedHeight.height : estimatedHeight
+  const handleRenderedHeightChange = useCallback(
+    (height: number) => {
+      setReportedHeight((current) => {
+        if (current?.structureKey === heightStructureKey && current.height === height) return current
+        return { structureKey: heightStructureKey, height }
+      })
+    },
+    [heightStructureKey],
+  )
+  const shouldRenderContent = paneMode === 'graph' || isNearScrollViewport
+
+  return (
+    <div
+      ref={shellRef}
+      data-testid={`motion-dopesheet-shell-${item.id}`}
+      data-motion-dopesheet-near-viewport={isNearScrollViewport ? 'true' : 'false'}
+      className={cn('w-full bg-background/35', paneMode === 'graph' && 'h-full')}
+      style={{ height: getMotionDopesheetLaneHeight(paneMode, renderedHeight) }}
+    >
+      {shouldRenderContent ? (
+        <MotionDopesheetContent
+          {...props}
+          initialExpandedGroups={expandedGroups}
+          onExpandedGroupsChange={setExpandedGroups}
+          onRenderedHeightChange={handleRenderedHeightChange}
         />
       ) : null}
     </div>
@@ -3857,21 +3999,40 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
       const nextRange = Math.max(1, viewport.endFrame - viewport.startFrame)
 
       for (const grid of preview.grids) {
-        const tickStep = getNiceTickStep(nextRange)
-        const firstTick = Math.floor(viewport.startFrame / tickStep) * tickStep
+        const sharedGridRoot = grid.element.closest<HTMLElement>(
+          '[data-motion-shared-grid-divisions]',
+        )
+        const sharedDivisionCount = Number(sharedGridRoot?.dataset.motionSharedGridDivisions)
+        const sharedBorderWidth = Math.max(
+          0,
+          Number(sharedGridRoot?.dataset.motionSharedGridBorderWidth) || 0,
+        )
+        const usesSharedGrid =
+          Number.isFinite(sharedDivisionCount) && sharedDivisionCount > 0
         const frames: number[] = []
-        for (let frame = firstTick; frame <= viewport.endFrame; frame += tickStep) {
-          frames.push(frame)
+        if (usesSharedGrid) {
+          for (let index = 0; index <= sharedDivisionCount; index += 1) {
+            frames.push(viewport.startFrame + (index / sharedDivisionCount) * nextRange)
+          }
+        } else {
+          const tickStep = getNiceTickStep(nextRange)
+          const firstTick = Math.floor(viewport.startFrame / tickStep) * tickStep
+          for (let frame = firstTick; frame <= viewport.endFrame; frame += tickStep) {
+            frames.push(frame)
+          }
         }
         if (frames.length === 0) continue
+        const gridOrigin = usesSharedGrid ? -sharedBorderWidth : grid.edgeInset
+        const gridWidth = usesSharedGrid
+          ? grid.usableWidth + grid.edgeInset * 2 + sharedBorderWidth
+          : grid.usableWidth
         const firstX = Math.round(
-          grid.edgeInset + ((frames[0]! - viewport.startFrame) / nextRange) * grid.usableWidth,
+          gridOrigin + ((frames[0]! - viewport.startFrame) / nextRange) * gridWidth,
         )
         const shadows: string[] = []
         for (let index = 1; index < frames.length; index += 1) {
           const x = Math.round(
-            grid.edgeInset +
-              ((frames[index]! - viewport.startFrame) / nextRange) * grid.usableWidth,
+            gridOrigin + ((frames[index]! - viewport.startFrame) / nextRange) * gridWidth,
           )
           shadows.push(`${x - firstX}px 0 currentColor`)
         }
@@ -6489,6 +6650,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                         <MotionDopesheetLanes
                           item={item}
                           itemById={itemById}
+                          itemKeyframes={keyframesByItemId[item.id]}
                           properties={properties}
                           compositionDurationInFrames={durationInFrames}
                           fps={fps}
@@ -6540,6 +6702,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
             <MotionDopesheetLanes
               item={activeCurveItem}
               itemById={itemById}
+              itemKeyframes={keyframesByItemId[activeCurveItem.id]}
               disabled={isActiveCurveLocked}
               properties={activeCurveProperties}
               compositionDurationInFrames={durationInFrames}

@@ -17,6 +17,8 @@ interface UseGroupExpansionOptions {
   groupedSheetRows: DopesheetPropertyGroup[]
   groupedPropertyRows: DopesheetPropertyGroup[]
   activeSelectedProperty: AnimatableProperty | null
+  initialExpandedGroups?: Readonly<Record<string, boolean>>
+  onExpandedGroupsChange?: (expandedGroups: Record<string, boolean>) => void
 }
 
 export interface UseGroupExpansionReturn {
@@ -30,8 +32,16 @@ export function useGroupExpansion({
   groupedSheetRows,
   groupedPropertyRows,
   activeSelectedProperty,
+  initialExpandedGroups,
+  onExpandedGroupsChange,
 }: UseGroupExpansionOptions): UseGroupExpansionReturn {
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
+    () => ({ ...initialExpandedGroups }),
+  )
+
+  useEffect(() => {
+    onExpandedGroupsChange?.(expandedGroups)
+  }, [expandedGroups, onExpandedGroupsChange])
 
   // Keep expandedGroups in sync with the actual rendered groups
   useEffect(() => {

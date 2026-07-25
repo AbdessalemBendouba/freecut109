@@ -359,6 +359,10 @@ interface DopesheetEditorProps {
   onExpressionDockHeightChange?: (height: number) => void
   /** Reports visible row height so embedded Motion lanes shrink when groups collapse. */
   onLaneContentHeightChange?: (height: number) => void
+  /** Restores accordion state when a virtualized editor remounts. */
+  initialExpandedGroups?: Readonly<Record<string, boolean>>
+  /** Persists accordion state outside a virtualized editor before it unmounts. */
+  onExpandedGroupsChange?: (expandedGroups: Record<string, boolean>) => void
   /** Reset effect parameters to their definition defaults and clear their keyframes. */
   onResetPropertiesToDefault?: (properties: AnimatableProperty[]) => void
   /** Callback to remove selected keyframes */
@@ -449,6 +453,8 @@ interface DopesheetEditorProps {
   presentation?: 'editor' | 'classic' | 'lanes'
   /** Override the property column width when embedding lane rows. */
   propertyColumnWidth?: number
+  /** Match an owning timeline ruler with evenly spaced grid divisions. */
+  timelineGridDivisions?: number
   /** Show one selected property curve at a time instead of layered graph curves. */
   singleCurveMode?: boolean
   /** Keep the selected curve toggle visually active when its graph is rendered
@@ -850,6 +856,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   onRemovePropertyExpression,
   onExpressionDockHeightChange,
   onLaneContentHeightChange,
+  initialExpandedGroups,
+  onExpandedGroupsChange,
   onResetPropertiesToDefault,
   onRemoveKeyframes,
   onCopyKeyframes,
@@ -887,6 +895,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   axisConstraintByProperty = {},
   presentation = 'editor',
   propertyColumnWidth,
+  timelineGridDivisions,
   singleCurveMode = false,
   selectedCurveVisibleExternally = false,
   propertyFilter,
@@ -1353,6 +1362,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     groupedSheetRows,
     groupedPropertyRows,
     activeSelectedProperty,
+    initialExpandedGroups,
+    onExpandedGroupsChange,
   })
 
   const resetParameterView = useCallback(() => {
@@ -1651,6 +1662,16 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     (frame: number) => getFrameAxisX(frame, viewport, effectiveTimelineWidth, timelineEdgeInset),
     [effectiveTimelineWidth, timelineEdgeInset, viewport],
   )
+  const sharedGridFrameToX = useCallback(
+    (frame: number) =>
+      getFrameAxisX(
+        frame,
+        viewport,
+        effectiveTimelineWidth + timelineCellBorderWidth,
+        0,
+      ) - timelineCellBorderWidth,
+    [effectiveTimelineWidth, timelineCellBorderWidth, viewport],
+  )
   const getRenderedKeyframeX = useCallback(
     (frame: number) =>
       getVisibleKeyframeX(frame, viewport, effectiveTimelineWidth, timelineEdgeInset),
@@ -1895,6 +1916,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   )
 
   const ticks = useMemo(() => {
+    if (timelineGridDivisions && timelineGridDivisions > 0) {
+      return Array.from(
+        { length: timelineGridDivisions + 1 },
+        (_, index) =>
+          viewport.startFrame + (index / timelineGridDivisions) * frameRange,
+      )
+    }
     const step = getNiceTickStep(frameRange)
     // Edit pans the already-rendered sheet on the compositor while expensive
     // keyframe rows settle less frequently. Keep a generous ruler-only buffer
@@ -1908,7 +1936,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       result.push(frame)
     }
     return result
-  }, [viewport.startFrame, viewport.endFrame, frameRange, timelineScrollContainerRef])
+  }, [
+    viewport.startFrame,
+    viewport.endFrame,
+    frameRange,
+    timelineGridDivisions,
+    timelineScrollContainerRef,
+  ])
 
   const propertyGridStyle = useMemo(() => {
     return { gridTemplateColumns: `${columnWidth}px 1fr` }
@@ -4652,6 +4686,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                   ticks={ticks}
                   axisWidth={effectiveTimelineWidth}
                   frameToX={frameToX}
+                  gridFrameToX={timelineGridDivisions ? sharedGridFrameToX : undefined}
                   getRenderedKeyframeX={getRenderedKeyframeX}
                   selectedKeyframeIds={selectedKeyframeIds}
                   disabled={disabled}
@@ -4684,6 +4719,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                 ticks={ticks}
                 axisWidth={effectiveTimelineWidth}
                 frameToX={frameToX}
+                gridFrameToX={timelineGridDivisions ? sharedGridFrameToX : undefined}
                 getRenderedKeyframeX={getRenderedKeyframeX}
                 renderedKeyframeXById={renderedKeyframeXById}
                 transitionBlockedRanges={transitionBlockedRanges}
@@ -4723,6 +4759,8 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       ticks,
       effectiveTimelineWidth,
       frameToX,
+      sharedGridFrameToX,
+      timelineGridDivisions,
       transitionBlockedRanges,
       proceduralBandByProperty,
       renderedKeyframeXById,
@@ -4971,12 +5009,16 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       <div
         ref={pickWhipRootRef}
         data-testid="dopesheet-editor-root"
+        data-motion-shared-grid-divisions={timelineGridDivisions}
+        data-motion-shared-grid-border-width={
+          timelineGridDivisions ? timelineCellBorderWidth : undefined
+        }
         className={cn(
           'relative flex flex-col overflow-hidden',
           disabled && 'opacity-60 pointer-events-none',
           className,
         )}
-        style={{ height, width }}
+        style={{ height, width: '100%' }}
         onKeyDown={handleGraphPaneKeyDown}
       >
         <div className="relative min-h-0 flex-1 overflow-hidden" onWheel={handleWheel}>

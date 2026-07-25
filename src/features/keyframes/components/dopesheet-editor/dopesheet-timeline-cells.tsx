@@ -155,6 +155,7 @@ interface GroupTimelineCellProps {
   ticks: number[]
   axisWidth: number
   frameToX: (frame: number) => number
+  gridFrameToX?: (frame: number) => number
   getRenderedKeyframeX: (frame: number) => number | null
   selectedKeyframeIds: Set<string>
   disabled: boolean
@@ -177,6 +178,7 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
   ticks,
   axisWidth,
   frameToX,
+  gridFrameToX = frameToX,
   getRenderedKeyframeX,
   selectedKeyframeIds,
   disabled,
@@ -209,7 +211,7 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
           aria-hidden
           data-motion-grid-frames={ticks.join(',')}
           className="pointer-events-none absolute inset-y-0 w-px bg-current text-border/30"
-          style={getTimelineGridLineStyle(ticks, frameToX)}
+          style={getTimelineGridLineStyle(ticks, gridFrameToX)}
         />
 
         <div data-motion-span-drag-visual className="absolute inset-0">
@@ -306,6 +308,7 @@ interface PropertyTimelineCellProps {
   ticks: number[]
   axisWidth: number
   frameToX: (frame: number) => number
+  gridFrameToX?: (frame: number) => number
   getRenderedKeyframeX: (frame: number) => number | null
   renderedKeyframeXById: Map<string, number>
   transitionBlockedRanges: BlockedFrameRange[]
@@ -339,6 +342,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
   ticks,
   axisWidth,
   frameToX,
+  gridFrameToX = frameToX,
   getRenderedKeyframeX,
   renderedKeyframeXById,
   transitionBlockedRanges,
@@ -410,7 +414,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
           aria-hidden
           data-motion-grid-frames={ticks.join(',')}
           className="pointer-events-none absolute inset-y-0 w-px bg-current text-border/30"
-          style={getTimelineGridLineStyle(ticks, frameToX)}
+          style={getTimelineGridLineStyle(ticks, gridFrameToX)}
         />
 
         {transitionBlockedRanges.map((range, index) => (
