@@ -5,7 +5,12 @@ import type { ItemKeyframes } from '@/types/keyframe'
 import type { MotionAnimationLayer, MotionModifier } from '@/types/motion'
 import type { TimelineItem } from '@/types/timeline'
 import type { ResolvedTransform } from '@/types/transform'
-import { buildGizmoTransformCommit, resolveEditableGizmoTransform } from './gizmo-transform-commit'
+import { createTransformParentBinding } from '@/shared/utils/transform-parenting'
+import {
+  buildGizmoTransformCommit,
+  resolveEditableGizmoTransform,
+  resolveGizmoCommitParentWorld,
+} from './gizmo-transform-commit'
 
 const base: ResolvedTransform = {
   x: 100,
@@ -68,6 +73,75 @@ describe('gizmo transform commits', () => {
 
     expect(editable.x).toBeCloseTo(100)
     expect(editable.rotation).toBeCloseTo(30)
+  })
+
+  it('uses the hierarchy parent pose instead of display-expanded parent bounds', () => {
+    const parent = {
+      id: 'parent',
+      type: 'text',
+      trackId: 'parent-track',
+      from: 0,
+      durationInFrames: 100,
+      label: 'Parent',
+      text: 'Parent',
+      transform: {
+        x: 80,
+        y: 40,
+        width: 240,
+        height: 120,
+        rotation: 0,
+        opacity: 1,
+      },
+    } as TimelineItem
+    const parentWorld: ResolvedTransform = {
+      x: 80,
+      y: 40,
+      width: 240,
+      height: 120,
+      anchorX: 120,
+      anchorY: 60,
+      rotation: 0,
+      opacity: 1,
+      cornerRadius: 0,
+    }
+    const childLocal = { ...base, rotation: 0 }
+    const child = {
+      ...item,
+      motionLayers: undefined,
+      motionModifiers: undefined,
+      transformParent: createTransformParentBinding({
+        childLocal,
+        childWorld: childLocal,
+        parentItemId: parent.id,
+        parentWorld,
+      }),
+    } as TimelineItem
+    const items = new Map([
+      [parent.id, parent],
+      [child.id, child],
+    ])
+
+    const resolvedParent = resolveGizmoCommitParentWorld({
+      item: child,
+      canvas: { width: 1920, height: 1080, fps: 30 },
+      frame: 10,
+      getItem: (itemId) => items.get(itemId),
+      getKeyframes: () => undefined,
+    })
+    const editedWorld = { ...childLocal, x: childLocal.x + 30, y: childLocal.y - 15 }
+    const editable = resolveEditableGizmoTransform({
+      item: child,
+      visualTransform: editedWorld,
+      parentVisualTransform: resolvedParent,
+      relativeFrame: 0,
+      fps: 30,
+      frameWidth: 1920,
+      frameHeight: 1080,
+    })
+
+    expect(resolvedParent).toMatchObject({ x: parentWorld.x, y: parentWorld.y })
+    expect(editable.x).toBeCloseTo(childLocal.x + 30)
+    expect(editable.y).toBeCloseTo(childLocal.y - 15)
   })
 
   it('writes coupled Position and Scale lanes instead of legacy scalar lanes', () => {

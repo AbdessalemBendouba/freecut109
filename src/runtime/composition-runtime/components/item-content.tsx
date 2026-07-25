@@ -38,6 +38,7 @@ import {
 import { needsCustomAudioDecoder } from '../utils/audio-codec-detection'
 import { resolveReverseConformedVideoItem } from '@/shared/utils/reverse-conform-item'
 import { useNestedMediaResolutionMode } from '../contexts/nested-media-resolution-context'
+import { useLiveItemContentTransform } from '../contexts/live-item-transform-context'
 
 function getLogger() {
   return createLogger('CompositionItem')
@@ -164,6 +165,8 @@ export const ItemContent = React.memo<ItemProps>(
     audioPitchShiftSemitones = 0,
     renderCompositionContent,
   }) => {
+    item = useLiveItemContentTransform(item)
+
     // Use muted prop directly - MainComposition already passes track.muted
     // Avoiding store subscription here prevents re-render issues with @legacy-video/media Audio
 

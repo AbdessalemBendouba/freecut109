@@ -2,7 +2,7 @@ import { useCallback, useState, type MutableRefObject } from 'react'
 import type { PreviewQuality } from '@/shared/state/playback'
 import { usePlaybackStore } from '@/shared/state/playback'
 import type { ItemKeyframes } from '@/types/keyframe'
-import type { TimelineItem, TimelineTrack } from '@/types/timeline'
+import type { TimelineTrack } from '@/types/timeline'
 import {
   type AdaptivePreviewQualityState,
   getFrameBudgetMs,
@@ -18,13 +18,11 @@ interface UsePreviewPlaybackControllerParams {
   fps: number
   combinedTracks: TimelineTrack[]
   keyframes: ItemKeyframes[]
-  activeGizmoItemType: TimelineItem['type'] | null
-  isGizmoInteracting: boolean
   forceFastScrubOverlay: boolean
   domTextScrubOverlayEnabled: boolean
   previewPerfRef: MutableRefObject<PreviewPerfStats>
   isGizmoInteractingRef: MutableRefObject<boolean>
-  preferPlayerForTextGizmoRef: MutableRefObject<boolean>
+  preferPlayerForDomGizmoRef: MutableRefObject<boolean>
   preferPlayerForStyledTextScrubRef: MutableRefObject<boolean>
   adaptiveQualityStateRef: MutableRefObject<AdaptivePreviewQualityState>
   adaptiveFrameSampleRef: MutableRefObject<{ frame: number; tsMs: number } | null>
@@ -36,13 +34,11 @@ export function usePreviewPlaybackController({
   fps,
   combinedTracks,
   keyframes,
-  activeGizmoItemType,
-  isGizmoInteracting,
   forceFastScrubOverlay,
   domTextScrubOverlayEnabled,
   previewPerfRef,
   isGizmoInteractingRef,
-  preferPlayerForTextGizmoRef,
+  preferPlayerForDomGizmoRef,
   preferPlayerForStyledTextScrubRef,
   adaptiveQualityStateRef,
   adaptiveFrameSampleRef,
@@ -52,8 +48,8 @@ export function usePreviewPlaybackController({
   const [adaptiveQualityCap, setAdaptiveQualityCap] = useState<PreviewQuality>(1)
 
   usePreviewRuntimeGuards({
-    isGizmoInteracting,
     isGizmoInteractingRef,
+    preferPlayerForDomGizmoRef,
     setAdaptiveQualityCap,
     adaptiveQualityStateRef,
     adaptiveFrameSampleRef,
@@ -63,19 +59,16 @@ export function usePreviewPlaybackController({
     !domTextScrubOverlayEnabled &&
     !forceFastScrubOverlay &&
     shouldPreferPlayerForStyledTextScrubGuard(combinedTracks, keyframes)
-  const preferPlayerForTextGizmo =
-    !forceFastScrubOverlay && isGizmoInteracting && activeGizmoItemType === 'text'
-  preferPlayerForTextGizmoRef.current = preferPlayerForTextGizmo
   preferPlayerForStyledTextScrubRef.current = preferPlayerForStyledTextScrub
 
   const shouldPreferPlayerForPreview = useCallback(
     (previewFrame: number | null) => {
       return (
-        preferPlayerForTextGizmoRef.current ||
+        preferPlayerForDomGizmoRef.current ||
         (preferPlayerForStyledTextScrubRef.current && previewFrame !== null)
       )
     },
-    [preferPlayerForStyledTextScrubRef, preferPlayerForTextGizmoRef],
+    [preferPlayerForDomGizmoRef, preferPlayerForStyledTextScrubRef],
   )
 
   const handleFrameChange = useCallback(

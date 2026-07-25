@@ -42,7 +42,7 @@ export interface BlockedFrameRange {
  */
 export function getTransitionBlockedRanges(
   clipId: string,
-  clip: TimelineItem,
+  clip: Pick<TimelineItem, 'durationInFrames'>,
   transitions: Transition[],
 ): BlockedFrameRange[] {
   const blockedRanges: BlockedFrameRange[] = []
@@ -115,7 +115,7 @@ export function getTransitionBlockedRanges(
 export function isFrameInTransitionRegion(
   frame: number,
   clipId: string,
-  clip: TimelineItem,
+  clip: Pick<TimelineItem, 'durationInFrames'>,
   transitions: Transition[],
 ): BlockedFrameRange | undefined {
   const blockedRanges = getTransitionBlockedRanges(clipId, clip, transitions)

@@ -9,10 +9,42 @@ import {
 } from '@/features/preview/deps/keyframes'
 import type { ItemKeyframes, TransformAnimatableProperty } from '@/types/keyframe'
 import type { TimelineItem } from '@/types/timeline'
-import type { ResolvedTransform, TransformProperties } from '@/types/transform'
+import type {
+  CanvasSettings,
+  ResolvedTransform,
+  TransformProperties,
+} from '@/types/transform'
 import { worldToLocalTransform } from '@/shared/utils/transform-parenting'
+import { resolveItemTransformAtFrame } from '@/features/preview/deps/composition-runtime'
 
 const SCALAR_GIZMO_PROPERTIES = ['x', 'y', 'width', 'height', 'rotation'] as const
+
+/**
+ * Resolve the parent's hierarchy transform in the same coordinate space used
+ * to create transform-parent bindings. Display transforms can include a second
+ * text-bounds expansion for inspector/gizmo presentation, so they are not safe
+ * inputs for converting a child's world-space drag back to local space.
+ */
+export function resolveGizmoCommitParentWorld(params: {
+  item: TimelineItem
+  canvas: CanvasSettings
+  frame: number
+  getItem: (itemId: string) => TimelineItem | undefined
+  getKeyframes: (itemId: string) => ItemKeyframes | undefined
+}): ResolvedTransform | undefined {
+  const parentId = params.item.transformParent?.parentItemId
+  if (!parentId) return undefined
+  const parent = params.getItem(parentId)
+  if (!parent) return undefined
+
+  return resolveItemTransformAtFrame(parent, {
+    canvas: params.canvas,
+    frame: params.frame,
+    keyframes: params.getKeyframes(parent.id),
+    getItem: params.getItem,
+    getKeyframes: params.getKeyframes,
+  })
+}
 
 export function resolveEditableGizmoTransform(params: {
   item: TimelineItem

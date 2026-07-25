@@ -1,15 +1,23 @@
 import { useCallback, type PointerEvent as ReactPointerEvent } from 'react'
+import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
+import type { TFunction } from 'i18next'
 import { usePlaybackStore } from '@/shared/state/playback'
 import type { CanvasSettings, TransformParentingBehavior } from '@/types/transform'
 import {
   setTransformParents,
   useItemsStore,
+  useKeyframesStore,
 } from '@/features/editor/deps/timeline-motion'
-import { wouldCreateTransformParentCycle } from '@/shared/utils/transform-parenting'
 import {
   useMotionPickWhipDrag,
   type MotionPickWhipModifiers,
+  type MotionPickWhipTarget,
 } from '@/shared/hooks/use-pick-whip-drag'
+import {
+  getTransformParentRejection,
+  getTransformParentRejectionMessage,
+} from './transform-parent-validation'
 
 interface ParentOrigin {
   childItemId: string
@@ -19,24 +27,31 @@ interface ParentCandidate {
   parentItemId: string
 }
 
-function resolveParentCandidate(clientX: number, clientY: number, origin: ParentOrigin) {
+function evaluateParentTarget(
+  clientX: number,
+  clientY: number,
+  origin: ParentOrigin,
+  t: TFunction,
+): MotionPickWhipTarget<ParentCandidate> {
   const element = document.elementFromPoint(clientX, clientY)
   const row = element?.closest<HTMLElement>('[data-motion-layer-item-id]')
   const parentItemId = row?.dataset.motionLayerItemId
-  if (!row || !parentItemId || parentItemId === origin.childItemId) return null
-  const itemById = useItemsStore.getState().itemById
-  const parent = itemById[parentItemId]
-  if (!parent || parent.type === 'audio' || parent.type === 'adjustment') return null
-  if (
-    wouldCreateTransformParentCycle(
-      origin.childItemId,
-      parentItemId,
-      (itemId) => itemById[itemId],
-    )
-  ) {
-    return null
+  if (!row || !parentItemId) return null
+
+  const rejection = getTransformParentRejection({
+    childItemId: origin.childItemId,
+    parentItemId,
+    itemById: useItemsStore.getState().itemById,
+    keyframesByItemId: useKeyframesStore.getState().keyframesByItemId,
+  })
+  if (rejection) {
+    return {
+      status: 'invalid',
+      row,
+      message: getTransformParentRejectionMessage(t, rejection),
+    }
   }
-  return { row, value: { parentItemId } }
+  return { status: 'valid', row, value: { parentItemId } }
 }
 
 function getParentingBehavior(
@@ -48,6 +63,7 @@ function getParentingBehavior(
 }
 
 export function useTransformParentPickWhip(canvas: CanvasSettings) {
+  const { t } = useTranslation()
   const applyParent = useCallback(
     (
       childItemId: string,
@@ -75,10 +91,20 @@ export function useTransformParentPickWhip(canvas: CanvasSettings) {
     },
     [applyParent],
   )
+  const resolveTarget = useCallback(
+    (clientX: number, clientY: number, origin: ParentOrigin) =>
+      evaluateParentTarget(clientX, clientY, origin, t),
+    [t],
+  )
+  const reject = useCallback((_origin: ParentOrigin, message: string) => {
+    toast.error(message)
+  }, [])
   const { drag: genericDrag, begin: beginDrag } = useMotionPickWhipDrag({
     hoverAttribute: 'data-transform-parent-link-hover',
-    resolveCandidate: resolveParentCandidate,
+    rejectionHoverAttribute: 'data-transform-parent-link-rejected',
+    resolveTarget,
     onCommit: commit,
+    onReject: reject,
   })
 
   const begin = useCallback(

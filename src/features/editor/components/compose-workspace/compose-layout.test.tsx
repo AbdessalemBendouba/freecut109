@@ -86,6 +86,39 @@ describe('Motion workspace composition session', () => {
     expect(screen.queryByTestId('motion-preview-empty')).not.toBeInTheDocument()
   })
 
+  it('does not mount Motion surfaces until the isolated timeline holder exists', () => {
+    const editorialItem = {
+      id: 'main-item',
+      type: 'video',
+      trackId: 'track-v1',
+      from: 0,
+      durationInFrames: 120,
+      label: 'Main timeline clip',
+      mediaId: 'main-media',
+      src: 'blob:main',
+    } as TimelineItem
+    useItemsStore.getState().setItems([editorialItem])
+    addMotionComposition('motion-a', 'Motion composition')
+    useCompositionNavigationStore.setState({
+      breadcrumbs: [{ compositionId: 'motion-a', label: 'Motion composition' }],
+      activeCompositionId: 'motion-a',
+      stashStack: [],
+      mainHolder: null,
+    })
+
+    render(
+      <>
+        <MotionPreviewArea project={{ width: 1280, height: 720, fps: 30 }} />
+        <MotionTimelineDock project={{ width: 1280, height: 720, fps: 30 }} />
+      </>,
+    )
+
+    expect(screen.getByTestId('motion-preview-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('preview-area')).not.toBeInTheDocument()
+    expect(screen.getByTestId('motion-timeline-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('compositing-timeline')).not.toBeInTheDocument()
+  })
+
   it('reopens the last Motion composition and restores Edit when leaving', async () => {
     addMotionComposition('motion-a', 'First')
     addMotionComposition('motion-b', 'Last used')

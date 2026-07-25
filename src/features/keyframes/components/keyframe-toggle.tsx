@@ -31,6 +31,8 @@ interface KeyframeToggleProps {
   property: AnimatableProperty
   /** Current value of the property (used when adding keyframe) */
   currentValue: number
+  /** Resolve the latest value lazily without rerendering the toggle */
+  getCurrentValue?: () => number
   /** Per-item values for mixed selections; falls back to currentValue when omitted */
   currentValuesByItemId?: Readonly<Record<string, number>>
   /** Optional class name for the button */
@@ -41,7 +43,7 @@ interface KeyframeToggleProps {
 
 interface KeyframeToggleTargetState {
   itemId: string
-  item: TimelineItem | undefined
+  item: Pick<TimelineItem, 'from' | 'durationInFrames'> | undefined
   relativeFrame: number
   propertyKeyframes: ItemKeyframes['properties'][number] | undefined
   keyframeAtFrame: Keyframe | undefined
@@ -60,14 +62,17 @@ function getRelevantTransitions(transitions: Transition[], itemIds: string[]): T
 
 function buildTargetStates(
   itemIds: string[],
-  selectedItems: Array<TimelineItem | undefined>,
+  selectedItemBounds: Array<number | undefined>,
   selectedItemKeyframes: Array<ItemKeyframes | undefined>,
   currentFrame: number,
   property: AnimatableProperty,
   transitions: Transition[],
 ): KeyframeToggleTargetState[] {
   return itemIds.map((itemId, index) => {
-    const item = selectedItems[index]
+    const from = selectedItemBounds[index * 2]
+    const durationInFrames = selectedItemBounds[index * 2 + 1]
+    const item =
+      from === undefined || durationInFrames === undefined ? undefined : { from, durationInFrames }
     const itemKeyframes = selectedItemKeyframes[index]
     const relativeFrame = item ? currentFrame - item.from : 0
     const propertyKeyframes = itemKeyframes?.properties.find((entry) => entry.property === property)
@@ -90,6 +95,7 @@ function toggleTargetKeyframes(
   states: KeyframeToggleTargetState[],
   property: AnimatableProperty,
   currentValue: number,
+  getCurrentValue: (() => number) | undefined,
   currentValuesByItemId: Readonly<Record<string, number>> | undefined,
   removeKeyframes: TimelineStoreState['removeKeyframes'],
   addKeyframes: TimelineStoreState['addKeyframes'],
@@ -107,6 +113,7 @@ function toggleTargetKeyframes(
     return
   }
 
+  const resolvedCurrentValue = getCurrentValue?.() ?? currentValue
   addKeyframes(
     states.flatMap((state) =>
       state.keyframeAtFrame
@@ -116,7 +123,7 @@ function toggleTargetKeyframes(
               itemId: state.itemId,
               property,
               frame: state.relativeFrame,
-              value: currentValuesByItemId?.[state.itemId] ?? currentValue,
+              value: currentValuesByItemId?.[state.itemId] ?? resolvedCurrentValue,
             },
           ],
     ),
@@ -292,6 +299,7 @@ export function KeyframeToggle({
   itemIds,
   property,
   currentValue,
+  getCurrentValue,
   currentValuesByItemId,
   className,
   disabled = false,
@@ -304,8 +312,17 @@ export function KeyframeToggle({
   const selectedItemKeyframes = useKeyframesStore(
     useShallow(useCallback((s) => itemIds.map((itemId) => s.keyframesByItemId[itemId]), [itemIds])),
   )
-  const selectedItems = useItemsStore(
-    useShallow(useCallback((s) => itemIds.map((itemId) => s.itemById[itemId]), [itemIds])),
+  const selectedItemBounds = useItemsStore(
+    useShallow(
+      useCallback(
+        (state) =>
+          itemIds.flatMap((itemId): Array<number | undefined> => {
+            const item = state.itemById[itemId]
+            return item ? [item.from, item.durationInFrames] : [undefined, undefined]
+          }),
+        [itemIds],
+      ),
+    ),
   )
 
   // Get transitions to check for blocked regions
@@ -317,13 +334,13 @@ export function KeyframeToggle({
     () =>
       buildTargetStates(
         itemIds,
-        selectedItems,
+        selectedItemBounds,
         selectedItemKeyframes,
         currentFrame,
         property,
         transitions,
       ),
-    [currentFrame, itemIds, property, selectedItemKeyframes, selectedItems, transitions],
+    [currentFrame, itemIds, property, selectedItemBounds, selectedItemKeyframes, transitions],
   )
 
   const transitionBlockedRange = targetStates.find(
@@ -351,6 +368,7 @@ export function KeyframeToggle({
       targetStates,
       property,
       currentValue,
+      getCurrentValue,
       currentValuesByItemId,
       removeKeyframes,
       addKeyframes,
@@ -365,6 +383,7 @@ export function KeyframeToggle({
     addKeyframes,
     currentValuesByItemId,
     currentValue,
+    getCurrentValue,
   ])
 
   // Compute effective disabled state

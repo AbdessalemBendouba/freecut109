@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect, useRef, useState } from 'react'
+import { useMemo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { TimelineItem } from '@/types/timeline'
 import type { CropSettings } from '@/types/transform'
 import type { GizmoHandle, Transform, CoordinateParams } from '../types/gizmo'
@@ -32,6 +32,10 @@ interface TransformGizmoProps {
   onCropEnd: (edge: CropEdge, ratio: number) => void
   /** Whether video is currently playing - gizmo shows at lower opacity during playback */
   isPlaying?: boolean
+  /** Position is driven by a property link, so direct translation is rejected. */
+  translateBlocked?: boolean
+  translateBlockedLabel?: string
+  onTranslateBlocked?: () => void
 }
 
 /**
@@ -45,8 +49,13 @@ export function TransformGizmo({
   onTransformEnd,
   onCropEnd,
   isPlaying = false,
+  translateBlocked = false,
+  translateBlockedLabel,
+  onTranslateBlocked,
 }: TransformGizmoProps) {
-  const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id)
+  const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id, {
+    imperativeTranslate: true,
+  })
   const startTranslate = useGizmoStore((s) => s.startTranslate)
   const startScale = useGizmoStore((s) => s.startScale)
   const startRotate = useGizmoStore((s) => s.startRotate)
@@ -58,6 +67,8 @@ export function TransformGizmo({
   const replaceItemPreview = useGizmoStore((s) => s.replaceItemPreview)
   const [activeCropEdge, setActiveCropEdge] = useState<CropEdge | null>(null)
   const cancelCropInteractionRef = useRef<(() => void) | null>(null)
+  const transformNodeRef = useRef<HTMLDivElement>(null)
+  const acknowledgedHandoffRef = useRef<number | null>(null)
 
   const isTransformInteracting = activeGizmo?.itemId === item.id
   const isInteracting = isTransformInteracting || activeCropEdge !== null
@@ -109,6 +120,64 @@ export function TransformGizmo({
 
     return baseTransform
   }, [animatedTransform, isTransformInteracting, previewTransform, item, itemPreview])
+  const renderedTransformRef = useRef(currentTransform)
+
+  const syncTranslatePresentation = useCallback(
+    (state: ReturnType<typeof useGizmoStore.getState>) => {
+      const transformNode = transformNodeRef.current
+      if (!transformNode) return
+
+      const active = state.activeGizmo
+      const handoff = state.presentationHandoff
+      const liveTransform =
+        active?.itemId === item.id && active.mode === 'translate'
+          ? state.previewTransform
+          : null
+      const settlingTransform =
+        !liveTransform && handoff?.itemId === item.id && handoff.mode === 'translate'
+          ? handoff.finalTransform
+          : null
+      const interactionId = liveTransform
+        ? active!.interactionId
+        : settlingTransform
+          ? handoff!.interactionId
+          : null
+
+      if (
+        interactionId === null ||
+        (!liveTransform && acknowledgedHandoffRef.current === interactionId)
+      ) {
+        transformNode.style.removeProperty('translate')
+        return
+      }
+      if (liveTransform) acknowledgedHandoffRef.current = null
+
+      const target = liveTransform ?? settlingTransform!
+      const scale = getEffectiveScale(coordParams)
+      const x = (target.x - renderedTransformRef.current.x) * scale
+      const y = (target.y - renderedTransformRef.current.y) * scale
+      if (!liveTransform && Math.abs(x) < 0.01 && Math.abs(y) < 0.01) {
+        acknowledgedHandoffRef.current = interactionId
+        transformNode.style.removeProperty('translate')
+        requestAnimationFrame(() =>
+          useGizmoStore.getState().completePresentationHandoff(interactionId),
+        )
+        return
+      }
+      transformNode.style.setProperty('translate', `${x}px ${y}px`)
+    },
+    [coordParams, item.id],
+  )
+
+  useLayoutEffect(() => {
+    renderedTransformRef.current = currentTransform
+    syncTranslatePresentation(useGizmoStore.getState())
+  }, [currentTransform, syncTranslatePresentation])
+
+  useEffect(
+    () => useGizmoStore.subscribe(syncTranslatePresentation),
+    [syncTranslatePresentation],
+  )
 
   const sourceDimensions = useMemo(() => {
     if (item.type !== 'video' && item.type !== 'composition') return null
@@ -192,9 +261,19 @@ export function TransformGizmo({
     (e: React.MouseEvent) => {
       e.stopPropagation()
       e.preventDefault()
+      if (translateBlocked) {
+        onTranslateBlocked?.()
+        return
+      }
       const point = toCanvasPoint(e)
       const startTransformSnapshot = { ...currentTransform }
-      startTranslate(item.id, point, currentTransform, strokeWidth)
+      const interactionId = startTranslate(
+        item.id,
+        point,
+        currentTransform,
+        strokeWidth,
+        item.type,
+      )
       onTransformStart()
       document.body.style.cursor = 'move'
 
@@ -206,19 +285,13 @@ export function TransformGizmo({
         onTransformEnd,
         operation: 'move',
         afterFinish: () => {
-          // Wait 2 animation frames before clearing preview to ensure React has
-          // processed the timeline store update and re-rendered with new item values.
-          // Single RAF was causing snap-back because item prop was still stale.
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              clearInteraction()
-            })
-          })
+          clearInteraction(interactionId)
         },
       })
     },
     [
       item.id,
+      item.type,
       currentTransform,
       toCanvasPoint,
       startTranslate,
@@ -228,6 +301,8 @@ export function TransformGizmo({
       onTransformStart,
       onTransformEnd,
       strokeWidth,
+      translateBlocked,
+      onTranslateBlocked,
     ],
   )
 
@@ -237,7 +312,7 @@ export function TransformGizmo({
       e.preventDefault()
       const point = toCanvasPoint(e)
       const startTransformSnapshot = { ...currentTransform }
-      startScale(
+      const interactionId = startScale(
         item.id,
         handle,
         point,
@@ -257,11 +332,9 @@ export function TransformGizmo({
         onTransformEnd,
         operation: 'resize',
         afterFinish: () => {
-          // Wait 2 animation frames before clearing preview to ensure React has
-          // processed the timeline store update and re-rendered with new item values.
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-              clearInteraction()
+              clearInteraction(interactionId)
             })
           })
         },
@@ -289,7 +362,13 @@ export function TransformGizmo({
       e.preventDefault()
       const point = toCanvasPoint(e)
       const startTransformSnapshot = { ...currentTransform }
-      startRotate(item.id, point, currentTransform, strokeWidth)
+      const interactionId = startRotate(
+        item.id,
+        point,
+        currentTransform,
+        strokeWidth,
+        item.type,
+      )
       onTransformStart()
       document.body.style.cursor = 'crosshair'
 
@@ -301,11 +380,9 @@ export function TransformGizmo({
         onTransformEnd,
         operation: 'rotate',
         afterFinish: () => {
-          // Wait 2 animation frames before clearing preview to ensure React has
-          // processed the timeline store update and re-rendered with new item values.
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-              clearInteraction()
+              clearInteraction(interactionId)
             })
           })
         },
@@ -313,6 +390,7 @@ export function TransformGizmo({
     },
     [
       item.id,
+      item.type,
       currentTransform,
       toCanvasPoint,
       startRotate,
@@ -460,6 +538,7 @@ export function TransformGizmo({
 
   return (
     <div
+      ref={transformNodeRef}
       className="absolute transition-opacity duration-150"
       style={{
         left: screenBounds.left,
@@ -491,6 +570,8 @@ export function TransformGizmo({
         isInteracting={isInteracting}
         isMask={item.type === 'shape' && item.isMask}
         onTranslateStart={handleTranslateStart}
+        translateBlocked={translateBlocked}
+        translateBlockedLabel={translateBlockedLabel}
         onScaleStart={handleScaleStart}
         onRotateStart={handleRotateStart}
         cropRect={

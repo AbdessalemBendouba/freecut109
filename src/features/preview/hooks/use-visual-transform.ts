@@ -13,6 +13,7 @@ import {
   hasCornerPin,
   resolveItemTransformAtFrame,
 } from '@/features/preview/deps/composition-runtime'
+import { resolveGizmoWorldPreviewAsLocal } from '../utils/gizmo-world-preview'
 import { expandTextTransformForPreview } from '../utils/text-layout'
 
 interface ProjectSize {
@@ -37,12 +38,20 @@ function applyTextExpansion(
 export function useVisualTransforms(
   items: TimelineItem[],
   projectSize: ProjectSize,
+  allItemsOverride?: TimelineItem[],
 ): Map<string, ResolvedTransform> {
   const fps = useTimelineSettingsStore((s) => s.fps)
-  const allItems = useItemsStore((state) => state.items)
+  const allItems = useItemsStore((state) => allItemsOverride ?? state.items)
   const keyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
-  const activeGizmo = useGizmoStore((s) => s.activeGizmo)
-  const gizmoPreviewTransform = useGizmoStore((s) => s.previewTransform)
+  // Translate previews are presented imperatively by the item wrapper and
+  // transform gizmo. Keeping them out of this scene-wide resolver prevents
+  // every pointer sample from recomputing every visible item's transform.
+  const activeGizmoItemId = useGizmoStore((s) =>
+    s.activeGizmo?.mode === 'translate' ? undefined : s.activeGizmo?.itemId,
+  )
+  const gizmoPreviewTransform = useGizmoStore((s) =>
+    s.activeGizmo?.mode === 'translate' ? null : s.previewTransform,
+  )
   const preview = useGizmoStore((s) => s.preview)
   const animationFrame = useResolvedPlaybackFrame()
 
@@ -50,10 +59,23 @@ export function useVisualTransforms(
     const transforms = new Map<string, ResolvedTransform>()
     const canvas = { width: projectSize.width, height: projectSize.height, fps }
     const itemsById = new Map(allItems.map((item) => [item.id, item]))
+    const getLocalPreviewTransform = (itemId: string) => preview?.[itemId]?.transform
+    const activeGizmoLocalPreview =
+      activeGizmoItemId && gizmoPreviewTransform
+        ? resolveGizmoWorldPreviewAsLocal({
+            itemId: activeGizmoItemId,
+            worldPreviewTransform: gizmoPreviewTransform,
+            canvas,
+            frame: animationFrame,
+            getItem: (itemId) => itemsById.get(itemId),
+            getKeyframes: (itemId) => keyframesByItemId[itemId],
+            getLocalPreviewTransform,
+          })
+        : undefined
     const getPreviewTransform = (itemId: string) =>
-      activeGizmo?.itemId === itemId && gizmoPreviewTransform
-        ? gizmoPreviewTransform
-        : preview?.[itemId]?.transform
+      activeGizmoItemId === itemId && activeGizmoLocalPreview
+        ? activeGizmoLocalPreview
+        : getLocalPreviewTransform(itemId)
 
     for (const item of items) {
       const itemKeyframe = keyframesByItemId[item.id]
@@ -95,7 +117,7 @@ export function useVisualTransforms(
     allItems,
     keyframesByItemId,
     animationFrame,
-    activeGizmo?.itemId,
+    activeGizmoItemId,
     gizmoPreviewTransform,
     preview,
     fps,

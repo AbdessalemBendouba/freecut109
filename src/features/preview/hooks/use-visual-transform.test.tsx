@@ -171,6 +171,38 @@ describe('useVisualTransforms skimming frame resolution', () => {
     expect(probeRenderCount).toBeGreaterThan(rendersBeforeRequest)
   })
 
+  it('does not recompute the scene-wide transform map during a translate drag', async () => {
+    render(<VisualTransformsProbe />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('visual-probe')).toHaveAttribute('data-x', '110')
+    })
+    const rendersBeforeDrag = probeRenderCount
+
+    act(() => {
+      const gizmo = useGizmoStore.getState()
+      gizmo.setSnappingEnabled(false)
+      gizmo.startTranslate(
+        ITEM.id,
+        { x: 110, y: 0 },
+        {
+          x: 110,
+          y: 0,
+          width: 320,
+          height: 120,
+          rotation: 0,
+          opacity: 1,
+        },
+        0,
+        'text',
+      )
+      gizmo.updateInteraction({ x: 180, y: 40 }, false)
+    })
+
+    expect(probeRenderCount).toBe(rendersBeforeDrag)
+    expect(screen.getByTestId('visual-probe')).toHaveAttribute('data-x', '110')
+  })
+
   it('uses previewFrame while paused', async () => {
     render(<VisualTransformsProbe />)
 

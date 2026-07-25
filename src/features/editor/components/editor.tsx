@@ -363,6 +363,21 @@ const TimelineDialogHost = memo(function TimelineDialogHost() {
   )
 })
 
+const AutoSaveController = memo(function AutoSaveController({
+  onSave,
+}: {
+  onSave: () => Promise<void>
+}) {
+  const isDirty = useTimelineStore((s: { isDirty: boolean }) => s.isDirty)
+  useAutoSave({ isDirty, onSave })
+  return null
+})
+
+const TimelineShortcutsController = memo(function TimelineShortcutsController() {
+  useTimelineShortcuts()
+  return null
+})
+
 export const LoadedEditor = memo(function LoadedEditor({
   projectId,
   project,
@@ -522,9 +537,6 @@ export const LoadedEditor = memo(function LoadedEditor({
     router,
   ])
 
-  // Track unsaved changes
-  const isDirty = useTimelineStore((s: { isDirty: boolean }) => s.isDirty)
-
   useEffect(() => {
     syncSidebarLayout(editorLayout)
   }, [editorLayout, syncSidebarLayout])
@@ -644,15 +656,6 @@ export const LoadedEditor = memo(function LoadedEditor({
     onExport: handleExport,
   })
 
-  // Enable auto-save based on settings interval
-  useAutoSave({
-    isDirty,
-    onSave: handleSave,
-  })
-
-  // Enable timeline shortcuts (space, cut tool, rate tool, etc.)
-  useTimelineShortcuts()
-
   // Enable transition breakage notifications
   useTransitionBreakageNotifications()
 
@@ -670,12 +673,14 @@ export const LoadedEditor = memo(function LoadedEditor({
       role="application"
       aria-label={t('editor.editor.appLabel')}
     >
+      <AutoSaveController onSave={handleSave} />
+      <TimelineShortcutsController />
+
       {/* Top Toolbar */}
       <InteractionLockRegion locked={isMaskEditingActive}>
         <Toolbar
           projectId={projectId}
           project={project}
-          isDirty={isDirty}
           onSave={handleSave}
           onExport={handleExport}
           onExportBundle={handleExportBundle}

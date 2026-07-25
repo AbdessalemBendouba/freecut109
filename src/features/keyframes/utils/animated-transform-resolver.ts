@@ -54,6 +54,8 @@ export interface LinkedPropertyEvaluationContext {
   canvas: CanvasSettings
   getItem: (itemId: string) => TimelineItem | undefined
   getKeyframes: (itemId: string) => ItemKeyframes | undefined
+  /** Transient visual transform for live gizmo/property scrubs. */
+  getPreviewTransform?: (itemId: string) => Partial<ResolvedTransform> | undefined
 }
 
 interface LinkedTransformEvaluationState {
@@ -128,7 +130,11 @@ export function resolveLinkedPropertyValue(
   const sourceContext =
     link.timeOffsetFrames === 0
       ? context
-      : { ...context, globalFrame: context.globalFrame - link.timeOffsetFrames }
+      : {
+          ...context,
+          globalFrame: context.globalFrame - link.timeOffsetFrames,
+          getPreviewTransform: undefined,
+        }
   if (isVectorAnimatableProperty(link.sourceProperty)) {
     state.active.delete(dependencyKey)
     state.cache.set(cacheKey, preExpressionValue)
@@ -144,12 +150,18 @@ export function resolveLinkedPropertyValue(
     state.cache.set(cacheKey, preExpressionValue)
     return preExpressionValue
   }
-  const value = resolveLinkedPropertyValue(
+  const linkedValue = resolveLinkedPropertyValue(
     sourceItem.id,
     link.sourceProperty,
     sourcePreExpressionValue,
     sourceContext,
     state,
+  )
+  const value = getPreviewedScalarLinkValue(
+    sourceItem.id,
+    link.sourceProperty,
+    linkedValue,
+    sourceContext,
   )
   state.active.delete(dependencyKey)
   state.cache.set(cacheKey, value)
@@ -173,6 +185,72 @@ function getPreLinkVectorValue(
     x: base.width === 0 ? 100 : (resolved.width / base.width) * 100,
     y: base.height === 0 ? 100 : (resolved.height / base.height) * 100,
   }
+}
+
+function getPreviewedScalarLinkValue(
+  itemId: string,
+  property: LinkableAnimatableProperty,
+  fallback: number,
+  context: LinkedPropertyEvaluationContext,
+): number {
+  if (!isTransformAnimatableProperty(property)) return fallback
+  const previewValue = context.getPreviewTransform?.(itemId)?.[property]
+  return typeof previewValue === 'number' ? previewValue : fallback
+}
+
+function getPreviewedVectorLinkValue(
+  item: TimelineItem,
+  property: VectorAnimatableProperty,
+  fallback: Vector2,
+  context: LinkedPropertyEvaluationContext,
+): Vector2 {
+  const preview = context.getPreviewTransform?.(item.id)
+  if (!preview) return fallback
+  if (property === 'position') return getPreviewedPositionValue(preview, fallback)
+  if (property === 'anchor') return getPreviewedAnchorValue(preview, fallback)
+  return getPreviewedScaleValue(item, preview, fallback, context.canvas)
+}
+
+function getPreviewedPositionValue(
+  preview: Partial<ResolvedTransform>,
+  fallback: Vector2,
+): Vector2 {
+  return {
+    x: preview.x ?? fallback.x,
+    y: preview.y ?? fallback.y,
+  }
+}
+
+function getPreviewedAnchorValue(
+  preview: Partial<ResolvedTransform>,
+  fallback: Vector2,
+): Vector2 {
+  return {
+    x: preview.anchorX ?? fallback.x,
+    y: preview.anchorY ?? fallback.y,
+  }
+}
+
+function getPreviewedScaleValue(
+  item: TimelineItem,
+  preview: Partial<ResolvedTransform>,
+  fallback: Vector2,
+  canvas: CanvasSettings,
+): Vector2 {
+  const base = resolveTransform(item, canvas, getSourceDimensions(item))
+  return {
+    x: getPreviewedScaleAxisValue(preview.width, fallback.x, base.width),
+    y: getPreviewedScaleAxisValue(preview.height, fallback.y, base.height),
+  }
+}
+
+function getPreviewedScaleAxisValue(
+  preview: number | undefined,
+  fallback: number,
+  base: number,
+): number {
+  if (preview === undefined || base === 0) return fallback
+  return (preview / base) * 100
 }
 
 function resolveLinkedVectorValue(
@@ -205,14 +283,24 @@ function resolveLinkedVectorValue(
   const sourceContext =
     link.timeOffsetFrames === 0
       ? context
-      : { ...context, globalFrame: context.globalFrame - link.timeOffsetFrames }
+      : {
+          ...context,
+          globalFrame: context.globalFrame - link.timeOffsetFrames,
+          getPreviewTransform: undefined,
+        }
   const sourcePreLinkValue = getPreLinkVectorValue(sourceItem, link.sourceProperty, sourceContext)
-  const value = resolveLinkedVectorValue(
+  const linkedValue = resolveLinkedVectorValue(
     sourceItem.id,
     link.sourceProperty,
     sourcePreLinkValue,
     sourceContext,
     state,
+  )
+  const value = getPreviewedVectorLinkValue(
+    sourceItem,
+    link.sourceProperty,
+    linkedValue,
+    sourceContext,
   )
   state.active.delete(dependencyKey)
   state.vectorCache.set(cacheKey, value)

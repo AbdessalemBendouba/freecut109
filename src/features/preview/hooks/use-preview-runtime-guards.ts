@@ -3,10 +3,12 @@ import type { PreviewQuality } from '@/shared/state/playback'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { ADAPTIVE_PREVIEW_QUALITY_ENABLED } from '../utils/preview-constants'
 import { createAdaptivePreviewQualityState } from '../utils/adaptive-preview-quality'
+import { useGizmoStore } from '../stores/gizmo-store'
+import { shouldPreferDomPlayerForGizmo } from '../utils/gizmo-preview-presentation'
 
 interface UsePreviewRuntimeGuardsParams {
-  isGizmoInteracting: boolean
   isGizmoInteractingRef: MutableRefObject<boolean>
+  preferPlayerForDomGizmoRef: MutableRefObject<boolean>
   setAdaptiveQualityCap: Dispatch<SetStateAction<PreviewQuality>>
   adaptiveQualityStateRef: MutableRefObject<ReturnType<typeof createAdaptivePreviewQualityState>>
   adaptiveFrameSampleRef: MutableRefObject<{ frame: number; tsMs: number } | null>
@@ -23,25 +25,36 @@ function clearPreviewFramePreservingViewedFrame() {
 }
 
 export function usePreviewRuntimeGuards({
-  isGizmoInteracting,
   isGizmoInteractingRef,
+  preferPlayerForDomGizmoRef,
   setAdaptiveQualityCap,
   adaptiveQualityStateRef,
   adaptiveFrameSampleRef,
 }: UsePreviewRuntimeGuardsParams) {
-  isGizmoInteractingRef.current = isGizmoInteracting
-
   useEffect(() => {
     clearPreviewFramePreservingViewedFrame()
   }, [])
 
   useEffect(() => {
-    if (!isGizmoInteracting) return
+    let wasInteracting = false
+    const syncGizmoState = (state: ReturnType<typeof useGizmoStore.getState>) => {
+      const activeGizmo = state.activeGizmo
+      const isInteracting = activeGizmo !== null
+      isGizmoInteractingRef.current = isInteracting
+      preferPlayerForDomGizmoRef.current =
+        isInteracting && shouldPreferDomPlayerForGizmo(false, activeGizmo?.itemType)
 
-    // During active transform drags, clear stale hover-scrub state without
-    // changing the viewed frame. This avoids a one-frame render source/frame jump.
-    clearPreviewFramePreservingViewedFrame()
-  }, [isGizmoInteracting])
+      if (isInteracting && !wasInteracting) {
+        // Clear stale hover-scrub state without rerendering the large preview
+        // tree just to mirror interaction ownership into refs.
+        clearPreviewFramePreservingViewedFrame()
+      }
+      wasInteracting = isInteracting
+    }
+
+    syncGizmoState(useGizmoStore.getState())
+    return useGizmoStore.subscribe(syncGizmoState)
+  }, [isGizmoInteractingRef, preferPlayerForDomGizmoRef])
 
   useEffect(() => {
     if (!ADAPTIVE_PREVIEW_QUALITY_ENABLED) {

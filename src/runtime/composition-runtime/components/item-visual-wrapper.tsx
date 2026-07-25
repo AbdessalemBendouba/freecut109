@@ -1,4 +1,11 @@
-import React, { useMemo } from 'react'
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from 'react'
 import { useVideoConfig } from '../hooks/use-player-compat'
 import type { TimelineItem } from '@/types/timeline'
 import { BLEND_MODE_CSS } from '@/types/blend-mode-css'
@@ -10,8 +17,12 @@ import {
   resolveCornerPinForSize,
 } from '../utils/corner-pin'
 import { getShapePath } from '../utils/shape-path'
-import { useCornerPinStore } from '@/runtime/composition-runtime/deps/stores'
+import {
+  useCornerPinStore,
+  useGizmoStore,
+} from '@/runtime/composition-runtime/deps/stores'
 import { useItemVisualState } from './hooks/use-item-visual-state'
+import { useRuntimeItemKeyframes } from './hooks/use-runtime-item-keyframes'
 import { renderSvgMaskPathsToDataUrl } from '../utils/clip-mask-raster'
 import { getRasterizedMaskLayerSettingsList } from '../utils/mask-preview'
 import type { MaskInfo } from './item'
@@ -19,6 +30,14 @@ import type { CropSettings } from '@/types/transform'
 import type { MediaCropFitMode } from '@/shared/utils/media-crop'
 import { ContainedMediaLayout } from './contained-media-layout'
 import { ItemVisualTransformProvider } from '../contexts/item-visual-transform-context'
+import { useCompositionSpace } from '../contexts/composition-space-context'
+import { resolveGizmoDomTranslation } from '../utils/gizmo-dom-translation'
+import {
+  buildItemTransformDependencyPlan,
+  useLiveItemTransform,
+  useLiveTimelineItemResolver,
+} from '../contexts/live-item-transform-context'
+import { KeyframesContext } from '../contexts/keyframes-context-core'
 
 interface ItemVisualWrapperProps {
   item: TimelineItem
@@ -249,10 +268,150 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
   mediaContent,
   children,
 }) => {
+  item = useLiveItemTransform(item)
   const { width: canvasWidth, height: canvasHeight } = useVideoConfig()
+  const compositionSpace = useCompositionSpace()
+  const scaleX = compositionSpace?.scaleX ?? 1
+  const scaleY = compositionSpace?.scaleY ?? 1
+  const getLiveItem = useLiveTimelineItemResolver()
+  const keyframesContext = useContext(KeyframesContext)
+  const itemKeyframes = useRuntimeItemKeyframes(item.id)
+  const getDependencyItem = useCallback(
+    (itemId: string) =>
+      getLiveItem(itemId) ?? keyframesContext?.getItem(itemId),
+    [getLiveItem, keyframesContext],
+  )
+  const getDependencyKeyframes = useCallback(
+    (itemId: string) =>
+      itemId === item.id
+        ? itemKeyframes
+        : keyframesContext?.getItemKeyframes(itemId),
+    [item.id, itemKeyframes, keyframesContext],
+  )
+  const transformDependencyPlan = useMemo(
+    () =>
+      buildItemTransformDependencyPlan(
+        item,
+        getDependencyItem,
+        getDependencyKeyframes,
+      ),
+    [getDependencyItem, getDependencyKeyframes, item],
+  )
 
   // Get all visual state from consolidated hook
-  const state = useItemVisualState(item, masks)
+  const state = useItemVisualState(item, masks, { transformDependencyPlan })
+  const contentVisualTransform = useMemo(
+    () => ({
+      width: state.transform.width,
+      height: state.transform.height,
+    }),
+    [state.transform.height, state.transform.width],
+  )
+  const followsActiveTranslate = useCallback(
+    (activeItemId: string) =>
+      transformDependencyPlan.linearTranslateSourceItemIds.has(activeItemId),
+    [transformDependencyPlan],
+  )
+  const transformNodeRef = useRef<HTMLDivElement>(null)
+  const renderedTransformRef = useRef(state.transform)
+  const presentationInteractionRef = useRef<{
+    interactionId: number
+    startTransform: typeof state.transform
+  } | null>(null)
+  const acknowledgedHandoffRef = useRef<number | null>(null)
+
+  const syncGizmoPresentation = useCallback(
+    (gizmoState: ReturnType<typeof useGizmoStore.getState>) => {
+      const transformNode = transformNodeRef.current
+      if (!transformNode) return
+
+      const activeGizmo = gizmoState.activeGizmo
+      const handoff = gizmoState.presentationHandoff
+      const livePresentation =
+        activeGizmo?.mode === 'translate' && gizmoState.previewTransform
+          ? {
+              interactionId: activeGizmo.interactionId,
+              itemId: activeGizmo.itemId,
+              startTransform: activeGizmo.startTransform,
+              finalTransform: gizmoState.previewTransform,
+              settling: false,
+            }
+          : null
+      const presentation =
+        livePresentation ??
+        (handoff?.mode === 'translate'
+          ? {
+              interactionId: handoff.interactionId,
+              itemId: handoff.itemId,
+              startTransform: handoff.startTransform,
+              finalTransform: handoff.finalTransform,
+              settling: true,
+            }
+          : null)
+      if (
+        !presentation ||
+        (presentation.settling &&
+          acknowledgedHandoffRef.current === presentation.interactionId)
+      ) {
+        presentationInteractionRef.current = null
+        transformNode.style.removeProperty('translate')
+        return
+      }
+      const interactionId = presentation.interactionId
+
+      if (presentationInteractionRef.current?.interactionId !== interactionId) {
+        presentationInteractionRef.current = {
+          interactionId,
+          startTransform: { ...renderedTransformRef.current },
+        }
+        acknowledgedHandoffRef.current = null
+      }
+
+      const translation = resolveGizmoDomTranslation({
+        itemId: item.id,
+        followsActiveItem: followsActiveTranslate(presentation.itemId),
+        activeItemId: presentation.itemId,
+        activeStartTransform: presentation.startTransform,
+        previewTransform: presentation.finalTransform,
+        renderedTransform: renderedTransformRef.current,
+        interactionStartTransform: presentationInteractionRef.current.startTransform,
+        scaleX,
+        scaleY,
+      })
+      if (!translation) {
+        presentationInteractionRef.current = null
+        transformNode.style.removeProperty('translate')
+        return
+      }
+
+      if (
+        presentation.settling &&
+        Math.abs(translation.x) < 0.01 &&
+        Math.abs(translation.y) < 0.01
+      ) {
+        acknowledgedHandoffRef.current = interactionId
+        presentationInteractionRef.current = null
+        transformNode.style.removeProperty('translate')
+        requestAnimationFrame(() =>
+          useGizmoStore.getState().completePresentationHandoff(interactionId),
+        )
+        return
+      }
+
+      transformNode.style.setProperty('translate', `${translation.x}px ${translation.y}px`)
+    },
+    [followsActiveTranslate, item.id, scaleX, scaleY],
+  )
+
+  useLayoutEffect(() => {
+    renderedTransformRef.current = state.transform
+    syncGizmoPresentation(useGizmoStore.getState())
+  }, [state.transform, syncGizmoPresentation])
+
+  useEffect(
+    () => useGizmoStore.subscribe(syncGizmoPresentation),
+    [syncGizmoPresentation],
+  )
   const shouldRasterizeSvgMask =
     state.maskType === 'svg-mask' && !!state.svgMaskPaths && state.maskFeather > 0
   const hasCornerPinnedMask = masks.some((mask) => hasCornerPin(mask.shape.cornerPin))
@@ -631,8 +790,9 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
   // When there's no mask, skip the full-canvas mask container div entirely
   if (state.maskType === null) {
     return (
-      <ItemVisualTransformProvider value={state.transform}>
+      <ItemVisualTransformProvider value={contentVisualTransform}>
         <div
+          ref={transformNodeRef}
           style={{
             ...state.transformStyle,
             overflow: state.transform.cornerRadius > 0 && !cornerPinStyle ? 'hidden' : undefined,
@@ -646,7 +806,7 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
   }
 
   return (
-    <ItemVisualTransformProvider value={state.transform}>
+    <ItemVisualTransformProvider value={contentVisualTransform}>
       <>
         {/* SVG mask definitions (hidden, referenced by CSS) */}
         {svgMaskDefs}
@@ -655,6 +815,7 @@ export const ItemVisualWrapper: React.FC<ItemVisualWrapperProps> = ({
             full-canvas wrapper instead of the item-sized transform node. */}
         <div style={maskContainerStyle}>
           <div
+            ref={transformNodeRef}
             style={{
               ...state.transformStyle,
               overflow: state.transform.cornerRadius > 0 && !cornerPinStyle ? 'hidden' : undefined,

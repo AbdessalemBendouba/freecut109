@@ -16,6 +16,7 @@ import {
   updateItemsTransformMap,
 } from './transform-actions'
 import { createNullParentForItems, setTransformParent, setTransformParents } from './item-actions'
+import { setDirectPropertyLink } from './keyframe-actions'
 
 function makeClip(id: string, overrides: Record<string, unknown> = {}) {
   return makeTimelineVideoItem({ id, transform: {}, ...overrides })
@@ -54,6 +55,45 @@ describe('transform actions', () => {
 
       useTimelineCommandStore.getState().undo()
       expect(getTransform('a').x).toBe(10)
+    })
+
+    it('does not invalidate items for an empty transform commit', () => {
+      const itemsBefore = useItemsStore.getState().items
+      const undoDepth = useTimelineCommandStore.getState().undoStack.length
+
+      updateItemTransform('a', {})
+
+      expect(useItemsStore.getState().items).toBe(itemsBefore)
+      expect(useTimelineCommandStore.getState().undoStack).toHaveLength(undoDepth)
+    })
+
+    it('keeps the items reference stable for a keyframe-only transform commit', () => {
+      const itemsBefore = useItemsStore.getState().items
+
+      updateItemTransform(
+        'a',
+        {},
+        {
+          autoKeyframeOperations: [
+            {
+              type: 'vector-add',
+              itemId: 'a',
+              property: 'position',
+              frame: 10,
+              value: { x: 40, y: 50 },
+              easing: 'linear',
+            },
+          ],
+        },
+      )
+
+      expect(useItemsStore.getState().items).toBe(itemsBefore)
+      expect(
+        useKeyframesStore
+          .getState()
+          .getKeyframesForItem('a')
+          ?.vectorProperties?.[0]?.keyframes[0]?.value,
+      ).toEqual({ x: 40, y: 50 })
     })
 
     it('commits coupled gizmo keyframes and base changes in one undo step', () => {
@@ -114,6 +154,16 @@ describe('transform actions', () => {
       expect(getTransform('b').x).toBe(2)
       expect(useTimelineCommandStore.getState().undoStack.length).toBe(undoDepth + 1)
     })
+
+    it('does not create history or invalidate items for an empty transform map', () => {
+      const itemsBefore = useItemsStore.getState().items
+      const undoDepth = useTimelineCommandStore.getState().undoStack.length
+
+      updateItemsTransformMap(new Map())
+
+      expect(useItemsStore.getState().items).toBe(itemsBefore)
+      expect(useTimelineCommandStore.getState().undoStack).toHaveLength(undoDepth)
+    })
   })
 
   describe('resetItemTransform', () => {
@@ -170,6 +220,95 @@ describe('transform actions', () => {
         false,
       )
       expect(useItemsStore.getState().itemById['b']?.transformParent).toBeUndefined()
+    })
+
+    it('blocks transform-parent cycles that pass through property links', () => {
+      setDirectPropertyLink('b', {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'a',
+        sourceProperty: 'position',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        false,
+      )
+      expect(useItemsStore.getState().itemById['a']?.transformParent).toBeUndefined()
+    })
+
+    it('blocks property-link cycles that pass through transform parents', () => {
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        true,
+      )
+
+      setDirectPropertyLink('b', {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'a',
+        sourceProperty: 'position',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(
+        useKeyframesStore.getState().keyframesByItemId['b']?.propertyLinks,
+      ).toBeUndefined()
+    })
+
+    it('blocks parenting when the child already links transform channels to that parent', () => {
+      setDirectPropertyLink('a', {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'b',
+        sourceProperty: 'position',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        false,
+      )
+      expect(useItemsStore.getState().itemById['a']?.transformParent).toBeUndefined()
+    })
+
+    it('blocks a redundant transform link to an existing parent', () => {
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        true,
+      )
+
+      setDirectPropertyLink('a', {
+        type: 'link',
+        targetProperty: 'position',
+        sourceItemId: 'b',
+        sourceProperty: 'position',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(
+        useKeyframesStore.getState().keyframesByItemId['a']?.propertyLinks,
+      ).toBeUndefined()
+    })
+
+    it('allows non-inherited property links to an existing parent', () => {
+      expect(setTransformParent({ childItemId: 'a', parentItemId: 'b', frame: 0, canvas })).toBe(
+        true,
+      )
+
+      setDirectPropertyLink('a', {
+        type: 'link',
+        targetProperty: 'opacity',
+        sourceItemId: 'b',
+        sourceProperty: 'opacity',
+        enabled: true,
+        timeOffsetFrames: 0,
+      })
+
+      expect(useKeyframesStore.getState().keyframesByItemId['a']?.propertyLinks).toEqual([
+        expect.objectContaining({ targetProperty: 'opacity', sourceItemId: 'b' }),
+      ])
     })
 
     it('snaps to the parent position when explicitly requested', () => {

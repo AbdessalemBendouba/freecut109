@@ -44,4 +44,32 @@ describe('useRafCoalescedValue', () => {
 
     expect(values).toEqual([42])
   })
+
+  it('drops a queued value when an interaction is cancelled', () => {
+    const values: number[] = []
+    const { result } = renderHook(() => useRafCoalescedValue((value: number) => values.push(value)))
+
+    act(() => {
+      result.current.queue(42)
+      result.current.cancel()
+    })
+
+    act(() => rafCallbacks[0]?.(16))
+    expect(values).toEqual([])
+  })
+
+  it('delivers null when null is the newest queued value', () => {
+    const values: Array<number | null> = []
+    const { result } = renderHook(() =>
+      useRafCoalescedValue<number | null>((value) => values.push(value)),
+    )
+
+    act(() => {
+      result.current.queue(42)
+      result.current.queue(null)
+      rafCallbacks[0]?.(16)
+    })
+
+    expect(values).toEqual([null])
+  })
 })

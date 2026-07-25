@@ -30,15 +30,8 @@ describe('ShapeContent', () => {
     const { container } = render(
       <ItemVisualTransformProvider
         value={{
-          x: 0,
-          y: 0,
           width: 480,
           height: 270,
-          anchorX: 240,
-          anchorY: 135,
-          rotation: 0,
-          opacity: 1,
-          cornerRadius: 0,
         }}
       >
         <ShapeContent item={shape} />

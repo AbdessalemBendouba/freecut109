@@ -263,7 +263,15 @@ export const CompositionContent = React.memo<CompositionContentProps>(
     // Granular selectors: extract only the values we need to avoid
     // re-renders when unrelated gizmo store fields change reference.
     const activeGizmoItemId = useGizmoStore((state) => state.activeGizmo?.itemId)
-    const liveGizmoPreview = useGizmoStore((state) => state.previewTransform)
+    const liveGizmoPreviewWidth = useGizmoStore((state) => state.previewTransform?.width)
+    const liveGizmoPreviewHeight = useGizmoStore((state) => state.previewTransform?.height)
+    const liveGizmoPreview = useMemo(
+      () =>
+        liveGizmoPreviewWidth === undefined && liveGizmoPreviewHeight === undefined
+          ? undefined
+          : { width: liveGizmoPreviewWidth, height: liveGizmoPreviewHeight },
+      [liveGizmoPreviewHeight, liveGizmoPreviewWidth],
+    )
     const itemPreview = useGizmoStore(useCallback((s) => s.preview?.[item.id], [item.id]))
     const allItemPreviews = useGizmoStore((state) => state.preview)
 

@@ -5,6 +5,7 @@ import { usePreviewBridgeStore } from '@/shared/state/preview-bridge'
 import type { CompositionInputProps } from '@/types/export'
 import { HeadlessPlayer, type PlayerRef } from '@/features/preview/deps/player-core'
 import { MainComposition } from '@/features/preview/deps/composition-runtime'
+import { useItemsStore } from '@/features/preview/deps/timeline-store'
 
 interface DomTextScrubOverlayProps {
   playerRef: RefObject<PlayerRef | null>
@@ -118,6 +119,7 @@ export const DomTextScrubOverlay = memo(function DomTextScrubOverlay({
           backgroundColor="transparent"
           useProxyMedia
           transparentBackground
+          liveItemTransformSource={useItemsStore}
         />
       </HeadlessPlayer>
     </div>

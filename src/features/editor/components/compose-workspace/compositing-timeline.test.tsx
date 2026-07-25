@@ -9,6 +9,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
+import { toast } from 'sonner'
 import type { MediaMetadata } from '@/types/storage'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useSelectionStore } from '@/shared/state/selection'
@@ -30,6 +31,7 @@ import {
   trimItemEnd,
 } from '@/features/editor/deps/timeline-motion'
 import { useMediaLibraryStore } from '@/features/editor/deps/media-library-contract'
+import { useGizmoStore } from '@/features/editor/deps/preview'
 import type {
   AudioItem,
   ControllerItem,
@@ -39,6 +41,13 @@ import type {
 } from '@/types/timeline'
 import { useComposeUiStore } from './compose-ui-store'
 import { CompositingTimeline } from './compositing-timeline'
+
+const perfMarkMocks = vi.hoisted(() => ({ mark: vi.fn() }))
+
+vi.mock('@/shared/logging/perf-marks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/shared/logging/perf-marks')>()
+  return { ...actual, perfMarkRender: perfMarkMocks.mark }
+})
 
 vi.mock('@/features/editor/deps/media-library-contract', async (importOriginal) => {
   const actual =
@@ -110,10 +119,17 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     useClipboardStore.setState({ itemsClipboard: null, transitionClipboard: null })
     useEditorStore.getState().setKeyframeEditorShortcutScopeActive(false)
     useKeyframeSelectionStore.getState().clearSelection()
+    useGizmoStore.getState().cancelInteraction()
+    useGizmoStore.getState().clearPreview()
+    useGizmoStore.getState().setSnappingEnabled(true)
+    perfMarkMocks.mark.mockClear()
   })
 
   afterEach(() => {
     cleanup()
+    useGizmoStore.getState().cancelInteraction()
+    useGizmoStore.getState().clearPreview()
+    useGizmoStore.getState().setSnappingEnabled(true)
     resetTimelineCompositionTestState()
   })
 
@@ -320,6 +336,38 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByTestId('procedural-band-x')).toHaveAttribute('data-to-frame', '74')
     expect(screen.queryByTestId('procedural-band-y')).not.toBeInTheDocument()
     expect(screen.getByTestId('procedural-band-rotation')).toBeInTheDocument()
+  })
+
+  it('contains and hides the motion badge until a segment has 44px of usable width', () => {
+    useItemsStore.getState().setItems([
+      {
+        ...shape,
+        durationInFrames: 1,
+        motionModifiers: [
+          {
+            id: 'tiny-drift',
+            type: 'float-drift',
+            enabled: true,
+            amplitude: 1,
+            frequency: 0.6,
+            phaseFrames: 0,
+            seed: 1,
+          },
+        ],
+      },
+    ])
+
+    render(<CompositingTimeline />)
+
+    expect(screen.getByTestId(`motion-layer-span-${shape.id}`)).toHaveClass(
+      '@container',
+      'overflow-hidden',
+    )
+    expect(screen.getByTestId(`motion-procedural-badge-${shape.id}`)).toHaveClass(
+      'hidden',
+      '@min-[44px]:block',
+      'right-2',
+    )
   })
 
   it('shows procedural text-motion slots on collapsed and expanded text layers', () => {
@@ -1261,6 +1309,9 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     render(<CompositingTimeline />)
     fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
 
+    const layerRow = screen.getByTestId(`motion-layer-row-${shape.id}`)
+    const editor = within(layerRow).getByTestId('dopesheet-editor-root')
+    const expandedHeight = Number.parseFloat(editor.style.height)
     const transformHeader = screen.getByRole('button', { name: /collapse transform/i })
     expect(transformHeader).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /collapse shape/i })).toBeInTheDocument()
@@ -1268,6 +1319,10 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     fireEvent.click(transformHeader)
     expect(screen.queryByRole('spinbutton', { name: /x position value at playhead/i })).toBeNull()
     expect(screen.getByRole('button', { name: /collapse shape/i })).toBeInTheDocument()
+    expect(Number.parseFloat(editor.style.height)).toBeLessThan(expandedHeight)
+
+    fireEvent.click(screen.getByRole('button', { name: /expand transform/i }))
+    expect(Number.parseFloat(editor.style.height)).toBe(expandedHeight)
   })
 
   it('does not create a Vector2 keyframe when a changed axis is blurred', () => {
@@ -1281,6 +1336,184 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
 
     expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
     expect(input).toHaveValue('100.00')
+  })
+
+  it('previews Motion Position scrubs once per animation frame and commits on release', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined)
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    const input = screen.getByLabelText('Position X')
+    fireEvent.pointerDown(input, { button: 0, pointerId: 17, clientX: 100 })
+    fireEvent.pointerMove(input, { pointerId: 17, clientX: 150 })
+    fireEvent.pointerMove(input, { pointerId: 17, clientX: 200 })
+
+    expect(useGizmoStore.getState().preview?.[shape.id]).toBeUndefined()
+    expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
+    expect(frameCallbacks).toHaveLength(1)
+
+    act(() => frameCallbacks[0]?.(16))
+    expect(useGizmoStore.getState().preview?.[shape.id]?.transform).toMatchObject({
+      x: 101,
+      y: 80,
+    })
+    expect(useKeyframesStore.getState().keyframesByItemId[shape.id]).toBeUndefined()
+
+    fireEvent.pointerUp(input, { pointerId: 17, clientX: 200 })
+    expect(useGizmoStore.getState().preview?.[shape.id]).toBeUndefined()
+    expect(
+      useKeyframesStore.getState().keyframesByItemId[shape.id]?.vectorProperties?.[0]
+        ?.keyframes[0]?.value,
+    ).toEqual({ x: 101, y: 80 })
+
+    animationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+  })
+
+  it('mirrors a canvas gizmo drag into Motion Position before release once per frame', () => {
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined)
+    render(<CompositingTimeline />)
+    fireEvent.click(screen.getByRole('button', { name: 'Expand layer properties' }))
+
+    const input = screen.getByLabelText('Position X')
+    expect(input).toHaveValue('100.00')
+    perfMarkMocks.mark.mockClear()
+
+    let interactionId = 0
+    act(() => {
+      const gizmo = useGizmoStore.getState()
+      gizmo.setSnappingEnabled(false)
+      interactionId = gizmo.startTranslate(
+        shape.id,
+        { x: 0, y: 0 },
+        {
+          x: 100,
+          y: 80,
+          width: 400,
+          height: 220,
+          rotation: 0,
+          opacity: 1,
+        },
+      )
+      gizmo.updateInteraction({ x: 20, y: 0 }, false)
+      gizmo.updateInteraction({ x: 60, y: 0 }, false)
+    })
+
+    expect(input).toHaveValue('100.00')
+    expect(useItemsStore.getState().itemById[shape.id]?.transform?.x).toBe(100)
+    expect(frameCallbacks).toHaveLength(1)
+
+    act(() => frameCallbacks[0]?.(16))
+    expect(input).toHaveValue('160.00')
+    expect(useItemsStore.getState().itemById[shape.id]?.transform?.x).toBe(100)
+    expect(perfMarkMocks.mark).not.toHaveBeenCalledWith('DopesheetEditor')
+
+    act(() => useGizmoStore.getState().clearInteraction(interactionId))
+    act(() => frameCallbacks[1]?.(32))
+    expect(input).toHaveValue('160.00')
+    expect(useGizmoStore.getState().presentationHandoff?.finalTransform.x).toBe(160)
+    expect(perfMarkMocks.mark).not.toHaveBeenCalledWith('DopesheetEditor')
+
+    act(() => useGizmoStore.getState().cancelInteraction())
+    act(() => frameCallbacks[2]?.(48))
+    expect(input).toHaveValue('100.00')
+    expect(perfMarkMocks.mark).not.toHaveBeenCalledWith('DopesheetEditor')
+
+    animationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
+  })
+
+  it('converts a parented gizmo world preview back to the child Position inputs', () => {
+    const parentTrack = makeTimelineTrack({
+      id: 'parent-track',
+      name: 'Parent',
+      kind: 'video',
+      order: 1,
+    })
+    const parent: ControllerItem = {
+      id: 'parent-1',
+      type: 'controller',
+      controllerKind: 'null',
+      trackId: parentTrack.id,
+      from: 0,
+      durationInFrames: 120,
+      label: 'Parent',
+      transform: { x: 50, y: 0, width: 100, height: 100, rotation: 0 },
+    }
+    const child: ShapeItem = {
+      ...shape,
+      transformParent: {
+        parentItemId: parent.id,
+        parentReference: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+        childLocalReference: { x: 100, y: 80, width: 400, height: 220, rotation: 0 },
+        childWorldReference: { x: 100, y: 80, width: 400, height: 220, rotation: 0 },
+      },
+    }
+    useItemsStore.getState().setTracks([track, parentTrack])
+    useItemsStore.getState().setItems([child, parent])
+
+    const frameCallbacks: FrameRequestCallback[] = []
+    const animationFrameSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback)
+        return frameCallbacks.length
+      })
+    const cancelAnimationFrameSpy = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined)
+    render(<CompositingTimeline />)
+    const childRow = screen.getByTestId(`motion-layer-row-${child.id}`)
+    fireEvent.click(within(childRow).getByRole('button', { name: 'Expand layer properties' }))
+
+    const input = within(childRow).getByLabelText('Position X')
+    expect(input).toHaveValue('100.00')
+    perfMarkMocks.mark.mockClear()
+
+    act(() => {
+      const gizmo = useGizmoStore.getState()
+      gizmo.setSnappingEnabled(false)
+      gizmo.startTranslate(
+        child.id,
+        { x: 0, y: 0 },
+        {
+          x: 150,
+          y: 80,
+          width: 400,
+          height: 220,
+          rotation: 0,
+          opacity: 1,
+        },
+      )
+      gizmo.updateInteraction({ x: 20, y: 0 }, false)
+    })
+    act(() => frameCallbacks[0]?.(16))
+
+    expect(input).toHaveValue('120.00')
+    expect(perfMarkMocks.mark).not.toHaveBeenCalledWith('DopesheetEditor')
+
+    act(() => useGizmoStore.getState().cancelInteraction())
+    act(() => frameCallbacks[1]?.(32))
+    animationFrameSpy.mockRestore()
+    cancelAnimationFrameSpy.mockRestore()
   })
 
   it('keeps expanded property editors off the playback-frame render path', () => {
@@ -1537,13 +1770,18 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     render(<CompositingTimeline />)
 
     expect(screen.getByRole('button', { name: 'New composition' })).toHaveTextContent('New Comp')
-    expect(screen.getByRole('button', { name: 'Add Item' })).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Create Layer Group from selected layers' }),
-    ).toHaveAttribute(
+    const addItemButton = screen.getByRole('button', { name: 'Add Item' })
+    const layerGroupButton = screen.getByRole('button', {
+      name: 'Create Layer Group from selected layers',
+    })
+    expect(addItemButton.nextElementSibling).toBe(layerGroupButton)
+    expect(layerGroupButton).toHaveAttribute(
       'title',
       'Organize layers and move them together. Use Parent for transform inheritance.',
     )
+    expect(
+      screen.queryByText('Drop media, text, shapes, or compositions here'),
+    ).not.toBeInTheDocument()
   })
 
   it('parents and unparents a layer from the Parent dropdown', async () => {
@@ -1644,6 +1882,152 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
       useItemsStore.getState().itemById[shape.id]?.transformParent?.parentItemId,
     ).toBeUndefined()
     Reflect.deleteProperty(document, 'elementFromPoint')
+  })
+
+  it('explains when a Parent pick whip target would create a circular dependency', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    const childTrack = makeTimelineTrack({
+      id: 'cycle-child-track',
+      name: 'Cycle child',
+      kind: 'video',
+      order: 1,
+    })
+    const cycleChild: ControllerItem = {
+      id: 'cycle-child',
+      type: 'controller',
+      controllerKind: 'null',
+      trackId: childTrack.id,
+      from: 0,
+      durationInFrames: 120,
+      label: 'Cycle child',
+      transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+      transformParent: {
+        parentItemId: shape.id,
+        parentReference: { x: 100, y: 80, width: 400, height: 220, rotation: 0 },
+        childLocalReference: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+        childWorldReference: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+      },
+    }
+    useItemsStore.getState().setTracks([track, childTrack])
+    useItemsStore.getState().setItems([shape, cycleChild])
+    render(<CompositingTimeline />)
+
+    const rejectedRow = screen.getByTestId(`motion-layer-row-${cycleChild.id}`)
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => rejectedRow),
+    })
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: 'Parent pick whip for Hero rectangle' }),
+      { button: 0, pointerId: 43, clientX: 0, clientY: 0 },
+    )
+    fireEvent.pointerMove(window, { pointerId: 43, clientX: 32, clientY: 24 })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('transform-parent-pick-whip-feedback')).toHaveTextContent(
+        'This parent link would create a circular dependency.',
+      )
+      expect(rejectedRow).toHaveAttribute('data-transform-parent-link-rejected', 'true')
+    })
+    const overlay = screen.getByTestId('transform-parent-pick-whip')
+    expect(overlay.querySelector('path')).toHaveAttribute('stroke', 'rgb(248 113 113)')
+
+    fireEvent.pointerUp(window, { pointerId: 43, clientX: 32, clientY: 24 })
+
+    expect(useItemsStore.getState().itemById[shape.id]?.transformParent).toBeUndefined()
+    expect(screen.queryByTestId('transform-parent-pick-whip')).toBeNull()
+    expect(rejectedRow).not.toHaveAttribute('data-transform-parent-link-rejected')
+    Reflect.deleteProperty(document, 'elementFromPoint')
+
+    toastError.mockClear()
+    const parentSelect = screen.getByRole('combobox', {
+      name: 'Parent for Hero rectangle',
+    })
+    fireEvent.click(parentSelect)
+    fireEvent.click(await screen.findByRole('option', { name: /Cycle child/ }))
+
+    expect(toastError).toHaveBeenCalledWith(
+      'This parent link would create a circular dependency.',
+    )
+    expect(useItemsStore.getState().itemById[shape.id]?.transformParent).toBeUndefined()
+    expect(parentSelect).toHaveTextContent('None')
+    toastError.mockRestore()
+  })
+
+  it('explains when parenting would duplicate an existing transform link', async () => {
+    const toastError = vi.spyOn(toast, 'error')
+    const sourceTrack = makeTimelineTrack({
+      id: 'linked-parent-track',
+      name: 'Linked source',
+      kind: 'video',
+      order: 1,
+    })
+    const linkedSource: ControllerItem = {
+      id: 'linked-source',
+      type: 'controller',
+      controllerKind: 'null',
+      trackId: sourceTrack.id,
+      from: 0,
+      durationInFrames: 120,
+      label: 'Linked source',
+      transform: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
+    }
+    useItemsStore.getState().setTracks([track, sourceTrack])
+    useItemsStore.getState().setItems([shape, linkedSource])
+    useKeyframesStore.setState({
+      keyframesByItemId: {
+        [shape.id]: {
+          itemId: shape.id,
+          properties: [],
+          propertyLinks: [
+            {
+              type: 'link',
+              targetProperty: 'position',
+              sourceItemId: linkedSource.id,
+              sourceProperty: 'position',
+              enabled: true,
+              timeOffsetFrames: 0,
+            },
+          ],
+        },
+      },
+    })
+    render(<CompositingTimeline />)
+
+    const rejectedRow = screen.getByTestId(`motion-layer-row-${linkedSource.id}`)
+    Object.defineProperty(document, 'elementFromPoint', {
+      configurable: true,
+      value: vi.fn(() => rejectedRow),
+    })
+    fireEvent.pointerDown(
+      screen.getByRole('button', { name: 'Parent pick whip for Hero rectangle' }),
+      { button: 0, pointerId: 44, clientX: 0, clientY: 0 },
+    )
+    fireEvent.pointerMove(window, { pointerId: 44, clientX: 32, clientY: 24 })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('transform-parent-pick-whip-feedback')).toHaveTextContent(
+        'Linked source already drives this layer’s transform. Parenting it would apply the transform twice.',
+      )
+      expect(rejectedRow).toHaveAttribute('data-transform-parent-link-rejected', 'true')
+    })
+
+    fireEvent.pointerCancel(window, { pointerId: 44 })
+    expect(rejectedRow).not.toHaveAttribute('data-transform-parent-link-rejected')
+    Reflect.deleteProperty(document, 'elementFromPoint')
+
+    const parentSelect = screen.getByRole('combobox', {
+      name: 'Parent for Hero rectangle',
+    })
+    fireEvent.click(parentSelect)
+    fireEvent.click(await screen.findByRole('option', { name: /Linked source/ }))
+
+    expect(toastError).toHaveBeenCalledWith(
+      'Linked source already drives this layer’s transform. Parenting it would apply the transform twice.',
+    )
+    expect(useItemsStore.getState().itemById[shape.id]?.transformParent).toBeUndefined()
+    expect(parentSelect).toHaveTextContent('None')
+    toastError.mockRestore()
   })
 
   it('uses Ctrl to toggle layers and Shift to add a visible layer range', () => {

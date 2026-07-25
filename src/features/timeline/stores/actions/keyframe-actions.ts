@@ -27,6 +27,11 @@ import { useItemsStore } from '../items-store'
 import { useTimelineSettingsStore } from '../timeline-settings-store'
 import { execute, getLogger, canAddKeyframeAtFrame } from './shared'
 import { cleanupTrimmedKeyframes } from '@/features/timeline/deps/keyframes'
+import {
+  hasTransformParentDependency,
+  isTransformParentInheritedProperty,
+  wouldCreateItemDependencyCycle,
+} from '@/shared/utils/transform-parenting'
 
 export function addKeyframe(
   itemId: string,
@@ -53,6 +58,32 @@ export function addKeyframe(
 }
 
 export function setDirectPropertyLink(itemId: string, link: DirectPropertyLink): void {
+  const itemsState = useItemsStore.getState()
+  const keyframesState = useKeyframesStore.getState()
+  if (
+    link.enabled &&
+    (wouldCreateItemDependencyCycle(
+        itemId,
+        link.sourceItemId,
+        (candidateId) => itemsState.itemById[candidateId],
+        (candidateId) => keyframesState.keyframesByItemId[candidateId],
+      ) ||
+      (isTransformParentInheritedProperty(link.targetProperty) &&
+        hasTransformParentDependency(
+          itemId,
+          link.sourceItemId,
+          (candidateId) => itemsState.itemById[candidateId],
+        )))
+  ) {
+    getLogger().warn('Cannot create a cyclic or redundant property link', {
+      itemId,
+      property: link.targetProperty,
+      sourceItemId: link.sourceItemId,
+      sourceProperty: link.sourceProperty,
+    })
+    return
+  }
+
   execute(
     'SET_DIRECT_PROPERTY_LINK',
     () => {

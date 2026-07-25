@@ -6,7 +6,8 @@ import { useCallback, useEffect, useRef } from 'react'
  */
 export function useRafCoalescedValue<T>(onValue: (value: T) => void) {
   const onValueRef = useRef(onValue)
-  const pendingRef = useRef<T | null>(null)
+  const pendingRef = useRef<T | undefined>(undefined)
+  const hasPendingRef = useRef(false)
   const rafIdRef = useRef<number | null>(null)
 
   onValueRef.current = onValue
@@ -14,13 +15,16 @@ export function useRafCoalescedValue<T>(onValue: (value: T) => void) {
   const flush = useCallback(() => {
     rafIdRef.current = null
     const pending = pendingRef.current
-    pendingRef.current = null
-    if (pending !== null) onValueRef.current(pending)
+    const hasPending = hasPendingRef.current
+    pendingRef.current = undefined
+    hasPendingRef.current = false
+    if (hasPending) onValueRef.current(pending as T)
   }, [])
 
   const queue = useCallback(
     (value: T) => {
       pendingRef.current = value
+      hasPendingRef.current = true
       if (rafIdRef.current === null) {
         rafIdRef.current = requestAnimationFrame(flush)
       }
@@ -36,12 +40,16 @@ export function useRafCoalescedValue<T>(onValue: (value: T) => void) {
     flush()
   }, [flush])
 
-  useEffect(
-    () => () => {
-      if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current)
-    },
-    [],
-  )
+  const cancel = useCallback(() => {
+    pendingRef.current = undefined
+    hasPendingRef.current = false
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current)
+      rafIdRef.current = null
+    }
+  }, [])
 
-  return { queue, flushNow }
+  useEffect(() => cancel, [cancel])
+
+  return { queue, flushNow, cancel }
 }

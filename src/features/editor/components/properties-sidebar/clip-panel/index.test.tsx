@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { useEditorStore } from '@/shared/state/editor'
 import { useSelectionStore } from '@/shared/state/selection'
-import { useTimelineStore } from '@/features/editor/deps/timeline-store'
+import { useItemsStore, useTimelineStore } from '@/features/editor/deps/timeline-store'
+import { useGizmoStore } from '@/features/editor/deps/preview'
 import type {
   AudioItem,
   CompositionItem,
@@ -12,8 +13,21 @@ import type {
 } from '@/types/timeline'
 import { ClipPanel } from './index'
 
+const clipPanelTestState = vi.hoisted(() => ({
+  layoutRenderCount: 0,
+  latestLayoutX: null as number | null,
+  nextIdleCallbackId: 1,
+  idleCallbacks: new Map<number, IdleRequestCallback>(),
+}))
+
 vi.mock('./layout-section', () => ({
-  LayoutSection: () => <div>Layout Body</div>,
+  LayoutSection: ({ items }: { items: TimelineItem[] }) => {
+    clipPanelTestState.layoutRenderCount += 1
+    const firstItem = items[0]
+    clipPanelTestState.latestLayoutX =
+      firstItem && 'transform' in firstItem ? (firstItem.transform?.x ?? null) : null
+    return <div>Layout Body</div>
+  },
 }))
 
 vi.mock('./fill-section', () => ({
@@ -150,7 +164,96 @@ function resetStores(items: TimelineItem[], selectedItemIds: string[]) {
 
 describe('ClipPanel inspector tabs', () => {
   beforeEach(() => {
+    clipPanelTestState.layoutRenderCount = 0
+    clipPanelTestState.latestLayoutX = null
+    clipPanelTestState.nextIdleCallbackId = 1
+    clipPanelTestState.idleCallbacks.clear()
+    vi.stubGlobal('requestIdleCallback', (callback: IdleRequestCallback) => {
+      const callbackId = clipPanelTestState.nextIdleCallbackId
+      clipPanelTestState.nextIdleCallbackId += 1
+      clipPanelTestState.idleCallbacks.set(callbackId, callback)
+      return callbackId
+    })
+    vi.stubGlobal('cancelIdleCallback', (callbackId: number) => {
+      clipPanelTestState.idleCallbacks.delete(callbackId)
+    })
+    useGizmoStore.setState({
+      activeGizmo: null,
+      previewTransform: null,
+      presentationHandoff: null,
+      preview: null,
+    })
     resetStores([VIDEO_ITEM], [VIDEO_ITEM.id])
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('keeps the full inspector idle across repeated gizmo translate commits', async () => {
+    resetStores([NULL_OBJECT], [NULL_OBJECT.id])
+    render(<ClipPanel />)
+
+    const initialRenderCount = clipPanelTestState.layoutRenderCount
+    const startTransform = {
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      rotation: 0,
+      opacity: 1,
+    }
+
+    for (const [x, y] of [
+      [120, 80],
+      [260, 170],
+      [410, 230],
+    ] as const) {
+      act(() => {
+        const interactionId = useGizmoStore
+          .getState()
+          .startTranslate(NULL_OBJECT.id, { x: 0, y: 0 }, startTransform)
+        useGizmoStore.setState({
+          previewTransform: { ...startTransform, x, y },
+        })
+        useItemsStore.getState()._updateItemTransform(NULL_OBJECT.id, { x, y })
+        useGizmoStore.getState().clearInteraction(interactionId)
+        useGizmoStore.getState().completePresentationHandoff(interactionId)
+      })
+    }
+
+    expect(clipPanelTestState.layoutRenderCount).toBe(initialRenderCount)
+    expect(clipPanelTestState.latestLayoutX).toBe(0)
+
+    expect(clipPanelTestState.idleCallbacks.size).toBe(1)
+    act(() => {
+      const callbacks = [...clipPanelTestState.idleCallbacks.values()]
+      clipPanelTestState.idleCallbacks.clear()
+      for (const callback of callbacks) {
+        callback({
+          didTimeout: false,
+          timeRemaining: () => 50,
+        })
+      }
+    })
+
+    await waitFor(() => {
+      expect(clipPanelTestState.layoutRenderCount).toBeGreaterThan(initialRenderCount)
+      expect(clipPanelTestState.latestLayoutX).toBe(410)
+    })
+    const caughtUpRenderCount = clipPanelTestState.layoutRenderCount
+
+    // A later non-gizmo x/y write can be undo/redo or an inspector edit. The
+    // completed interaction ID must not cause that canonical change to be
+    // swallowed just because its presentation handoff is still retained.
+    act(() => {
+      useItemsStore.getState()._updateItemTransform(NULL_OBJECT.id, { x: 0, y: 0 })
+    })
+
+    await waitFor(() => {
+      expect(clipPanelTestState.layoutRenderCount).toBeGreaterThan(caughtUpRenderCount)
+      expect(clipPanelTestState.latestLayoutX).toBe(0)
+    })
   })
 
   it('restores the last selected clip tab after deselecting and reselecting', async () => {

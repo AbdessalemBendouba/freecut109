@@ -52,6 +52,7 @@ export {
 export { getPropertyAccordionGroups } from '@/features/keyframes/components/dopesheet-editor/property-groups'
 export { CompactNavigator } from '@/features/keyframes/components/dopesheet-editor/compact-navigator'
 export { getKeyframeNavigatorThumbMetrics } from '@/features/keyframes/components/dopesheet-editor/compact-navigator-utils'
+export { useRafCoalescedValue } from '@/features/keyframes/components/use-raf-coalesced-value'
 export { KEYFRAME_EDGE_INSET } from '@/features/keyframes/components/dopesheet-editor/layout'
 export { getAnimatablePropertiesForItem } from '@/features/keyframes/utils/animatable-properties'
 export {

@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   AlignCenterHorizontal,
@@ -11,9 +11,9 @@ import {
   AlignVerticalDistributeCenter,
   Magnet,
 } from 'lucide-react'
-import { useShallow } from 'zustand/react/shallow'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/shared/ui/cn'
+import { useRafDeferredValue } from '@/shared/hooks/use-raf-deferred-value'
 import { useSelectionStore } from '@/shared/state/selection'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useSettingsStore } from '@/features/preview/deps/settings'
@@ -64,7 +64,26 @@ interface AlignmentToolbarProps {
   projectSize: { width: number; height: number }
 }
 
-export function AlignmentToolbar({ projectSize }: AlignmentToolbarProps) {
+interface DeferredAlignmentToolbarProps extends AlignmentToolbarProps {
+  itemsSnapshot: ReturnType<typeof useTimelineStore.getState>['items']
+}
+
+const DeferredAlignmentToolbar = memo(function DeferredAlignmentToolbar({
+  itemsSnapshot,
+  projectSize,
+}: DeferredAlignmentToolbarProps) {
+  const deferredItems = useRafDeferredValue(itemsSnapshot)
+  return <AlignmentToolbarCore projectSize={projectSize} items={deferredItems} />
+})
+
+interface AlignmentToolbarCoreProps extends AlignmentToolbarProps {
+  items: ReturnType<typeof useTimelineStore.getState>['items']
+}
+
+const AlignmentToolbarCore = memo(function AlignmentToolbarCore({
+  projectSize,
+  items,
+}: AlignmentToolbarCoreProps) {
   const { t } = useTranslation()
   const selectedItemIds = useSelectionStore((s) => s.selectedItemIds)
   const updateItemsTransformMap = useTimelineStore((s) => s.updateItemsTransformMap)
@@ -72,10 +91,9 @@ export function AlignmentToolbar({ projectSize }: AlignmentToolbarProps) {
   const canvasSnapEnabled = useSettingsStore((s) => s.canvasSnapEnabled)
   const setSetting = useSettingsStore((s) => s.setSetting)
 
-  const visualItems = useTimelineStore(
-    useShallow((s) =>
-      s.items.filter((item) => item.type !== 'audio' && item.type !== 'adjustment'),
-    ),
+  const visualItems = useMemo(
+    () => items.filter((item) => item.type !== 'audio' && item.type !== 'adjustment'),
+    [items],
   )
 
   const selectedItemIdsSet = useMemo(() => new Set(selectedItemIds), [selectedItemIds])
@@ -84,7 +102,7 @@ export function AlignmentToolbar({ projectSize }: AlignmentToolbarProps) {
     return visualItems.filter((item) => selectedItemIdsSet.has(item.id))
   }, [visualItems, selectedItemIdsSet])
 
-  const visualTransformsMap = useVisualTransforms(selectedVisualItems, projectSize)
+  const visualTransformsMap = useVisualTransforms(selectedVisualItems, projectSize, items)
 
   const itemCount = selectedVisualItems.length
 
@@ -261,4 +279,16 @@ export function AlignmentToolbar({ projectSize }: AlignmentToolbarProps) {
       </Button>
     </>
   )
-}
+})
+
+export const AlignmentToolbar = memo(function AlignmentToolbar({
+  projectSize,
+}: AlignmentToolbarProps) {
+  const itemsSnapshot = useTimelineStore((state) => state.items)
+  return (
+    <DeferredAlignmentToolbar
+      itemsSnapshot={itemsSnapshot}
+      projectSize={projectSize}
+    />
+  )
+})

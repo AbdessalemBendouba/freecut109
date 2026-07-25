@@ -141,6 +141,7 @@ type EditDragState =
   | {
       type: 'shape'
       startTransform: Transform
+      interactionId: number
     }
   | {
       type: 'marquee'
@@ -1263,6 +1264,8 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
   const itemTransformRef = useRef(effectiveItemTransform)
   itemTransformRef.current = effectiveItemTransform
   const pendingCleanupRafIdsRef = useRef<number[]>([])
+  const editInteractionGenerationRef = useRef(0)
+  const maskOwnedInteractionIdRef = useRef<number | null>(null)
 
   useEffect(() => {
     return () => {
@@ -1270,24 +1273,32 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
         cancelAnimationFrame(id)
       }
       pendingCleanupRafIdsRef.current = []
-      const activeGizmo = useGizmoStore.getState().activeGizmo
-      if (activeGizmo?.itemId === editingItemIdRef.current) {
-        useGizmoStore.getState().clearInteraction()
+      const ownedInteractionId = maskOwnedInteractionIdRef.current
+      if (ownedInteractionId !== null) {
+        useGizmoStore.getState().clearInteraction(ownedInteractionId)
+        maskOwnedInteractionIdRef.current = null
       }
     }
   }, [])
 
-  const scheduleEditCommitCleanup = useCallback(() => {
+  const scheduleEditCommitCleanup = useCallback((expectedInteractionId?: number) => {
     for (const id of pendingCleanupRafIdsRef.current) {
       cancelAnimationFrame(id)
     }
     pendingCleanupRafIdsRef.current = []
+    const scheduledGeneration = editInteractionGenerationRef.current
 
     const firstFrameId = requestAnimationFrame(() => {
       const secondFrameId = requestAnimationFrame(() => {
+        if (editInteractionGenerationRef.current !== scheduledGeneration) return
         pendingCleanupRafIdsRef.current = []
         setCommittedEditSnapshot(null)
-        clearInteraction()
+        if (expectedInteractionId !== undefined) {
+          clearInteraction(expectedInteractionId)
+          if (maskOwnedInteractionIdRef.current === expectedInteractionId) {
+            maskOwnedInteractionIdRef.current = null
+          }
+        }
         endDrag()
       })
       pendingCleanupRafIdsRef.current = [firstFrameId, secondFrameId]
@@ -1553,6 +1564,18 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
       const rect = canvasRef.current?.getBoundingClientRect()
       if (!rect) return
 
+      editInteractionGenerationRef.current += 1
+      for (const id of pendingCleanupRafIdsRef.current) {
+        cancelAnimationFrame(id)
+      }
+      pendingCleanupRafIdsRef.current = []
+      setCommittedEditSnapshot(null)
+      const previousOwnedInteractionId = maskOwnedInteractionIdRef.current
+      if (previousOwnedInteractionId !== null) {
+        clearInteraction(previousOwnedInteractionId)
+        maskOwnedInteractionIdRef.current = null
+      }
+
       const localX = e.clientX - rect.left
       const localY = e.clientY - rect.top
       const hit = hitTest(localX, localY)
@@ -1609,10 +1632,18 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
         const itemId = editingItemIdRef.current
         if (!itemId) return
 
-        startTranslate(itemId, canvasPos, itemTransformRef.current)
+        const interactionId = startTranslate(
+          itemId,
+          canvasPos,
+          itemTransformRef.current,
+          undefined,
+          'shape',
+        )
+        maskOwnedInteractionIdRef.current = interactionId
         dragStateRef.current = {
           type: 'shape',
           startTransform: itemTransformRef.current,
+          interactionId,
         }
         setHoveredSegmentIndex(null)
         setHover(null)
@@ -1626,6 +1657,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
       startVertexDrag,
       startHandleDrag,
       setHover,
+      clearInteraction,
       startTranslate,
     ],
   )
@@ -1793,7 +1825,7 @@ export const MaskEditorOverlay = memo(function MaskEditorOverlay({
             )
           }
         }
-        scheduleEditCommitCleanup()
+        scheduleEditCommitCleanup(state.interactionId)
       } else if (finalVertices && itemId) {
         const item = useItemsStore.getState().items.find((candidate) => candidate.id === itemId)
         if (item?.type === 'shape' && item.shapeType === 'path') {

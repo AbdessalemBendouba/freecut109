@@ -3,6 +3,7 @@
 export {
   CompactNavigator,
   getKeyframeNavigatorThumbMetrics,
+  useRafCoalescedValue,
   DopesheetEditor,
   PickWhipIcon,
   PropertyLinkPickWhipOverlay,

@@ -357,6 +357,8 @@ interface DopesheetEditorProps {
   onRemovePropertyExpression?: (property: DirectLinkableProperty) => void
   /** Reports dock height so embedded Motion lanes can expand without overlapping siblings. */
   onExpressionDockHeightChange?: (height: number) => void
+  /** Reports visible row height so embedded Motion lanes shrink when groups collapse. */
+  onLaneContentHeightChange?: (height: number) => void
   /** Reset effect parameters to their definition defaults and clear their keyframes. */
   onResetPropertiesToDefault?: (properties: AnimatableProperty[]) => void
   /** Callback to remove selected keyframes */
@@ -544,12 +546,16 @@ function getExpressionReferenceCandidate(
   return { row, value: { itemId, property } }
 }
 
-function resolveExpressionReferenceCandidate(
+function resolveExpressionReferenceTarget(
   clientX: number,
   clientY: number,
   origin: ExpressionReferenceDragOrigin,
 ) {
-  return getExpressionReferenceCandidate(document.elementFromPoint(clientX, clientY), origin)
+  const candidate = getExpressionReferenceCandidate(
+    document.elementFromPoint(clientX, clientY),
+    origin,
+  )
+  return candidate ? { status: 'valid' as const, ...candidate } : null
 }
 
 function formatExpressionValue(value: ExpressionValue | undefined): string {
@@ -843,6 +849,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
   onSetPropertyExpression,
   onRemovePropertyExpression,
   onExpressionDockHeightChange,
+  onLaneContentHeightChange,
   onResetPropertiesToDefault,
   onRemoveKeyframes,
   onCopyKeyframes,
@@ -1027,7 +1034,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         pickWhipRootRef.current?.closest<HTMLElement>(
           '[data-pick-whip-scroll-area], [data-testid="motion-layer-scroll-area"]',
         ) ?? pickWhipRootRef.current,
-      resolveCandidate: resolveExpressionReferenceCandidate,
+      resolveTarget: resolveExpressionReferenceTarget,
       onCommit: insertExpressionReference,
     })
   useEffect(() => {
@@ -1786,6 +1793,10 @@ export const DopesheetEditor = memo(function DopesheetEditor({
     presentation,
     textMotionBands.length,
   ])
+  useLayoutEffect(() => {
+    if (presentation !== 'lanes') return
+    onLaneContentHeightChange?.(renderedSheetEntries.contentHeight)
+  }, [onLaneContentHeightChange, presentation, renderedSheetEntries.contentHeight])
   // Marquee points are only needed while a selection marquee is moving.
   // Building them eagerly duplicated the viewport-sensitive keyframe position
   // pass on every zoom frame, even when no marquee interaction was active.
@@ -3882,19 +3893,33 @@ export const DopesheetEditor = memo(function DopesheetEditor({
                         ? (compoundSecondaryProperties[row.property] ?? row.property)
                         : row.property
                     activateProperty(scrubProperty)
-                    onDragStart?.()
+                    if (compoundRow.onScrubStart) compoundRow.onScrubStart(axis)
+                    else onDragStart?.()
                   },
-                  onScrubPreview: onPropertyValuePreview
-                    ? (axis, value) => {
-                        const scrubProperty =
-                          axis === 'y'
-                            ? (compoundSecondaryProperties[row.property] ?? row.property)
-                            : row.property
-                        onPropertyValuePreview(scrubProperty, value)
-                      }
-                    : undefined,
-                  onScrubEnd: onPropertyValuePreview ? () => onDragEnd?.() : undefined,
-                  onScrubCancel: onPropertyValuePreview ? () => onDragCancel?.() : undefined,
+                  onScrubPreview:
+                    compoundRow.onScrubPreview || onPropertyValuePreview
+                      ? (axis, value) => {
+                          if (compoundRow.onScrubPreview) {
+                            compoundRow.onScrubPreview(axis, value)
+                            return
+                          }
+                          const scrubProperty =
+                            axis === 'y'
+                              ? (compoundSecondaryProperties[row.property] ?? row.property)
+                              : row.property
+                          onPropertyValuePreview?.(scrubProperty, value)
+                        }
+                      : undefined,
+                  onScrubEnd: compoundRow.onScrubEnd
+                    ? compoundRow.onScrubEnd
+                    : onPropertyValuePreview
+                      ? () => onDragEnd?.()
+                      : undefined,
+                  onScrubCancel: compoundRow.onScrubCancel
+                    ? compoundRow.onScrubCancel
+                    : onPropertyValuePreview
+                      ? () => onDragCancel?.()
+                      : undefined,
                 }}
               />
             ) : (
