@@ -286,6 +286,14 @@ export interface ShapeStyleFields {
   // Fill
   fillColor: string
   fillEnabled?: boolean
+  /** Solid remains the default for legacy projects. */
+  fillType?: 'solid' | 'linear'
+  /** First color of a two-stop linear fill. `fillColor` remains its legacy fallback. */
+  gradientStartColor?: string
+  /** Second color of a two-stop linear fill. */
+  gradientEndColor?: string
+  /** Linear fill direction in degrees. Zero runs left-to-right. */
+  gradientAngle?: number
   // Stroke
   strokeColor?: string
   strokeWidth?: number

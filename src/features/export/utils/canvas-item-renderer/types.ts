@@ -322,6 +322,8 @@ export type ResolvedGpuMediaParticipantSource =
       sourceWidth: number
       sourceHeight: number
       fillColor: [number, number, number, number]
+      gradientEndColor?: [number, number, number, number]
+      gradientAngleRad?: number
       strokeColor?: [number, number, number, number]
       pathVertices?: Array<[number, number, number?]>
       close?: () => void

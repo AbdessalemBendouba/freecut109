@@ -16,6 +16,8 @@ export interface GpuShapeRenderParams {
   opacity?: number
   shapeType: ShapeItem['shapeType']
   fillColor: [number, number, number, number]
+  gradientEndColor?: [number, number, number, number]
+  gradientAngleRad?: number
   strokeColor?: [number, number, number, number]
   strokeWidth?: number
   cornerRadius?: number
@@ -38,7 +40,8 @@ export interface GpuShapeRenderParams {
 }
 
 export const MAX_GPU_SHAPE_PATH_VERTICES = 32
-const SHAPE_UNIFORM_FLOAT_COUNT = 32 + MAX_GPU_SHAPE_PATH_VERTICES * 4
+export const SHAPE_UNIFORM_HEADER_FLOAT_COUNT = 40
+const SHAPE_UNIFORM_FLOAT_COUNT = SHAPE_UNIFORM_HEADER_FLOAT_COUNT + MAX_GPU_SHAPE_PATH_VERTICES * 4
 
 const SHAPE_RENDER_SHADER = /* wgsl */ `
 ${FULLSCREEN_QUAD_WGSL}
@@ -54,6 +57,8 @@ struct ShapeUniforms {
   flags: vec4f,
   trimParams: vec4f,
   taperParams: vec4f,
+  gradientEndColor: vec4f,
+  gradientParams: vec4f,
   pathVertices: array<vec4f, 32>,
 };
 
@@ -221,7 +226,20 @@ fn fragmentMain(input: VertexOutput) -> @location(0) vec4f {
   );
   let strokeWidth = max(u.shapeParams.y * startScale * endScale, 0.0);
   var strokeAlpha = select(0.0, 1.0 - smoothstep(strokeWidth - 0.75, strokeWidth + 0.75, abs(d)), strokeWidth > 0.0 && strokeVisible);
-  let color = mix(u.fillColor, u.strokeColor, strokeAlpha);
+  let gradientDirection = vec2f(cos(u.gradientParams.x), sin(u.gradientParams.x));
+  let gradientExtent = 0.5 / max(max(abs(gradientDirection.x), abs(gradientDirection.y)), 0.000001);
+  let gradientStart = vec2f(0.5) - gradientDirection * gradientExtent;
+  let gradientEnd = vec2f(0.5) + gradientDirection * gradientExtent;
+  let localUv = localPx / max(u.transformRect.zw, vec2f(0.001)) + vec2f(0.5);
+  let gradientVector = gradientEnd - gradientStart;
+  let gradientProgress = clamp(
+    dot(localUv - gradientStart, gradientVector) / max(dot(gradientVector, gradientVector), 0.000001),
+    0.0,
+    1.0,
+  );
+  let gradientColor = mix(u.fillColor, u.gradientEndColor, gradientProgress);
+  let paintedFill = select(u.fillColor, gradientColor, u.gradientParams.y > 0.5);
+  let color = mix(paintedFill, u.strokeColor, strokeAlpha);
   let alpha = max(fillAlpha, strokeAlpha) * color.a * u.opacity;
   return vec4f(color.rgb, alpha);
 }
@@ -304,6 +322,7 @@ export class ShapeRenderPipeline {
     const trimPathStart = Math.max(0, Math.min(100, params.trimPathStart ?? 0))
     const trimPathEnd = Math.max(0, Math.min(100, params.trimPathEnd ?? 100))
     const trimEnabled = trimPathStart !== 0 || trimPathEnd !== 100
+    const gradientEndColor = params.gradientEndColor ?? params.fillColor
     const uniformData = new Float32Array([
       params.outputWidth,
       params.outputHeight,
@@ -333,6 +352,11 @@ export class ShapeRenderPipeline {
       Math.max(0, params.taperEndWidth ?? 100) / 100,
       Math.max(0, Math.min(100, params.taperStartLength ?? 0)) / 100,
       Math.max(0, Math.min(100, params.taperEndLength ?? 0)) / 100,
+      ...gradientEndColor,
+      params.gradientAngleRad ?? 0,
+      params.gradientEndColor ? 1 : 0,
+      0,
+      0,
       ...packPathVertices(pathVertices),
     ])
     this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData)

@@ -72,7 +72,11 @@ function ControlNameInput({
   )
 }
 
-export function CompositionControlsAuthoringSection() {
+export function CompositionControlsAuthoringSection({
+  defaultOpen = true,
+}: {
+  defaultOpen?: boolean
+}) {
   const { t } = useTranslation()
   const [addOpen, setAddOpen] = useState(false)
   const activeCompositionId = useCompositionNavigationStore((state) => state.activeCompositionId)
@@ -99,10 +103,10 @@ export function CompositionControlsAuthoringSection() {
   return (
     <PropertySection
       title={t('editor.compositionControls.authoringTitle', {
-        defaultValue: 'Exposed properties',
+        defaultValue: `Published controls (${controls.length})`,
       })}
       icon={SlidersHorizontal}
-      defaultOpen
+      defaultOpen={defaultOpen}
     >
       <p className="px-1 pb-2 text-[11px] leading-snug text-muted-foreground">
         {t('editor.compositionControls.authoringHint', {

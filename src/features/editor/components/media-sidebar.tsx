@@ -25,7 +25,11 @@ import { motion, useReducedMotion } from 'motion/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/shared/ui/cn'
 import { useEditorStore } from '@/shared/state/editor'
-import { useTimelineStore } from '@/features/editor/deps/timeline-store'
+import {
+  useCompositionNavigationStore,
+  useCompositionsStore,
+  useTimelineStore,
+} from '@/features/editor/deps/timeline-store'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useProjectStore } from '@/features/editor/deps/projects'
@@ -39,7 +43,9 @@ import { importTranscriptEditorPanel } from '@/features/editor/deps/timeline-pan
 import { LottieBrowserPanel } from '@/features/editor/deps/lottie-browser'
 import { TransitionsPanel } from './transitions-panel'
 import {
+  createDefaultGradientItem,
   createDefaultShapeItem,
+  createDefaultSolidColorItem,
   createOverlayLayerTrack,
   createTextTemplateItem,
   getDefaultGeneratedLayerDurationInFrames,
@@ -53,6 +59,7 @@ import { getGpuEffectDefaultParams } from '@/infrastructure/gpu-effects'
 import { EffectThumbnail, useGpuEffectPreviewData } from '@/features/editor/deps/effects-contract'
 import { createLogger } from '@/shared/logging/logger'
 import { useSettingsStore } from '@/features/editor/deps/settings'
+import { resolveGeneratedLayerCanvasSize } from '../utils/generated-layer-canvas-size'
 const LazyAiPanel = lazy(() => import('./ai-tab').then((m) => ({ default: m.AiTab })))
 const LazyTranscriptEditorPanel = lazy(() =>
   importTranscriptEditorPanel().then(({ TranscriptEditorPanel }) => ({
@@ -419,11 +426,16 @@ export const MediaSidebar = memo(function MediaSidebar() {
   )
 
   // Add shape item on its own new layer at the playhead, matching the canvas drop.
-  const handleAddShape = useCallback((shapeType: ShapeType) => {
+  const handleAddShape = useCallback((shapeType: ShapeType, shapePreset?: 'solid' | 'gradient') => {
     // Read all needed state from stores directly to avoid subscriptions
     const { tracks, fps, addItemOnNewTrack } = useTimelineStore.getState()
     const { activeTrackId, selectItems, setActiveTrack } = useSelectionStore.getState()
     const currentProject = useProjectStore.getState().currentProject
+    const activeCompositionId =
+      useCompositionNavigationStore.getState().activeCompositionId
+    const activeComposition = activeCompositionId
+      ? useCompositionsStore.getState().getComposition(activeCompositionId)
+      : undefined
 
     const newTrack = createOverlayLayerTrack({ tracks, activeTrackId })
 
@@ -432,17 +444,25 @@ export const MediaSidebar = memo(function MediaSidebar() {
       return
     }
 
-    const canvasWidth = currentProject?.metadata.width ?? DEFAULT_PROJECT_WIDTH
-    const canvasHeight = currentProject?.metadata.height ?? DEFAULT_PROJECT_HEIGHT
+    const { width: canvasWidth, height: canvasHeight } = resolveGeneratedLayerCanvasSize(
+      activeComposition,
+      currentProject?.metadata,
+    )
 
-    const shapeItem: ShapeItem = createDefaultShapeItem({
+    const placement = {
       trackId: newTrack.trackId,
       from: Math.max(0, usePlaybackStore.getState().currentFrame),
       durationInFrames: getDefaultGeneratedLayerDurationInFrames(fps),
       canvasWidth,
       canvasHeight,
       shapeType,
-    })
+    }
+    const shapeItem: ShapeItem =
+      shapePreset === 'solid'
+        ? createDefaultSolidColorItem(placement)
+        : shapePreset === 'gradient'
+          ? createDefaultGradientItem(placement)
+          : createDefaultShapeItem(placement)
 
     addItemOnNewTrack(shapeItem, newTrack.tracks)
     setActiveTrack(newTrack.trackId)
@@ -540,6 +560,7 @@ export const MediaSidebar = memo(function MediaSidebar() {
       label: string
       textStylePresetId?: (typeof TEXT_STYLE_PRESETS)[number]['id']
       shapeType?: ShapeType
+      shapePreset?: 'solid' | 'gradient'
       effects?: VisualEffect[]
     }) =>
       (event: React.DragEvent<HTMLButtonElement>) => {
@@ -785,6 +806,48 @@ export const MediaSidebar = memo(function MediaSidebar() {
               className={`min-h-0 flex-1 overflow-y-auto p-3 ${activeTab === 'shapes' ? 'block' : 'hidden'}`}
             >
               <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  draggable={true}
+                  onDragStart={handleTemplateDragStart({
+                    itemType: 'shape',
+                    label: t('editor.shapeSection.solidColor'),
+                    shapeType: 'rectangle',
+                    shapePreset: 'solid',
+                  })}
+                  onDragEnd={handleTemplateDragEnd}
+                  onClick={() => {
+                    if (shouldSuppressGeneratedItemClick()) return
+                    handleAddShape('rectangle', 'solid')
+                  }}
+                  className="flex flex-col items-center justify-center gap-1 p-2 rounded-lg border border-border bg-secondary/30 hover:bg-secondary/50 hover:border-primary/50 transition-[transform,background-color,border-color,color] duration-150 active:scale-[0.98] group"
+                >
+                  <div className="w-7 h-7 rounded border border-border bg-[#2d2d2d] shadow-inner group-hover:border-primary/50" />
+                  <span className="text-[9px] text-muted-foreground group-hover:text-foreground">
+                    {t('editor.shapeSection.solidColor')}
+                  </span>
+                </button>
+
+                <button
+                  draggable={true}
+                  onDragStart={handleTemplateDragStart({
+                    itemType: 'shape',
+                    label: t('editor.shapeSection.gradient'),
+                    shapeType: 'rectangle',
+                    shapePreset: 'gradient',
+                  })}
+                  onDragEnd={handleTemplateDragEnd}
+                  onClick={() => {
+                    if (shouldSuppressGeneratedItemClick()) return
+                    handleAddShape('rectangle', 'gradient')
+                  }}
+                  className="flex flex-col items-center justify-center gap-1 p-2 rounded-lg border border-border bg-secondary/30 hover:bg-secondary/50 hover:border-primary/50 transition-[transform,background-color,border-color,color] duration-150 active:scale-[0.98] group"
+                >
+                  <div className="w-7 h-7 rounded border border-border bg-gradient-to-r from-blue-500 to-violet-500 shadow-inner group-hover:border-primary/50" />
+                  <span className="text-[9px] text-muted-foreground group-hover:text-foreground">
+                    {t('editor.shapeSection.gradient')}
+                  </span>
+                </button>
+
                 <button
                   draggable={true}
                   onDragStart={handleTemplateDragStart({
@@ -1046,9 +1109,7 @@ export const MediaSidebar = memo(function MediaSidebar() {
                           })}
                           onDragEnd={handleTemplateDragEnd}
                           onMouseEnter={() => setHoveredEffectKey(def.id)}
-                            onMouseLeave={() =>
-                              setHoveredEffectKey((k) => (k === def.id ? null : k))
-                            }
+                          onMouseLeave={() => setHoveredEffectKey((k) => (k === def.id ? null : k))}
                           onClick={() => {
                             if (shouldSuppressGeneratedItemClick()) return
                             handleAddGpuEffect(def.id)

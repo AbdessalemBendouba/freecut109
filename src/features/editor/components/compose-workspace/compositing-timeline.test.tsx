@@ -2729,6 +2729,38 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     )
   })
 
+  it('discovers Solid Color and Gradient in Add Item and creates canonical full-frame Shapes', () => {
+    render(<CompositingTimeline />)
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Add Item' }), {
+      button: 0,
+      ctrlKey: false,
+    })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Solid Color' }))
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Add Item' }), {
+      button: 0,
+      ctrlKey: false,
+    })
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Gradient' }))
+
+    const state = useItemsStore.getState()
+    expect(state.items.find((item) => item.label === 'Solid Color')).toMatchObject({
+      type: 'shape',
+      shapeType: 'rectangle',
+      fillType: 'solid',
+      transform: { width: 1920, height: 1080 },
+    })
+    expect(state.items.find((item) => item.label === 'Gradient')).toMatchObject({
+      type: 'shape',
+      shapeType: 'rectangle',
+      fillType: 'linear',
+      gradientStartColor: '#3b82f6',
+      gradientEndColor: '#8b5cf6',
+      gradientAngle: 0,
+      transform: { width: 1920, height: 1080 },
+    })
+  })
+
   it('adds a non-rendering Null Object layer for transform parenting', () => {
     render(<CompositingTimeline />)
     const addItemButton = screen.getByRole('button', { name: 'Add Item' })

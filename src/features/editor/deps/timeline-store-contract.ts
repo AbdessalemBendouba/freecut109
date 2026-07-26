@@ -22,6 +22,7 @@ export {
   removeCompositionControl,
   renameCompositionControl,
   repairCompositeCompositionEditorialLeak,
+  setCompositionCanvasSettings,
   setCompositionDuration,
   trimCompositionToActiveRegion,
 } from '@/features/timeline/stores/actions/composition-editor-actions'

@@ -14,7 +14,11 @@ import { useTranslation } from 'react-i18next'
 import { i18n } from '@/i18n'
 import { Button } from '@/components/ui/button'
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Settings2 } from 'lucide-react'
-import { useItemsStore } from '@/features/editor/deps/timeline-store'
+import {
+  useCompositionNavigationStore,
+  useCompositionsStore,
+  useItemsStore,
+} from '@/features/editor/deps/timeline-store'
 import { useEditorStore } from '@/shared/state/editor'
 import { useSelectionStore } from '@/shared/state/selection'
 import type { TimelineItem } from '@/types/timeline'
@@ -136,6 +140,10 @@ export const PropertiesSidebar = memo(function PropertiesSidebar() {
   const selectedItemIds = useSelectionStore((s) => s.selectedItemIds)
   const selectedMarkerId = useSelectionStore((s) => s.selectedMarkerId)
   const selectedTransitionId = useSelectionStore((s) => s.selectedTransitionId)
+  const activeCompositionId = useCompositionNavigationStore((s) => s.activeCompositionId)
+  const activeCompositionName = useCompositionsStore((s) =>
+    activeCompositionId ? s.compositionById[activeCompositionId]?.name : undefined,
+  )
   const prefersReducedMotion = useReducedMotion()
   const selectedItemHeaderSignature = useItemsStore(
     useCallback(
@@ -166,6 +174,22 @@ export const PropertiesSidebar = memo(function PropertiesSidebar() {
   const hasClipSelection = selectedItemIds.length > 0
   const clipHeader = useMemo(() => getClipHeader(selectedItems), [selectedItems])
   const activeClipHeader = !selectedTransitionId && !selectedMarkerId ? clipHeader : null
+  const motionCompositionHeader =
+    workspace === 'motion' &&
+    !hasClipSelection &&
+    !selectedTransitionId &&
+    !selectedMarkerId &&
+    activeCompositionName
+      ? activeCompositionName
+      : null
+  const headerLabel =
+    workspace === 'motion' && activeClipHeader
+      ? t('editor.propertiesSidebar.layer', { defaultValue: 'Layer' })
+      : motionCompositionHeader
+        ? t('editor.propertiesSidebar.composition', { defaultValue: 'Composition' })
+        : t('editor.propertiesSidebar.title')
+  const headerContext = activeClipHeader?.text ?? motionCompositionHeader
+  const headerTitle = activeClipHeader?.title ?? motionCompositionHeader ?? undefined
 
   // Keep the panel content mounted + visible while the collapse animation plays
   // so it slides out smoothly instead of blinking away. Only switch Activity to
@@ -280,16 +304,16 @@ export const PropertiesSidebar = memo(function PropertiesSidebar() {
                 <Settings2 className="w-3 h-3 shrink-0 text-muted-foreground" />
                 <h2 className="min-w-0 flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
                   <span className="shrink-0 uppercase tracking-wide">
-                    {t('editor.propertiesSidebar.title')}
+                    {headerLabel}
                   </span>
-                  {activeClipHeader && (
+                  {headerContext && (
                     <>
                       <span className="shrink-0">-</span>
                       <span
                         className="truncate normal-case tracking-normal"
-                        title={activeClipHeader.title}
+                        title={headerTitle}
                       >
-                        {activeClipHeader.text}
+                        {headerContext}
                       </span>
                     </>
                   )}

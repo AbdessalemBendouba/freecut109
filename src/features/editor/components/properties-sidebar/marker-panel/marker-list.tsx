@@ -17,7 +17,7 @@ import { PropertySection } from '../components'
  * CanvasPanel (the default panel), so markers are reachable regardless of
  * selection state.
  */
-export function MarkerList() {
+export function MarkerList({ defaultOpen = true }: { defaultOpen?: boolean }) {
   const { t } = useTranslation()
   const markers = useTimelineStore((s) => s.markers)
   const removeMarker = useTimelineStore((s) => s.removeMarker)
@@ -62,7 +62,7 @@ export function MarkerList() {
   }, [clearAllMarkers, clearSelection])
 
   return (
-    <PropertySection title={t('editor.markerList.title')} icon={MapPin} defaultOpen={true}>
+    <PropertySection title={t('editor.markerList.title')} icon={MapPin} defaultOpen={defaultOpen}>
       {sortedMarkers.length === 0 ? (
         <div className="px-2 py-3 text-center">
           <p className="text-xs text-muted-foreground">{t('editor.markerList.empty')}</p>

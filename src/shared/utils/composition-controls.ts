@@ -20,11 +20,10 @@ type ControlValueReader = (item: TimelineItem) => string | null
 type ControlValueWriter = (item: TimelineItem, value: string) => TimelineItem
 
 const CONTROL_VALUE_READERS = {
-  'text.text': (item) =>
-    item.type === 'text' && !item.textSpans?.length ? item.text : null,
-  'text.color': (item) =>
-    item.type === 'text' && !item.textSpans?.length ? item.color : null,
-  'shape.fillColor': (item) => (item.type === 'shape' ? item.fillColor : null),
+  'text.text': (item) => (item.type === 'text' && !item.textSpans?.length ? item.text : null),
+  'text.color': (item) => (item.type === 'text' && !item.textSpans?.length ? item.color : null),
+  'shape.fillColor': (item) =>
+    item.type === 'shape' && item.fillType !== 'linear' ? item.fillColor : null,
   'shape.strokeColor': (item) =>
     item.type === 'shape' && item.strokeEnabled && item.strokeColor ? item.strokeColor : null,
 } satisfies Record<CompositionControlProperty, ControlValueReader>
@@ -39,7 +38,9 @@ const CONTROL_VALUE_WRITERS = {
       ? { ...item, color: value }
       : item,
   'shape.fillColor': (item, value) =>
-    item.type === 'shape' && item.fillColor !== value ? { ...item, fillColor: value } : item,
+    item.type === 'shape' && item.fillType !== 'linear' && item.fillColor !== value
+      ? { ...item, fillColor: value }
+      : item,
   'shape.strokeColor': (item, value) =>
     item.type === 'shape' && item.strokeColor !== value ? { ...item, strokeColor: value } : item,
 } satisfies Record<CompositionControlProperty, ControlValueWriter>
