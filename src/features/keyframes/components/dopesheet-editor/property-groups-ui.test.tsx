@@ -1070,6 +1070,19 @@ describe('DopesheetEditor property groups', () => {
     expect(screen.getByRole('spinbutton', { name: /x position value at playhead/i })).toBeTruthy()
   })
 
+  it('nests lane group headers and property rows beneath their owning layer', () => {
+    renderEditor({
+      presentation: 'lanes',
+      propertyColumnWidth: 420,
+    })
+
+    const groupHeader = screen.getByText('Transform').closest('div.group')
+    const propertyRow = screen.getByText('X Position').closest('div.group')
+
+    expect(groupHeader).toHaveClass('pl-6', 'before:left-3')
+    expect(propertyRow).toHaveClass('pl-9', 'before:left-3')
+  })
+
   it('keeps visibility toggles when selecting a different active row in graph mode', () => {
     renderEditor({
       keyframesByProperty: {
