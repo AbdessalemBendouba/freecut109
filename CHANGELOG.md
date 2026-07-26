@@ -4,16 +4,63 @@ All notable changes to FreeCut. Weekly CalVer: `YYYY.MM.DD` = the Monday of the 
 
 <!-- Entries below are generated via the `changelog` skill. Newest first. -->
 
-## [Current] — week of 2026-07-06
+## [Current] — week of 2026-07-20
 
 ### Added
-- Shift-click a properties panel section header to collapse or expand every section at once
-- Text and shape presets land on a new layer at the playhead
-- Unlabelled markers get automatic names, shown on hover in the ruler
-- Record a voiceover from your microphone, synced live to the timeline
+- Solid color and gradient layers in Motion
+- Crop clips with handles directly on the canvas, including compound clips
+- Promote any clip to a Motion Clip and open it in the Motion editor
+- Transform parenting with a pick whip, with invalid targets flagged as you drag
+- Set composition in and out points, and trim a comp to that region
+- Composition duration and timecode, switchable between frames and seconds
+- Animate individual path vertices
+- Filter the dopesheet to show only animated properties
+- Jump between applied animations from the timeline
+- Keyframes pushed outside a clip are flagged with one-click cleanup
+
+### Fixed
+- A clear "project not found" screen with copyable details instead of a crash
+- Captions keep their transcript boundaries when edited
+- Playhead stays locked to the cursor during edge scrolling
+- Timeline scrubbing cancels cleanly when the window loses focus
+
+### Improved
+- Filmstrips and waveforms stay visible and smooth while zooming the timeline
+- The Motion dopesheet stays responsive with large layer stacks
+
+## [2026.07.13] — week of 2026-07-13 to 2026-07-19
+
+### Added
+- Pen tool — draw and edit vector paths directly on the canvas
+- Shape strokes with caps, joins, trim paths, and taper
+- Link any property to another with a pick whip
+- Expressions — drive a property from another with live formulas
+- Parent a Motion layer to another so it inherits the transform
+- Motion Library — save a clip's animation and reuse it anywhere in the project
+- Split Position into X and Y to animate each independently
+- Procedural motion now shows as bands on the timeline
+- Drag text motion timing directly on the timeline
+- Edit spatial effects like power windows on the canvas
+
+### Fixed
+- Reversed clips no longer show mismatched captions or seek to the wrong frame
+- Transitions clamp correctly when trimming footage at a different frame rate
+- Preview holds the current frame instead of flashing while scrubbing and skimming
+
+## [2026.07.06] — week of 2026-07-06 to 2026-07-12
+
+### Added
+- Motion — a layered compositing workspace with layers, groups, and a graph editor
 - Lottie animations — import .json and .lottie files and play them on the timeline
 - Customize Lottie colors, themes, text, and value slots, with live preview
 - Browse and import free LottieFiles animations from inside the editor
+- Record a voiceover from your microphone, synced live to the timeline
+- Frame interpolation — generate 2×, 4×, or 8× smoother video
+- Upscale video 2× on your GPU
+- Silence removal reworked with a review step before you commit
+- Text and shape presets land on a new layer at the playhead
+- Unlabelled markers get automatic names, shown on hover in the ruler
+- Shift-click a section header to collapse or expand every properties section
 
 ### Fixed
 - Transcription shows real model-download progress instead of a frozen bar
@@ -25,9 +72,11 @@ All notable changes to FreeCut. Weekly CalVer: `YYYY.MM.DD` = the Monday of the 
 - Go To Start returns to the first frame after reopening a project
 
 ### Improved
+- Playback starts almost instantly instead of stalling on the first frame
 - Saving a project stays fast no matter how large your workspace grows
 - Projects open faster — thumbnails and media details load in parallel
 - Effects apply to the preview instantly, without a warm-up delay
+- Smoother timeline zooming, clip dragging, and marquee selection
 
 ## [2026.06.29] — week of 2026-06-29 to 2026-07-05
 
