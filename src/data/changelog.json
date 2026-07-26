@@ -1,68 +1,195 @@
 {
   "current": {
     "version": "current",
-    "date": "2026-07-09",
+    "date": "2026-07-26",
     "groups": {
       "added": [
         {
-          "title": "Shift-click a properties panel section header to collapse or expand every section at once"
+          "title": "Solid color and gradient layers in Motion"
         },
         {
-          "title": "Text and shape presets land on a new layer at the playhead"
+          "title": "Crop clips with handles directly on the canvas, including compound clips"
         },
         {
-          "title": "Unlabelled markers get automatic names, shown on hover in the ruler"
+          "title": "Promote any clip to a Motion Clip and open it in the Motion editor"
         },
         {
-          "title": "Record a voiceover from your microphone, synced live to the timeline"
+          "title": "Transform parenting with a pick whip, with invalid targets flagged as you drag"
         },
         {
-          "title": "Lottie animations — import .json and .lottie files and play them on the timeline"
+          "title": "Set composition in and out points, and trim a comp to that region"
         },
         {
-          "title": "Customize Lottie colors, themes, text, and value slots, with live preview"
+          "title": "Composition duration and timecode, switchable between frames and seconds"
         },
         {
-          "title": "Browse and import free LottieFiles animations from inside the editor"
+          "title": "Animate individual path vertices"
+        },
+        {
+          "title": "Filter the dopesheet to show only animated properties"
+        },
+        {
+          "title": "Jump between applied animations from the timeline"
+        },
+        {
+          "title": "Keyframes pushed outside a clip are flagged with one-click cleanup"
         }
       ],
       "fixed": [
         {
-          "title": "Transcription shows real model-download progress instead of a frozen bar"
+          "title": "A clear \"project not found\" screen with copyable details instead of a crash"
         },
         {
-          "title": "Timeline track heights are remembered when you reopen a project"
+          "title": "Captions keep their transcript boundaries when edited"
         },
         {
-          "title": "No more false \"new version available\" prompts while editing"
+          "title": "Playhead stays locked to the cursor during edge scrolling"
         },
         {
-          "title": "Fixed edge seams and shimmer on GPU effects in the preview"
-        },
-        {
-          "title": "Copied, generated, and imported media now save reliably to your workspace folder"
-        },
-        {
-          "title": "Missing media shows a relink prompt on the clip instead of failing silently"
-        },
-        {
-          "title": "Go To Start returns to the first frame after reopening a project"
+          "title": "Timeline scrubbing cancels cleanly when the window loses focus"
         }
       ],
       "improved": [
         {
-          "title": "Saving a project stays fast no matter how large your workspace grows"
+          "title": "Filmstrips and waveforms stay visible and smooth while zooming the timeline"
         },
         {
-          "title": "Projects open faster — thumbnails and media details load in parallel"
-        },
-        {
-          "title": "Effects apply to the preview instantly, without a warm-up delay"
+          "title": "The Motion dopesheet stays responsive with large layer stacks"
         }
       ]
     }
   },
   "releases": [
+    {
+      "version": "2026.07.13",
+      "date": "2026-07-13",
+      "groups": {
+        "added": [
+          {
+            "title": "Pen tool — draw and edit vector paths directly on the canvas"
+          },
+          {
+            "title": "Shape strokes with caps, joins, trim paths, and taper"
+          },
+          {
+            "title": "Link any property to another with a pick whip"
+          },
+          {
+            "title": "Expressions — drive a property from another with live formulas"
+          },
+          {
+            "title": "Parent a Motion layer to another so it inherits the transform"
+          },
+          {
+            "title": "Motion Library — save a clip's animation and reuse it anywhere in the project"
+          },
+          {
+            "title": "Split Position into X and Y to animate each independently"
+          },
+          {
+            "title": "Procedural motion now shows as bands on the timeline"
+          },
+          {
+            "title": "Drag text motion timing directly on the timeline"
+          },
+          {
+            "title": "Edit spatial effects like power windows on the canvas"
+          }
+        ],
+        "fixed": [
+          {
+            "title": "Reversed clips no longer show mismatched captions or seek to the wrong frame"
+          },
+          {
+            "title": "Transitions clamp correctly when trimming footage at a different frame rate"
+          },
+          {
+            "title": "Preview holds the current frame instead of flashing while scrubbing and skimming"
+          }
+        ]
+      }
+    },
+    {
+      "version": "2026.07.06",
+      "date": "2026-07-06",
+      "groups": {
+        "added": [
+          {
+            "title": "Motion — a layered compositing workspace with layers, groups, and a graph editor"
+          },
+          {
+            "title": "Lottie animations — import .json and .lottie files and play them on the timeline"
+          },
+          {
+            "title": "Customize Lottie colors, themes, text, and value slots, with live preview"
+          },
+          {
+            "title": "Browse and import free LottieFiles animations from inside the editor"
+          },
+          {
+            "title": "Record a voiceover from your microphone, synced live to the timeline"
+          },
+          {
+            "title": "Frame interpolation — generate 2×, 4×, or 8× smoother video"
+          },
+          {
+            "title": "Upscale video 2× on your GPU"
+          },
+          {
+            "title": "Silence removal reworked with a review step before you commit"
+          },
+          {
+            "title": "Text and shape presets land on a new layer at the playhead"
+          },
+          {
+            "title": "Unlabelled markers get automatic names, shown on hover in the ruler"
+          },
+          {
+            "title": "Shift-click a section header to collapse or expand every properties section"
+          }
+        ],
+        "fixed": [
+          {
+            "title": "Transcription shows real model-download progress instead of a frozen bar"
+          },
+          {
+            "title": "Timeline track heights are remembered when you reopen a project"
+          },
+          {
+            "title": "No more false \"new version available\" prompts while editing"
+          },
+          {
+            "title": "Fixed edge seams and shimmer on GPU effects in the preview"
+          },
+          {
+            "title": "Copied, generated, and imported media now save reliably to your workspace folder"
+          },
+          {
+            "title": "Missing media shows a relink prompt on the clip instead of failing silently"
+          },
+          {
+            "title": "Go To Start returns to the first frame after reopening a project"
+          }
+        ],
+        "improved": [
+          {
+            "title": "Playback starts almost instantly instead of stalling on the first frame"
+          },
+          {
+            "title": "Saving a project stays fast no matter how large your workspace grows"
+          },
+          {
+            "title": "Projects open faster — thumbnails and media details load in parallel"
+          },
+          {
+            "title": "Effects apply to the preview instantly, without a warm-up delay"
+          },
+          {
+            "title": "Smoother timeline zooming, clip dragging, and marquee selection"
+          }
+        ]
+      }
+    },
     {
       "version": "2026.06.29",
       "date": "2026-06-29",
