@@ -9,3 +9,7 @@ export {
   setCompositionDuration,
   trimCompositionToActiveRegion,
 } from './composition-duration-actions'
+export {
+  setCompositionCanvasSettings,
+  type CompositionCanvasSettingsUpdate,
+} from './composition-settings-actions'

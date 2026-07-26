@@ -6,6 +6,7 @@ import { ArrowLeftRight, RotateCcw, LayoutDashboard, Clock } from 'lucide-react'
 import { useProjectStore } from '@/features/editor/deps/projects'
 import { DEFAULT_PROJECT_HEIGHT, DEFAULT_PROJECT_WIDTH } from '@/shared/projects/defaults'
 import {
+  setCompositionCanvasSettings,
   setCompositionDuration,
   useCompositionNavigationStore,
   useCompositionsStore,
@@ -102,8 +103,8 @@ const ColorPicker = memo(function ColorPicker({
 })
 
 /**
- * Canvas properties panel - shown when no clip is selected.
- * Displays and allows editing of canvas dimensions and shows project duration.
+ * No-selection canvas inspector. In a layer composition it authors that
+ * composition's independent canvas; at the root it authors project metadata.
  */
 export const CanvasPanel = memo(function CanvasPanel() {
   const { t } = useTranslation()
@@ -118,6 +119,8 @@ export const CanvasPanel = memo(function CanvasPanel() {
   const activeComposition = useCompositionsStore((s) =>
     activeCompositionId ? s.compositionById[activeCompositionId] : undefined,
   )
+  const isLayerComposition = activeComposition?.editorKind === 'composite-2d'
+  const markerCount = useTimelineStore((s) => s.markers.length)
 
   // Derived selector: only returns the computed duration, not the full items array
   // This prevents re-renders when items change but duration stays the same
@@ -128,9 +131,14 @@ export const CanvasPanel = memo(function CanvasPanel() {
   )
 
   // All handlers must be defined before any early returns (Rules of Hooks)
-  const width = currentProject?.metadata.width ?? DEFAULT_PROJECT_WIDTH
-  const height = currentProject?.metadata.height ?? DEFAULT_PROJECT_HEIGHT
-  const storedBackgroundColor = currentProject?.metadata.backgroundColor ?? '#000000'
+  const projectWidth = currentProject?.metadata.width ?? DEFAULT_PROJECT_WIDTH
+  const projectHeight = currentProject?.metadata.height ?? DEFAULT_PROJECT_HEIGHT
+  const projectBackgroundColor = currentProject?.metadata.backgroundColor ?? '#000000'
+  const width = isLayerComposition ? activeComposition.width : projectWidth
+  const height = isLayerComposition ? activeComposition.height : projectHeight
+  const storedBackgroundColor = isLayerComposition
+    ? (activeComposition.backgroundColor ?? '#000000')
+    : projectBackgroundColor
 
   const applyProjectMetadataChange = useCallback(
     async (
@@ -161,26 +169,38 @@ export const CanvasPanel = memo(function CanvasPanel() {
   const handleWidthChange = useCallback(
     (newWidth: number) => {
       const normalizedWidth = Math.round(newWidth / 2) * 2
+      if (isLayerComposition && activeCompositionId) {
+        setCompositionCanvasSettings(activeCompositionId, { width: normalizedWidth })
+        return
+      }
       void applyProjectMetadataChange(
         { width: normalizedWidth },
         { type: 'UPDATE_PROJECT_METADATA', payload: { fields: ['width'] } },
       )
     },
-    [applyProjectMetadataChange],
+    [activeCompositionId, applyProjectMetadataChange, isLayerComposition],
   )
 
   const handleHeightChange = useCallback(
     (newHeight: number) => {
       const normalizedHeight = Math.round(newHeight / 2) * 2
+      if (isLayerComposition && activeCompositionId) {
+        setCompositionCanvasSettings(activeCompositionId, { height: normalizedHeight })
+        return
+      }
       void applyProjectMetadataChange(
         { height: normalizedHeight },
         { type: 'UPDATE_PROJECT_METADATA', payload: { fields: ['height'] } },
       )
     },
-    [applyProjectMetadataChange],
+    [activeCompositionId, applyProjectMetadataChange, isLayerComposition],
   )
 
   const handleSwapDimensions = useCallback(() => {
+    if (isLayerComposition && activeCompositionId) {
+      setCompositionCanvasSettings(activeCompositionId, { width: height, height: width })
+      return
+    }
     void applyProjectMetadataChange(
       { width: height, height: width },
       {
@@ -188,9 +208,16 @@ export const CanvasPanel = memo(function CanvasPanel() {
         payload: { fields: ['width', 'height'], operation: 'swap' },
       },
     )
-  }, [applyProjectMetadataChange, height, width])
+  }, [activeCompositionId, applyProjectMetadataChange, height, isLayerComposition, width])
 
   const handleResetDimensions = useCallback(() => {
+    if (isLayerComposition && activeCompositionId) {
+      setCompositionCanvasSettings(activeCompositionId, {
+        width: projectWidth,
+        height: projectHeight,
+      })
+      return
+    }
     void applyProjectMetadataChange(
       { width: 1920, height: 1080 },
       {
@@ -198,17 +225,27 @@ export const CanvasPanel = memo(function CanvasPanel() {
         payload: { fields: ['width', 'height'], operation: 'reset' },
       },
     )
-  }, [applyProjectMetadataChange])
+  }, [
+    activeCompositionId,
+    applyProjectMetadataChange,
+    isLayerComposition,
+    projectHeight,
+    projectWidth,
+  ])
 
   // Commit background color to store on release
   const handleBackgroundColorChange = useCallback(
     (color: string) => {
+      if (isLayerComposition && activeCompositionId) {
+        setCompositionCanvasSettings(activeCompositionId, { backgroundColor: color })
+        return
+      }
       void applyProjectMetadataChange(
         { backgroundColor: color },
         { type: 'UPDATE_PROJECT_METADATA', payload: { fields: ['backgroundColor'] } },
       )
     },
-    [applyProjectMetadataChange],
+    [activeCompositionId, applyProjectMetadataChange, isLayerComposition],
   )
 
   // The duration field accepts either unit; the stored value is always frames.
@@ -231,7 +268,12 @@ export const CanvasPanel = memo(function CanvasPanel() {
 
   // Reset background color to black
   const handleResetBackgroundColor = useCallback(() => {
-    if (storedBackgroundColor === '#000000') return // Already default
+    const resetColor = isLayerComposition ? projectBackgroundColor : '#000000'
+    if (storedBackgroundColor === resetColor) return
+    if (isLayerComposition && activeCompositionId) {
+      setCompositionCanvasSettings(activeCompositionId, { backgroundColor: resetColor })
+      return
+    }
     void applyProjectMetadataChange(
       { backgroundColor: '#000000' },
       {
@@ -239,7 +281,13 @@ export const CanvasPanel = memo(function CanvasPanel() {
         payload: { fields: ['backgroundColor'], operation: 'reset' },
       },
     )
-  }, [applyProjectMetadataChange, storedBackgroundColor])
+  }, [
+    activeCompositionId,
+    applyProjectMetadataChange,
+    isLayerComposition,
+    projectBackgroundColor,
+    storedBackgroundColor,
+  ])
 
   if (!currentProject) {
     return (
@@ -251,9 +299,13 @@ export const CanvasPanel = memo(function CanvasPanel() {
 
   return (
     <div className="space-y-4">
-      {/* Canvas Section */}
+      {/* Project canvas in Edit; authored composition canvas in Motion. */}
       <PropertySection
-        title={t('editor.canvasPanel.canvas')}
+        title={
+          isLayerComposition
+            ? t('editor.canvasPanel.composition', { defaultValue: 'Composition' })
+            : t('editor.canvasPanel.canvas')
+        }
         icon={LayoutDashboard}
         defaultOpen={true}
       >
@@ -288,7 +340,9 @@ export const CanvasPanel = memo(function CanvasPanel() {
             onClick={handleResetDimensions}
           >
             <RotateCcw className="w-3 h-3 mr-1.5" />
-            {t('common.reset')}
+            {isLayerComposition
+              ? t('editor.canvasPanel.matchProject', { defaultValue: 'Match Project' })
+              : t('common.reset')}
           </Button>
         </div>
 
@@ -304,7 +358,13 @@ export const CanvasPanel = memo(function CanvasPanel() {
               size="icon"
               className="h-7 w-7 flex-shrink-0"
               onClick={handleResetBackgroundColor}
-              title={t('editor.canvasPanel.resetToBlack')}
+              title={
+                isLayerComposition
+                  ? t('editor.canvasPanel.matchProjectBackground', {
+                      defaultValue: 'Match project background',
+                    })
+                  : t('editor.canvasPanel.resetToBlack')
+              }
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </Button>
@@ -312,7 +372,7 @@ export const CanvasPanel = memo(function CanvasPanel() {
         </PropertyRow>
       </PropertySection>
 
-      <CompositionControlsAuthoringSection />
+      <CompositionControlsAuthoringSection defaultOpen={false} />
 
       <Separator />
 
@@ -392,10 +452,12 @@ export const CanvasPanel = memo(function CanvasPanel() {
         )}
       </PropertySection>
 
-      <Separator />
-
-      {/* Project markers — reachable here whenever nothing else is selected */}
-      <MarkerList />
+      {(!isLayerComposition || markerCount > 0) && (
+        <>
+          <Separator />
+          <MarkerList defaultOpen={!isLayerComposition} />
+        </>
+      )}
     </div>
   )
 })

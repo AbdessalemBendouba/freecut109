@@ -14,6 +14,7 @@ import {
   Crosshair,
   Film,
   Sparkles,
+  SlidersHorizontal,
   Volume2,
   Type,
   WandSparkles,
@@ -539,10 +540,15 @@ const ClipPanelCore = memo(function ClipPanelCore({
     const tabs: ClipInspectorTab[] = []
     if (showVideoTab) tabs.push('video')
     if (showSecondTab) tabs.push('audio')
-    if (showEffectsTab) tabs.push('effects')
-    if (showMotionTab) tabs.push('motion')
+    if (workspace === 'motion') {
+      if (showMotionTab) tabs.push('motion')
+      if (showEffectsTab) tabs.push('effects')
+    } else {
+      if (showEffectsTab) tabs.push('effects')
+      if (showMotionTab) tabs.push('motion')
+    }
     return tabs
-  }, [showMotionTab, showSecondTab, showEffectsTab, showVideoTab])
+  }, [showMotionTab, showSecondTab, showEffectsTab, showVideoTab, workspace])
 
   const fallbackTab = availableTabs[0] ?? 'video'
   const activeTab = availableTabs.includes(clipInspectorTab) ? clipInspectorTab : fallbackTab
@@ -567,10 +573,16 @@ const ClipPanelCore = memo(function ClipPanelCore({
     [setClipInspectorTab],
   )
 
-  // Per-tab label + icon. Animation is intentionally last so clip setup and
-  // effects precede timing/motion authoring; unavailable tabs are omitted.
+  // Per-tab label + icon. Motion presents base properties, animation authoring,
+  // then effects; Edit retains its media-first inspector ordering.
   const getTabMeta = (value: ClipInspectorTab): { label: string; icon: LucideIcon } => {
     if (value === 'video') {
+      if (workspace === 'motion') {
+        return {
+          label: t('editor.clipPanel.tabProperties', { defaultValue: 'Properties' }),
+          icon: SlidersHorizontal,
+        }
+      }
       if (isOnlyText) return { label: t('editor.clipPanel.tabText'), icon: Type }
       if (isOnlyShape) return { label: t('editor.clipPanel.tabShape'), icon: Shapes }
       if (isOnlyController) {
@@ -588,7 +600,7 @@ const ClipPanelCore = memo(function ClipPanelCore({
       return {
         label:
           workspace === 'motion'
-            ? t('toolbar.workspaces.motion')
+            ? t('editor.clipPanel.tabAnimate', { defaultValue: 'Animate' })
             : t('editor.clipPanel.tabAnimation'),
         icon: WandSparkles,
       }

@@ -43,8 +43,18 @@ describe('CompositionControlsAuthoringSection', () => {
   it('presents one purposeful expose action instead of an empty-state row', () => {
     render(<CompositionControlsAuthoringSection />)
 
-    expect(screen.getByText('Exposed properties')).toBeInTheDocument()
+    expect(screen.getByText('Published controls (0)')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Expose property' })).toBeEnabled()
     expect(screen.queryByText('No controls exposed yet.')).not.toBeInTheDocument()
+  })
+
+  it('can stay collapsed in the Motion composition inspector', () => {
+    render(<CompositionControlsAuthoringSection defaultOpen={false} />)
+
+    expect(screen.getByRole('button', { name: 'Published controls (0)' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    )
+    expect(screen.queryByRole('button', { name: 'Expose property' })).not.toBeInTheDocument()
   })
 })

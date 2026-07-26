@@ -134,7 +134,7 @@ const NULL_OBJECT: ControllerItem = {
 
 const TRANSFORM_REFERENCE = { x: 0, y: 0, width: 1920, height: 1080, rotation: 0 }
 
-function activateTab(name: 'Animation' | 'Audio' | 'Effects' | 'Motion' | 'Video') {
+function activateTab(name: 'Animate' | 'Animation' | 'Audio' | 'Effects' | 'Video') {
   const tab = screen.getByRole('tab', { name })
   fireEvent.mouseDown(tab, { button: 0, ctrlKey: false })
   fireEvent.focus(tab)
@@ -333,7 +333,18 @@ describe('ClipPanel inspector tabs', () => {
 
     render(<ClipPanel />)
 
-    activateTab('Motion')
+    expect(screen.getByRole('tab', { name: 'Properties' })).toHaveAttribute(
+      'data-state',
+      'active',
+    )
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Properties',
+      'Audio',
+      'Animate',
+      'Effects',
+    ])
+
+    activateTab('Animate')
 
     expect(await screen.findByTestId('motion-library-mock')).toHaveAttribute(
       'data-embedded',
@@ -428,7 +439,7 @@ describe('ClipPanel inspector tabs', () => {
     useEditorStore.setState({ workspace: 'motion' })
 
     render(<ClipPanel />)
-    activateTab('Motion')
+    activateTab('Animate')
 
     expect(screen.queryByText('Parenting')).not.toBeInTheDocument()
   })
