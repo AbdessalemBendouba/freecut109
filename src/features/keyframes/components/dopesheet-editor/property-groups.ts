@@ -1,5 +1,6 @@
 import {
   isEffectAnimatableProperty,
+  isPathVertexAnimatableProperty,
   parseEffectAnimatableProperty,
   type AnimatableProperty,
 } from '@/types/keyframe'
@@ -19,17 +20,27 @@ const PROPERTY_GROUP_DEFINITIONS: Array<{
   {
     id: 'transform',
     label: 'Transform',
-    properties: [
-      'x',
-      'y',
-      'width',
-      'height',
-      'anchorX',
-      'anchorY',
-      'rotation',
-      'opacity',
-      'cornerRadius',
-    ],
+    properties: ['x', 'y', 'width', 'height', 'anchorX', 'anchorY', 'rotation'],
+  },
+  {
+    id: 'composite',
+    label: 'Composite',
+    properties: ['opacity', 'cornerRadius'],
+  },
+  {
+    id: 'textTypography',
+    label: 'Text Typography',
+    properties: ['textStyleScale', 'fontSize', 'lineHeight'],
+  },
+  {
+    id: 'textBackground',
+    label: 'Text Background',
+    properties: ['textPadding', 'backgroundRadius'],
+  },
+  {
+    id: 'textAppearance',
+    label: 'Text Appearance',
+    properties: ['textShadowOffsetX', 'textShadowOffsetY', 'textShadowBlur', 'strokeWidth'],
   },
   {
     id: 'crop',
@@ -78,6 +89,17 @@ export function getPropertyAccordionGroups(
   }
 
   const otherProperties = properties.filter((property) => remaining.has(property))
+  const pathProperties = otherProperties.filter((property) =>
+    isPathVertexAnimatableProperty(property),
+  )
+  if (pathProperties.length > 0) {
+    groups.push({
+      id: 'pathGeometry',
+      label: 'Path Geometry',
+      properties: pathProperties,
+    })
+  }
+
   const effectProperties = otherProperties.filter((property) =>
     isEffectAnimatableProperty(property),
   )
@@ -90,7 +112,8 @@ export function getPropertyAccordionGroups(
   }
 
   const ungroupedProperties = otherProperties.filter(
-    (property) => !isEffectAnimatableProperty(property),
+    (property) =>
+      !isEffectAnimatableProperty(property) && !isPathVertexAnimatableProperty(property),
   )
   if (ungroupedProperties.length > 0) {
     groups.push({

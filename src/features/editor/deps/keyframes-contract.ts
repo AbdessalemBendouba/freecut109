@@ -19,6 +19,8 @@ export {
   type AutoKeyframeOperation,
 } from '@/features/keyframes/utils/auto-keyframe'
 export { getAnimatablePropertiesForItem } from '@/features/keyframes/utils/animatable-properties'
+export { getAnimatablePropertyBaseValue } from '@/features/keyframes/utils/animatable-property-base-value'
+export { hasPathVertexKeyframes } from '@/features/keyframes/utils/path-animatable-properties'
 export { getKeyframePropertyLabel } from '@/features/keyframes/utils/property-i18n'
 export {
   MOTION_PRESETS,

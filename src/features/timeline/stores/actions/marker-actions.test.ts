@@ -1,7 +1,9 @@
 // @vitest-environment node
 
-import { beforeEach, describe, expect, it } from 'vite-plus/test'
+import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test'
 import { makeTimelineTrack, makeTimelineVideoItem } from '../../test-helpers'
+import { useCompositionNavigationStore } from '../composition-navigation-store'
+import { useCompositionsStore } from '../compositions-store'
 import { useItemsStore } from '../items-store'
 import { useMarkersStore } from '../markers-store'
 import { useTimelineCommandStore } from '../timeline-command-store'
@@ -114,6 +116,55 @@ describe('marker actions', () => {
 
       expect(useMarkersStore.getState().inPoint).toBeNull()
       expect(useMarkersStore.getState().outPoint).toBeNull()
+    })
+
+    describe('inside a composition', () => {
+      function openComposition(durationInFrames: number, contentFrames: number) {
+        useCompositionsStore.getState().addComposition({
+          id: 'comp-range',
+          name: 'Motion title',
+          editorKind: 'composite-2d',
+          items: [
+            makeTimelineVideoItem({
+              id: 'layer',
+              trackId: 'comp-track-v1',
+              durationInFrames: contentFrames,
+              sourceEnd: contentFrames,
+              sourceDuration: 600,
+            }),
+          ],
+          tracks: [makeTimelineTrack({ id: 'comp-track-v1', name: 'V1', kind: 'video', order: 0 })],
+          transitions: [],
+          keyframes: [],
+          fps: 30,
+          width: 1920,
+          height: 1080,
+          durationInFrames,
+        })
+        useCompositionNavigationStore.getState().enterComposition('comp-range', 'Motion title')
+      }
+
+      afterEach(() => {
+        useCompositionNavigationStore.getState().resetToRoot()
+        useCompositionsStore.getState().setCompositions([])
+      })
+
+      it('allows the range to reach the comp canvas end past the last layer', () => {
+        openComposition(682, 400)
+
+        setOutPoint(682)
+
+        // Main's rule bounds by content extent, which would have clipped this to 400.
+        expect(useMarkersStore.getState().outPoint).toBe(682)
+      })
+
+      it('bounds the range by a short comp instead of the 10s Main floor', () => {
+        openComposition(120, 120)
+
+        setOutPoint(300)
+
+        expect(useMarkersStore.getState().outPoint).toBe(120)
+      })
     })
 
     it('setInOutPointsWithoutHistory writes without undo entry or dirty flag', () => {

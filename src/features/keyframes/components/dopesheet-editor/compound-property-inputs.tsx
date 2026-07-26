@@ -10,6 +10,7 @@ function AxisInput({
   value,
   unit,
   propertyLabel,
+  showAxisLabel,
   disabled,
   allowCreateOnBlur,
   onCommit,
@@ -24,6 +25,7 @@ function AxisInput({
   value: number
   unit: string
   propertyLabel: string
+  showAxisLabel: boolean
   disabled: boolean
   allowCreateOnBlur: boolean
   onCommit: (value: number, options: { allowCreate: boolean }) => boolean | void
@@ -67,7 +69,9 @@ function AxisInput({
         axis === 'y' ? 'border-l border-border/70' : ''
       }`}
     >
-      <span className="mr-1 text-muted-foreground">{axis.toUpperCase()}</span>
+      {showAxisLabel ? (
+        <span className="mr-1 text-muted-foreground">{axis.toUpperCase()}</span>
+      ) : null}
       <input
         ref={inputRef}
         aria-label={`${propertyLabel} ${axis.toUpperCase()}`}
@@ -172,6 +176,8 @@ export interface CompoundPropertyInputConfig {
   unit: string
   /** Vector2 property exposed by the row's Property Link pick whip. */
   linkProperty?: import('@/types/keyframe').VectorAnimatableProperty
+  /** Keeps axis semantics accessible while allowing compact Motion rows to omit visible X/Y. */
+  showAxisLabels?: boolean
   linked?: boolean
   disabled?: boolean
   allowCreateOnBlur?: boolean
@@ -234,6 +240,7 @@ function CompoundAxisInput({
       value={value}
       unit={config.unit}
       propertyLabel={config.label}
+      showAxisLabel={config.showAxisLabels ?? true}
       disabled={config.disabled ?? false}
       allowCreateOnBlur={config.allowCreateOnBlur ?? false}
       {...createCompoundAxisCallbacks(config, axis)}

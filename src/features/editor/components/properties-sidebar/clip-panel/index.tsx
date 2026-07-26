@@ -137,8 +137,13 @@ export const ClipPanel = memo(function ClipPanel() {
     snapshotBridge.getSnapshot,
     snapshotBridge.getSnapshot,
   )
+  const selectionKey = selectedItemIds.join('\u001f')
 
-  return <DeferredClipPanel snapshot={snapshot} />
+  // A new selection must replace the inspector synchronously. Reusing the
+  // deferred boundary here can leave its controls one selection behind while
+  // playback keeps higher-priority preview work active. Remounting only when
+  // the selected IDs change preserves deferred same-item store updates.
+  return <DeferredClipPanel key={selectionKey} snapshot={snapshot} />
 })
 
 interface ClipPanelSnapshot {
@@ -170,10 +175,7 @@ function areItemListsReferentiallyEqual(
   previous: readonly TimelineItem[],
   next: readonly TimelineItem[],
 ): boolean {
-  return (
-    previous.length === next.length &&
-    previous.every((item, index) => item === next[index])
-  )
+  return previous.length === next.length && previous.every((item, index) => item === next[index])
 }
 
 function areRecordsEqualExceptKeys(
@@ -225,10 +227,7 @@ function isTranslateOnlyItemListChange(
       return { valid: false, changed: false }
     }
     if (previousItem === nextItem) continue
-    if (
-      previousItem.id !== activeItemId ||
-      !isTranslateOnlyItemChange(previousItem, nextItem)
-    ) {
+    if (previousItem.id !== activeItemId || !isTranslateOnlyItemChange(previousItem, nextItem)) {
       return { valid: false, changed: false }
     }
     changed = true
@@ -318,11 +317,7 @@ function createClipPanelSnapshotBridge(selectedIds: readonly string[]): {
     const shouldRetain =
       translateInteraction !== null &&
       translateInteraction.interactionId !== lastRetainedTranslateInteractionId &&
-      isTranslateOnlySnapshotChange(
-        observedSnapshot,
-        nextObserved,
-        translateInteraction.itemId,
-      )
+      isTranslateOnlySnapshotChange(observedSnapshot, nextObserved, translateInteraction.itemId)
 
     observedSnapshot = nextObserved
     if (shouldRetain) {

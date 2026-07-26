@@ -88,10 +88,17 @@ export function getExportableSequence(sequenceId: string | null): ExportableSequ
   const playback = usePlaybackStore.getState()
   const markersState = useMarkersStore.getState()
   const isActiveTab = sequenceId === activeTabId
+  // The markers store holds the range of whatever timeline is *loaded* — the
+  // deepest drill level, which is not the tab root once you drill into a comp.
+  // Keying this on the tab id reported a drilled-into comp's range as Main's,
+  // and read a stale registry range for the comp actually being edited (the one
+  // the Motion IO lane writes to). Ancestors are safe to read from the registry:
+  // `enterComposition` flushes the parent before loading a child.
+  const holdsLiveRange = sequenceId === nav.activeCompositionId
 
   // Markers + in/out are per-sequence timeline data now, swapped like clips: the
-  // live markers store holds the active tab's; the rest live in mainHolder (Main
-  // held aside) or the composition registry.
+  // live markers store holds the loaded timeline's; the rest live in mainHolder
+  // (Main held aside) or the composition registry.
   const range = (
     held:
       | {
@@ -102,7 +109,7 @@ export function getExportableSequence(sequenceId: string | null): ExportableSequ
       | null
       | undefined,
   ) =>
-    isActiveTab
+    holdsLiveRange
       ? {
           markers: markersState.markers,
           inPoint: markersState.inPoint,

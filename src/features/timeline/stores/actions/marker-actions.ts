@@ -3,17 +3,11 @@
  */
 
 import type { ProjectMarker } from '@/types/timeline'
-import { useItemsStore } from '../items-store'
 import { useMarkersStore } from '../markers-store'
 import { useTimelineSettingsStore } from '../timeline-settings-store'
+import { getActiveInOutMaxFrame } from '../in-out-bound'
 import { execute } from './shared'
-import { getEffectiveTimelineMaxFrame, sanitizeInOutPoints } from '../../utils/in-out-points'
-
-function getEffectiveMaxFrame(): number {
-  const items = useItemsStore.getState().items
-  const fps = useTimelineSettingsStore.getState().fps
-  return getEffectiveTimelineMaxFrame(items, fps)
-}
+import { sanitizeInOutPoints } from '../../utils/in-out-points'
 
 export function addMarker(frame: number, color?: string, label?: string): void {
   execute(
@@ -64,7 +58,7 @@ export function setInPoint(frame: number): void {
     'SET_IN_POINT',
     () => {
       const outPoint = useMarkersStore.getState().outPoint
-      const maxFrame = getEffectiveMaxFrame()
+      const maxFrame = getActiveInOutMaxFrame()
 
       // Validate: inPoint must be >= 0 and <= maxFrame
       const validatedFrame = Math.max(0, Math.min(frame, maxFrame))
@@ -91,7 +85,7 @@ export function setOutPoint(frame: number): void {
     'SET_OUT_POINT',
     () => {
       const inPoint = useMarkersStore.getState().inPoint
-      const maxFrame = getEffectiveMaxFrame()
+      const maxFrame = getActiveInOutMaxFrame()
 
       // Validate: outPoint must be >= 1 and <= maxFrame
       const validatedFrame = Math.max(1, Math.min(frame, maxFrame))
@@ -133,7 +127,7 @@ export function setInOutPointsWithoutHistory(
   const sanitized = sanitizeInOutPoints({
     inPoint,
     outPoint,
-    maxFrame: getEffectiveMaxFrame(),
+    maxFrame: getActiveInOutMaxFrame(),
   })
   useMarkersStore.getState().setInOutPoints(sanitized.inPoint, sanitized.outPoint)
 }

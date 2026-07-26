@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { i18n } from '@/i18n'
+import { toast } from 'sonner'
 import {
   Shapes,
   ChevronUp,
@@ -18,8 +19,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { ShapeItem, ShapeType, TimelineItem } from '@/types/timeline'
-import { useTimelineStore } from '@/features/editor/deps/timeline-store'
+import {
+  useKeyframesStore,
+  useTimelineStore,
+} from '@/features/editor/deps/timeline-store'
 import { useGizmoStore, useMaskEditorStore } from '@/features/editor/deps/preview'
+import { hasPathVertexKeyframes } from '@/features/editor/deps/keyframes'
 import {
   PropertySection,
   PropertyRow,
@@ -199,6 +204,10 @@ export function ShapeSection({ items }: ShapeSectionProps) {
   const showInnerRadius = sharedValues?.shapeType === 'star'
   const singlePathShape =
     shapeItems.length === 1 && shapeItems[0]?.shapeType === 'path' ? shapeItems[0] : null
+  const singlePathKeyframes = useKeyframesStore((state) =>
+    singlePathShape ? state.keyframesByItemId[singlePathShape.id] : undefined,
+  )
+  const pathTopologyLocked = hasPathVertexKeyframes(singlePathKeyframes)
   const isEditingPathShape =
     !!singlePathShape && isEditing && !penMode && editingItemId === singlePathShape.id
   const controlVisibility = getShapeSectionControlVisibility(shapeItems)
@@ -340,24 +349,36 @@ export function ShapeSection({ items }: ShapeSectionProps) {
     (closed: boolean) => {
       if (!closed && singlePathShape?.isMask) return
       if (!singlePathShape) return
+      if (pathTopologyLocked) {
+        toast.error('Path topology cannot change while Path Geometry has keyframes.')
+        return
+      }
       updateItem(singlePathShape.id, getPathClosureUpdates(singlePathShape, closed))
     },
-    [singlePathShape, updateItem],
+    [pathTopologyLocked, singlePathShape, updateItem],
   )
 
   const handleReversePath = useCallback(() => {
     if (!singlePathShape?.pathVertices) return
+    if (pathTopologyLocked) {
+      toast.error('Path vertex order cannot change while Path Geometry has keyframes.')
+      return
+    }
     updateItem(singlePathShape.id, {
       pathVertices: reversePathVertices(singlePathShape.pathVertices),
     })
-  }, [singlePathShape, updateItem])
+  }, [pathTopologyLocked, singlePathShape, updateItem])
 
   const handleSetFirstVertex = useCallback(() => {
     if (!singlePathShape?.pathVertices || selectedVertexIndex === null) return
+    if (pathTopologyLocked) {
+      toast.error('The first vertex cannot change while Path Geometry has keyframes.')
+      return
+    }
     updateItem(singlePathShape.id, {
       pathVertices: rotateClosedPathStart(singlePathShape.pathVertices, selectedVertexIndex),
     })
-  }, [selectedVertexIndex, singlePathShape, updateItem])
+  }, [pathTopologyLocked, selectedVertexIndex, singlePathShape, updateItem])
 
   // Corner radius handlers with live preview
   const handleCornerRadiusLiveChange = useCallback(

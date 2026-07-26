@@ -3,6 +3,7 @@ import { MAX_PACKED_RGB, MIN_PACKED_RGB } from '@/features/keyframes/utils/color
 import {
   isBuiltInAnimatableProperty,
   parseEffectAnimatableProperty,
+  parsePathVertexAnimatableProperty,
   type AnimatableProperty,
   type BuiltInAnimatableProperty,
 } from '@/types/keyframe'
@@ -77,15 +78,27 @@ function inferUnit(label: string): string {
   return ''
 }
 
-function getPropertyValueRange(property: AnimatableProperty): PropertyValueRange | null {
-  if (isBuiltInAnimatableProperty(property)) {
-    return BUILT_IN_PROPERTY_VALUE_RANGES[property]
+function getPathPropertyValueRange(
+  property: AnimatableProperty,
+): PropertyValueRange | null {
+  const pathVertex = parsePathVertexAnimatableProperty(property)
+  if (!pathVertex) return null
+  const isPosition =
+    pathVertex.component === 'positionX' || pathVertex.component === 'positionY'
+  return {
+    property,
+    min: isPosition ? 0 : -2,
+    max: isPosition ? 1 : 2,
+    unit: '',
+    decimals: 3,
   }
+}
 
+function getEffectPropertyValueRange(
+  property: AnimatableProperty,
+): PropertyValueRange | null {
   const parsed = parseEffectAnimatableProperty(property)
-  if (!parsed) {
-    return null
-  }
+  if (!parsed) return null
 
   const definition = getGpuEffect(parsed.gpuEffectType)
   const param = definition?.params[parsed.paramKey]
@@ -114,6 +127,13 @@ function getPropertyValueRange(property: AnimatableProperty): PropertyValueRange
     unit: inferUnit(param.label),
     decimals: getDecimalsFromStep(param.step),
   }
+}
+
+function getPropertyValueRange(property: AnimatableProperty): PropertyValueRange | null {
+  if (isBuiltInAnimatableProperty(property)) {
+    return BUILT_IN_PROPERTY_VALUE_RANGES[property]
+  }
+  return getPathPropertyValueRange(property) ?? getEffectPropertyValueRange(property)
 }
 
 export const PROPERTY_VALUE_RANGES = new Proxy<Record<string, PropertyValueRange>>(

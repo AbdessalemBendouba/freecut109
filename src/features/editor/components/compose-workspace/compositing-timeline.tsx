@@ -1,6 +1,5 @@
 import {
   memo,
-  startTransition,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -20,23 +19,32 @@ import type { TFunction } from 'i18next'
 import {
   ChevronDown,
   ChevronRight,
+  Captions,
   ClipboardPaste,
   Copy,
+  Crop,
   CopyPlus,
   Crosshair,
   EllipsisVertical,
   Eye,
   EyeOff,
   Group,
+  Image as ImageIcon,
+  Layers,
   Lock,
+  Maximize2,
+  Music,
   Plus,
   Pencil,
   Spline,
   Square,
+  Sticker,
   Type,
   Trash2,
   Ungroup,
   Unlock,
+  Video,
+  type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/shared/ui/cn'
 import { useRafDeferredValue } from '@/shared/hooks/use-raf-deferred-value'
@@ -100,6 +108,7 @@ import {
   captureSnapshot,
   CompactNavigator,
   getKeyframeNavigatorThumbMetrics,
+  getNiceTickStep,
   createTimelineTemplateItem,
   createDefaultControllerItem,
   createDefaultShapeItem,
@@ -109,9 +118,9 @@ import {
   PropertyLinkPickWhipOverlay,
   duplicateItemsWithTrackChanges,
   getAnimatablePropertiesForItem,
-  getEffectPropertyBaseValue,
   getProceduralBands,
   getPropertyAccordionGroups,
+  getPropertyDisplayGroups,
   getShapeAnimatableBaseValue,
   getDroppedMediaDurationInFrames,
   isTimelineTemplateDragData,
@@ -121,6 +130,7 @@ import {
   resolveExpressionReferenceValue,
   GROUP_HEADER_HEIGHT,
   KEYFRAME_EDGE_INSET,
+  KEYFRAME_DIAMOND_RENDERED_WIDTH_PX,
   moveItems,
   openComposition,
   removeKeyframes,
@@ -152,8 +162,10 @@ import {
   usePropertyLinkPickWhip,
   wouldCreateCompositionCycle,
 } from '@/features/editor/deps/timeline-motion'
+import { getAnimatablePropertyBaseValue } from '@/features/editor/deps/keyframes'
 import {
   useGizmoStore,
+  useMaskEditorStore,
   type ItemPreview,
 } from '@/features/editor/deps/preview'
 import {
@@ -161,14 +173,14 @@ import {
   resolveItemTransformAtFrame,
   resolveTransform,
 } from '@/features/editor/deps/composition-runtime'
-import {
-  worldToLocalTransform,
-} from '@/shared/utils/transform-parenting'
+import { worldToLocalTransform } from '@/shared/utils/transform-parenting'
 import { getLinkedAudioCompanion } from '@/shared/utils/linked-media'
 import {
   beginTextMotionEdit,
   commitTextMotionEdit,
+  trimCompositionToActiveRegion,
   updateTextMotionLive,
+  useTimelineStore,
 } from '@/features/editor/deps/timeline-store'
 import {
   clearMediaDragData,
@@ -206,13 +218,17 @@ import {
   shouldUseMotionVectorRow,
   toMotionVectorProxyKeyframes,
 } from './motion-vector-rows'
+import { MotionIoLane, MOTION_IO_LANE_HEIGHT } from './motion-io-lane'
+import { MotionActiveRegionOverlay, MotionCompEndRulerDim } from './motion-region-overlay'
+import { getVisibleMotionPathProperties } from './motion-path-property-visibility'
 
 const LAYER_COLUMN_WIDTH = 620
-const LAYER_PARENT_COLUMN_WIDTH = 172
-const LAYER_TIMING_COLUMN_WIDTH = 142
+const LAYER_PARENT_COLUMN_WIDTH = 148
+const LAYER_TIMING_COLUMN_WIDTH = 128
 const LAYER_MODE_COLUMN_WIDTH = 100
 const TIMELINE_CONTENT_LEFT = LAYER_COLUMN_WIDTH + 1
-const RULER_HEIGHT = 28
+// Tick labels on top, the in/out render-range lane along the bottom.
+const RULER_HEIGHT = 28 + MOTION_IO_LANE_HEIGHT
 const LAYER_ROW_HEIGHT = 34
 const RULER_DIVISIONS = 10
 const PLAYHEAD_EDGE_SCROLL_ZONE_PX = 48
@@ -396,6 +412,7 @@ interface MotionViewportPreviewElement {
   usableWidth: number
   frame: number
   frameSpan: number | null
+  clampToSurface: boolean
   left: string
   width: string
   willChange: string
@@ -419,6 +436,7 @@ interface MotionViewportPreviewGrid {
   edgeInset: number
   usableWidth: number
   frames: number[]
+  framesAttribute: string
   cssText: string
   willChange: string
 }
@@ -620,7 +638,7 @@ interface MotionMiddlePanState {
   startClientY: number
   startScrollTop: number
 }
-const MOTION_INLINE_PROPERTY_GROUP_IDS = ['crop', 'audio', 'effects', 'other'] as const
+const MOTION_INLINE_PROPERTY_GROUP_IDS = ['crop', 'audio', 'effects'] as const
 const MOTION_GRAPH_INLINE_PROPERTY_GROUP_IDS = [
   'transform',
   ...MOTION_INLINE_PROPERTY_GROUP_IDS,
@@ -1414,6 +1432,7 @@ const MotionRowContextMenu = memo(function MotionRowContextMenu({
 interface MotionDopesheetLanesProps {
   item: TimelineItem
   itemById: Record<string, TimelineItem>
+  itemKeyframes: ItemKeyframes | undefined
   properties: AnimatableProperty[]
   compositionDurationInFrames: number
   fps: number
@@ -1480,6 +1499,7 @@ function areMotionDopesheetLanesPropsEqual(
     previous.onSetPropertyExpression === next.onSetPropertyExpression &&
     previous.onRemovePropertyExpression === next.onRemovePropertyExpression &&
     previous.itemById === next.itemById &&
+    previous.itemKeyframes === next.itemKeyframes &&
     previous.properties.length === next.properties.length &&
     previous.properties.every((property, index) => property === next.properties[index])
   )
@@ -1489,7 +1509,9 @@ function useNearMotionScrollViewport(
   rootRef: React.RefObject<HTMLDivElement | null>,
   enabled: boolean,
 ): boolean {
-  const [isNearScrollViewport, setIsNearScrollViewport] = useState(true)
+  const [isNearScrollViewport, setIsNearScrollViewport] = useState(
+    () => !enabled || typeof IntersectionObserver === 'undefined',
+  )
   useEffect(() => {
     if (!enabled) {
       setIsNearScrollViewport(true)
@@ -1498,9 +1520,11 @@ function useNearMotionScrollViewport(
     const node = rootRef.current
     if (!node || typeof IntersectionObserver === 'undefined') return
     const motionScrollRoot = node.closest('[data-testid="motion-layer-scroll-area"]')
+    let isIntersecting = true
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry) return
+        isIntersecting = entry.isIntersecting
         if (!entry.isIntersecting && node.contains(document.activeElement)) return
         setIsNearScrollViewport(entry.isIntersecting)
       },
@@ -1509,10 +1533,79 @@ function useNearMotionScrollViewport(
         rootMargin: '160px 0px',
       },
     )
+    const handleFocusOut = (event: FocusEvent) => {
+      if (isIntersecting || node.contains(event.relatedTarget as Node | null)) return
+      setIsNearScrollViewport(false)
+    }
     observer.observe(node)
-    return () => observer.disconnect()
+    node.addEventListener('focusout', handleFocusOut)
+    return () => {
+      observer.disconnect()
+      node.removeEventListener('focusout', handleFocusOut)
+    }
   }, [enabled, rootRef])
   return isNearScrollViewport
+}
+
+function getEstimatedMotionDopesheetLaneHeight({
+  item,
+  itemKeyframes,
+  properties,
+  propertyFilter,
+  expandedGroups,
+}: Pick<MotionDopesheetLanesProps, 'item' | 'itemKeyframes' | 'properties' | 'propertyFilter'> & {
+  expandedGroups?: Readonly<Record<string, boolean>>
+}): number {
+  const supportsVectorTransform = item.type !== 'audio' && item.type !== 'adjustment'
+  const hiddenPropertyRows = new Set<AnimatableProperty>(
+    supportsVectorTransform
+      ? MOTION_VECTOR_ROW_DEFINITIONS.filter(
+          (row) =>
+            properties.includes(row.primary) &&
+            properties.includes(row.secondary) &&
+            shouldUseMotionVectorRow(itemKeyframes, row),
+        ).map((row) => row.secondary)
+      : [],
+  )
+  const scalarKeyframesByProperty = new Map(
+    (itemKeyframes?.properties ?? []).map((entry) => [entry.property, entry.keyframes] as const),
+  )
+  const keyframesByProperty = Object.fromEntries(
+    properties.map((property) => [property, scalarKeyframesByProperty.get(property) ?? []]),
+  ) as Partial<Record<AnimatableProperty, Keyframe[]>>
+  const proceduralPropertyIds = new Set(
+    getProceduralBands(item.motionModifiers, item.durationInFrames, item.from).keys(),
+  )
+  const visibleProperties =
+    propertyFilter === 'keyframed'
+      ? properties.filter((property) =>
+          isMotionPropertyVisible(
+            property,
+            keyframesByProperty,
+            itemKeyframes,
+            proceduralPropertyIds,
+          ),
+        )
+      : properties
+  const renderedVisibleProperties = visibleProperties.filter(
+    (property) => !hiddenPropertyRows.has(property),
+  )
+  if (propertyFilter === 'keyframed' && renderedVisibleProperties.length === 0) return ROW_HEIGHT
+  const displayGroups = getPropertyDisplayGroups(renderedVisibleProperties)
+  const nonInlineGroups = displayGroups.filter(
+    (group) => !MOTION_INLINE_PROPERTY_GROUP_ID_SET.has(group.id),
+  )
+  const visiblePropertyCount = displayGroups.reduce(
+    (count, group) =>
+      MOTION_INLINE_PROPERTY_GROUP_ID_SET.has(group.id) || expandedGroups?.[group.id] !== false
+        ? count + group.properties.length
+        : count,
+    0,
+  )
+  return Math.max(
+    ROW_HEIGHT,
+    visiblePropertyCount * ROW_HEIGHT + nonInlineGroups.length * GROUP_HEADER_HEIGHT,
+  )
 }
 
 function getMotionDopesheetLaneHeight(
@@ -1520,14 +1613,6 @@ function getMotionDopesheetLaneHeight(
   laneContentHeight: number,
 ): number | undefined {
   return paneMode === 'lanes' ? Math.max(ROW_HEIGHT, laneContentHeight) : undefined
-}
-
-function shouldRenderMotionDopesheet(
-  paneWidth: number,
-  paneMode: 'lanes' | 'graph',
-  isNearScrollViewport: boolean,
-): boolean {
-  return paneWidth > 0 && (paneMode === 'graph' || isNearScrollViewport)
 }
 
 function withoutPropertyExpressions(itemKeyframes: ItemKeyframes | undefined) {
@@ -1565,6 +1650,40 @@ interface MotionPositionValueSource {
   getSnapshot: () => GizmoPositionPreview
 }
 
+interface MotionScaleValueSource {
+  subscribe: (listener: () => void) => () => void
+  getSnapshot: () => { x: number; y: number } | null
+  setSnapshot: (value: { x: number; y: number }) => void
+  clear: () => void
+}
+
+function useMotionScaleValueSource(): MotionScaleValueSource {
+  return useMemo(() => {
+    const listeners = new Set<() => void>()
+    let snapshot: { x: number; y: number } | null = null
+    const emit = () => {
+      for (const listener of listeners) listener()
+    }
+    return {
+      subscribe: (listener: () => void) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      getSnapshot: () => snapshot,
+      setSnapshot: (value: { x: number; y: number }) => {
+        if (snapshot?.x === value.x && snapshot.y === value.y) return
+        snapshot = value
+        emit()
+      },
+      clear: () => {
+        if (snapshot === null) return
+        snapshot = null
+        emit()
+      },
+    }
+  }, [])
+}
+
 interface MotionPositionValueContext {
   item: TimelineItem
   resolvedTransform: ResolvedTransform | null
@@ -1582,10 +1701,7 @@ function areMotionPositionsEqual(
 ): boolean {
   return (
     previous === next ||
-    (previous !== null &&
-      next !== null &&
-      previous.x === next.x &&
-      previous.y === next.y)
+    (previous !== null && next !== null && previous.x === next.x && previous.y === next.y)
   )
 }
 
@@ -1864,10 +1980,19 @@ function useMotionPropertySystems(params: {
   }
 }
 
+interface MotionDopesheetContentProps extends MotionDopesheetLanesProps {
+  initialExpandedGroups?: Readonly<Record<string, boolean>>
+  onExpandedGroupsChange?: (expandedGroups: Record<string, boolean>) => void
+  onRenderedHeightChange?: (height: number) => void
+}
+
 // This orchestration component coordinates independent memoized lane interactions.
+// It is mounted only by the near-viewport shell below so its store subscriptions
+// and property derivations never run for distant expanded rows.
 // fallow-ignore-next-line complexity
-const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
+const MotionDopesheetContent = memo(function MotionDopesheetContent({
   item,
+  itemKeyframes,
   properties,
   compositionDurationInFrames,
   fps,
@@ -1885,8 +2010,11 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   onRemovePropertyLink,
   onSetPropertyExpression,
   onRemovePropertyExpression,
+  initialExpandedGroups,
+  onExpandedGroupsChange,
+  onRenderedHeightChange,
   itemById,
-}: MotionDopesheetLanesProps) {
+}: MotionDopesheetContentProps) {
   const currentFrame = useSettledMotionFrame()
   const rootRef = useRef<HTMLDivElement>(null)
   const dragSnapshotRef = useRef<ReturnType<typeof captureSnapshot> | null>(null)
@@ -1895,10 +2023,6 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   const crossLayerPreviewFrameRef = useRef<number | null>(null)
   const [paneSize, setPaneSize] = useState({ width: 0, height: 0 })
   const [expressionDockHeight, setExpressionDockHeight] = useState(0)
-  const isNearScrollViewport = useNearMotionScrollViewport(rootRef, paneMode === 'lanes')
-  const itemKeyframes = useKeyframesStore(
-    useCallback((state) => state.keyframesByItemId[item.id], [item.id]),
-  )
   const allKeyframesByItemId = useKeyframesStore((state) => state.keyframesByItemId)
   const _updateKeyframe = useKeyframesStore((state) => state._updateKeyframe)
   const _updateKeyframes = useKeyframesStore((state) => state._updateKeyframes)
@@ -2096,6 +2220,10 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     vectorBaseTransform && vectorResolvedTransform
       ? getMotionVectorValue('position', vectorResolvedTransform, vectorBaseTransform)
       : null
+  const resolvedScaleValue =
+    vectorBaseTransform && vectorResolvedTransform
+      ? getMotionVectorValue('scale', vectorResolvedTransform, vectorBaseTransform)
+      : null
   const positionValueSource = useMotionPositionValueSource({
     item,
     resolvedTransform: vectorResolvedTransform,
@@ -2106,6 +2234,19 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     fps,
     currentFrame,
   })
+  const scaleValueSource = useMotionScaleValueSource()
+  const committedScaleValue = selectedVectorValues.get('scale') ?? resolvedScaleValue
+  useEffect(() => {
+    const preview = scaleValueSource.getSnapshot()
+    if (
+      preview &&
+      committedScaleValue &&
+      Math.abs(preview.x - committedScaleValue.x) < 0.001 &&
+      Math.abs(preview.y - committedScaleValue.y) < 0.001
+    ) {
+      scaleValueSource.clear()
+    }
+  }, [committedScaleValue, scaleValueSource])
   const resolveMotionVectorValueAtFrame = useCallback(
     (property: VectorAnimatableProperty, frame: number) => {
       if (!vectorBaseTransform) return null
@@ -2294,15 +2435,12 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   )
   const startPositionScrubPreview = useCallback(() => {
     if (positionScrubActiveRef.current) return
-    positionScrubPreviewRef.current =
-      useGizmoStore.getState().preview?.[item.id] ?? null
+    positionScrubPreviewRef.current = useGizmoStore.getState().preview?.[item.id] ?? null
     positionScrubActiveRef.current = true
   }, [item.id])
   const restorePositionScrubPreview = useCallback(() => {
     if (!positionScrubActiveRef.current) return
-    useGizmoStore
-      .getState()
-      .replaceItemPreview(item.id, positionScrubPreviewRef.current)
+    useGizmoStore.getState().replaceItemPreview(item.id, positionScrubPreviewRef.current)
     positionScrubPreviewRef.current = null
     positionScrubActiveRef.current = false
   }, [item.id])
@@ -2314,9 +2452,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         vectorResolvedTransform,
         vectorBaseTransform,
       )
-      queuePositionScrubPreview(
-        applyMotionVectorAxisValue('position', currentValue, axis, value),
-      )
+      queuePositionScrubPreview(applyMotionVectorAxisValue('position', currentValue, axis, value))
     },
     [
       applyMotionVectorAxisValue,
@@ -2329,12 +2465,65 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     cancelPositionScrubPreview()
     restorePositionScrubPreview()
   }, [cancelPositionScrubPreview, restorePositionScrubPreview])
+  const scaleScrubPreviewRef = useRef<ItemPreview | null>(null)
+  const scaleScrubActiveRef = useRef(false)
+  const {
+    queue: queueScaleScrubPreview,
+    flushNow: flushScaleScrubPreview,
+    cancel: cancelScaleScrubPreview,
+  } = useRafCoalescedValue(
+    useCallback(
+      (scale: { x: number; y: number }) => {
+        scaleValueSource.setSnapshot(scale)
+        if (!vectorBaseTransform) return
+        useGizmoStore.getState().setTransformPreview({
+          [item.id]: {
+            width: vectorBaseTransform.width * (scale.x / 100),
+            height: vectorBaseTransform.height * (scale.y / 100),
+          },
+        })
+      },
+      [item.id, scaleValueSource, vectorBaseTransform],
+    ),
+  )
+  const startScaleScrubPreview = useCallback(() => {
+    if (scaleScrubActiveRef.current) return
+    scaleScrubPreviewRef.current = useGizmoStore.getState().preview?.[item.id] ?? null
+    scaleScrubActiveRef.current = true
+  }, [item.id])
+  const restoreScaleScrubPreview = useCallback(() => {
+    if (!scaleScrubActiveRef.current) return
+    useGizmoStore.getState().replaceItemPreview(item.id, scaleScrubPreviewRef.current)
+    scaleScrubPreviewRef.current = null
+    scaleScrubActiveRef.current = false
+  }, [item.id])
+  const previewScaleScrub = useCallback(
+    (axis: 'x' | 'y', value: number) => {
+      if (!committedScaleValue) return
+      queueScaleScrubPreview(applyMotionVectorAxisValue('scale', committedScaleValue, axis, value))
+    },
+    [applyMotionVectorAxisValue, committedScaleValue, queueScaleScrubPreview],
+  )
+  const cancelScaleScrub = useCallback(() => {
+    cancelScaleScrubPreview()
+    restoreScaleScrubPreview()
+    scaleValueSource.clear()
+  }, [cancelScaleScrubPreview, restoreScaleScrubPreview, scaleValueSource])
   useEffect(
     () => () => {
       cancelPositionScrubPreview()
       restorePositionScrubPreview()
+      cancelScaleScrubPreview()
+      restoreScaleScrubPreview()
+      scaleValueSource.clear()
     },
-    [cancelPositionScrubPreview, restorePositionScrubPreview],
+    [
+      cancelPositionScrubPreview,
+      cancelScaleScrubPreview,
+      restorePositionScrubPreview,
+      restoreScaleScrubPreview,
+      scaleValueSource,
+    ],
   )
   const promoteMotionVectorProperty = useCallback(
     (
@@ -2441,6 +2630,20 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
       restorePositionScrubPreview,
     ],
   )
+  const finishScaleScrub = useCallback(
+    (axis: 'x' | 'y', value: number) => {
+      previewScaleScrub(axis, value)
+      flushScaleScrubPreview()
+      handleMotionVectorValueCommit('scale', axis, value, { allowCreate: true })
+      restoreScaleScrubPreview()
+    },
+    [
+      flushScaleScrubPreview,
+      handleMotionVectorValueCommit,
+      previewScaleScrub,
+      restoreScaleScrubPreview,
+    ],
+  )
   const compoundPropertyRows = useMemo(() => {
     if (!vectorBaseTransform || !vectorResolvedTransform || !vectorPreExpressionTransform) return {}
     return Object.fromEntries(
@@ -2462,8 +2665,14 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
               vectorBaseTransform,
             ),
             unit: row.unit,
+            showAxisLabels: row.property !== 'position' && row.property !== 'scale',
             linkProperty: row.property,
-            liveValueSource: row.property === 'position' ? positionValueSource : undefined,
+            liveValueSource:
+              row.property === 'position'
+                ? positionValueSource
+                : row.property === 'scale'
+                  ? scaleValueSource
+                  : undefined,
             ...(row.property === 'position'
               ? {
                   onScrubStart: startPositionScrubPreview,
@@ -2471,7 +2680,14 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
                   onScrubEnd: finishPositionScrub,
                   onScrubCancel: cancelPositionScrub,
                 }
-              : {}),
+              : row.property === 'scale'
+                ? {
+                    onScrubStart: startScaleScrubPreview,
+                    onScrubPreview: previewScaleScrub,
+                    onScrubEnd: finishScaleScrub,
+                    onScrubCancel: cancelScaleScrub,
+                  }
+                : {}),
             axisLink:
               row.property === 'scale'
                 ? {
@@ -2492,14 +2708,19 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     handleMotionVectorValueCommit,
     cancelPositionScrub,
     finishPositionScrub,
+    finishScaleScrub,
     item.id,
     item.transform,
     motionVectorRows,
     positionValueSource,
     previewPositionScrub,
+    previewScaleScrub,
+    cancelScaleScrub,
     scaleAxesLinked,
+    scaleValueSource,
     selectedVectorValues,
     startPositionScrubPreview,
+    startScaleScrubPreview,
     vectorBaseTransform,
     vectorPreExpressionTransform,
     vectorResolvedTransform,
@@ -2555,6 +2776,13 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
     reportedLaneContent?.structureKey === laneContentStructureKey
       ? reportedLaneContent.height
       : laneContentHeight
+  const renderedLaneHeight = getMotionDopesheetLaneHeight(
+    paneMode,
+    renderedLaneContentHeight + expressionDockHeight,
+  )
+  useLayoutEffect(() => {
+    if (renderedLaneHeight !== undefined) onRenderedHeightChange?.(renderedLaneHeight)
+  }, [onRenderedHeightChange, renderedLaneHeight])
   const handleLaneContentHeightChange = useCallback(
     (height: number) => {
       setReportedLaneContent((current) => {
@@ -2778,10 +3006,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         disabled && 'opacity-60',
       )}
       style={{
-        height: getMotionDopesheetLaneHeight(
-          paneMode,
-          renderedLaneContentHeight + expressionDockHeight,
-        ),
+        height: renderedLaneHeight,
       }}
       onPointerEnter={() => setKeyframeEditorShortcutScopeActive(true)}
       onPointerLeave={() => setKeyframeEditorShortcutScopeActive(false)}
@@ -2793,7 +3018,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
         }
       }}
     >
-      {shouldRenderMotionDopesheet(paneSize.width, paneMode, isNearScrollViewport) ? (
+      {paneSize.width > 0 ? (
         <DopesheetEditor
           itemId={item.id}
           motionModifiers={item.motionModifiers}
@@ -2825,6 +3050,8 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           onLaneContentHeightChange={
             paneMode === 'lanes' ? handleLaneContentHeightChange : undefined
           }
+          initialExpandedGroups={initialExpandedGroups}
+          onExpandedGroupsChange={onExpandedGroupsChange}
           propertyLinkSourceLabels={propertyLinkSourceLabels}
           onPropertyLinkPointerDown={propertyLinkHandlers.onPointerDown}
           onRemovePropertyLink={propertyLinkHandlers.onRemove}
@@ -2886,7 +3113,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
               interpolatePropertyValue(
                 keyframes,
                 propertyRelativeFrame,
-                getBasePropertyValue(item, property, canvas),
+                getAnimatablePropertyBaseValue(item, property, { ...canvas, fps }),
               ),
             )
           }}
@@ -2932,6 +3159,7 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
           visualizationMode={paneMode === 'graph' ? 'graph' : 'dopesheet'}
           presentation="lanes"
           propertyColumnWidth={paneMode === 'graph' ? 0 : LAYER_COLUMN_WIDTH}
+          timelineGridDivisions={paneMode === 'lanes' ? RULER_DIVISIONS : undefined}
           singleCurveMode
           selectedCurveVisibleExternally={paneMode === 'lanes' && inlineCurveProperty !== null}
           propertyFilter={propertyFilter}
@@ -2950,38 +3178,89 @@ const MotionDopesheetLanes = memo(function MotionDopesheetLanes({
   )
 }, areMotionDopesheetLanesPropsEqual)
 
+const MotionDopesheetLanes = memo(function MotionDopesheetLanes(props: MotionDopesheetLanesProps) {
+  const { item, itemKeyframes, properties, propertyFilter, paneMode = 'lanes' } = props
+  const shellRef = useRef<HTMLDivElement>(null)
+  const isNearScrollViewport = useNearMotionScrollViewport(shellRef, paneMode === 'lanes')
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
+  const estimatedHeight = useMemo(
+    () =>
+      getEstimatedMotionDopesheetLaneHeight({
+        item,
+        itemKeyframes,
+        properties,
+        propertyFilter,
+        expandedGroups,
+      }),
+    [expandedGroups, item, itemKeyframes, properties, propertyFilter],
+  )
+  const heightStructureKey = `${propertyFilter}:${properties.join('|')}:${estimatedHeight}`
+  const [reportedHeight, setReportedHeight] = useState<{
+    structureKey: string
+    height: number
+  } | null>(null)
+  const renderedHeight =
+    reportedHeight?.structureKey === heightStructureKey ? reportedHeight.height : estimatedHeight
+  const handleRenderedHeightChange = useCallback(
+    (height: number) => {
+      setReportedHeight((current) => {
+        if (current?.structureKey === heightStructureKey && current.height === height)
+          return current
+        return { structureKey: heightStructureKey, height }
+      })
+    },
+    [heightStructureKey],
+  )
+  const shouldRenderContent = paneMode === 'graph' || isNearScrollViewport
+
+  return (
+    <div
+      ref={shellRef}
+      data-testid={`motion-dopesheet-shell-${item.id}`}
+      data-motion-dopesheet-near-viewport={isNearScrollViewport ? 'true' : 'false'}
+      className={cn('w-full bg-background/35', paneMode === 'graph' && 'h-full')}
+      style={{ height: getMotionDopesheetLaneHeight(paneMode, renderedHeight) }}
+    >
+      {shouldRenderContent ? (
+        <MotionDopesheetContent
+          {...props}
+          initialExpandedGroups={expandedGroups}
+          onExpandedGroupsChange={setExpandedGroups}
+          onRenderedHeightChange={handleRenderedHeightChange}
+        />
+      ) : null}
+    </div>
+  )
+}, areMotionDopesheetLanesPropsEqual)
+
 function getItemProperties(item: TimelineItem): AnimatableProperty[] {
   return getAnimatablePropertiesForItem(item)
 }
 
-function getBasePropertyValue(
-  item: TimelineItem,
-  property: AnimatableProperty,
-  canvas: { width: number; height: number },
-): number {
-  if (property === 'volume') return item.volume ?? 0
-  if (property.startsWith('effect:')) return getEffectPropertyBaseValue(item, property) ?? 0
-  if (item.type === 'shape' && isShapeAnimatableProperty(property)) {
-    return getShapeAnimatableBaseValue(item, property)
-  }
-  const transform = item.transform
-  switch (property) {
-    case 'x':
-    case 'y':
-    case 'anchorX':
-    case 'anchorY':
-    case 'rotation':
-      return transform?.[property] ?? 0
-    case 'width':
-      return transform?.width ?? canvas.width
-    case 'height':
-      return transform?.height ?? canvas.height
-    case 'opacity':
-      return transform?.opacity ?? 1
-    case 'cornerRadius':
-      return transform?.cornerRadius ?? 0
+function getMotionLayerTypeIcon(itemType: TimelineItem['type']): LucideIcon {
+  switch (itemType) {
+    case 'video':
+      return Video
+    case 'audio':
+      return Music
+    case 'image':
+      return ImageIcon
+    case 'lottie':
+      return Sticker
+    case 'text':
+      return Type
+    case 'shape':
+      return Square
+    case 'adjustment':
+      return Layers
+    case 'controller':
+      return Crosshair
+    case 'composition':
+      return Layers
+    case 'subtitle':
+      return Captions
     default:
-      return 0
+      return itemType satisfies never
   }
 }
 
@@ -3024,7 +3303,10 @@ function buildMotionPropertyValues(params: {
           : interpolatePropertyValue(
               params.originalKeyframesByProperty[property] ?? [],
               params.relativeFrame,
-              getBasePropertyValue(params.item, property, params.canvas),
+              getAnimatablePropertyBaseValue(params.item, property, {
+                ...params.canvas,
+                fps: params.fps,
+              }),
             )
       return [property, selectedValue ?? value]
     }),
@@ -3105,11 +3387,14 @@ function normalizeMotionTimeViewport(
   return { startFrame, endFrame: startFrame + visibleFrames }
 }
 
-function getMotionTimelinePanDelta(event: WheelEvent): number | null {
-  if (event.ctrlKey || event.metaKey) return null
-  if (event.shiftKey) return event.deltaY || event.deltaX || null
-  if (event.deltaX === 0 || Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return null
-  return event.deltaX
+function getMotionTimelinePanGesture(
+  event: WheelEvent,
+  lockedAxis: 'x' | 'y' | null,
+): { axis: 'x' | 'y'; delta: number } | null {
+  if (event.ctrlKey || event.metaKey || event.altKey) return null
+  if (event.deltaX === 0 && event.deltaY === 0) return null
+  const axis = lockedAxis ?? (Math.abs(event.deltaX) > Math.abs(event.deltaY) ? 'x' : 'y')
+  return { axis, delta: axis === 'x' ? event.deltaX : event.deltaY }
 }
 
 function getMotionPlayheadEdgeScrollVelocity(
@@ -3156,10 +3441,14 @@ function zoomMotionTimeViewport(
   pivotRatio: number,
   zoomFactor: number,
   totalFrames: number,
+  minVisibleFrames = 1,
 ): MotionTimeViewport {
   const currentRange = Math.max(1, viewport.endFrame - viewport.startFrame)
   const pivotFrame = viewport.startFrame + pivotRatio * currentRange
-  const nextRange = Math.max(1, Math.min(totalFrames, Math.round(currentRange * zoomFactor)))
+  const nextRange = Math.max(
+    Math.min(totalFrames, Math.max(1, Math.round(minVisibleFrames))),
+    Math.min(totalFrames, Math.round(currentRange * zoomFactor)),
+  )
   return normalizeMotionTimeViewport(
     {
       startFrame: pivotFrame - pivotRatio * nextRange,
@@ -3234,10 +3523,7 @@ function isTranslateOnlyItemsSnapshotChange(
     const nextItem = next.items[index]
     if (!previousItem || !nextItem || previousItem.id !== nextItem.id) return false
     if (previousItem === nextItem) continue
-    if (
-      previousItem.id !== itemId ||
-      !isSameItemExceptPosition(previousItem, nextItem)
-    ) {
+    if (previousItem.id !== itemId || !isSameItemExceptPosition(previousItem, nextItem)) {
       return false
     }
     changedItemFound = true
@@ -3287,7 +3573,7 @@ const LayerFrameInput = memo(function LayerFrameInput({
 }: LayerFrameInputProps) {
   return (
     <label className="flex items-center gap-0.5 text-[8px] text-muted-foreground" title={ariaLabel}>
-      {label}
+      <span className="sr-only">{label}</span>
       <input
         key={value}
         type="number"
@@ -3399,6 +3685,23 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
   const wheelMotionViewportRef = useRef<MotionTimeViewport | null>(null)
   const wheelMotionViewportAnimationFrameRef = useRef<number | null>(null)
   const wheelMotionViewportCommitTimerRef = useRef<number | null>(null)
+  const wheelMotionPanAxisRef = useRef<'x' | 'y' | null>(null)
+  const [motionScrollbarWidth, setMotionScrollbarWidth] = useState(0)
+  const [allPathVertexItemIds, setAllPathVertexItemIds] = useState<Set<string>>(
+    () => new Set(),
+  )
+  const cancelQueuedMotionViewport = useCallback(() => {
+    if (wheelMotionViewportCommitTimerRef.current !== null) {
+      window.clearTimeout(wheelMotionViewportCommitTimerRef.current)
+      wheelMotionViewportCommitTimerRef.current = null
+    }
+    if (wheelMotionViewportAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(wheelMotionViewportAnimationFrameRef.current)
+      wheelMotionViewportAnimationFrameRef.current = null
+    }
+    wheelMotionViewportRef.current = null
+    wheelMotionPanAxisRef.current = null
+  }, [])
   const middlePanRef = useRef<MotionMiddlePanState | null>(null)
   const latestScrubFrameRef = useRef<number | null>(null)
   const scrubAnimationFrameRef = useRef<number | null>(null)
@@ -3426,6 +3729,12 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
   const selectedItemIds = useSelectionStore((state) => state.selectedItemIds)
   const selectItems = useSelectionStore((state) => state.selectItems)
   const selectedMotionKeyframes = useKeyframeSelectionStore((state) => state.selectedKeyframes)
+  const maskEditingItemId = useMaskEditorStore((state) =>
+    state.isEditing ? state.editingItemId : null,
+  )
+  const selectedPathVertexIndices = useMaskEditorStore(
+    (state) => state.selectedVertexIndices,
+  )
   const expandedLayerIds = useComposeUiStore(
     useCallback(
       (state) =>
@@ -3442,9 +3751,40 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
   const canPasteLayers = useClipboardStore((state) => (state.itemsClipboard?.items.length ?? 0) > 0)
 
   const isComposite = composition?.editorKind === 'composite-2d'
+  // The axis covers the comp *and* anything hanging past it; the comp's own end is
+  // tracked separately so the overhang can be marked as outside the comp (and is
+  // not what Zoom To Fit fits).
+  const compositionEndFrame = composition ? Math.max(1, composition.durationInFrames) : null
+  // Keep this a boolean selector so an I/O drag does not invalidate the whole
+  // timeline on every frame. A full-comp range stays visible/editable after a
+  // trim, but cannot be trimmed again.
+  const canTrimToActiveRegion = useTimelineStore(
+    useCallback(
+      (state) => {
+        const currentComposition = activeCompositionId
+          ? useCompositionsStore.getState().getComposition(activeCompositionId)
+          : null
+        const currentCompositionEndFrame = currentComposition
+          ? Math.max(1, currentComposition.durationInFrames)
+          : compositionEndFrame
+        return (
+          isComposite &&
+          state.inPoint !== null &&
+          state.outPoint !== null &&
+          state.outPoint > state.inPoint &&
+          !(
+            state.inPoint === 0 &&
+            currentCompositionEndFrame !== null &&
+            state.outPoint === currentCompositionEndFrame
+          )
+        )
+      },
+      [activeCompositionId, compositionEndFrame, isComposite],
+    ),
+  )
   const durationInFrames = Math.max(
     1,
-    composition?.durationInFrames ?? 1,
+    compositionEndFrame ?? 1,
     ...items.map((item) => item.from + item.durationInFrames),
   )
   const fps = composition?.fps ?? 30
@@ -3470,8 +3810,8 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
     setTimeViewport((current) => normalizeMotionTimeViewport(current, durationInFrames))
   }, [activeCompositionId, durationInFrames])
   const updateTimeViewport = useCallback(
-    (viewport: MotionTimeViewport) => {
-      const normalized = normalizeMotionTimeViewport(viewport, durationInFrames)
+    (viewport: MotionTimeViewport, roundToFrames = true) => {
+      const normalized = normalizeMotionTimeViewport(viewport, durationInFrames, roundToFrames)
       timeViewportRef.current = normalized
       setTimeViewport((current) =>
         current.startFrame === normalized.startFrame && current.endFrame === normalized.endFrame
@@ -3484,7 +3824,10 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
   const clearMotionTimeViewportPreview = useCallback(() => {
     const preview = motionViewportPreviewRef.current
     if (!preview) return
-    for (const grid of preview.grids) grid.element.style.cssText = grid.cssText
+    for (const grid of preview.grids) {
+      grid.element.dataset.motionGridFrames = grid.framesAttribute
+      grid.element.style.cssText = grid.cssText
+    }
     for (const target of preview.elements) {
       target.element.style.left = target.left
       target.element.style.width = target.width
@@ -3539,6 +3882,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
         edgeInset,
         usableWidth,
         frames,
+        framesAttribute: element.dataset.motionGridFrames ?? '',
         cssText: element.style.cssText,
         willChange: element.style.willChange,
       })
@@ -3570,12 +3914,27 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
         const widthPx = hasInlineWidth
           ? resolveMotionInlinePixels(element.style.width, surfaceWidth, element.offsetWidth)
           : 0
+        const semanticRangeFromFrame = Number(element.dataset.fromFrame)
+        const semanticPointFrame = Number(element.dataset.dopesheetFrame)
+        const semanticFromFrame = Number.isFinite(semanticRangeFromFrame)
+          ? semanticRangeFromFrame
+          : semanticPointFrame
+        const semanticToFrame = Number(element.dataset.toFrame)
+        const hasSemanticFromFrame = Number.isFinite(semanticFromFrame)
+        const hasSemanticToFrame = Number.isFinite(semanticToFrame)
         elements.push({
           element,
           edgeInset,
           usableWidth,
-          frame: baseViewport.startFrame + ((leftPx - edgeInset) / usableWidth) * baseRange,
-          frameSpan: hasInlineWidth ? (widthPx / usableWidth) * baseRange : null,
+          frame: hasSemanticFromFrame
+            ? semanticFromFrame
+            : baseViewport.startFrame + ((leftPx - edgeInset) / usableWidth) * baseRange,
+          frameSpan: hasInlineWidth
+            ? hasSemanticFromFrame && hasSemanticToFrame
+              ? semanticToFrame - semanticFromFrame
+              : (widthPx / usableWidth) * baseRange
+            : null,
+          clampToSurface: element.hasAttribute('data-motion-viewport-clamp'),
           left: element.style.left,
           width: element.style.width,
           willChange: element.style.willChange,
@@ -3639,23 +3998,58 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
       const nextRange = Math.max(1, viewport.endFrame - viewport.startFrame)
 
       for (const grid of preview.grids) {
+        const sharedGridRoot = grid.element.closest<HTMLElement>(
+          '[data-motion-shared-grid-divisions]',
+        )
+        const sharedDivisionCount = Number(sharedGridRoot?.dataset.motionSharedGridDivisions)
+        const sharedBorderWidth = Math.max(
+          0,
+          Number(sharedGridRoot?.dataset.motionSharedGridBorderWidth) || 0,
+        )
+        const usesSharedGrid = Number.isFinite(sharedDivisionCount) && sharedDivisionCount > 0
+        const frames: number[] = []
+        if (usesSharedGrid) {
+          for (let index = 0; index <= sharedDivisionCount; index += 1) {
+            frames.push(viewport.startFrame + (index / sharedDivisionCount) * nextRange)
+          }
+        } else {
+          const tickStep = getNiceTickStep(nextRange)
+          const firstTick = Math.floor(viewport.startFrame / tickStep) * tickStep
+          for (let frame = firstTick; frame <= viewport.endFrame; frame += tickStep) {
+            frames.push(frame)
+          }
+        }
+        if (frames.length === 0) continue
+        const gridOrigin = usesSharedGrid ? -sharedBorderWidth : grid.edgeInset
+        const gridWidth = usesSharedGrid
+          ? grid.usableWidth + grid.edgeInset * 2 + sharedBorderWidth
+          : grid.usableWidth
         const firstX = Math.round(
-          grid.edgeInset + ((grid.frames[0]! - viewport.startFrame) / nextRange) * grid.usableWidth,
+          gridOrigin + ((frames[0]! - viewport.startFrame) / nextRange) * gridWidth,
         )
         const shadows: string[] = []
-        for (let index = 1; index < grid.frames.length; index += 1) {
+        for (let index = 1; index < frames.length; index += 1) {
           const x = Math.round(
-            grid.edgeInset +
-              ((grid.frames[index]! - viewport.startFrame) / nextRange) * grid.usableWidth,
+            gridOrigin + ((frames[index]! - viewport.startFrame) / nextRange) * gridWidth,
           )
           shadows.push(`${x - firstX}px 0 currentColor`)
         }
+        grid.element.dataset.motionGridFrames = frames.join(',')
         grid.element.style.cssText = `left: ${firstX}px; box-shadow: ${shadows.join(', ')}; will-change: left, box-shadow;`
       }
       for (const target of preview.elements) {
-        target.element.style.left = `${target.edgeInset + ((target.frame - viewport.startFrame) / nextRange) * target.usableWidth}px`
+        const rawLeft =
+          target.edgeInset +
+          ((target.frame - viewport.startFrame) / nextRange) * target.usableWidth
+        const clampX = (x: number) =>
+          Math.max(target.edgeInset, Math.min(target.edgeInset + target.usableWidth, x))
+        const left = target.clampToSurface ? clampX(rawLeft) : rawLeft
+        target.element.style.left = `${left}px`
         if (target.frameSpan !== null) {
-          target.element.style.width = `${(target.frameSpan / nextRange) * target.usableWidth}px`
+          const rawRight =
+            rawLeft + (target.frameSpan / nextRange) * target.usableWidth
+          const right = target.clampToSurface ? clampX(rawRight) : rawRight
+          target.element.style.width = `${Math.max(0, right - left)}px`
         }
       }
       if (preview.playhead) {
@@ -3697,12 +4091,41 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
     [clearMotionTimeViewportPreview, durationInFrames, fps, prepareMotionTimeViewportPreview],
   )
   const commitMotionTimeViewport = useCallback(
-    (viewport: MotionTimeViewport) => {
-      startTransition(() => updateTimeViewport(viewport))
+    (viewport: MotionTimeViewport, roundToFrames = true) => {
+      // Wheel preview is imperative and RAF-local. Settle synchronously so a
+      // following discrete mouse notch cannot be overwritten by an older
+      // deferred React viewport render.
+      flushSync(() => updateTimeViewport(viewport, roundToFrames))
       discardMotionTimeViewportPreview()
     },
     [discardMotionTimeViewportPreview, updateTimeViewport],
   )
+  const fitMotionTimeViewport = useCallback(() => {
+    cancelQueuedMotionViewport()
+    // Fit the active region when one is marked, else the comp itself — never the
+    // content overhang past the comp end, which does not render. Read in/out at
+    // click time so an IO drag doesn't re-render this whole timeline per frame.
+    const { inPoint, outPoint } = useTimelineStore.getState()
+    const fittedViewport =
+      inPoint !== null && outPoint !== null && outPoint > inPoint
+        ? { startFrame: inPoint, endFrame: outPoint }
+        : { startFrame: 0, endFrame: compositionEndFrame ?? durationInFrames }
+    previewMotionTimeViewport(fittedViewport)
+    commitMotionTimeViewport(fittedViewport)
+  }, [
+    cancelQueuedMotionViewport,
+    commitMotionTimeViewport,
+    compositionEndFrame,
+    durationInFrames,
+    previewMotionTimeViewport,
+  ])
+  const trimAndFitMotionTimeViewport = useCallback(() => {
+    if (!trimCompositionToActiveRegion()) return
+    // Trimming rebases I/O to 0..newDuration. Reuse the same fit path as the
+    // toolbar control so preview, navigator handoff and settled geometry stay
+    // identical without reacting to unrelated duration changes.
+    fitMotionTimeViewport()
+  }, [fitMotionTimeViewport])
   useEffect(() => clearMotionTimeViewportPreview, [clearMotionTimeViewportPreview])
   const queueMotionViewportUpdate = useCallback(
     (update: MotionViewportUpdate) => {
@@ -3716,7 +4139,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
           const pendingViewport = wheelMotionViewportRef.current
           if (pendingViewport) {
             previewMotionTimeViewport(
-              normalizeMotionTimeViewport(pendingViewport, durationInFrames),
+              normalizeMotionTimeViewport(pendingViewport, durationInFrames, false),
             )
           }
         })
@@ -3735,16 +4158,18 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
           const normalizedFinalViewport = normalizeMotionTimeViewport(
             finalViewport,
             durationInFrames,
+            false,
           )
           // A saturated main thread can let the settle timer win before the
           // final queued RAF. Paint that exact endpoint synchronously so the
           // deferred React render inherits identical diamond/grid geometry.
           previewMotionTimeViewport(normalizedFinalViewport)
           wheelMotionViewportRef.current = null
-          commitMotionTimeViewport(normalizedFinalViewport)
+          commitMotionTimeViewport(normalizedFinalViewport, false)
         } else {
           wheelMotionViewportRef.current = null
         }
+        wheelMotionPanAxisRef.current = null
       }, 100)
     },
     [
@@ -3755,29 +4180,22 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
     ],
   )
   const prepareNavigatorMotionTimeViewportPreview = useCallback(() => {
-    if (wheelMotionViewportCommitTimerRef.current !== null) {
-      window.clearTimeout(wheelMotionViewportCommitTimerRef.current)
-      wheelMotionViewportCommitTimerRef.current = null
-    }
-    if (wheelMotionViewportAnimationFrameRef.current !== null) {
-      cancelAnimationFrame(wheelMotionViewportAnimationFrameRef.current)
-      wheelMotionViewportAnimationFrameRef.current = null
-    }
-    wheelMotionViewportRef.current = null
+    cancelQueuedMotionViewport()
     prepareMotionTimeViewportPreview()
-  }, [prepareMotionTimeViewportPreview])
-  useEffect(
-    () => () => {
-      wheelMotionViewportRef.current = null
-      if (wheelMotionViewportAnimationFrameRef.current !== null) {
-        cancelAnimationFrame(wheelMotionViewportAnimationFrameRef.current)
-      }
-      if (wheelMotionViewportCommitTimerRef.current !== null) {
-        window.clearTimeout(wheelMotionViewportCommitTimerRef.current)
-      }
-    },
-    [],
-  )
+  }, [cancelQueuedMotionViewport, prepareMotionTimeViewportPreview])
+  useEffect(() => cancelQueuedMotionViewport, [cancelQueuedMotionViewport])
+  useLayoutEffect(() => {
+    const scrollArea = motionScrollAreaRef.current
+    if (!scrollArea) return
+    const updateScrollbarWidth = () => {
+      const nextWidth = Math.max(0, scrollArea.offsetWidth - scrollArea.clientWidth)
+      setMotionScrollbarWidth((current) => (current === nextWidth ? current : nextWidth))
+    }
+    updateScrollbarWidth()
+    const observer = new ResizeObserver(updateScrollbarWidth)
+    observer.observe(scrollArea)
+    return () => observer.disconnect()
+  }, [])
   const visibleFrameRange = Math.max(1, timeViewport.endFrame - timeViewport.startFrame)
   const frameToMotionPercent = useCallback(
     (frame: number) => ((frame - timeViewport.startFrame) / visibleFrameRange) * 100,
@@ -4104,6 +4522,18 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
       )
     },
     [items, tracks],
+  )
+
+  // Shift-clicking any row's lock icon applies that row's next state to every
+  // row — layers and layer groups alike — so "lock everything except this one"
+  // is two clicks. Groups are included so a header can't read unlocked while its
+  // children are locked; a locked group disables its children's buttons, so the
+  // group row is the way back out.
+  const setAllTracksLocked = useCallback(
+    (locked: boolean) => {
+      setTracks(tracks.map((track) => (track.locked === locked ? track : { ...track, locked })))
+    },
+    [tracks],
   )
 
   const selectLayer = useCallback(
@@ -4841,7 +5271,10 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
 
       const dropFrame = Math.max(
         0,
-        Math.min(durationInFrames - 1, usePlaybackStore.getState().currentFrame),
+        Math.min(
+          (compositionEndFrame ?? durationInFrames) - 1,
+          usePlaybackStore.getState().currentFrame,
+        ),
       )
       const candidate = payload as { type?: unknown; compositionId?: unknown }
       if (candidate.type === 'composition' && typeof candidate.compositionId === 'string') {
@@ -4932,7 +5365,16 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
       )
       selectItems(layers.map((entry) => entry.item.id))
     },
-    [composition, durationInFrames, fps, insertCompositionLayer, mediaItems, selectItems, t],
+    [
+      composition,
+      compositionEndFrame,
+      durationInFrames,
+      fps,
+      insertCompositionLayer,
+      mediaItems,
+      selectItems,
+      t,
+    ],
   )
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLElement>) => {
@@ -4960,12 +5402,15 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
       return Math.max(
         0,
         Math.min(
-          durationInFrames - 1,
+          // The playhead stays inside the comp, After Effects style — the axis may
+          // run past the comp end to show an overhanging layer, but there is no
+          // frame out there to sit on.
+          (compositionEndFrame ?? durationInFrames) - 1,
           Math.round(viewport.startFrame + ((clientX - rect.left) / rect.width) * frameRange),
         ),
       )
     },
-    [durationInFrames],
+    [compositionEndFrame, durationInFrames],
   )
 
   const runPlayheadScrubLoop = useCallback(
@@ -4979,19 +5424,40 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
 
       const rect = surface.getBoundingClientRect()
       const visibleRange = Math.max(1, viewport.endFrame - viewport.startFrame)
+      const autoEdgeEndFrame = compositionEndFrame ?? durationInFrames
       const velocity =
-        visibleRange < durationInFrames ? getMotionPlayheadEdgeScrollVelocity(clientX, rect) : 0
+        visibleRange < autoEdgeEndFrame
+          ? getMotionPlayheadEdgeScrollVelocity(clientX, rect)
+          : 0
       let keepScrolling = false
       if (velocity !== 0 && rect.width > 0) {
         const previousTimestamp = scrubAnimationTimeRef.current ?? timestamp - 1000 / 60
         const elapsedSeconds = Math.min(32, Math.max(0, timestamp - previousTimestamp)) / 1000
         scrubAnimationTimeRef.current = timestamp
-        const nextViewport = panMotionTimeViewport(
+        const pannedViewport = panMotionTimeViewport(
           viewport,
           velocity * elapsedSeconds,
           rect.width,
-          durationInFrames,
+          autoEdgeEndFrame,
         )
+        const boundaryVisibleRange =
+          Math.abs(visibleRange - Math.round(visibleRange)) < 1e-9
+            ? Math.round(visibleRange)
+            : visibleRange
+        // Preserve fractional motion inside the range, but canonicalize the
+        // terminal edge. Floating-point residue at 0/comp-end otherwise leaves
+        // the imperative preview a fraction away from the settled boundary.
+        const nextViewport =
+          velocity < 0 && pannedViewport.startFrame <= Number.EPSILON * autoEdgeEndFrame * 4
+            ? { startFrame: 0, endFrame: boundaryVisibleRange }
+            : velocity > 0 &&
+                autoEdgeEndFrame - pannedViewport.endFrame <=
+                  Number.EPSILON * autoEdgeEndFrame * 4
+              ? {
+                  startFrame: Math.max(0, autoEdgeEndFrame - boundaryVisibleRange),
+                  endFrame: autoEdgeEndFrame,
+                }
+              : pannedViewport
         if (
           nextViewport.startFrame !== viewport.startFrame ||
           nextViewport.endFrame !== viewport.endFrame
@@ -5021,42 +5487,77 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
         scrubAnimationFrameRef.current = requestAnimationFrame(runPlayheadScrubLoop)
       }
     },
-    [durationInFrames, frameFromClientX, previewMotionTimeViewport, setPreviewFrame],
+    [
+      compositionEndFrame,
+      durationInFrames,
+      frameFromClientX,
+      previewMotionTimeViewport,
+      setPreviewFrame,
+    ],
   )
 
   const handleMotionTimelineWheel = useCallback(
     (event: WheelEvent) => {
-      // Ordinary wheel input belongs to the native vertical layer/property
-      // scroller. Ctrl/Cmd zoom and Shift-pan are owned by the time viewport.
       const isZoomGesture = event.ctrlKey || event.metaKey
-      const panDelta = getMotionTimelinePanDelta(event)
-      if (!isZoomGesture && panDelta === null) return
+      const isVerticalScrollGesture = event.altKey && !isZoomGesture
+      const panGesture = getMotionTimelinePanGesture(event, wheelMotionPanAxisRef.current)
+      if (!isZoomGesture && !isVerticalScrollGesture && panGesture === null) return
       const scrollArea = motionScrollAreaRef.current
       if (!scrollArea) return
       const rect = scrollArea.getBoundingClientRect()
       const timelineLeft = rect.left + LAYER_COLUMN_WIDTH
-      if (event.clientX < timelineLeft) return
-      // The right pane owns wheel navigation. Consume it during capture so the
-      // vertically scrollable row container and nested dope sheets cannot also
-      // react to the same gesture.
+      const isTimelinePane = event.clientX >= timelineLeft
+      // The shared layer scroller must not receive ordinary wheel input from
+      // either pane. Consume during capture before nested property editors or
+      // native overflow scrolling can react to the same gesture.
       event.preventDefault()
       event.stopPropagation()
-      const timelineWidth = Math.max(1, rect.right - timelineLeft)
 
-      if (panDelta !== null) {
-        // Shift+wheel conventionally supplies its motion through deltaY, while
-        // trackpads send a dominant deltaX. Cross-axis noise stays vertical.
+      if (isVerticalScrollGesture) {
+        wheelMotionPanAxisRef.current = null
+        // Motion reserves Alt/Option+wheel (or the scrollbar) for deliberate
+        // vertical layer/property navigation while ordinary wheel owns time.
+        scrollArea.scrollTop += event.deltaY || event.deltaX
+        return
+      }
+
+      // Like Edit's non-scrollable track-header viewport, ordinary wheel over
+      // the layer column is safely consumed without creating a second pan.
+      if (!isTimelinePane) return
+
+      const measuredTimelineWidth = scrollArea.clientWidth - LAYER_COLUMN_WIDTH
+      const timelineWidth = Math.max(
+        1,
+        measuredTimelineWidth > 0 ? measuredTimelineWidth : rect.right - timelineLeft,
+      )
+      if (panGesture !== null) {
+        wheelMotionPanAxisRef.current = panGesture.axis
+        // Match Edit's timeline navigation ownership: a mouse wheel's deltaY
+        // and a trackpad's dominant deltaX both move only along the time axis.
+        // Lock that physical axis for the gesture so cross-axis noise cannot
+        // make the navigator thumb oscillate between deltas.
         queueMotionViewportUpdate((current) =>
-          panMotionTimeViewport(current, panDelta, timelineWidth, durationInFrames),
+          panMotionTimeViewport(current, panGesture.delta, timelineWidth, durationInFrames),
         )
         return
       }
 
+      wheelMotionPanAxisRef.current = null
       if (event.deltaY === 0) return
       const pivotRatio = Math.max(0, Math.min(1, (event.clientX - timelineLeft) / timelineWidth))
       const zoomFactor = event.deltaY > 0 ? 1.25 : 0.8
+      const minVisibleFrames = Math.min(
+        durationInFrames,
+        Math.max(
+          1,
+          Math.ceil(
+            Math.max(1, timelineWidth - KEYFRAME_EDGE_INSET * 2) /
+              KEYFRAME_DIAMOND_RENDERED_WIDTH_PX,
+          ),
+        ),
+      )
       queueMotionViewportUpdate((current) =>
-        zoomMotionTimeViewport(current, pivotRatio, zoomFactor, durationInFrames),
+        zoomMotionTimeViewport(current, pivotRatio, zoomFactor, durationInFrames, minVisibleFrames),
       )
     },
     [durationInFrames, queueMotionViewportUpdate],
@@ -5356,11 +5857,20 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
               </button>
               <button
                 type="button"
-                onClick={() => updateLayerTrack(row.track.id, { locked: !row.track.locked })}
+                onClick={(event) => {
+                  if (event.shiftKey) {
+                    setAllTracksLocked(!row.track.locked)
+                    return
+                  }
+                  updateLayerTrack(row.track.id, { locked: !row.track.locked })
+                }}
                 className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
                 aria-label={
                   row.track.locked ? t('editor.compose.unlockGroup') : t('editor.compose.lockGroup')
                 }
+                title={`${
+                  row.track.locked ? t('editor.compose.unlockGroup') : t('editor.compose.lockGroup')
+                } — ${t('editor.compose.lockAllLayersHint')}`}
               >
                 {row.track.locked ? (
                   <Lock className="h-3.5 w-3.5" />
@@ -5443,6 +5953,8 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                   <button
                     type="button"
                     data-testid={`motion-group-span-${row.track.id}`}
+                    data-from-frame={groupFrom}
+                    data-to-frame={groupEnd}
                     disabled={row.track.locked}
                     onPointerDown={(event) =>
                       !row.track.locked && beginSpanDrag(event, groupItemIds)
@@ -5546,9 +6058,31 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
           {t('editor.compose.group')}
         </button>
         <span className="flex-1" aria-hidden="true" />
-        <span className="text-[10px] tabular-nums text-muted-foreground">
-          {durationInFrames}f · {fps}fps
+        <span
+          className="text-[10px] tabular-nums text-muted-foreground"
+          data-testid="motion-composition-duration"
+        >
+          {compositionEndFrame ?? durationInFrames}f · {fps}fps
         </span>
+        <button
+          type="button"
+          onClick={trimAndFitMotionTimeViewport}
+          disabled={!canTrimToActiveRegion}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border/70 bg-background text-muted-foreground hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+          aria-label={t('editor.compose.trimToActiveRegion')}
+          data-tooltip={t('editor.compose.trimToActiveRegionTooltip')}
+        >
+          <Crop className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={fitMotionTimeViewport}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-border/70 bg-background text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={t('timeline.header.zoomToFit')}
+          data-tooltip={t('timeline.header.zoomToFitTooltip')}
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       <div ref={motionViewportPreviewRootRef} className="relative min-h-0 flex-1">
@@ -5561,9 +6095,18 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
             className="absolute inset-y-0 right-0 overflow-visible"
             style={{
               left: TIMELINE_CONTENT_LEFT + KEYFRAME_EDGE_INSET,
-              right: KEYFRAME_EDGE_INSET,
+              right: KEYFRAME_EDGE_INSET + motionScrollbarWidth,
             }}
           >
+            {/* Region shading covers the layer rows only — the ruler carries its
+                own comp bar — and paints before the playhead so the playhead
+                stays legible over a dimmed region. */}
+            <div className="absolute inset-x-0 bottom-0" style={{ top: RULER_HEIGHT }}>
+              <MotionActiveRegionOverlay
+                viewport={timeViewport}
+                compositionEndFrame={compositionEndFrame}
+              />
+            </div>
             <MotionPlayheadOverlay timeViewport={timeViewport} />
           </div>
         </div>
@@ -5604,17 +6147,19 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                   </Select>
                 </div>
                 <div
+                  data-testid="motion-parent-header"
                   className="flex shrink-0 items-center border-l border-border px-2"
                   style={{ width: LAYER_PARENT_COLUMN_WIDTH }}
                 >
                   {t('editor.compose.parentColumn', { defaultValue: 'Parent' })}
                 </div>
                 <div
+                  data-testid="motion-timing-header"
                   className="flex shrink-0 items-center justify-around border-l border-border px-2"
                   style={{ width: LAYER_TIMING_COLUMN_WIDTH }}
                 >
-                  <span>{t('editor.compose.inFrame')}</span>
-                  <span>{t('editor.compose.outFrame')}</span>
+                  <span>{t('editor.compose.inColumn')}</span>
+                  <span>{t('editor.compose.outColumn')}</span>
                 </div>
                 <div
                   className="flex shrink-0 items-center border-l border-border px-2"
@@ -5625,6 +6170,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
               </div>
               <div
                 data-testid="motion-ruler-viewport"
+                data-motion-viewport-surface
                 className="relative min-w-0 flex-1 touch-none cursor-ew-resize overflow-x-clip overflow-y-visible"
                 style={{ height: RULER_HEIGHT }}
               >
@@ -5670,6 +6216,20 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                     rangeRef={motionSelectionRetimeRangeRef}
                   />
                 </div>
+                {compositionEndFrame !== null ? (
+                  <MotionCompEndRulerDim
+                    viewport={timeViewport}
+                    compositionEndFrame={compositionEndFrame}
+                  />
+                ) : null}
+                {/* Sibling of the scrub surface, not a child: the lane's own
+                    background stays pointer-transparent so a click in the lane
+                    still scrubs, while the strip and handles take their hits. */}
+                <MotionIoLane
+                  viewport={timeViewport}
+                  maxFrame={compositionEndFrame ?? durationInFrames}
+                  fps={fps}
+                />
               </div>
             </div>
 
@@ -5698,7 +6258,26 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                   : undefined
                 const isParentLayerGroupLocked = parentLayerGroup?.locked === true
                 const isLayerLocked = track?.locked === true || isParentLayerGroupLocked
-                const properties = getItemProperties(item)
+                const nullObjectNonRenderingLabel =
+                  item.type === 'controller'
+                    ? t('editor.compose.nullObjectNonRendering', {
+                        defaultValue: 'Null Object (does not render)',
+                      })
+                    : undefined
+                const MotionLayerTypeIcon = getMotionLayerTypeIcon(item.type)
+                const allProperties = getItemProperties(item)
+                const isPathShape = item.type === 'shape' && item.shapeType === 'path'
+                const showAllPathVertices = allPathVertexItemIds.has(item.id)
+                const properties = getVisibleMotionPathProperties(allProperties, {
+                  itemKeyframes: keyframesByItemId[item.id],
+                  selectedVertexIndices:
+                    maskEditingItemId === item.id ? selectedPathVertexIndices : [],
+                  showAllVertices: showAllPathVertices,
+                  alwaysInclude:
+                    activeInlineCurve?.itemId === item.id
+                      ? activeInlineCurve.property
+                      : null,
+                })
                 const proceduralBands = getProceduralBands(
                   item.motionModifiers,
                   item.durationInFrames,
@@ -5755,6 +6334,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                           style={{ width: LAYER_COLUMN_WIDTH }}
                         >
                           <div
+                            data-testid={`motion-layer-name-cell-${item.id}`}
                             className="flex min-w-0 flex-1 items-center gap-1 px-1.5"
                             style={{ paddingLeft: 6 + depth * 16 }}
                           >
@@ -5811,16 +6391,10 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                             )}
                             {item.type === 'controller' ? (
                               <span
-                                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center text-primary/80"
-                                title={t('editor.compose.nullObjectNonRendering', {
-                                  defaultValue: 'Null Object (does not render)',
-                                })}
-                                aria-label={t('editor.compose.nullObjectNonRendering', {
-                                  defaultValue: 'Null Object (does not render)',
-                                })}
-                              >
-                                <Crosshair className="h-3.5 w-3.5" />
-                              </span>
+                                className="h-[18px] w-[18px] shrink-0"
+                                data-testid={`motion-null-object-icon-slot-${item.id}`}
+                                aria-hidden="true"
+                              />
                             ) : (
                               <button
                                 type="button"
@@ -5843,11 +6417,14 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                             )}
                             <button
                               type="button"
-                              onClick={() =>
-                                track &&
-                                !isParentLayerGroupLocked &&
+                              onClick={(event) => {
+                                if (!track || isParentLayerGroupLocked) return
+                                if (event.shiftKey) {
+                                  setAllTracksLocked(!track.locked)
+                                  return
+                                }
                                 updateLayerTrack(track.id, { locked: !track.locked })
-                              }
+                              }}
                               disabled={isParentLayerGroupLocked}
                               className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-55"
                               aria-label={
@@ -5860,7 +6437,11 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                               title={
                                 isParentLayerGroupLocked
                                   ? t('editor.compose.lockedByLayerGroup')
-                                  : undefined
+                                  : `${
+                                      isLayerLocked
+                                        ? t('editor.compose.unlockLayer')
+                                        : t('editor.compose.lockLayer')
+                                    } — ${t('editor.compose.lockAllLayersHint')}`
                               }
                             >
                               {isLayerLocked ? (
@@ -5921,12 +6502,23 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                                     item.label || item.type,
                                   )
                                 }
-                                className="min-w-0 flex-1 truncate px-1 text-left text-[11px] font-medium text-foreground"
-                                title={item.label || item.type}
+                                className="min-w-0 flex-1 truncate px-0 text-left text-[11px] font-medium text-foreground"
+                                title={nullObjectNonRenderingLabel ?? (item.label || item.type)}
+                                aria-label={
+                                  nullObjectNonRenderingLabel
+                                    ? `${index + 1}. ${nullObjectNonRenderingLabel}`
+                                    : undefined
+                                }
                               >
-                                <span className="mr-1.5 text-[9px] tabular-nums text-muted-foreground/70">
+                                <span className="mr-0.5 inline-block w-3 shrink-0 text-right text-[9px] tabular-nums text-muted-foreground/70">
                                   {index + 1}
                                 </span>
+                                <MotionLayerTypeIcon
+                                  className="mr-1 inline-block h-3 w-3 shrink-0 align-[-2px] text-muted-foreground"
+                                  data-testid={`motion-layer-type-icon-${item.id}`}
+                                  data-motion-layer-type-icon={item.type}
+                                  aria-hidden="true"
+                                />
                                 {item.label || item.type}
                               </button>
                             )}
@@ -6010,6 +6602,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                             </Select>
                           </div>
                           <div
+                            data-testid={`motion-timing-cell-${item.id}`}
                             className="flex shrink-0 items-center gap-1 border-l border-border px-1"
                             style={{ width: LAYER_TIMING_COLUMN_WIDTH }}
                           >
@@ -6094,6 +6687,8 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                                 type="button"
                                 data-testid={`motion-layer-span-${item.id}`}
                                 data-motion-span-drag-visual
+                                data-from-frame={item.from}
+                                data-to-frame={item.from + item.durationInFrames}
                                 disabled={isLayerLocked}
                                 onPointerDown={(event) =>
                                   !isLayerLocked &&
@@ -6178,6 +6773,49 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
 
                     {expanded ? (
                       <div inert={isLayerLocked ? true : undefined} aria-disabled={isLayerLocked}>
+                        {isPathShape ? (
+                          <div
+                            className="flex h-7 border-b border-border/70 bg-background/45"
+                            data-testid={`motion-path-vertex-toolbar-${item.id}`}
+                          >
+                            <div
+                              className="flex items-center justify-between gap-2 border-r border-border px-2 text-[10px] text-muted-foreground"
+                              style={{ width: LAYER_COLUMN_WIDTH }}
+                            >
+                              <span>
+                                {showAllPathVertices
+                                  ? 'All path vertices'
+                                  : maskEditingItemId === item.id &&
+                                      selectedPathVertexIndices.length > 0
+                                    ? `${selectedPathVertexIndices.length} selected ${
+                                        selectedPathVertexIndices.length === 1
+                                          ? 'vertex'
+                                          : 'vertices'
+                                      }`
+                                    : 'Vertex 1'}
+                              </span>
+                              <button
+                                type="button"
+                                className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
+                                data-testid={`motion-toggle-all-path-vertices-${item.id}`}
+                                aria-pressed={showAllPathVertices}
+                                onClick={() =>
+                                  setAllPathVertexItemIds((current) => {
+                                    const next = new Set(current)
+                                    if (next.has(item.id)) next.delete(item.id)
+                                    else next.add(item.id)
+                                    return next
+                                  })
+                                }
+                              >
+                                {showAllPathVertices ? 'Selected vertices' : 'All vertices'}
+                              </button>
+                            </div>
+                            <div className="flex flex-1 items-center px-2 text-[10px] text-muted-foreground/70">
+                              Select path points in the preview to focus these channels.
+                            </div>
+                          </div>
+                        ) : null}
                         {textMotionBands.length > 0 ? (
                           <TextMotionTimelineLanes
                             itemId={item.id}
@@ -6188,6 +6826,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                         <MotionDopesheetLanes
                           item={item}
                           itemById={itemById}
+                          itemKeyframes={keyframesByItemId[item.id]}
                           properties={properties}
                           compositionDurationInFrames={durationInFrames}
                           fps={fps}
@@ -6239,6 +6878,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
             <MotionDopesheetLanes
               item={activeCurveItem}
               itemById={itemById}
+              itemKeyframes={keyframesByItemId[activeCurveItem.id]}
               disabled={isActiveCurveLocked}
               properties={activeCurveProperties}
               compositionDurationInFrames={durationInFrames}
@@ -6370,11 +7010,7 @@ const DeferredCompositingTimeline = memo(function DeferredCompositingTimeline({
   const isPendingTranslateCommit =
     deferredItemsSnapshot !== itemsSnapshot &&
     presentation !== null &&
-    isTranslateOnlyItemsSnapshotChange(
-      deferredItemsSnapshot,
-      itemsSnapshot,
-      presentation.itemId,
-    )
+    isTranslateOnlyItemsSnapshotChange(deferredItemsSnapshot, itemsSnapshot, presentation.itemId)
 
   if (isPendingTranslateCommit) {
     pendingTranslateInteractionRef.current = presentation.interactionId

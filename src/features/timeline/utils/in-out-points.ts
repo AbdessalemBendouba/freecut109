@@ -28,6 +28,20 @@ export function getEffectiveTimelineMaxFrame(
   return Math.max(contentMaxFrame, minimumFrame)
 }
 
+/**
+ * In/out bound while a composition is the loaded timeline (Motion, or a drilled
+ * compound clip): its authored canvas duration, and nothing else.
+ *
+ * Neither of the Main-timeline rules applies. The minimum above would let the
+ * range be marked past the end of a comp shorter than {@link MIN_TIMELINE_SECONDS},
+ * and content extent would do the same for a layer hanging past the canvas — in
+ * both cases the range would cover frames the comp does not render or export.
+ */
+export function getCompositionMaxFrame(durationInFrames: number): number {
+  const canvasFrames = Number.isFinite(durationInFrames) ? Math.floor(durationInFrames) : 0
+  return Math.max(1, canvasFrames)
+}
+
 export function sanitizeInOutPoints(params: {
   inPoint: number | null | undefined
   outPoint: number | null | undefined

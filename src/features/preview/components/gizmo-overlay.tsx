@@ -59,6 +59,7 @@ import type { ResolvedTransform, TransformProperties } from '@/types/transform'
 import { normalizeCropSettings } from '@/shared/utils/media-crop'
 import { getSourceDimensions, resolveTransform } from '@/features/preview/deps/composition-runtime'
 import {
+  buildGizmoAnchorCommit,
   buildGizmoTransformCommit,
   resolveEditableGizmoTransform,
   resolveGizmoCommitParentWorld,
@@ -924,7 +925,11 @@ export function GizmoOverlay({
 
   // Handle transform end - commit the transform to the timeline with auto-keyframing
   const handleTransformEnd = useCallback(
-    (itemId: string, transform: Transform, operation: 'move' | 'resize' | 'rotate' = 'move') => {
+    (
+      itemId: string,
+      transform: Transform,
+      operation: 'move' | 'resize' | 'rotate' | 'anchor' = 'move',
+    ) => {
       const currentFrame = usePlaybackStore.getState().currentFrame
       const item = visualItems.find((i) => i.id === itemId)
       if (!item) return
@@ -945,7 +950,7 @@ export function GizmoOverlay({
         frameHeight: projectSize.height,
       })
       const itemKeyframes = useKeyframesStore.getState().keyframesByItemId[itemId]
-      const { autoOps, transformProps, shouldUpdateBase } = buildGizmoTransformCommit({
+      const commit = buildGizmoTransformCommit({
         item,
         itemKeyframes,
         transform: editableTransform,
@@ -956,9 +961,23 @@ export function GizmoOverlay({
         ),
         currentFrame,
       })
-      updateItemTransform(itemId, shouldUpdateBase ? transformProps : {}, {
-        operation,
-        autoKeyframeOperations: autoOps,
+      const anchorCommit =
+        operation === 'anchor'
+          ? buildGizmoAnchorCommit({
+              item,
+              itemKeyframes,
+              transform: editableTransform,
+              currentFrame,
+            })
+          : null
+      const transformProps = anchorCommit
+        ? anchorCommit.transformProps
+        : commit.shouldUpdateBase
+          ? commit.transformProps
+          : {}
+      updateItemTransform(itemId, transformProps, {
+        operation: operation === 'anchor' ? 'transform' : operation,
+        autoKeyframeOperations: anchorCommit?.autoOps ?? commit.autoOps,
       })
 
       // Prevent background click from deselecting after drag
@@ -1247,10 +1266,6 @@ export function GizmoOverlay({
   const handleItemDragStart = useCallback(
     (itemId: string, e: React.MouseEvent, transform: Transform) => {
       if (!coordParams || isExclusiveCanvasEditorActive) return
-      if (positionLinkByItemId.has(itemId)) {
-        showPositionLinkFeedback(itemId)
-        return
-      }
 
       const startTransformSnapshot = { ...transform }
       const point = screenToCanvas(e.clientX, e.clientY, coordParams)
@@ -1283,8 +1298,6 @@ export function GizmoOverlay({
       handleTransformEnd,
       isExclusiveCanvasEditorActive,
       visibleItems,
-      positionLinkByItemId,
-      showPositionLinkFeedback,
     ],
   )
 
@@ -1431,6 +1444,7 @@ export function GizmoOverlay({
                 onDragStart={(e, transform) => handleItemDragStart(item.id, e, transform)}
                 translateBlocked={!!positionLinkFeedback}
                 translateBlockedLabel={positionLinkFeedback?.label}
+                onTranslateBlocked={() => showPositionLinkFeedback(item.id)}
               />
             )
           })}

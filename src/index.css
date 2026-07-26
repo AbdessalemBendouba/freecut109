@@ -5,6 +5,11 @@
 /* Feature-specific theme extensions */
 @import './features/timeline/theme.css';
 
+body.canvas-translate-cursor-not-allowed,
+body.canvas-translate-cursor-not-allowed * {
+  cursor: not-allowed !important;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 /* Shared easing tokens — strong custom curves, not the weak CSS built-ins.

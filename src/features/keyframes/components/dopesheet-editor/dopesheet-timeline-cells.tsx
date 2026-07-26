@@ -19,7 +19,7 @@ import { getKeyframeGroupLabel } from '@/features/keyframes/utils/property-i18n'
 import { getDisplayedGroupFrameGroups } from './sheet-preview-frame-groups'
 import type { DopesheetPropertyGroupStructure } from './dopesheet-helpers'
 import type { KeyframeMeta } from './dopesheet-types'
-import { KEYFRAME_EDGE_INSET } from './layout'
+import { KEYFRAME_DIAMOND_SIDE_PX, KEYFRAME_EDGE_INSET } from './layout'
 import { SegmentEasingPopover, type SegmentEasingChange } from './segment-easing-popover'
 import { buildSegmentSpans } from './segment-spans'
 
@@ -155,6 +155,7 @@ interface GroupTimelineCellProps {
   ticks: number[]
   axisWidth: number
   frameToX: (frame: number) => number
+  gridFrameToX?: (frame: number) => number
   getRenderedKeyframeX: (frame: number) => number | null
   selectedKeyframeIds: Set<string>
   disabled: boolean
@@ -177,6 +178,7 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
   ticks,
   axisWidth,
   frameToX,
+  gridFrameToX = frameToX,
   getRenderedKeyframeX,
   selectedKeyframeIds,
   disabled,
@@ -209,7 +211,7 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
           aria-hidden
           data-motion-grid-frames={ticks.join(',')}
           className="pointer-events-none absolute inset-y-0 w-px bg-current text-border/30"
-          style={getTimelineGridLineStyle(ticks, frameToX)}
+          style={getTimelineGridLineStyle(ticks, gridFrameToX)}
         />
 
         <div data-motion-span-drag-visual className="absolute inset-0">
@@ -253,11 +255,15 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
                 >
                   <span
                     className={cn(
-                      'pointer-events-none block h-2 w-2 rotate-45 border transition-colors',
+                      'pointer-events-none block rotate-45 border transition-colors',
                       isSelected
                         ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
                         : 'border-transparent bg-neutral-200 group-hover:bg-white',
                     )}
+                    style={{
+                      width: KEYFRAME_DIAMOND_SIDE_PX,
+                      height: KEYFRAME_DIAMOND_SIDE_PX,
+                    }}
                   />
                 </button>
               )
@@ -277,7 +283,13 @@ export const GroupTimelineCell = memo(function GroupTimelineCell({
                     top: '50%',
                   }}
                 >
-                  <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
+                  <span
+                    className="block rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]"
+                    style={{
+                      width: KEYFRAME_DIAMOND_SIDE_PX,
+                      height: KEYFRAME_DIAMOND_SIDE_PX,
+                    }}
+                  />
                 </div>
               )
             })}
@@ -296,6 +308,7 @@ interface PropertyTimelineCellProps {
   ticks: number[]
   axisWidth: number
   frameToX: (frame: number) => number
+  gridFrameToX?: (frame: number) => number
   getRenderedKeyframeX: (frame: number) => number | null
   renderedKeyframeXById: Map<string, number>
   transitionBlockedRanges: BlockedFrameRange[]
@@ -329,6 +342,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
   ticks,
   axisWidth,
   frameToX,
+  gridFrameToX = frameToX,
   getRenderedKeyframeX,
   renderedKeyframeXById,
   transitionBlockedRanges,
@@ -400,7 +414,7 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
           aria-hidden
           data-motion-grid-frames={ticks.join(',')}
           className="pointer-events-none absolute inset-y-0 w-px bg-current text-border/30"
-          style={getTimelineGridLineStyle(ticks, frameToX)}
+          style={getTimelineGridLineStyle(ticks, gridFrameToX)}
         />
 
         {transitionBlockedRanges.map((range, index) => (
@@ -491,11 +505,15 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
               >
                 <span
                   className={cn(
-                    'pointer-events-none block h-2 w-2 rotate-45 border transition-colors group-data-[marquee-selected=true]:!border-blue-100 group-data-[marquee-selected=true]:!bg-blue-500 group-data-[marquee-selected=true]:!shadow-[0_0_0_1px_rgba(59,130,246,0.45)] group-data-[marquee-selected=false]:!border-transparent group-data-[marquee-selected=false]:!bg-neutral-200 group-data-[marquee-selected=false]:!shadow-none',
+                    'pointer-events-none block rotate-45 border transition-colors group-data-[marquee-selected=true]:!border-blue-100 group-data-[marquee-selected=true]:!bg-blue-500 group-data-[marquee-selected=true]:!shadow-[0_0_0_1px_rgba(59,130,246,0.45)] group-data-[marquee-selected=false]:!border-transparent group-data-[marquee-selected=false]:!bg-neutral-200 group-data-[marquee-selected=false]:!shadow-none',
                     selected
                       ? 'border-blue-100 bg-blue-500 shadow-[0_0_0_1px_rgba(59,130,246,0.45)]'
                       : 'border-transparent bg-neutral-200 group-hover:bg-white',
                   )}
+                  style={{
+                    width: KEYFRAME_DIAMOND_SIDE_PX,
+                    height: KEYFRAME_DIAMOND_SIDE_PX,
+                  }}
                 />
               </button>
             )
@@ -523,7 +541,13 @@ export const PropertyTimelineCell = memo(function PropertyTimelineCell({
                   top: '50%',
                 }}
               >
-                <span className="block h-2 w-2 rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]" />
+                <span
+                  className="block rotate-45 border border-primary/70 bg-primary/70 shadow-[0_0_0_1px_rgba(59,130,246,0.35)]"
+                  style={{
+                    width: KEYFRAME_DIAMOND_SIDE_PX,
+                    height: KEYFRAME_DIAMOND_SIDE_PX,
+                  }}
+                />
               </div>,
             ]
           })}

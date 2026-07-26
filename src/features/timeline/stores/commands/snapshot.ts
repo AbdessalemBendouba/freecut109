@@ -10,7 +10,8 @@ import { usePlaybackStore } from '@/shared/state/playback'
 import { useProjectStore } from '@/features/timeline/deps/projects'
 import { updateProject } from '@/infrastructure/storage'
 import { createLogger } from '@/shared/logging/logger'
-import { getEffectiveTimelineMaxFrame, sanitizeInOutPoints } from '../../utils/in-out-points'
+import { sanitizeInOutPoints } from '../../utils/in-out-points'
+import { getActiveInOutMaxFrame } from '../in-out-bound'
 
 const logger = createLogger('TimelineSnapshot')
 
@@ -132,20 +133,22 @@ export function restoreSnapshot(snapshot: TimelineSnapshot): void {
   // Restore keyframes
   useKeyframesStore.getState().setKeyframes(snapshot.keyframes)
 
+  // Restore compositions + their standalone-timeline tab membership together,
+  // so undoing a sequence creation removes the tab id instead of dangling it.
+  // Ahead of the in/out sanitize below: inside a composition the range is bounded
+  // by that comp's canvas, so its restored duration has to be in place first.
+  useCompositionsStore.getState().setCompositions(snapshot.compositions)
+  useSequencesStore.getState().setTopLevelSequenceIds(snapshot.topLevelSequenceIds)
+
   // Restore markers and in/out points
   useMarkersStore.getState().setMarkers(snapshot.markers)
   const sanitizedInOutPoints = sanitizeInOutPoints({
     inPoint: snapshot.inPoint,
     outPoint: snapshot.outPoint,
-    maxFrame: getEffectiveTimelineMaxFrame(snapshot.items, snapshot.fps),
+    maxFrame: getActiveInOutMaxFrame(snapshot.items, snapshot.fps),
   })
   useMarkersStore.getState().setInPoint(sanitizedInOutPoints.inPoint)
   useMarkersStore.getState().setOutPoint(sanitizedInOutPoints.outPoint)
-
-  // Restore compositions + their standalone-timeline tab membership together,
-  // so undoing a sequence creation removes the tab id instead of dangling it.
-  useCompositionsStore.getState().setCompositions(snapshot.compositions)
-  useSequencesStore.getState().setTopLevelSequenceIds(snapshot.topLevelSequenceIds)
 
   // Restore settings
   useTimelineSettingsStore.getState().setFps(snapshot.fps)

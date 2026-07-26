@@ -10,11 +10,39 @@ import {
   getShapeAnimatableBaseValue,
   SHAPE_ANIMATABLE_PROPERTIES,
 } from './shape-animatable-properties'
+import {
+  clonePathVertices,
+  getPathVertexAnimatableProperties,
+  getPathVertexPropertyValue,
+  setPathVertexPropertyValue,
+} from './path-animatable-properties'
 
 export {
   getShapeAnimatableBaseValue,
-  isShapeAnimatableProperty,
 } from './shape-animatable-properties'
+
+function resolveAnimatedPathVertices(
+  item: ShapeItem,
+  itemKeyframes: ItemKeyframes,
+  frame: number,
+) {
+  if (item.shapeType !== 'path' || !item.pathVertices) return undefined
+
+  const pathVertices = clonePathVertices(item.pathVertices)
+  let hasAnimatedPath = false
+  for (const property of getPathVertexAnimatableProperties(item.pathVertices)) {
+    const keyframes = getPropertyKeyframes(itemKeyframes, property)
+    if (keyframes.length === 0) continue
+    const value = interpolatePropertyValue(
+      keyframes,
+      frame,
+      getPathVertexPropertyValue(item.pathVertices, property),
+    )
+    setPathVertexPropertyValue(pathVertices, property, value)
+    hasAnimatedPath = true
+  }
+  return hasAnimatedPath ? pathVertices : undefined
+}
 
 export function resolveAnimatedShapeItem(
   item: ShapeItem,
@@ -47,5 +75,9 @@ export function resolveAnimatedShapeItem(
       resolved[property] = preExpressionValue
     }
   }
+
+  const animatedPathVertices = resolveAnimatedPathVertices(item, itemKeyframes, frame)
+  if (animatedPathVertices) resolved.pathVertices = animatedPathVertices
+
   return resolved
 }

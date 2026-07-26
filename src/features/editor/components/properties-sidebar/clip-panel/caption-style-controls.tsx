@@ -114,7 +114,7 @@ export const CaptionStyleControls = memo(function CaptionStyleControls({
               className={cn(
                 'rounded border px-2 py-1.5 text-[11px] text-center transition-colors',
                 activePreset?.id === preset.id
-                  ? 'border-primary bg-primary/15 text-foreground'
+                  ? 'border-border/70 bg-secondary/60 text-foreground'
                   : 'border-border hover:bg-secondary/40 text-muted-foreground',
               )}
             >
@@ -173,7 +173,7 @@ export const CaptionStyleControls = memo(function CaptionStyleControls({
             className={cn(
               'h-7 w-full rounded border text-xs transition-colors',
               hasBackground
-                ? 'border-primary bg-primary/15'
+                ? 'border-border/70 bg-secondary/60 text-foreground'
                 : 'border-border hover:bg-secondary/40 text-muted-foreground',
             )}
           >

@@ -39,7 +39,21 @@ export type BuiltInAnimatableProperty =
 
 export type EffectAnimatableProperty = `effect:${string}:${string}:${string}`
 
-export type AnimatableProperty = BuiltInAnimatableProperty | EffectAnimatableProperty
+export type PathVertexAnimatableComponent =
+  | 'positionX'
+  | 'positionY'
+  | 'inX'
+  | 'inY'
+  | 'outX'
+  | 'outY'
+
+export type PathVertexAnimatableProperty =
+  `pathVertex:${number}:${PathVertexAnimatableComponent}`
+
+export type AnimatableProperty =
+  | BuiltInAnimatableProperty
+  | PathVertexAnimatableProperty
+  | EffectAnimatableProperty
 
 /** Current persisted animation-domain version. Missing means the legacy scalar-only model. */
 export const ANIMATION_CORE_VERSION = 2 as const
@@ -453,14 +467,14 @@ const BUILT_IN_PROPERTY_LABELS: Record<BuiltInAnimatableProperty, string> = {
   anchorY: 'Anchor Y',
   rotation: 'Rotation',
   opacity: 'Opacity',
-  cornerRadius: 'Corner Radius',
+  cornerRadius: 'Layer Radius',
   cropLeft: 'Crop Left',
   cropRight: 'Crop Right',
   cropTop: 'Crop Top',
   cropBottom: 'Crop Bottom',
   cropSoftness: 'Crop Softness',
   volume: 'Volume (dB)',
-  textStyleScale: 'Preset Scale',
+  textStyleScale: 'Style Preset Scale',
   fontSize: 'Font Size',
   lineHeight: 'Line Height',
   textPadding: 'Text Padding',
@@ -517,9 +531,46 @@ export function isEffectAnimatableProperty(
   return parseEffectAnimatableProperty(property) !== null
 }
 
+export function buildPathVertexAnimatableProperty(
+  vertexIndex: number,
+  component: PathVertexAnimatableComponent,
+): PathVertexAnimatableProperty {
+  return `pathVertex:${vertexIndex}:${component}`
+}
+
+export function parsePathVertexAnimatableProperty(
+  property: AnimatableProperty | string,
+): { vertexIndex: number; component: PathVertexAnimatableComponent } | null {
+  const match = /^pathVertex:(\d+):(positionX|positionY|inX|inY|outX|outY)$/.exec(property)
+  if (!match) return null
+  return {
+    vertexIndex: Number(match[1]),
+    component: match[2] as PathVertexAnimatableComponent,
+  }
+}
+
+export function isPathVertexAnimatableProperty(
+  property: AnimatableProperty | string,
+): property is PathVertexAnimatableProperty {
+  return parsePathVertexAnimatableProperty(property) !== null
+}
+
 function getAnimatablePropertyLabel(property: AnimatableProperty): string {
   if (isBuiltInAnimatableProperty(property)) {
     return BUILT_IN_PROPERTY_LABELS[property]
+  }
+
+  const pathVertex = parsePathVertexAnimatableProperty(property)
+  if (pathVertex) {
+    const componentLabels: Record<PathVertexAnimatableComponent, string> = {
+      positionX: 'X',
+      positionY: 'Y',
+      inX: 'In X',
+      inY: 'In Y',
+      outX: 'Out X',
+      outY: 'Out Y',
+    }
+    return `Vertex ${pathVertex.vertexIndex + 1} ${componentLabels[pathVertex.component]}`
   }
 
   const parsed = parseEffectAnimatableProperty(property)

@@ -22,6 +22,8 @@ export {
   removeCompositionControl,
   renameCompositionControl,
   repairCompositeCompositionEditorialLeak,
+  setCompositionDuration,
+  trimCompositionToActiveRegion,
 } from '@/features/timeline/stores/actions/composition-editor-actions'
 export { setInOutPointsWithoutHistory } from '@/features/timeline/stores/actions/marker-actions'
 export { applyAnimationPreset } from '@/features/timeline/stores/actions/preset-actions'

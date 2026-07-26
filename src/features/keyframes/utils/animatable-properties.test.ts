@@ -24,11 +24,11 @@ describe('getAnimatablePropertiesForItem', () => {
       'y',
       'width',
       'height',
+      'anchorX',
+      'anchorY',
       'rotation',
       'opacity',
       'cornerRadius',
-      'anchorX',
-      'anchorY',
       'cropLeft',
       'cropRight',
       'cropTop',
@@ -51,11 +51,11 @@ describe('getAnimatablePropertiesForItem', () => {
       'y',
       'width',
       'height',
+      'anchorX',
+      'anchorY',
       'rotation',
       'opacity',
       'cornerRadius',
-      'anchorX',
-      'anchorY',
       'cropLeft',
       'cropRight',
       'cropTop',
@@ -65,12 +65,14 @@ describe('getAnimatablePropertiesForItem', () => {
     ])
   })
 
-  it('does not expose anchor properties for non-video visual items', () => {
+  it('exposes anchor properties for every visual item', () => {
     expect(getAnimatablePropertiesForItem(createItem('image'))).toEqual([
       'x',
       'y',
       'width',
       'height',
+      'anchorX',
+      'anchorY',
       'rotation',
       'opacity',
       'cornerRadius',
@@ -99,6 +101,8 @@ describe('getAnimatablePropertiesForItem', () => {
       'y',
       'width',
       'height',
+      'anchorX',
+      'anchorY',
       'rotation',
       'opacity',
       'cornerRadius',
@@ -112,5 +116,30 @@ describe('getAnimatablePropertiesForItem', () => {
       'textShadowBlur',
       'strokeWidth',
     ])
+  })
+
+  it('exposes stable path geometry channels for custom path shapes', () => {
+    const properties = getAnimatablePropertiesForItem({
+      ...createItem('shape'),
+      shapeType: 'path',
+      pathVertices: [
+        {
+          position: [0, 0],
+          inHandle: [0, 0],
+          outHandle: [0.25, 0],
+        },
+      ],
+    })
+
+    expect(properties).toEqual(
+      expect.arrayContaining([
+        'pathVertex:0:positionX',
+        'pathVertex:0:positionY',
+        'pathVertex:0:inX',
+        'pathVertex:0:inY',
+        'pathVertex:0:outX',
+        'pathVertex:0:outY',
+      ]),
+    )
   })
 })

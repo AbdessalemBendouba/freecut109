@@ -30,6 +30,13 @@ function blockMouseDown(e: { preventDefault: () => void; stopPropagation: () => 
   e.stopPropagation()
 }
 
+/**
+ * Extra `data-*` attributes for the positioned element. The Motion timeline uses
+ * these to drive the strip/handles imperatively during a zoom or pan gesture,
+ * before React re-renders with the settled viewport.
+ */
+type PositionDataset = Record<`data-${string}`, string>
+
 interface IoRangeStripProps {
   /** CSS `left` of the strip within the caller's coordinate box. */
   left: string
@@ -44,6 +51,7 @@ interface IoRangeStripProps {
   /** Stacking order within the caller's lane. Defaults suit the Edit ruler; the
       mini-timeline passes lower values so the strip stays under its playhead. */
   zIndex?: number
+  dataset?: PositionDataset
 }
 
 /**
@@ -59,10 +67,12 @@ export const IoRangeStrip = memo(function IoRangeStrip({
   testId,
   className,
   zIndex = 11,
+  dataset,
 }: IoRangeStripProps) {
   return (
     <div
       data-testid={testId}
+      {...dataset}
       title={title}
       className={cn('absolute', onDragStart && 'cursor-grab active:cursor-grabbing', className)}
       style={{
@@ -95,6 +105,7 @@ interface HandleProps {
   onDragStart?: (e: ReactPointerEvent) => void
   title?: string
   testId?: string
+  dataset?: PositionDataset
 }
 
 function Handle({
@@ -108,11 +119,13 @@ function Handle({
   onDragStart,
   title,
   testId,
+  dataset,
 }: HandleProps) {
   return (
     <div
       className="absolute top-0"
       title={title}
+      {...dataset}
       style={{ left, width: 0, height: '100%', pointerEvents: 'none', zIndex }}
     >
       {/* Side grip — brighter blue pill, rounded outer corners, top sheen. Shrinks
@@ -120,6 +133,7 @@ function Handle({
       <div
         aria-hidden="true"
         data-testid={testId}
+        data-motion-static-x
         className="absolute pointer-events-none"
         style={{
           top: 0,
@@ -135,6 +149,7 @@ function Handle({
       {/* Wide invisible hit area, centered on the point, for easy grabbing. */}
       {onDragStart && (
         <div
+          data-motion-static-x
           className="absolute pointer-events-auto"
           style={{
             top: 0,
@@ -169,6 +184,8 @@ interface IoRangeHandlesProps {
   outTitle?: string
   /** Prefix for `{prefix}-in-handle` / `{prefix}-out-handle` test ids. */
   testIdPrefix?: string
+  inDataset?: PositionDataset
+  outDataset?: PositionDataset
   /** Stacking order within the caller's lane (see {@link IoRangeStripProps}). */
   zIndex?: number
 }
@@ -190,6 +207,8 @@ export const IoRangeHandles = memo(function IoRangeHandles({
   inTitle,
   outTitle,
   testIdPrefix,
+  inDataset,
+  outDataset,
   zIndex = 22,
 }: IoRangeHandlesProps) {
   const gripWidth = computeIoGripWidth(spanPx, handleWidth)
@@ -207,6 +226,7 @@ export const IoRangeHandles = memo(function IoRangeHandles({
           onDragStart={onInDragStart}
           title={inTitle}
           testId={testIdPrefix ? `${testIdPrefix}-in-handle` : undefined}
+          dataset={inDataset}
         />
       )}
       {outLeft !== null && (
@@ -221,6 +241,7 @@ export const IoRangeHandles = memo(function IoRangeHandles({
           onDragStart={onOutDragStart}
           title={outTitle}
           testId={testIdPrefix ? `${testIdPrefix}-out-handle` : undefined}
+          dataset={outDataset}
         />
       )}
     </>
