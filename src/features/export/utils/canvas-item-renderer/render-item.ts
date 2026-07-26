@@ -222,10 +222,20 @@ async function renderItemContent(
       renderSubtitleSegmentItem(ctx, effectiveItem as SubtitleSegmentItem, transform, frame, rctx)
       break
     case 'shape':
-      renderShape(ctx, effectiveItem as ShapeItem, resolveItemTransform(transform), {
-        width: rctx.canvasSettings.width,
-        height: rctx.canvasSettings.height,
-      })
+      renderShape(
+        ctx,
+        effectiveItem as ShapeItem,
+        {
+          ...resolveItemTransform(transform),
+          // The item renderer already rotated the canvas context above. Keep the
+          // standalone renderShape rotation contract without applying it twice here.
+          rotation: 0,
+        },
+        {
+          width: rctx.canvasSettings.width,
+          height: rctx.canvasSettings.height,
+        },
+      )
       break
     case 'composition':
       await renderCompositionItem(

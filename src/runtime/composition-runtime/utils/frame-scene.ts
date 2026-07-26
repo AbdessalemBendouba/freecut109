@@ -54,11 +54,23 @@ export function applyTransformOverride(
 ): ResolvedTransform {
   if (!override) return baseTransform
 
+  const hasAnchorX = Object.prototype.hasOwnProperty.call(override, 'anchorX')
+  const hasAnchorY = Object.prototype.hasOwnProperty.call(override, 'anchorY')
+
   return {
     ...baseTransform,
     ...override,
-    anchorX: override.anchorX ?? baseTransform.anchorX,
-    anchorY: override.anchorY ?? baseTransform.anchorY,
+    // An explicitly present undefined anchor is the gizmo's signal that this
+    // axis is authored implicitly. Recenter it against the preview dimensions
+    // instead of retaining the resolved center from drag start.
+    anchorX:
+      hasAnchorX && override.anchorX === undefined
+        ? (override.width ?? baseTransform.width) / 2
+        : (override.anchorX ?? baseTransform.anchorX),
+    anchorY:
+      hasAnchorY && override.anchorY === undefined
+        ? (override.height ?? baseTransform.height) / 2
+        : (override.anchorY ?? baseTransform.anchorY),
     opacity: override.opacity ?? baseTransform.opacity,
     cornerRadius: override.cornerRadius ?? baseTransform.cornerRadius,
   }

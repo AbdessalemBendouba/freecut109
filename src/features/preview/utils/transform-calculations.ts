@@ -1,7 +1,70 @@
 import type { GizmoState, GizmoHandle, Transform, Point } from '../types/gizmo'
+import type { TimelineItem } from '@/types/timeline'
+import type { ItemKeyframes } from '@/types/keyframe'
 import { rotatePoint, getAngleFromCenter, getTransformAnchor } from './coordinate-transform'
 
 const MIN_SIZE = 20
+
+function hasAnimatedAnchorAxis(
+  item: TimelineItem,
+  itemKeyframes: ItemKeyframes | undefined,
+  axis: 'anchorX' | 'anchorY',
+): boolean {
+  if (
+    itemKeyframes?.properties.some(
+      (property) => property.property === axis && property.keyframes.length > 0,
+    ) ||
+    itemKeyframes?.vectorProperties?.some(
+      (property) => property.property === 'anchor' && property.keyframes.length > 0,
+    )
+  ) {
+    return true
+  }
+
+  const controlsAxis = (property: string): boolean => property === axis || property === 'anchor'
+  if (
+    itemKeyframes?.propertyLinks?.some(
+      (link) => link.enabled && controlsAxis(link.targetProperty),
+    ) ||
+    itemKeyframes?.expressions?.some(
+      (expression) => expression.enabled && controlsAxis(expression.targetProperty),
+    )
+  ) {
+    return true
+  }
+
+  return (
+    item.motionLayers?.some(
+      (layer) =>
+        layer.enabled &&
+        layer.tracks.some((track) => track.property === axis && track.keyframes.length > 0),
+    ) ?? false
+  )
+}
+
+/**
+ * Resolved transforms contain concrete center anchors even when the authored
+ * transform intentionally omits them. Keep those axes implicit during scale
+ * previews so the visible anchor follows the changing box center.
+ */
+export function prepareScaleStartTransform(
+  currentTransform: Transform,
+  item: TimelineItem,
+  itemKeyframes: ItemKeyframes | undefined,
+  propertiesPreview: Partial<Transform> | undefined,
+): Transform {
+  const result = { ...currentTransform }
+
+  for (const axis of ['anchorX', 'anchorY'] as const) {
+    const isExplicit =
+      item.transform?.[axis] !== undefined ||
+      propertiesPreview?.[axis] !== undefined ||
+      hasAnimatedAnchorAxis(item, itemKeyframes, axis)
+    if (!isExplicit) result[axis] = undefined
+  }
+
+  return result
+}
 
 /**
  * Calculate new transform based on current gizmo interaction.
