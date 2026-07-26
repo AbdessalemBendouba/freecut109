@@ -10,6 +10,7 @@ import {
 import { useCompositionNavigationStore } from '../composition-navigation-store'
 import { useCompositionsStore } from '../compositions-store'
 import { useItemsStore } from '../items-store'
+import { useKeyframesStore } from '../keyframes-store'
 import { useMarkersStore } from '../markers-store'
 import { useTimelineCommandStore } from '../timeline-command-store'
 import {
@@ -185,6 +186,52 @@ describe('trimCompositionToActiveRegion', () => {
     // The bar remains available, rebased and constrained to the trimmed comp.
     expect(useMarkersStore.getState().inPoint).toBe(0)
     expect(useMarkersStore.getState().outPoint).toBe(200)
+  })
+
+  it('rebases separated vector component lanes on a head-trimmed item', () => {
+    openCompositionWithLayers()
+    useKeyframesStore.getState().setKeyframes([
+      {
+        itemId: 'straddles-in',
+        separatedVectorProperties: ['position'],
+        properties: [
+          {
+            property: 'x',
+            keyframes: [
+              { id: 'x-before', frame: 50, value: 10, easing: 'linear' },
+              { id: 'x-kept', frame: 125, value: 20, easing: 'linear' },
+            ],
+          },
+          {
+            property: 'y',
+            keyframes: [
+              { id: 'y-at-start', frame: 100, value: 30, easing: 'linear' },
+              { id: 'y-kept', frame: 160, value: 40, easing: 'linear' },
+            ],
+          },
+        ],
+      },
+    ])
+
+    trimCompositionToActiveRegion()
+
+    expect(useKeyframesStore.getState().keyframesByItemId['straddles-in']).toEqual({
+      itemId: 'straddles-in',
+      separatedVectorProperties: ['position'],
+      properties: [
+        {
+          property: 'x',
+          keyframes: [{ id: 'x-kept', frame: 25, value: 20, easing: 'linear' }],
+        },
+        {
+          property: 'y',
+          keyframes: [
+            { id: 'y-at-start', frame: 0, value: 30, easing: 'linear' },
+            { id: 'y-kept', frame: 60, value: 40, easing: 'linear' },
+          ],
+        },
+      ],
+    })
   })
 
   it('rebases markers inside the region and drops the rest', () => {

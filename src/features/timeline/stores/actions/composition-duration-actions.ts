@@ -100,6 +100,13 @@ function rebaseKeyframesOnTrimmedItems(
           ...property,
           keyframes: shift(property.keyframes),
         })),
+        // Separated vectors store their component lanes in `properties`
+        // (position => x/y, scale => width/height, anchor => anchorX/anchorY).
+        // Those keys were shifted above; retain the separation-mode metadata
+        // explicitly so hydration does not recombine the rebased lanes.
+        ...(entry.separatedVectorProperties
+          ? { separatedVectorProperties: [...entry.separatedVectorProperties] }
+          : {}),
         ...(entry.vectorProperties
           ? {
               vectorProperties: entry.vectorProperties.map((property) => ({
