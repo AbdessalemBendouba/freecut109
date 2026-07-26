@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { PreviewArea } from './preview-area'
 import { useMaskEditorStore, useItemsStore } from '@/features/editor/deps/preview'
+import { useProjectStore } from '@/features/editor/deps/projects'
 import { useEditorStore } from '@/shared/state/editor'
 
 vi.mock('@/features/editor/deps/preview', async () => {
@@ -11,13 +12,29 @@ vi.mock('@/features/editor/deps/preview', async () => {
 
   return {
     ...actual,
-    VideoPreview: ({ chrome }: { chrome?: 'edit' | 'color' }) => (
-      <div data-testid={chrome === 'color' ? 'color-video-preview' : 'video-preview'} />
+    VideoPreview: ({
+      chrome,
+      project,
+    }: {
+      chrome?: 'edit' | 'color'
+      project: { width: number; height: number; fps: number; backgroundColor?: string }
+    }) => (
+      <div
+        data-testid={chrome === 'color' ? 'color-video-preview' : 'video-preview'}
+        data-width={project.width}
+        data-height={project.height}
+        data-fps={project.fps}
+        data-background-color={project.backgroundColor}
+      />
     ),
     ColorVideoPreview: () => <div data-testid="color-video-preview" />,
     AlignmentToolbar: () => <div data-testid="alignment-toolbar" />,
-    PlaybackControls: () => <div data-testid="playback-controls" />,
-    TimecodeDisplay: () => <div data-testid="timecode-display" />,
+    PlaybackControls: ({ totalFrames }: { totalFrames: number }) => (
+      <div data-testid="playback-controls" data-total-frames={totalFrames} />
+    ),
+    TimecodeDisplay: ({ totalFrames }: { totalFrames: number }) => (
+      <div data-testid="timecode-display" data-total-frames={totalFrames} />
+    ),
     PreviewZoomControls: () => <div data-testid="preview-zoom-controls" />,
     importSourceMonitor: vi.fn().mockResolvedValue({
       SourceMonitor: () => <div data-testid="source-monitor" />,
@@ -35,6 +52,7 @@ vi.mock('@/features/editor/deps/preview', async () => {
 })
 
 function resetStores() {
+  useProjectStore.setState({ currentProject: null })
   useMaskEditorStore.getState().stopEditing()
   useItemsStore.getState().setItems([])
   useEditorStore.setState({
@@ -189,6 +207,55 @@ describe('PreviewArea mask editor toolbar', () => {
     expect(screen.getByTestId('video-preview')).toBeInTheDocument()
     expect(screen.getByTestId('alignment-toolbar')).toBeInTheDocument()
     expect(screen.queryByTestId('color-video-preview')).not.toBeInTheDocument()
+  })
+
+  it('uses provided composition metadata and authored duration when requested', () => {
+    useProjectStore.setState({
+      currentProject: {
+        id: 'project-1',
+        name: 'Project',
+        description: '',
+        createdAt: 0,
+        updatedAt: 0,
+        duration: 0,
+        metadata: {
+          width: 1920,
+          height: 1080,
+          fps: 30,
+          backgroundColor: '#000000',
+        },
+      },
+    })
+    useItemsStore.getState().setItems([
+      {
+        id: 'overhang-1',
+        type: 'shape',
+        trackId: 'track-1',
+        from: 0,
+        durationInFrames: 1800,
+        label: 'Overhanging layer',
+        shapeType: 'rectangle',
+        fillColor: '#ffffff',
+      },
+    ])
+
+    render(
+      <PreviewArea
+        project={{ width: 1440, height: 1080, fps: 24, backgroundColor: '#123456' }}
+        durationInFrames={240}
+        preferProjectStoreMetadata={false}
+      />,
+    )
+
+    expect(screen.getByTestId('video-preview')).toHaveAttribute('data-width', '1440')
+    expect(screen.getByTestId('video-preview')).toHaveAttribute('data-height', '1080')
+    expect(screen.getByTestId('video-preview')).toHaveAttribute('data-fps', '24')
+    expect(screen.getByTestId('video-preview')).toHaveAttribute(
+      'data-background-color',
+      '#123456',
+    )
+    expect(screen.getByTestId('playback-controls')).toHaveAttribute('data-total-frames', '240')
+    expect(screen.getByTestId('timecode-display')).toHaveAttribute('data-total-frames', '240')
   })
 
   it('uses color preview chrome without the alignment toolbar in color workspace', () => {

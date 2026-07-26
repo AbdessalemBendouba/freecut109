@@ -14,3 +14,9 @@ export { removeMotionAnimationLayers } from '@/features/keyframes/utils/motion-l
 export { removeMotionModifiers } from '@/features/keyframes/utils/motion-modifier-eval'
 export { isFrameInTransitionRegion } from '@/features/keyframes/utils/transition-region'
 export { resolveAnimatedTextItem } from '@/features/keyframes/utils/animated-text-item'
+export { resolveAnimatedShapeItem } from '@/features/keyframes/utils/animated-shape-item'
+export {
+  clonePathVertices,
+  getChangedPathVertexValues,
+  hasPathVertexKeyframes,
+} from '@/features/keyframes/utils/path-animatable-properties'

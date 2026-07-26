@@ -18,6 +18,7 @@ import { worldToLocalTransform } from '@/shared/utils/transform-parenting'
 import { resolveItemTransformAtFrame } from '@/features/preview/deps/composition-runtime'
 
 const SCALAR_GIZMO_PROPERTIES = ['x', 'y', 'width', 'height', 'rotation'] as const
+const ANCHOR_GIZMO_PROPERTIES = ['x', 'y', 'anchorX', 'anchorY'] as const
 
 /**
  * Resolve the parent's hierarchy transform in the same coordinate space used
@@ -178,4 +179,66 @@ export function buildGizmoTransformCommit(params: {
     transformProps,
     shouldUpdateBase: Object.keys(transformProps).length > 1 || autoKeyframedProps.size === 0,
   }
+}
+
+export function buildGizmoAnchorCommit(params: {
+  item: TimelineItem
+  itemKeyframes: ItemKeyframes | undefined
+  transform: ResolvedTransform
+  currentFrame: number
+}): {
+  autoOps: AutoKeyframeOperation[]
+  transformProps: Partial<TransformProperties>
+} {
+  const values = {
+    x: params.transform.x,
+    y: params.transform.y,
+    anchorX: params.transform.anchorX,
+    anchorY: params.transform.anchorY,
+  }
+  const autoKeyframedProps = new Set<(typeof ANCHOR_GIZMO_PROPERTIES)[number]>()
+  const autoOps: AutoKeyframeOperation[] = []
+
+  for (const vectorProperty of ['position', 'anchor'] as const) {
+    const lane = params.itemKeyframes?.vectorProperties?.find(
+      (candidate) => candidate.property === vectorProperty && candidate.keyframes.length > 0,
+    )
+    if (!lane) continue
+    const components =
+      vectorProperty === 'position'
+        ? (['x', 'y'] as const)
+        : (['anchorX', 'anchorY'] as const)
+    const operation = getVectorAutoKeyframeOperation(
+      params.item,
+      params.itemKeyframes,
+      vectorProperty,
+      { x: values[components[0]], y: values[components[1]] },
+      params.currentFrame,
+    )
+    if (!operation) continue
+    autoOps.push(operation)
+    autoKeyframedProps.add(components[0])
+    autoKeyframedProps.add(components[1])
+  }
+
+  for (const property of ANCHOR_GIZMO_PROPERTIES) {
+    if (autoKeyframedProps.has(property)) continue
+    const operation = getAutoKeyframeOperation(
+      params.item,
+      params.itemKeyframes,
+      property,
+      values[property],
+      params.currentFrame,
+    )
+    if (!operation) continue
+    autoOps.push(operation)
+    autoKeyframedProps.add(property)
+  }
+
+  const transformProps: Partial<TransformProperties> = {}
+  for (const property of ANCHOR_GIZMO_PROPERTIES) {
+    if (!autoKeyframedProps.has(property)) transformProps[property] = values[property]
+  }
+
+  return { autoOps, transformProps }
 }

@@ -2,6 +2,7 @@ import type { TFunction } from 'i18next'
 import {
   PROPERTY_LABELS,
   isBuiltInAnimatableProperty,
+  isPathVertexAnimatableProperty,
   parseEffectAnimatableProperty,
   type AnimatableProperty,
 } from '@/types/keyframe'
@@ -11,6 +12,7 @@ export function getKeyframePropertyLabel(t: TFunction, property: AnimatablePrope
   if (isBuiltInAnimatableProperty(property)) {
     return t(`keyframes.properties.${property}`, { defaultValue: PROPERTY_LABELS[property] })
   }
+  if (isPathVertexAnimatableProperty(property)) return PROPERTY_LABELS[property] ?? property
 
   const parsed = parseEffectAnimatableProperty(property)
   if (!parsed) {
@@ -32,6 +34,7 @@ export function getKeyframePropertyShortLabel(t: TFunction, property: Animatable
   if (isBuiltInAnimatableProperty(property)) {
     return t(`keyframes.properties.${property}`, { defaultValue: PROPERTY_LABELS[property] })
   }
+  if (isPathVertexAnimatableProperty(property)) return PROPERTY_LABELS[property] ?? property
 
   const parsed = parseEffectAnimatableProperty(property)
   if (!parsed) return property

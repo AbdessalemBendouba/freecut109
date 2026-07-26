@@ -24,12 +24,16 @@ import { getSourceDimensions, hasCornerPin } from '@/features/preview/deps/compo
 import { expandTextTransformForPreview } from '../utils/text-layout'
 import { calculateMediaCropLayout, resolveCropSettings } from '@/shared/utils/media-crop'
 import { calculateCropFromDrag, type CropEdge } from '../utils/crop-gizmo'
+import { attachWindowAnchorInteraction } from '../utils/anchor-gizmo'
 
 interface TransformGizmoProps {
   item: TimelineItem
   coordParams: CoordinateParams
   onTransformStart: () => void
-  onTransformEnd: (transform: Transform, operation: 'move' | 'resize' | 'rotate') => void
+  onTransformEnd: (
+    transform: Transform,
+    operation: 'move' | 'resize' | 'rotate' | 'anchor',
+  ) => void
   onCropEnd: (edge: CropEdge, ratio: number) => void
   /** Whether video is currently playing - gizmo shows at lower opacity during playback */
   isPlaying?: boolean
@@ -65,14 +69,18 @@ export function TransformGizmo({
   const clearInteraction = useGizmoStore((s) => s.clearInteraction)
   const cancelInteraction = useGizmoStore((s) => s.cancelInteraction)
   const setPropertiesPreviewNew = useGizmoStore((s) => s.setPropertiesPreviewNew)
+  const setTransformPreview = useGizmoStore((s) => s.setTransformPreview)
   const replaceItemPreview = useGizmoStore((s) => s.replaceItemPreview)
   const [activeCropEdge, setActiveCropEdge] = useState<CropEdge | null>(null)
+  const [isAnchorDragging, setIsAnchorDragging] = useState(false)
   const cancelCropInteractionRef = useRef<(() => void) | null>(null)
+  const cancelAnchorInteractionRef = useRef<(() => void) | null>(null)
   const transformNodeRef = useRef<HTMLDivElement>(null)
   const acknowledgedHandoffRef = useRef<number | null>(null)
 
   const isTransformInteracting = activeGizmo?.itemId === item.id
-  const isInteracting = isTransformInteracting || activeCropEdge !== null
+  const isInteracting =
+    isTransformInteracting || activeCropEdge !== null || isAnchorDragging
 
   // Get animated transform using centralized hook
   const { transform: animatedTransform, relativeFrame } = useAnimatedTransform(
@@ -519,9 +527,53 @@ export function TransformGizmo({
     ],
   )
 
+  const handleAnchorStart = useCallback(
+    (event: React.MouseEvent) => {
+      event.stopPropagation()
+      event.preventDefault()
+
+      const startPoint = toCanvasPoint(event)
+      const startTransform = { ...currentTransform }
+      const previousPreview = useGizmoStore.getState().preview?.[item.id] ?? null
+
+      const restorePreview = (deferred: boolean) => {
+        const restore = () => replaceItemPreview(item.id, previousPreview)
+        if (deferred) requestAnimationFrame(() => requestAnimationFrame(restore))
+        else restore()
+      }
+
+      setIsAnchorDragging(true)
+      onTransformStart()
+      document.body.style.cursor = 'move'
+      cancelAnchorInteractionRef.current = attachWindowAnchorInteraction({
+        startTransform,
+        startPoint,
+        toCanvasPoint,
+        setPreview: (transform) => setTransformPreview({ [item.id]: transform }),
+        restorePreview,
+        onCommit: (transform) => onTransformEnd(transform, 'anchor'),
+        onFinish: () => {
+          cancelAnchorInteractionRef.current = null
+          document.body.style.cursor = ''
+          setIsAnchorDragging(false)
+        },
+      })
+    },
+    [
+      currentTransform,
+      item.id,
+      onTransformEnd,
+      onTransformStart,
+      replaceItemPreview,
+      setTransformPreview,
+      toCanvasPoint,
+    ],
+  )
+
   useEffect(
     () => () => {
       cancelCropInteractionRef.current?.()
+      cancelAnchorInteractionRef.current?.()
     },
     [],
   )
@@ -532,6 +584,10 @@ export function TransformGizmo({
     useCallback(() => {
       if (cancelCropInteractionRef.current) {
         cancelCropInteractionRef.current()
+        return
+      }
+      if (cancelAnchorInteractionRef.current) {
+        cancelAnchorInteractionRef.current()
         return
       }
       cancelInteraction()
@@ -589,6 +645,27 @@ export function TransformGizmo({
         }
         onCropStart={cropLayout ? handleCropStart : undefined}
       />
+      <button
+        type="button"
+        aria-label="Move anchor point"
+        title="Move anchor point"
+        data-testid="anchor-point-handle"
+        className="absolute z-20 h-3 w-3 -translate-x-1/2 -translate-y-1/2 cursor-move rounded-full border border-primary bg-background shadow-[0_0_0_1px_rgba(0,0,0,0.45)]"
+        style={{
+          left:
+            (screenBounds.width - currentTransform.width * getEffectiveScale(coordParams)) / 2 +
+            (currentTransform.anchorX ?? currentTransform.width / 2) *
+              getEffectiveScale(coordParams),
+          top:
+            (screenBounds.height - currentTransform.height * getEffectiveScale(coordParams)) / 2 +
+            (currentTransform.anchorY ?? currentTransform.height / 2) *
+              getEffectiveScale(coordParams),
+        }}
+        onMouseDown={handleAnchorStart}
+      >
+        <span className="pointer-events-none absolute left-1/2 top-[-3px] h-[16px] w-px -translate-x-1/2 bg-primary" />
+        <span className="pointer-events-none absolute left-[-3px] top-1/2 h-px w-[16px] -translate-y-1/2 bg-primary" />
+      </button>
     </div>
   )
 }

@@ -2,20 +2,21 @@ import type { AnimatableProperty } from '@/types/keyframe'
 import type { TimelineItem } from '@/types/timeline'
 import { getAnimatableEffectPropertiesForItem } from './effect-animatable-properties'
 import { TEXT_ANIMATABLE_PROPERTIES } from './animated-text-item'
+import { getPathVertexAnimatableProperties } from './path-animatable-properties'
 
 const VISUAL_ANIMATABLE_PROPERTIES: AnimatableProperty[] = [
   'x',
   'y',
   'width',
   'height',
+  'anchorX',
+  'anchorY',
   'rotation',
   'opacity',
   'cornerRadius',
 ]
 
 const VIDEO_ANIMATABLE_PROPERTIES: AnimatableProperty[] = [
-  'anchorX',
-  'anchorY',
   'cropLeft',
   'cropRight',
   'cropTop',
@@ -64,6 +65,9 @@ export function getAnimatablePropertiesForItem(item: TimelineItem): AnimatablePr
         'taperEndWidth',
         'taperStartLength',
         'taperEndLength',
+        ...(item.shapeType === 'path'
+          ? getPathVertexAnimatableProperties(item.pathVertices)
+          : []),
         ...effectProperties,
       ]
     case 'controller':

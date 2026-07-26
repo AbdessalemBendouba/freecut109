@@ -26,7 +26,10 @@ interface PreviewAreaProps {
     width: number
     height: number
     fps: number
+    backgroundColor?: string
   }
+  durationInFrames?: number
+  preferProjectStoreMetadata?: boolean
 }
 
 type PreviewChrome = 'edit' | 'color'
@@ -159,7 +162,11 @@ const ProgramPreviewSurface = memo(function ProgramPreviewSurface({
  *
  * Uses granular Zustand selectors in child components
  */
-export const PreviewArea = memo(function PreviewArea({ project }: PreviewAreaProps) {
+export const PreviewArea = memo(function PreviewArea({
+  project,
+  durationInFrames,
+  preferProjectStoreMetadata = true,
+}: PreviewAreaProps) {
   const { t } = useTranslation()
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
@@ -197,14 +204,21 @@ export const PreviewArea = memo(function PreviewArea({ project }: PreviewAreaPro
   const projectFps = useProjectStore((s) => s.currentProject?.metadata.fps)
   const projectBgColor = useProjectStore((s) => s.currentProject?.metadata.backgroundColor)
 
-  const width = projectWidth ?? project.width
-  const height = projectHeight ?? project.height
-  const fps = projectFps ?? project.fps
-  const backgroundColor = projectBgColor ?? '#000000'
+  const width = preferProjectStoreMetadata ? (projectWidth ?? project.width) : project.width
+  const height = preferProjectStoreMetadata ? (projectHeight ?? project.height) : project.height
+  const fps = preferProjectStoreMetadata ? (projectFps ?? project.fps) : project.fps
+  const backgroundColor = preferProjectStoreMetadata
+    ? (projectBgColor ?? project.backgroundColor ?? '#000000')
+    : (project.backgroundColor ?? '#000000')
 
   // Use the precomputed index from items-store; returns 0 when there are no items.
   const maxItemEndFrame = useItemsStore((s) => s.maxItemEndFrame)
-  const totalFrames = maxItemEndFrame > 0 ? maxItemEndFrame : fps * DEFAULT_EMPTY_TIMELINE_SECONDS
+  const totalFrames =
+    durationInFrames !== undefined
+      ? Math.max(1, Math.round(durationInFrames))
+      : maxItemEndFrame > 0
+        ? maxItemEndFrame
+        : fps * DEFAULT_EMPTY_TIMELINE_SECONDS
   const isPathEditModeActive = isMaskEditingActive && !isPenModeActive
   const canFinishPenPath = isShapePenModeActive && penVertexCount >= 2
   const selectedVertexCount = selectedVertexIndices.length

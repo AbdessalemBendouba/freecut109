@@ -4,7 +4,6 @@
  */
 
 export type { AutoKeyframeOperation } from '@/features/keyframes/utils/auto-keyframe'
-export { getCropPropertyValue } from '@/features/keyframes/utils/animated-crop-resolver'
 export { interpolatePropertyValue } from '@/features/keyframes/utils/interpolation'
 export { sampleVectorSpeedGraph } from '@/features/keyframes/utils/vector-interpolation'
 export {
@@ -21,12 +20,7 @@ export {
   wouldCreateDirectPropertyLinkCycle,
 } from '@/features/keyframes/utils/animated-transform-resolver'
 export {
-  getTextAnimatableBaseValue,
-  isTextAnimatableProperty,
-} from '@/features/keyframes/utils/animated-text-item'
-export {
   getShapeAnimatableBaseValue,
-  isShapeAnimatableProperty,
   resolveAnimatedShapeItem,
 } from '@/features/keyframes/utils/animated-shape-item'
 export {
@@ -62,6 +56,7 @@ export {
 export { getNiceTickStep } from '@/features/keyframes/components/dopesheet-editor/dopesheet-helpers'
 export { useRafCoalescedValue } from '@/features/keyframes/components/use-raf-coalesced-value'
 export { getAnimatablePropertiesForItem } from '@/features/keyframes/utils/animatable-properties'
+export { getAnimatablePropertyBaseValue } from '@/features/keyframes/utils/animatable-property-base-value'
 export {
   getProceduralBands,
   type ProceduralPreviewInput,

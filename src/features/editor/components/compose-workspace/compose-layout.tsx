@@ -21,6 +21,7 @@ interface MotionWorkspaceProject {
   width: number
   height: number
   fps: number
+  backgroundColor?: string
 }
 
 function restoreMotionReturnTimeline(): void {
@@ -73,6 +74,8 @@ export const MotionPreviewArea = memo(function MotionPreviewArea({
       width: activeComposition.width,
       height: activeComposition.height,
       fps: activeComposition.fps,
+      backgroundColor: activeComposition.backgroundColor,
+      durationInFrames: activeComposition.durationInFrames,
     }
   }, [activeComposition, isTimelineLoading, mainHolder])
 
@@ -115,7 +118,13 @@ export const MotionPreviewArea = memo(function MotionPreviewArea({
     )
   }
 
-  return <PreviewArea project={previewProject} />
+  return (
+    <PreviewArea
+      project={previewProject}
+      durationInFrames={previewProject.durationInFrames}
+      preferProjectStoreMetadata={false}
+    />
+  )
 })
 
 /**

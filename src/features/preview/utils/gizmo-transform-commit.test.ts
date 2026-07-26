@@ -7,6 +7,7 @@ import type { TimelineItem } from '@/types/timeline'
 import type { ResolvedTransform } from '@/types/transform'
 import { createTransformParentBinding } from '@/shared/utils/transform-parenting'
 import {
+  buildGizmoAnchorCommit,
   buildGizmoTransformCommit,
   resolveEditableGizmoTransform,
   resolveGizmoCommitParentWorld,
@@ -188,5 +189,45 @@ describe('gizmo transform commits', () => {
     )
     expect(commit.transformProps).not.toHaveProperty('x')
     expect(commit.transformProps).not.toHaveProperty('width')
+  })
+
+  it('writes coupled Anchor and compensated Position lanes for anchor drags', () => {
+    const keyframes: ItemKeyframes = {
+      itemId: item.id,
+      properties: [],
+      vectorProperties: [
+        {
+          property: 'position',
+          keyframes: [{ id: 'p0', frame: 0, value: { x: 100, y: 50 }, easing: 'linear' }],
+        },
+        {
+          property: 'anchor',
+          keyframes: [{ id: 'a0', frame: 0, value: { x: 100, y: 50 }, easing: 'linear' }],
+        },
+      ],
+    }
+
+    const commit = buildGizmoAnchorCommit({
+      item,
+      itemKeyframes: keyframes,
+      transform: { ...base, x: 90, y: 70, anchorX: 120, anchorY: 50 },
+      currentFrame: 15,
+    })
+
+    expect(commit.autoOps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'vector-add',
+          property: 'position',
+          value: { x: 90, y: 70 },
+        }),
+        expect.objectContaining({
+          type: 'vector-add',
+          property: 'anchor',
+          value: { x: 120, y: 50 },
+        }),
+      ]),
+    )
+    expect(commit.transformProps).toEqual({})
   })
 })

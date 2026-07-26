@@ -118,7 +118,6 @@ import {
   PropertyLinkPickWhipOverlay,
   duplicateItemsWithTrackChanges,
   getAnimatablePropertiesForItem,
-  getEffectPropertyBaseValue,
   getProceduralBands,
   getPropertyAccordionGroups,
   getPropertyDisplayGroups,
@@ -163,7 +162,12 @@ import {
   usePropertyLinkPickWhip,
   wouldCreateCompositionCycle,
 } from '@/features/editor/deps/timeline-motion'
-import { useGizmoStore, type ItemPreview } from '@/features/editor/deps/preview'
+import { getAnimatablePropertyBaseValue } from '@/features/editor/deps/keyframes'
+import {
+  useGizmoStore,
+  useMaskEditorStore,
+  type ItemPreview,
+} from '@/features/editor/deps/preview'
 import {
   getSourceDimensions,
   resolveItemTransformAtFrame,
@@ -216,6 +220,7 @@ import {
 } from './motion-vector-rows'
 import { MotionIoLane, MOTION_IO_LANE_HEIGHT } from './motion-io-lane'
 import { MotionActiveRegionOverlay, MotionCompEndRulerDim } from './motion-region-overlay'
+import { getVisibleMotionPathProperties } from './motion-path-property-visibility'
 
 const LAYER_COLUMN_WIDTH = 620
 const LAYER_PARENT_COLUMN_WIDTH = 148
@@ -3108,7 +3113,7 @@ const MotionDopesheetContent = memo(function MotionDopesheetContent({
               interpolatePropertyValue(
                 keyframes,
                 propertyRelativeFrame,
-                getBasePropertyValue(item, property, canvas),
+                getAnimatablePropertyBaseValue(item, property, { ...canvas, fps }),
               ),
             )
           }}
@@ -3259,37 +3264,6 @@ function getMotionLayerTypeIcon(itemType: TimelineItem['type']): LucideIcon {
   }
 }
 
-function getBasePropertyValue(
-  item: TimelineItem,
-  property: AnimatableProperty,
-  canvas: { width: number; height: number },
-): number {
-  if (property === 'volume') return item.volume ?? 0
-  if (property.startsWith('effect:')) return getEffectPropertyBaseValue(item, property) ?? 0
-  if (item.type === 'shape' && isShapeAnimatableProperty(property)) {
-    return getShapeAnimatableBaseValue(item, property)
-  }
-  const transform = item.transform
-  switch (property) {
-    case 'x':
-    case 'y':
-    case 'anchorX':
-    case 'anchorY':
-    case 'rotation':
-      return transform?.[property] ?? 0
-    case 'width':
-      return transform?.width ?? canvas.width
-    case 'height':
-      return transform?.height ?? canvas.height
-    case 'opacity':
-      return transform?.opacity ?? 1
-    case 'cornerRadius':
-      return transform?.cornerRadius ?? 0
-    default:
-      return 0
-  }
-}
-
 function buildMotionPropertyValues(params: {
   item: TimelineItem
   itemKeyframes: ItemKeyframes | undefined
@@ -3329,7 +3303,10 @@ function buildMotionPropertyValues(params: {
           : interpolatePropertyValue(
               params.originalKeyframesByProperty[property] ?? [],
               params.relativeFrame,
-              getBasePropertyValue(params.item, property, params.canvas),
+              getAnimatablePropertyBaseValue(params.item, property, {
+                ...params.canvas,
+                fps: params.fps,
+              }),
             )
       return [property, selectedValue ?? value]
     }),
@@ -3710,6 +3687,9 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
   const wheelMotionViewportCommitTimerRef = useRef<number | null>(null)
   const wheelMotionPanAxisRef = useRef<'x' | 'y' | null>(null)
   const [motionScrollbarWidth, setMotionScrollbarWidth] = useState(0)
+  const [allPathVertexItemIds, setAllPathVertexItemIds] = useState<Set<string>>(
+    () => new Set(),
+  )
   const cancelQueuedMotionViewport = useCallback(() => {
     if (wheelMotionViewportCommitTimerRef.current !== null) {
       window.clearTimeout(wheelMotionViewportCommitTimerRef.current)
@@ -3749,6 +3729,12 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
   const selectedItemIds = useSelectionStore((state) => state.selectedItemIds)
   const selectItems = useSelectionStore((state) => state.selectItems)
   const selectedMotionKeyframes = useKeyframeSelectionStore((state) => state.selectedKeyframes)
+  const maskEditingItemId = useMaskEditorStore((state) =>
+    state.isEditing ? state.editingItemId : null,
+  )
+  const selectedPathVertexIndices = useMaskEditorStore(
+    (state) => state.selectedVertexIndices,
+  )
   const expandedLayerIds = useComposeUiStore(
     useCallback(
       (state) =>
@@ -6279,7 +6265,19 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
                       })
                     : undefined
                 const MotionLayerTypeIcon = getMotionLayerTypeIcon(item.type)
-                const properties = getItemProperties(item)
+                const allProperties = getItemProperties(item)
+                const isPathShape = item.type === 'shape' && item.shapeType === 'path'
+                const showAllPathVertices = allPathVertexItemIds.has(item.id)
+                const properties = getVisibleMotionPathProperties(allProperties, {
+                  itemKeyframes: keyframesByItemId[item.id],
+                  selectedVertexIndices:
+                    maskEditingItemId === item.id ? selectedPathVertexIndices : [],
+                  showAllVertices: showAllPathVertices,
+                  alwaysInclude:
+                    activeInlineCurve?.itemId === item.id
+                      ? activeInlineCurve.property
+                      : null,
+                })
                 const proceduralBands = getProceduralBands(
                   item.motionModifiers,
                   item.durationInFrames,
@@ -6775,6 +6773,49 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
 
                     {expanded ? (
                       <div inert={isLayerLocked ? true : undefined} aria-disabled={isLayerLocked}>
+                        {isPathShape ? (
+                          <div
+                            className="flex h-7 border-b border-border/70 bg-background/45"
+                            data-testid={`motion-path-vertex-toolbar-${item.id}`}
+                          >
+                            <div
+                              className="flex items-center justify-between gap-2 border-r border-border px-2 text-[10px] text-muted-foreground"
+                              style={{ width: LAYER_COLUMN_WIDTH }}
+                            >
+                              <span>
+                                {showAllPathVertices
+                                  ? 'All path vertices'
+                                  : maskEditingItemId === item.id &&
+                                      selectedPathVertexIndices.length > 0
+                                    ? `${selectedPathVertexIndices.length} selected ${
+                                        selectedPathVertexIndices.length === 1
+                                          ? 'vertex'
+                                          : 'vertices'
+                                      }`
+                                    : 'Vertex 1'}
+                              </span>
+                              <button
+                                type="button"
+                                className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
+                                data-testid={`motion-toggle-all-path-vertices-${item.id}`}
+                                aria-pressed={showAllPathVertices}
+                                onClick={() =>
+                                  setAllPathVertexItemIds((current) => {
+                                    const next = new Set(current)
+                                    if (next.has(item.id)) next.delete(item.id)
+                                    else next.add(item.id)
+                                    return next
+                                  })
+                                }
+                              >
+                                {showAllPathVertices ? 'Selected vertices' : 'All vertices'}
+                              </button>
+                            </div>
+                            <div className="flex flex-1 items-center px-2 text-[10px] text-muted-foreground/70">
+                              Select path points in the preview to focus these channels.
+                            </div>
+                          </div>
+                        ) : null}
                         {textMotionBands.length > 0 ? (
                           <TextMotionTimelineLanes
                             itemId={item.id}

@@ -18,8 +18,21 @@ import { useComposeUiStore } from './compose-ui-store'
 import { MotionPreviewArea, MotionTimelineDock } from './compose-layout'
 
 vi.mock('../preview-area', () => ({
-  PreviewArea: ({ project }: { project: { width: number; height: number; fps: number } }) => (
-    <div data-testid="preview-area">
+  PreviewArea: ({
+    project,
+    durationInFrames,
+    preferProjectStoreMetadata,
+  }: {
+    project: { width: number; height: number; fps: number; backgroundColor?: string }
+    durationInFrames?: number
+    preferProjectStoreMetadata?: boolean
+  }) => (
+    <div
+      data-testid="preview-area"
+      data-background-color={project.backgroundColor}
+      data-duration-in-frames={durationInFrames}
+      data-prefer-project-store-metadata={String(preferProjectStoreMetadata)}
+    >
       {project.width}x{project.height}@{project.fps}
     </div>
   ),
@@ -34,7 +47,12 @@ vi.mock('./new-composition-dialog', () => ({
     open ? <div data-testid="new-composition-dialog" /> : null,
 }))
 
-function addMotionComposition(id: string, name: string, width = 1920, items: TimelineItem[] = []) {
+function addMotionComposition(
+  id: string,
+  name: string,
+  width = 1920,
+  items: TimelineItem[] = [],
+) {
   useCompositionsStore.getState().addComposition({
     id,
     name,
@@ -47,6 +65,7 @@ function addMotionComposition(id: string, name: string, width = 1920, items: Tim
     width,
     height: 1080,
     durationInFrames: 300,
+    backgroundColor: '#123456',
   })
 }
 
@@ -83,6 +102,12 @@ describe('Motion workspace composition session', () => {
     render(<MotionPreviewArea project={{ width: 1280, height: 720, fps: 24 }} />)
 
     expect(screen.getByTestId('preview-area')).toHaveTextContent('1440x1080@30')
+    expect(screen.getByTestId('preview-area')).toHaveAttribute('data-background-color', '#123456')
+    expect(screen.getByTestId('preview-area')).toHaveAttribute('data-duration-in-frames', '300')
+    expect(screen.getByTestId('preview-area')).toHaveAttribute(
+      'data-prefer-project-store-metadata',
+      'false',
+    )
     expect(screen.queryByTestId('motion-preview-empty')).not.toBeInTheDocument()
   })
 

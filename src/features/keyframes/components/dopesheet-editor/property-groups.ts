@@ -1,5 +1,6 @@
 import {
   isEffectAnimatableProperty,
+  isPathVertexAnimatableProperty,
   parseEffectAnimatableProperty,
   type AnimatableProperty,
 } from '@/types/keyframe'
@@ -88,6 +89,17 @@ export function getPropertyAccordionGroups(
   }
 
   const otherProperties = properties.filter((property) => remaining.has(property))
+  const pathProperties = otherProperties.filter((property) =>
+    isPathVertexAnimatableProperty(property),
+  )
+  if (pathProperties.length > 0) {
+    groups.push({
+      id: 'pathGeometry',
+      label: 'Path Geometry',
+      properties: pathProperties,
+    })
+  }
+
   const effectProperties = otherProperties.filter((property) =>
     isEffectAnimatableProperty(property),
   )
@@ -100,7 +112,8 @@ export function getPropertyAccordionGroups(
   }
 
   const ungroupedProperties = otherProperties.filter(
-    (property) => !isEffectAnimatableProperty(property),
+    (property) =>
+      !isEffectAnimatableProperty(property) && !isPathVertexAnimatableProperty(property),
   )
   if (ungroupedProperties.length > 0) {
     groups.push({

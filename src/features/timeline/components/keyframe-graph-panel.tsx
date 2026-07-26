@@ -27,13 +27,9 @@ import { MotionBakeConfirmationDialog } from '@/shared/ui/motion-bake-confirmati
 import { hasEnabledProceduralMotion } from '@/shared/timeline/procedural-motion'
 import { ErrorBoundary } from '@/app/error-boundary'
 import {
-  getCropPropertyValue,
+  getAnimatablePropertyBaseValue,
   getTransitionBlockedRanges,
   interpolatePropertyValue,
-  getTextAnimatableBaseValue,
-  getShapeAnimatableBaseValue,
-  isShapeAnimatableProperty,
-  isTextAnimatableProperty,
   buildEasingConfig,
   buildVectorPromotionPlan,
   remapLegacyVectorPromotionIdentities,
@@ -45,7 +41,6 @@ import {
   DopesheetEditor,
   PropertyLinkPickWhipOverlay,
   getAnimatablePropertiesForItem,
-  getEffectPropertyBaseValue,
   buildBakeMotionPlan,
   type ProceduralPreviewInput,
 } from '@/features/timeline/deps/keyframe-editors'
@@ -102,7 +97,6 @@ import {
 } from '../stores/actions/text-motion-actions'
 import { HOTKEY_OPTIONS } from '@/config/hotkeys'
 import { useResolvedHotkeys } from '@/features/timeline/deps/settings'
-import { isEffectAnimatableProperty } from '@/types/keyframe'
 import { getDirectPropertyLinks, isTransformAnimatableProperty } from '@/types/keyframe'
 import { buildEffectPropertyResetPlan } from '@/features/timeline/utils/effect-property-reset'
 import { VectorSpeedGraph } from './vector-speed-graph'
@@ -1033,45 +1027,6 @@ function clampFrameToBlockedRanges(
   return frame
 }
 
-function getBaseKeyframeValue(
-  item: TimelineItem,
-  property: AnimatableProperty,
-  canvas: CanvasSettings,
-): number {
-  if (isEffectAnimatableProperty(property)) {
-    return getEffectPropertyBaseValue(item, property) ?? 0
-  }
-
-  if (property === 'volume') {
-    return item.volume ?? 0
-  }
-
-  if (item.type === 'text' && isTextAnimatableProperty(property)) {
-    return getTextAnimatableBaseValue(item, property)
-  }
-
-  if (item.type === 'shape' && isShapeAnimatableProperty(property)) {
-    return getShapeAnimatableBaseValue(item, property)
-  }
-
-  if (
-    property === 'cropLeft' ||
-    property === 'cropRight' ||
-    property === 'cropTop' ||
-    property === 'cropBottom' ||
-    property === 'cropSoftness'
-  ) {
-    const sourceDimensions = getSourceDimensions(item)
-    return getCropPropertyValue(item.crop, property, {
-      width: Math.max(1, sourceDimensions?.width ?? item.transform?.width ?? canvas.width),
-      height: Math.max(1, sourceDimensions?.height ?? item.transform?.height ?? canvas.height),
-    })
-  }
-
-  const resolved = resolveTransform(item, canvas, getSourceDimensions(item))
-  return property in resolved ? resolved[property as keyof typeof resolved] : 0
-}
-
 type SelectedEditorKeyframe = { ref: KeyframeRef; keyframe: Keyframe }
 
 function commitScalarPropertyValue({
@@ -1151,7 +1106,7 @@ function buildCurrentPropertyValues(params: {
       interpolatePropertyValue(
         params.keyframesByProperty[property] ?? [],
         params.relativeFrame,
-        getBaseKeyframeValue(params.item, property, params.canvas),
+        getAnimatablePropertyBaseValue(params.item, property, params.canvas),
       )
   }
   return values
@@ -2975,7 +2930,7 @@ export const KeyframeGraphPanel = memo(function KeyframeGraphPanel({
       if (addVectorKeyframe(property, frame)) return
 
       const propKeyframes = keyframesByProperty[property] ?? []
-      const baseValue = getBaseKeyframeValue(selectedItemForEditor, property, canvas)
+      const baseValue = getAnimatablePropertyBaseValue(selectedItemForEditor, property, canvas)
       const value = interpolatePropertyValue(propKeyframes, frame, baseValue)
 
       timelineActions.addKeyframe(selectedItemForEditor.id, property, frame, value)

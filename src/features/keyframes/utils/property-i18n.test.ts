@@ -9,6 +9,11 @@ const t = ((_: string, options?: { defaultValue?: string }) =>
   options?.defaultValue ?? '') as TFunction
 
 describe('keyframe property labels', () => {
+  it('labels path vertex channels without exposing storage identifiers', () => {
+    expect(getKeyframePropertyLabel(t, 'pathVertex:2:positionX')).toBe('Vertex 3 X')
+    expect(getKeyframePropertyShortLabel(t, 'pathVertex:2:outY')).toBe('Vertex 3 Out Y')
+  })
+
   it('uses a full path for tooltips and a parameter-only label beneath effect headers', () => {
     const property = buildEffectAnimatableProperty('gpu-color-wheels', 'wheels-1', 'exposure')
 

@@ -191,6 +191,49 @@ describe('timeline project hydration', () => {
     ).toEqual(['scale'])
   })
 
+  it('round-trips path geometry keyframes without rewriting their property ids', async () => {
+    const item = makeTimelineVideoItem({ id: 'path-item', trackId: rootTrack.id })
+    useItemsStore.getState().setTracks([rootTrack])
+    useItemsStore.getState().setItems([item])
+    useKeyframesStore.getState().setKeyframes([
+      {
+        itemId: item.id,
+        properties: [
+          {
+            property: 'pathVertex:3:outY',
+            keyframes: [
+              { id: 'path-key-1', frame: 0, value: -0.25, easing: 'linear' },
+              { id: 'path-key-2', frame: 12, value: 0.5, easing: 'ease-in-out' },
+            ],
+          },
+        ],
+      },
+    ])
+
+    const timeline = buildTimelineFromStores()
+    const project: Project = {
+      id: 'path-keyframe-project',
+      name: 'Path keyframe project',
+      description: '',
+      createdAt: 1,
+      updatedAt: 1,
+      duration: 10,
+      metadata: { width: 1920, height: 1080, fps: 30 },
+      timeline,
+    }
+    await hydrateTimelineStoresFromProject(project)
+
+    expect(useKeyframesStore.getState().keyframesByItemId[item.id]?.properties).toEqual([
+      {
+        property: 'pathVertex:3:outY',
+        keyframes: [
+          { id: 'path-key-1', frame: 0, value: -0.25, easing: 'linear' },
+          { id: 'path-key-2', frame: 12, value: 0.5, easing: 'ease-in-out' },
+        ],
+      },
+    ])
+  })
+
   it('round-trips composition control definitions and per-instance values', async () => {
     const title: TextItem = {
       id: 'title',
