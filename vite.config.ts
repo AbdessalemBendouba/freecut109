@@ -7,10 +7,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // Stamps public/sw.js with the hashed entry-chunk filename at build time so the service
-// worker's CACHE_VERSION — and the sw.js bytes — change on every deploy. Without this the
-// SW file is byte-identical across deploys, so registration.update() never detects a new
-// version and old cached chunks are never purged. Uses the content hash (not a timestamp)
-// so identical builds produce an identical SW and avoid needless update churn.
+// worker's CACHE_VERSION — and the sw.js bytes — change on every deploy.
 function serviceWorkerVersionPlugin(): Plugin {
   const placeholder = '__FREECUT_BUILD_ID__'
   let buildId = ''
@@ -27,8 +24,6 @@ function serviceWorkerVersionPlugin(): Plugin {
           ? mainEntry.fileName.replace(/[^a-zA-Z0-9]/g, '-')
           : buildId
     },
-    // closeBundle runs after Vite has copied publicDir into the out dir, so dist/sw.js
-    // exists here with the placeholder intact.
     closeBundle() {
       if (!buildId) {
         this.warn('serviceWorkerVersionPlugin: no main entry chunk found; sw.js not stamped')
@@ -57,6 +52,8 @@ const toolIgnorePatterns = [
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Dynamic base URL for GitHub Pages (/freecut109/) or local dev (/)
+  base: process.env.VITE_BASE_URL || '/',
   lint: {
     ...oxlintConfig,
     ignorePatterns: toolIgnorePatterns,
@@ -67,9 +64,6 @@ export default defineConfig({
     },
   },
   fmt: {
-    ...oxfmtConfig,
-    // `tsr generate` emits routeTree.gen.ts at 80 cols; oxfmt would rewrap it
-    // at 100, so the two rewrite each other on every `npm run routes`.
     ignorePatterns: [...toolIgnorePatterns, 'src/routeTree.gen.ts'],
   },
   staged: {
@@ -83,9 +77,6 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
-      // Ratchet floor, not a target: set just below measured coverage
-      // (2026-06-10: 50.2% stmts / 43.7% branch / 54.9% funcs / 51.5% lines)
-      // so CI fails on regressions. Raise these as coverage grows.
       thresholds: {
         statements: 48,
         branches: 42,
@@ -99,8 +90,6 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
-    // Keep every UI dependency on the same React dispatcher. This also prevents
-    // an optimizer refresh from leaving Radix on a stale React module during HMR.
     dedupe: ['react', 'react-dom'],
   },
   server: {
@@ -109,8 +98,6 @@ export default defineConfig({
     headers: {
       'Cross-Origin-Embedder-Policy': 'require-corp',
       'Cross-Origin-Opener-Policy': 'same-origin',
-      // Enables the JS self-profiling API (new Profiler(...)) for dev-time
-      // performance investigation, e.g. profiling play-start latency.
       'Document-Policy': 'js-profiling',
     },
   },
@@ -121,15 +108,11 @@ export default defineConfig({
     },
   },
   build: {
-    target: 'esnext',
+    // Target Chromium 109 / ES2020 for Windows 7 browser compatibility
+    target: ['chrome109', 'es2020'],
     sourcemap: true,
-    // @mediabunny/ac3 is an intentionally large lazy decoder bundle (~1.1 MB minified).
-    // Keep warnings focused on unexpected growth rather than this known outlier.
     chunkSizeWarningLimit: 1200,
     rollupOptions: {
-      // Multi-entry: the editor app (index.html) plus the headless render
-      // harness (headless.html), a UI-less entry that exposes window.freecut
-      // for the Node/Playwright headless render+edit CLI.
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
         headless: fileURLToPath(new URL('./headless.html', import.meta.url)),
@@ -148,10 +131,6 @@ export default defineConfig({
             normalizedId.endsWith('/src/components/ui/button-variants.ts') ||
             normalizedId.endsWith('/src/components/ui/global-tooltip.tsx')
 
-          // Logger must be in its own chunk to avoid circular chunk TDZ errors.
-          // Without this, Rollup places it in composition-runtime which has a
-          // circular import with media-library, causing "Cannot access before
-          // initialization" in production builds.
           if (id.endsWith('src/shared/logging/logger.ts')) {
             return 'core-logger'
           }
@@ -168,9 +147,6 @@ export default defineConfig({
             return 'app-shell'
           }
 
-          // Timeline bridge modules that re-export UI must live with the UI
-          // chunk; otherwise core ends up importing UI, which creates a
-          // feature-editing-core <-> feature-editing-ui TDZ cycle at startup.
           if (
             id.includes('/src/features/timeline/contracts/editor.ts') ||
             id.includes('/src/features/timeline/index.ts')
@@ -178,7 +154,6 @@ export default defineConfig({
             return 'feature-editing-ui'
           }
 
-          // Application feature chunks
           if (normalizedId.includes('/src/infrastructure/gpu-effects/')) {
             return 'gpu-effects'
           }
@@ -237,34 +212,25 @@ export default defineConfig({
           if (id.includes('/src/features/effects/')) {
             return 'feature-effects'
           }
-          // Composition-runtime shares deeply coupled deps with editing-core
-          // (timeline stores, keyframes, export utils). Merging them into one
-          // chunk eliminates the circular chunk dependency that causes TDZ
-          // errors ("Cannot access before initialization") in production builds.
           if (id.includes('/src/features/composition-runtime/')) {
             return 'feature-editing-core'
           }
 
-          // React must be in its own chunk, loaded first to ensure proper initialization
-          // This prevents "Cannot set properties of undefined" errors with React 19.2 features
           if (id.includes('node_modules/react-dom')) {
             return 'react-vendor'
           }
           if (id.includes('node_modules/react/')) {
             return 'react-vendor'
           }
-          // Router framework
           if (id.includes('@tanstack/react-router')) {
             return 'router-vendor'
           }
           if (normalizedId.includes('sonner')) {
             return 'toast-vendor'
           }
-          // State management
           if (id.includes('/node_modules/zustand/') || id.includes('/node_modules/zundo/')) {
             return 'state-vendor'
           }
-          // Media processing - loaded on demand
           if (id.includes('@mediabunny/ac3')) {
             return 'media-ac3-decoder'
           }
@@ -277,19 +243,15 @@ export default defineConfig({
           if (id.includes('@mediabunny/')) {
             return 'media-processing'
           }
-          // Audio/video processing helpers
           if (id.includes('/node_modules/gifuct-js/')) {
             return 'gif-processing'
           }
-          // UI framework
           if (id.includes('@radix-ui/')) {
             return 'vendor-ui'
           }
-          // Icons - keep lucide-react in separate chunk for better caching
           if (id.includes('lucide-react')) {
             return 'vendor-icons'
           }
-          // Animation - keep motion in its own chunk for better caching
           if (
             normalizedId.includes('/node_modules/motion/') ||
             normalizedId.includes('/node_modules/framer-motion/')
@@ -303,6 +265,11 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
+    rollupOptions: {
+      output: {
+        target: ['chrome109', 'es2020'],
+      },
+    },
   },
   optimizeDeps: {
     exclude: [
@@ -312,9 +279,6 @@ export default defineConfig({
       '@mediabunny/aac-encoder',
       '@huggingface/transformers',
     ],
-    // Pre-bundle the React runtime and root provider together so dependency
-    // optimizer refreshes cannot mix old/new dispatchers in a live dev session.
-    // Lucide stays explicit to avoid analyzing its full icon graph on startup.
     include: [
       'react',
       'react-dom',
