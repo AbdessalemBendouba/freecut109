@@ -45,6 +45,10 @@ function isNotSupported(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'NotSupportedError'
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError'
+}
+
 function wrap<T>(operation: string, fn: () => Promise<T>): Promise<T> {
   return fn().catch((error) => {
     if (isNotAllowed(error)) {
@@ -140,21 +144,6 @@ export async function readArrayBuffer(
 
 /* ────────────────────────────── Write helpers ────────────────────────── */
 
-/**
- * Atomic JSON write: writes to `{name}.tmp`, then replaces the target.
- * Protects against torn writes on crash. Uses FileSystemFileHandle.move
- * (Chromium) when available, falls back to write-then-remove-tmp.
- *
- * Serialized per-path by an in-memory lock. Without this, two concurrent
- * callers racing on the same path can deadlock each other's move():
- *   - A: open tmp writable, write, close → begin .move()
- *   - B: open tmp writable (A has closed, so B succeeds) → write
- *   - A: .move() throws NoModificationAllowedError — "cannot move while
- *     the handle is locked" (B's writable is open on the same tmp)
- * The lock scope is one tab; cross-tab races on the same path are still
- * last-write-wins but can't produce the locked-handle error because each
- * tab has its own tmp writable lifecycle.
- */
 function writeJsonAtomicLockKey(segments: string[]): string {
   return `writeJsonAtomic:${segments.join('/')}`
 }
@@ -163,35 +152,11 @@ type MovableHandle = FileSystemFileHandle & {
   move?: (parent: FileSystemDirectoryHandle, newName: string) => Promise<void>
 }
 
-/**
- * Workspace roots whose `FileSystemFileHandle.move()` rejected as unsupported.
- *
- * `move` is always present on the prototype in Chromium, yet calling it can
- * still reject with NotSupportedError. This is not a blanket "not implemented":
- * Chromium has shipped move() for local files since M111. The spec permits
- * rejection when the file "does not correspond to a file on the underlying file
- * system", which covers cloud-synced and network folders, and pre-M111 engines
- * reject every non-OPFS move. Our root always comes from showDirectoryPicker(),
- * so we are never on the guaranteed-OPFS path.
- *
- * Presence is therefore NOT support; the only way to find out is to call it. We
- * remember the answer so at most one doomed move() happens per workspace rather
- * than one per write.
- *
- * Keyed on the root handle, NOT module-global: `setWorkspaceRoot` can swap the
- * active root mid-session (reconnect, or "choose a different folder" after this
- * very failure). A session-global flag would strand a freshly picked local
- * folder — where move() works fine — on the non-atomic fallback for the rest of
- * the page. A WeakSet also lets a discarded root be collected.
- *
- * Never un-set for a given root: a handle that rejects move() once will keep
- * rejecting it, since the answer is a property of the underlying filesystem.
- */
 const rootsRejectingMove = new WeakSet<FileSystemDirectoryHandle>()
 
 /**
  * Replace `fileName` with the already-written `tmpName` in `parent`.
- * Prefers rename (truly atomic), degrades to copy + delete.
+ * Prefers rename (truly atomic), degrades gracefully to copy + delete on Chrome 109.
  */
 async function commitTmpFile(
   root: FileSystemDirectoryHandle,
@@ -207,21 +172,19 @@ async function commitTmpFile(
       await movable.move(parent, fileName)
       return
     } catch (error) {
-      if (!isNotSupported(error)) throw error
+      // Catch both NotSupportedError AND AbortError (Chromium 109 behavior on Win7)
+      if (!isNotSupported(error) && !isAbortError(error)) throw error
       rootsRejectingMove.add(root)
-      // Logged once per workspace (the set short-circuits later writes). Carries
-      // the environment because the error alone cannot say *why* it rejected.
       logger.warn(
-        'writeJsonAtomic: FileSystemFileHandle.move() rejected as unsupported — ' +
-          'falling back to a non-atomic copy+delete for this workspace',
+        'writeJsonAtomic: FileSystemFileHandle.move() rejected or aborted — ' +
+          'falling back to direct copy+delete for this workspace',
         { environment: describeStorageEnvironment() },
         error,
       )
     }
   }
 
-  // Fallback: copy tmp → target, then remove tmp. Not atomic — a crash between
-  // the two closes leaves a torn target — but it is the only option available.
+  // Fallback: copy tmp → target, then remove tmp.
   const targetHandle = await parent.getFileHandle(fileName, { create: true })
   const targetWritable = await targetHandle.createWritable()
   await targetWritable.write(json)
@@ -244,12 +207,25 @@ export async function writeJsonAtomic(
       const tmpName = `${fileName}.tmp`
       const json = JSON.stringify(data, null, 2)
 
-      const tmpHandle = await parent.getFileHandle(tmpName, { create: true })
-      const writable = await tmpHandle.createWritable()
-      await writable.write(json)
-      await writable.close()
+      try {
+        const tmpHandle = await parent.getFileHandle(tmpName, { create: true })
+        const writable = await tmpHandle.createWritable()
+        await writable.write(json)
+        await writable.close()
 
-      await commitTmpFile(root, parent, tmpHandle, tmpName, fileName, json)
+        await commitTmpFile(root, parent, tmpHandle, tmpName, fileName, json)
+      } catch (atomicError) {
+        // Direct write fallback if atomic tmp creation/writing throws AbortError
+        if (isAbortError(atomicError) || isNotSupported(atomicError)) {
+          logger.warn('writeJsonAtomic tmp failed, falling back to direct write', atomicError)
+          const targetHandle = await parent.getFileHandle(fileName, { create: true })
+          const targetWritable = await targetHandle.createWritable()
+          await targetWritable.write(json)
+          await targetWritable.close()
+        } else {
+          throw atomicError
+        }
+      }
 
       return json.length
     }),
@@ -261,12 +237,6 @@ export async function writeBlob(
   segments: string[],
   data: Blob | ArrayBuffer | Uint8Array | string,
 ): Promise<void> {
-  // Serialized per-path for the same reason as writeJsonAtomic: two
-  // concurrent writers on the same file race on the writable lock. In
-  // writeBlob's case the loser fails at createWritable with
-  // NoModificationAllowedError rather than at move(), but the fix is
-  // identical. Different paths use different lock keys, so this does
-  // not constrain parallelism of unrelated writes.
   return wrap('writeBlob', () =>
     withKeyLock(`writeBlob:${segments.join('/')}`, async () => {
       const { parent, fileName } = await resolveFileParent(root, segments, true)
@@ -280,9 +250,6 @@ export async function writeBlob(
 
 /* ────────────────────────────── Delete helpers ───────────────────────── */
 
-/**
- * Remove a file or a whole subtree. No-op when missing.
- */
 export async function removeEntry(
   root: FileSystemDirectoryHandle,
   segments: string[],
@@ -328,15 +295,6 @@ export async function listDirectory(
   })
 }
 
-/**
- * List a directory and read all matching files in a single resolved-dir pass.
- *
- * Calling readBlob() per file forces resolveDir() to re-walk the segments
- * (4 getDirectoryHandle calls for typical media paths) on every read. For
- * directories with many files this dominates wall time. This helper resolves
- * the parent dir once and reuses its file-handle iterator, then reads all
- * files concurrently.
- */
 export async function readDirectoryFiles(
   root: FileSystemDirectoryHandle,
   segments: string[],
@@ -357,9 +315,6 @@ export async function readDirectoryFiles(
             const file = await handle.getFile()
             return { name, blob: file as Blob }
           } catch (error) {
-            // A file can disappear between iterating dir.values() and calling
-            // getFile() (e.g. concurrent delete). Skip it instead of failing
-            // the whole batch.
             if (isNotFound(error)) return null
             throw error
           }
