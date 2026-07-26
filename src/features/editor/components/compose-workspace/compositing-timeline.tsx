@@ -6958,12 +6958,18 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
             onViewportPreview={previewMotionTimeViewport}
           />
           <div className="pointer-events-none absolute inset-x-2 bottom-1 top-[5px] overflow-hidden rounded-sm">
-            <MotionActiveRegionOverlay
-              viewport={{ startFrame: 0, endFrame: durationInFrames }}
-              compositionEndFrame={compositionEndFrame}
-              testId="motion-navigator-active-region-overlay"
-              compositionEndTestId="motion-navigator-comp-end-dim"
-            />
+            <div
+              data-testid="motion-navigator-frame-axis-overlay"
+              className="absolute inset-y-0 overflow-hidden"
+              style={{ left: KEYFRAME_EDGE_INSET, right: KEYFRAME_EDGE_INSET }}
+            >
+              <MotionActiveRegionOverlay
+                viewport={{ startFrame: 0, endFrame: durationInFrames }}
+                compositionEndFrame={compositionEndFrame}
+                testId="motion-navigator-active-region-overlay"
+                compositionEndTestId="motion-navigator-comp-end-dim"
+              />
+            </div>
           </div>
         </div>
       </div>

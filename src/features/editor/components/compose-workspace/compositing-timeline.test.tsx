@@ -3603,19 +3603,29 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByTestId('motion-comp-end-dim')).toHaveStyle({ left: '50%' })
   })
 
-  it('dims the navigator against the full content domain', () => {
+  it('dims the navigator against its inset frame axis near both edges', () => {
+    useCompositionsStore.getState().updateComposition('comp-1', {
+      durationInFrames: 240,
+    })
     useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
-    useTimelineStore.getState().setInPoint(30)
-    useTimelineStore.getState().setOutPoint(90)
+    useTimelineStore.getState().setInPoint(12)
+    useTimelineStore.getState().setOutPoint(228)
 
     render(<CompositingTimeline />)
 
+    const frameAxisOverlay = screen.getByTestId('motion-navigator-frame-axis-overlay')
     const overlay = screen.getByTestId('motion-navigator-active-region-overlay')
-    const activeRegionEndDim = overlay.querySelector<HTMLElement>('[data-from-frame="90"]')
+    const activeRegionStartDim = overlay.querySelector<HTMLElement>('[data-to-frame="12"]')
+    const activeRegionEndDim = overlay.querySelector<HTMLElement>('[data-from-frame="228"]')
 
+    expect(frameAxisOverlay).toHaveStyle({
+      left: `${KEYFRAME_EDGE_INSET}px`,
+      right: `${KEYFRAME_EDGE_INSET}px`,
+    })
     expect(overlay).toHaveClass('pointer-events-none')
-    expect(screen.getByTestId('motion-navigator-comp-end-dim')).toHaveStyle({ left: '50%' })
-    expect(activeRegionEndDim).toHaveStyle({ left: '37.5%' })
+    expect(screen.getByTestId('motion-navigator-comp-end-dim')).toHaveStyle({ left: '100%' })
+    expect(activeRegionStartDim).toHaveStyle({ width: '5%' })
+    expect(activeRegionEndDim).toHaveStyle({ left: '95%' })
   })
 
   it('keeps a segment trim handle interactive under the active-region dim', () => {
