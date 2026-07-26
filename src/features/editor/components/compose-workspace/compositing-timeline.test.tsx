@@ -3603,6 +3603,55 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByTestId('motion-comp-end-dim')).toHaveStyle({ left: '50%' })
   })
 
+  it('dims the navigator against the full content domain', () => {
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
+    useTimelineStore.getState().setInPoint(30)
+    useTimelineStore.getState().setOutPoint(90)
+
+    render(<CompositingTimeline />)
+
+    const overlay = screen.getByTestId('motion-navigator-active-region-overlay')
+    const activeRegionEndDim = overlay.querySelector<HTMLElement>('[data-from-frame="90"]')
+
+    expect(overlay).toHaveClass('pointer-events-none')
+    expect(screen.getByTestId('motion-navigator-comp-end-dim')).toHaveStyle({ left: '50%' })
+    expect(activeRegionEndDim).toHaveStyle({ left: '37.5%' })
+  })
+
+  it('keeps a segment trim handle interactive under the active-region dim', () => {
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
+
+    render(<CompositingTimeline />)
+
+    const dim = screen.getByTestId('motion-comp-end-dim')
+    const span = screen.getByTestId(`motion-layer-span-${shape.id}`)
+    const lane = span.parentElement!
+    const endHandle = screen.getByTestId(`motion-trim-end-${shape.id}`)
+    vi.spyOn(lane, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 34,
+      width: 300,
+      height: 34,
+      toJSON: () => ({}),
+    })
+
+    expect(dim).toHaveStyle({ left: '50%' })
+    expect(screen.getByTestId('motion-active-region-overlay')).toHaveClass('pointer-events-none')
+
+    fireEvent.pointerDown(endHandle, { pointerId: 21, button: 0, clientX: 300 })
+    fireEvent.pointerMove(endHandle, { pointerId: 21, buttons: 1, clientX: 270 })
+    fireEvent.pointerUp(endHandle, { pointerId: 21, clientX: 270 })
+
+    expect(useItemsStore.getState().itemById[shape.id]).toMatchObject({
+      from: 0,
+      durationInFrames: 216,
+    })
+  })
+
   it('reports the authored composition duration when content overhangs at fractional fps', () => {
     useCompositionsStore.getState().updateComposition('comp-1', {
       durationInFrames: 100,

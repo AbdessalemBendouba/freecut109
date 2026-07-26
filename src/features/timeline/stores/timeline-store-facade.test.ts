@@ -928,7 +928,7 @@ describe('TimelineStoreFacade', () => {
       ])
     })
 
-    it('saves held Main and live Motion edits without broadcasting Main through live stores', async () => {
+    it('saves held Main and live Motion edits with authored duration without broadcasting Main', async () => {
       indexedDbMocks.getProject.mockResolvedValue({
         id: 'project-1',
         metadata: { fps: 30, width: 1920, height: 1080 },
@@ -1118,12 +1118,19 @@ describe('TimelineStoreFacade', () => {
         items: [expect.objectContaining({ id: 'motion-base' }), expect.objectContaining({
           id: 'motion-unsaved',
         })],
-        durationInFrames: 130,
+        durationInFrames: 100,
         busAudioEq: motionBus,
         markers: motionMarkers,
         inPoint: 2,
         outPoint: 70,
       })
+      expect(
+        Math.max(
+          ...(savedTimeline.compositions
+            ?.find((composition) => composition.id === 'motion-comp')
+            ?.items.map((item) => item.from + item.durationInFrames) ?? []),
+        ),
+      ).toBe(130)
 
       expect(observedItemIds).toEqual([])
       expect(observedActiveCompositionIds).toEqual([])

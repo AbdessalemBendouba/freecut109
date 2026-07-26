@@ -6944,7 +6944,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
         />
         <div
           ref={motionTimeNavigatorRef}
-          className="min-w-0 flex-1"
+          className="relative min-w-0 flex-1"
           data-testid="motion-time-navigator"
           data-start-frame={timeViewport.startFrame}
           data-end-frame={timeViewport.endFrame}
@@ -6957,6 +6957,14 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
             onViewportPreviewStart={prepareNavigatorMotionTimeViewportPreview}
             onViewportPreview={previewMotionTimeViewport}
           />
+          <div className="pointer-events-none absolute inset-x-2 bottom-1 top-[5px] overflow-hidden rounded-sm">
+            <MotionActiveRegionOverlay
+              viewport={{ startFrame: 0, endFrame: durationInFrames }}
+              compositionEndFrame={compositionEndFrame}
+              testId="motion-navigator-active-region-overlay"
+              compositionEndTestId="motion-navigator-comp-end-dim"
+            />
+          </div>
         </div>
       </div>
     </div>
