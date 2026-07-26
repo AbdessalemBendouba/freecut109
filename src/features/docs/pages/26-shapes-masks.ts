@@ -8,7 +8,7 @@ const page = {
   description:
     'Add shape items, draw custom paths with the pen tool, and use any shape as a clip mask.',
   category: 'Creative Tools',
-  related: ['properties', 'effects-color', 'keyframes'],
+  related: ['motion', 'properties', 'effects-color', 'keyframes'],
   sections: [
     {
       title: 'Add a shape',
@@ -31,11 +31,14 @@ const page = {
           headers: ['Control', 'Notes'],
           rows: [
             ['Type', 'Switch between the seven shape types.'],
-            ['Fill', 'The shape color.'],
+            ['Fill', 'A solid color or gradient fill.'],
             [
               'Stroke W. / Stroke',
               'Outline width (0–50 px) and its color (shown when width is above 0).',
             ],
+            ['Cap / Join', 'Stroke endings and the way connected stroke segments meet.'],
+            ['Trim Paths', 'Start, End, and Offset controls for drawing only part of a path.'],
+            ['Taper', 'Start and end widths for a tapered stroke.'],
             ['Radius', 'Corner rounding (0–100 px) for rectangle, triangle, star, and polygon.'],
             ['Points / Inner R.', 'Number of points and inner radius, for star and polygon.'],
             ['Direction', 'Which way a triangle points.'],
@@ -45,6 +48,25 @@ const page = {
           kind: 'note',
           tone: 'tip',
           text: 'Position, size, rotation, and opacity live in the Transform controls, and most values can be keyframed — see [Keyframe Animation](keyframes).',
+        },
+      ],
+    },
+    {
+      title: 'Animate path vertices in Motion',
+      blocks: [
+        {
+          kind: 'steps',
+          items: [
+            'Open the shape in **Motion** and expand its property rows.',
+            'Select path points in the preview.',
+            'Choose **Selected vertices** to key only those points, or **All vertices** to expose every point.',
+            'Add keys to the vertex coordinates and move the playhead before reshaping the path.',
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'warning',
+          text: 'Path Geometry keys lock the path topology. Remove them before you add, remove, reorder, or change the first vertex.',
         },
       ],
     },

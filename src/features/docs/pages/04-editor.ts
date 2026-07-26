@@ -5,7 +5,7 @@ const page = {
   slug: 'editor',
   title: 'Editor Layout and Navigation',
   description:
-    'The toolbar, media sidebar, preview monitor, timeline, properties, and the Edit and Color workspaces.',
+    'The toolbar, media sidebar, preview monitor, timeline, properties, and the Edit, Color, and Motion workspaces.',
   category: 'Start',
   related: ['concepts', 'timeline', 'keyboard-shortcuts'],
   sections: [
@@ -42,11 +42,6 @@ const page = {
             ['AI', 'Local text to speech and music generation'],
           ],
         },
-        {
-          kind: 'note',
-          tone: 'info',
-          text: 'A separate **Keyframe editor** button expands the sidebar into the animation editor.',
-        },
       ],
     },
     {
@@ -58,7 +53,8 @@ const page = {
             'The **Edit** workspace (`Alt+1`) is the default cutting layout for arranging, trimming, text, shapes, effects, transitions, and preview.',
             'The **Color** workspace (`Alt+2`) focuses on grading, with color wheels, curves, and scopes for the selected clip.',
             'The **Motion** workspace combines layered compositions, keyframes, graphs, presets, and procedural animation — see [Motion Workspace](motion).',
-            'Switch workspaces from the center toolbar tabs; Edit and Color also have keyboard shortcuts.',
+            'Select a visual clip in Edit and open **Animation** in Properties for common presets, applied-animation status, text motion, and **Create Motion Clip**.',
+            'Switch workspaces from the center toolbar tabs, or use `Alt+1`, `Alt+2`, and `Alt+3`.',
           ],
         },
       ],
