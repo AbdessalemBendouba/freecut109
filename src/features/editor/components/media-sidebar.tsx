@@ -25,7 +25,11 @@ import { motion, useReducedMotion } from 'motion/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/shared/ui/cn'
 import { useEditorStore } from '@/shared/state/editor'
-import { useTimelineStore } from '@/features/editor/deps/timeline-store'
+import {
+  useCompositionNavigationStore,
+  useCompositionsStore,
+  useTimelineStore,
+} from '@/features/editor/deps/timeline-store'
 import { usePlaybackStore } from '@/shared/state/playback'
 import { useSelectionStore } from '@/shared/state/selection'
 import { useProjectStore } from '@/features/editor/deps/projects'
@@ -55,6 +59,7 @@ import { getGpuEffectDefaultParams } from '@/infrastructure/gpu-effects'
 import { EffectThumbnail, useGpuEffectPreviewData } from '@/features/editor/deps/effects-contract'
 import { createLogger } from '@/shared/logging/logger'
 import { useSettingsStore } from '@/features/editor/deps/settings'
+import { resolveGeneratedLayerCanvasSize } from '../utils/generated-layer-canvas-size'
 const LazyAiPanel = lazy(() => import('./ai-tab').then((m) => ({ default: m.AiTab })))
 const LazyTranscriptEditorPanel = lazy(() =>
   importTranscriptEditorPanel().then(({ TranscriptEditorPanel }) => ({
@@ -426,6 +431,11 @@ export const MediaSidebar = memo(function MediaSidebar() {
     const { tracks, fps, addItemOnNewTrack } = useTimelineStore.getState()
     const { activeTrackId, selectItems, setActiveTrack } = useSelectionStore.getState()
     const currentProject = useProjectStore.getState().currentProject
+    const activeCompositionId =
+      useCompositionNavigationStore.getState().activeCompositionId
+    const activeComposition = activeCompositionId
+      ? useCompositionsStore.getState().getComposition(activeCompositionId)
+      : undefined
 
     const newTrack = createOverlayLayerTrack({ tracks, activeTrackId })
 
@@ -434,8 +444,10 @@ export const MediaSidebar = memo(function MediaSidebar() {
       return
     }
 
-    const canvasWidth = currentProject?.metadata.width ?? DEFAULT_PROJECT_WIDTH
-    const canvasHeight = currentProject?.metadata.height ?? DEFAULT_PROJECT_HEIGHT
+    const { width: canvasWidth, height: canvasHeight } = resolveGeneratedLayerCanvasSize(
+      activeComposition,
+      currentProject?.metadata,
+    )
 
     const placement = {
       trackId: newTrack.trackId,

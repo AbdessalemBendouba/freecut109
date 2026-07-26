@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vite-plus/test'
 import {
   DEFAULT_SHAPE_GRADIENT_ANGLE,
   DEFAULT_SHAPE_GRADIENT_END_COLOR,
+  getSwappedShapeLinearGradientColors,
   getLinearGradientUnitEndpoints,
   resolveShapeLinearGradient,
 } from './linear-gradient'
@@ -41,5 +42,31 @@ describe('Shape linear gradients', () => {
     expect(vertical.start.y).toBeCloseTo(0)
     expect(vertical.end.x).toBeCloseTo(0.5)
     expect(vertical.end.y).toBeCloseTo(1)
+  })
+
+  it('swaps each gradient from its own stops without collapsing mixed selections', () => {
+    const first = getSwappedShapeLinearGradientColors({
+      fillType: 'linear',
+      fillColor: '#111111',
+      gradientStartColor: '#112233',
+      gradientEndColor: '#445566',
+    })
+    const second = getSwappedShapeLinearGradientColors({
+      fillType: 'linear',
+      fillColor: '#aaaaaa',
+      gradientStartColor: '#aabbcc',
+      gradientEndColor: '#ddeeff',
+    })
+
+    expect(first).toEqual({
+      fillColor: '#445566',
+      gradientStartColor: '#445566',
+      gradientEndColor: '#112233',
+    })
+    expect(second).toEqual({
+      fillColor: '#ddeeff',
+      gradientStartColor: '#ddeeff',
+      gradientEndColor: '#aabbcc',
+    })
   })
 })

@@ -33,6 +33,7 @@ import { reversePathVertices, rotateClosedPathStart } from '@/shared/graphics/sh
 import {
   DEFAULT_SHAPE_GRADIENT_ANGLE,
   DEFAULT_SHAPE_GRADIENT_END_COLOR,
+  getSwappedShapeLinearGradientColors,
 } from '@/shared/graphics/shapes/linear-gradient'
 import { getPathClosureUpdates, getShapeSectionControlVisibility } from './shape-section-visibility'
 
@@ -414,19 +415,11 @@ export function ShapeSection({ items }: ShapeSectionProps) {
   )
 
   const handleSwapGradientColors = useCallback(() => {
-    const start = sharedValues?.gradientStartColor ?? sharedValues?.fillColor ?? '#3b82f6'
-    const end = sharedValues?.gradientEndColor ?? DEFAULT_SHAPE_GRADIENT_END_COLOR
-    updateShapeItems({
-      fillColor: end,
-      gradientStartColor: end,
-      gradientEndColor: start,
+    shapeItems.forEach((item) => {
+      const updates = getSwappedShapeLinearGradientColors(item)
+      if (updates) updateItem(item.id, updates)
     })
-  }, [
-    sharedValues?.fillColor,
-    sharedValues?.gradientEndColor,
-    sharedValues?.gradientStartColor,
-    updateShapeItems,
-  ])
+  }, [shapeItems, updateItem])
 
   const handleStrokeEnabledChange = useCallback(
     (enabled: boolean) => {

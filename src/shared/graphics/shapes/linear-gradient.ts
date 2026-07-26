@@ -15,6 +15,11 @@ export interface ResolvedShapeLinearGradient {
   angle: number
 }
 
+export type SwappedShapeLinearGradientColors = Pick<
+  ShapeStyleFields,
+  'fillColor' | 'gradientStartColor' | 'gradientEndColor'
+>
+
 export function resolveShapeLinearGradient(
   shape: Pick<
     ShapeStyleFields,
@@ -29,6 +34,22 @@ export function resolveShapeLinearGradient(
     angle: Number.isFinite(shape.gradientAngle)
       ? (shape.gradientAngle ?? DEFAULT_SHAPE_GRADIENT_ANGLE)
       : DEFAULT_SHAPE_GRADIENT_ANGLE,
+  }
+}
+
+export function getSwappedShapeLinearGradientColors(
+  shape: Pick<
+    ShapeStyleFields,
+    'fillType' | 'fillColor' | 'gradientStartColor' | 'gradientEndColor' | 'gradientAngle'
+  >,
+): SwappedShapeLinearGradientColors | null {
+  const gradient = resolveShapeLinearGradient(shape)
+  if (!gradient) return null
+
+  return {
+    fillColor: gradient.endColor,
+    gradientStartColor: gradient.endColor,
+    gradientEndColor: gradient.startColor,
   }
 }
 
