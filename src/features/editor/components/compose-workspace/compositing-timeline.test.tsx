@@ -2593,7 +2593,7 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByTestId(`motion-layer-span-${shape.id}`)).toBeInTheDocument()
 
     const rowBefore = screen.getByText('Position').closest('.group')
-    expect(rowBefore).toHaveClass('pl-6')
+    expect(rowBefore).toHaveClass('pl-9', 'before:left-3')
     expect(screen.getByTestId('motion-layer-scroll-area')).toHaveClass(
       'overflow-x-hidden',
       'overflow-y-auto',

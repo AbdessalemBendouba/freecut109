@@ -3624,10 +3624,15 @@ export const DopesheetEditor = memo(function DopesheetEditor({
         <div
           className={cn(
             'group h-full px-1 flex items-center gap-px bg-muted/8',
-            // Indent child property rows under their group header and draw a
-            // faint vertical spine so the column reads as a tree.
-            options?.indented &&
-              "relative pl-6 before:absolute before:inset-y-0 before:left-3 before:w-px before:bg-border/40 before:content-['']",
+            // Motion lanes sit beneath a layer row, so preserve that outer tree
+            // level before applying the existing property-group indentation.
+            presentation === 'lanes' &&
+              "relative before:absolute before:inset-y-0 before:left-3 before:w-px before:bg-border/40 before:content-['']",
+            presentation === 'lanes'
+              ? options?.indented
+                ? 'pl-9'
+                : 'pl-4'
+              : options?.indented && 'pl-6',
             row.controls.hasKeyframeAtCurrentFrame &&
               (presentation === 'lanes' ? 'bg-accent/70' : 'bg-primary/10'),
             showGraphPane && graphVisibleProperties.has(row.property) && 'bg-accent/40',
@@ -4289,7 +4294,13 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       )
 
       return (
-        <div className="group flex h-full items-center gap-px border-y border-border/60 bg-muted/70 pl-3 pr-0.5">
+        <div
+          className={cn(
+            'group flex h-full items-center gap-px border-y border-border/60 bg-muted/70 pl-3 pr-0.5',
+            presentation === 'lanes' &&
+              "relative pl-6 before:absolute before:inset-y-0 before:left-3 before:w-px before:bg-border/40 before:content-['']",
+          )}
+        >
           <div className="flex items-center gap-px self-stretch">
             <Button
               type="button"
@@ -4499,6 +4510,7 @@ export const DopesheetEditor = memo(function DopesheetEditor({
       isPropertyLocked,
       onNavigateToKeyframe,
       onResetPropertiesToDefault,
+      presentation,
       setAllGroupsExpanded,
       setAllRowsLocked,
       setGroupLocked,
