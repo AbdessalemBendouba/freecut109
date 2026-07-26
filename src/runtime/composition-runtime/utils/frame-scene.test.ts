@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test'
 import {
+  applyTransformOverride,
   createFrameCompositionSceneCache,
   resolveActiveShapeMasksAtFrame,
   resolveFrameCompositionScene,
@@ -9,6 +10,38 @@ import { resolveCompositionRenderPlan } from './scene-assembly'
 import { createTransformParentBinding } from '@/shared/utils/transform-parenting'
 
 describe('frame scene', () => {
+  it('recenters implicit preview anchors while retaining explicit anchors', () => {
+    const base = {
+      x: 0,
+      y: 0,
+      width: 200,
+      height: 100,
+      anchorX: 100,
+      anchorY: 50,
+      rotation: 35,
+      opacity: 1,
+      cornerRadius: 0,
+    }
+
+    expect(
+      applyTransformOverride(base, {
+        width: 320,
+        height: 180,
+        anchorX: undefined,
+        anchorY: undefined,
+      }),
+    ).toMatchObject({ width: 320, height: 180, anchorX: 160, anchorY: 90 })
+
+    expect(
+      applyTransformOverride(base, {
+        width: 320,
+        height: 180,
+        anchorX: 24,
+        anchorY: 36,
+      }),
+    ).toMatchObject({ width: 320, height: 180, anchorX: 24, anchorY: 36 })
+  })
+
   function createMaskRenderPlan() {
     return resolveCompositionRenderPlan({
       tracks: [

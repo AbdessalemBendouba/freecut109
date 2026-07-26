@@ -25,6 +25,7 @@ import { expandTextTransformForPreview } from '../utils/text-layout'
 import { calculateMediaCropLayout, resolveCropSettings } from '@/shared/utils/media-crop'
 import { calculateCropFromDrag, type CropEdge } from '../utils/crop-gizmo'
 import { attachWindowAnchorInteraction } from '../utils/anchor-gizmo'
+import { prepareScaleStartTransform } from '../utils/transform-calculations'
 
 interface TransformGizmoProps {
   item: TimelineItem
@@ -322,12 +323,18 @@ export function TransformGizmo({
       e.stopPropagation()
       e.preventDefault()
       const point = toCanvasPoint(e)
-      const startTransformSnapshot = { ...currentTransform }
+      const scaleStartTransform = prepareScaleStartTransform(
+        currentTransform,
+        item,
+        itemKeyframes,
+        itemPreview?.transform,
+      )
+      const startTransformSnapshot = { ...scaleStartTransform }
       const interactionId = startScale(
         item.id,
         handle,
         point,
-        currentTransform,
+        scaleStartTransform,
         item.type,
         item.transform?.aspectRatioLocked,
         strokeWidth,
@@ -352,9 +359,9 @@ export function TransformGizmo({
       })
     },
     [
-      item.id,
-      item.type,
-      item.transform?.aspectRatioLocked,
+      item,
+      itemKeyframes,
+      itemPreview?.transform,
       currentTransform,
       toCanvasPoint,
       startScale,
