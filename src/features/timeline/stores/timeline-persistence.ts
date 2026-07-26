@@ -767,7 +767,7 @@ function captureTimelinePersistenceSnapshot(): TimelinePersistenceSnapshot {
     )
     const durationInFrames =
       composition.editorKind === 'composite-2d'
-        ? Math.max(1, composition.durationInFrames, contentEnd)
+        ? Math.max(1, composition.durationInFrames)
         : contentEnd
 
     return {

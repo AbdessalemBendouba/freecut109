@@ -82,6 +82,52 @@ describe('timeline project hydration', () => {
     ).toEqual(['project-motion'])
   })
 
+  it('hydrates an authored Motion duration without expanding it to layer overhang', async () => {
+    const overhangingLayer = makeTimelineVideoItem({
+      id: 'overhanging-layer',
+      trackId: motionTrack.id,
+      from: 50,
+      durationInFrames: 80,
+    })
+    const project: Project = {
+      id: 'project-motion-duration',
+      name: 'Motion duration project',
+      description: '',
+      createdAt: 1,
+      updatedAt: 1,
+      duration: 10,
+      metadata: { width: 1920, height: 1080, fps: 30 },
+      timeline: {
+        tracks: [rootTrack],
+        items: [],
+        compositions: [
+          {
+            id: 'motion-comp',
+            name: 'Motion composition',
+            editorKind: 'composite-2d',
+            tracks: [motionTrack],
+            items: [overhangingLayer],
+            transitions: [],
+            keyframes: [],
+            fps: 30,
+            width: 1920,
+            height: 1080,
+            durationInFrames: 100,
+          },
+        ],
+      },
+    }
+
+    await hydrateTimelineStoresFromProject(project)
+
+    const hydratedComposition =
+      useCompositionsStore.getState().compositionById['motion-comp']
+    expect(hydratedComposition?.durationInFrames).toBe(100)
+    expect(
+      hydratedComposition?.items.map((item) => item.from + item.durationInFrames),
+    ).toEqual([130])
+  })
+
   it('preserves versioned RGBA keyframe numbers during project hydration', async () => {
     const rgbaKeyframeValue = 0x100000000 + 0x12345678
     const item = makeTimelineVideoItem({ id: 'rgba-item', trackId: rootTrack.id })

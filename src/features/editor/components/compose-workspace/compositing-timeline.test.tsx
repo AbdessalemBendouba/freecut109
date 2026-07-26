@@ -3603,6 +3603,65 @@ describe('CompositingTimeline', { timeout: 15_000 }, () => {
     expect(screen.getByTestId('motion-comp-end-dim')).toHaveStyle({ left: '50%' })
   })
 
+  it('dims the navigator against its inset frame axis near both edges', () => {
+    useCompositionsStore.getState().updateComposition('comp-1', {
+      durationInFrames: 240,
+    })
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
+    useTimelineStore.getState().setInPoint(12)
+    useTimelineStore.getState().setOutPoint(228)
+
+    render(<CompositingTimeline />)
+
+    const frameAxisOverlay = screen.getByTestId('motion-navigator-frame-axis-overlay')
+    const overlay = screen.getByTestId('motion-navigator-active-region-overlay')
+    const activeRegionStartDim = overlay.querySelector<HTMLElement>('[data-to-frame="12"]')
+    const activeRegionEndDim = overlay.querySelector<HTMLElement>('[data-from-frame="228"]')
+
+    expect(frameAxisOverlay).toHaveStyle({
+      left: `${KEYFRAME_EDGE_INSET}px`,
+      right: `${KEYFRAME_EDGE_INSET}px`,
+    })
+    expect(overlay).toHaveClass('pointer-events-none')
+    expect(screen.getByTestId('motion-navigator-comp-end-dim')).toHaveStyle({ left: '100%' })
+    expect(activeRegionStartDim).toHaveStyle({ width: '5%' })
+    expect(activeRegionEndDim).toHaveStyle({ left: '95%' })
+  })
+
+  it('keeps a segment trim handle interactive under the active-region dim', () => {
+    useItemsStore.getState().setItems([{ ...shape, durationInFrames: 240 }])
+
+    render(<CompositingTimeline />)
+
+    const dim = screen.getByTestId('motion-comp-end-dim')
+    const span = screen.getByTestId(`motion-layer-span-${shape.id}`)
+    const lane = span.parentElement!
+    const endHandle = screen.getByTestId(`motion-trim-end-${shape.id}`)
+    vi.spyOn(lane, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 300,
+      bottom: 34,
+      width: 300,
+      height: 34,
+      toJSON: () => ({}),
+    })
+
+    expect(dim).toHaveStyle({ left: '50%' })
+    expect(screen.getByTestId('motion-active-region-overlay')).toHaveClass('pointer-events-none')
+
+    fireEvent.pointerDown(endHandle, { pointerId: 21, button: 0, clientX: 300 })
+    fireEvent.pointerMove(endHandle, { pointerId: 21, buttons: 1, clientX: 270 })
+    fireEvent.pointerUp(endHandle, { pointerId: 21, clientX: 270 })
+
+    expect(useItemsStore.getState().itemById[shape.id]).toMatchObject({
+      from: 0,
+      durationInFrames: 216,
+    })
+  })
+
   it('reports the authored composition duration when content overhangs at fractional fps', () => {
     useCompositionsStore.getState().updateComposition('comp-1', {
       durationInFrames: 100,

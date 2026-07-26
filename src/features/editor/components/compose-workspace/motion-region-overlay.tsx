@@ -58,9 +58,13 @@ export const MotionCompEndRulerDim = memo(function MotionCompEndRulerDim({
 export const MotionActiveRegionOverlay = memo(function MotionActiveRegionOverlay({
   viewport,
   compositionEndFrame,
+  testId = 'motion-active-region-overlay',
+  compositionEndTestId = 'motion-comp-end-dim',
 }: {
   viewport: MotionRegionViewport
   compositionEndFrame: number | null
+  testId?: string
+  compositionEndTestId?: string
 }) {
   const inPoint = useTimelineStore((s) => s.inPoint)
   const outPoint = useTimelineStore((s) => s.outPoint)
@@ -74,7 +78,7 @@ export const MotionActiveRegionOverlay = memo(function MotionActiveRegionOverlay
   return (
     <div
       aria-hidden="true"
-      data-testid="motion-active-region-overlay"
+      data-testid={testId}
       className="pointer-events-none absolute inset-0 overflow-hidden"
     >
       {hasActiveRegion ? (
@@ -98,7 +102,7 @@ export const MotionActiveRegionOverlay = memo(function MotionActiveRegionOverlay
 
       {compositionEndFrame !== null ? (
         <div
-          data-testid="motion-comp-end-dim"
+          data-testid={compositionEndTestId}
           data-from-frame={compositionEndFrame ?? 0}
           data-motion-viewport-clamp
           className="absolute inset-y-0 border-l border-border/80 bg-background/55"
