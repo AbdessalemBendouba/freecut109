@@ -3,6 +3,8 @@
 import { describe, expect, it } from 'vite-plus/test'
 import {
   createDefaultControllerItem,
+  createDefaultGradientItem,
+  createDefaultSolidColorItem,
   createTimelineTemplateItem,
   getTemplateEffectsForDirectApplication,
 } from './generated-layer-items'
@@ -213,5 +215,74 @@ describe('createDefaultControllerItem', () => {
       transform: { x: 0, y: 0, aspectRatioLocked: true },
     })
     expect(item.transform.width).toBeGreaterThan(0)
+  })
+})
+
+describe('full-frame shape presets', () => {
+  const placement = {
+    trackId: 'generated-track',
+    from: 15,
+    durationInFrames: 180,
+    canvasWidth: 1920,
+    canvasHeight: 1080,
+  }
+
+  it('creates Solid Color as a canonical full-composition rectangle Shape', () => {
+    expect(createDefaultSolidColorItem(placement)).toMatchObject({
+      type: 'shape',
+      shapeType: 'rectangle',
+      label: 'Solid Color',
+      trackId: 'generated-track',
+      from: 15,
+      durationInFrames: 180,
+      fillType: 'solid',
+      fillColor: '#2d2d2d',
+      strokeEnabled: false,
+      transform: {
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        aspectRatioLocked: true,
+      },
+    })
+  })
+
+  it('creates Gradient as the same Shape primitive with additive fill fields', () => {
+    expect(createDefaultGradientItem(placement)).toMatchObject({
+      type: 'shape',
+      shapeType: 'rectangle',
+      label: 'Gradient',
+      fillType: 'linear',
+      fillColor: '#3b82f6',
+      gradientStartColor: '#3b82f6',
+      gradientEndColor: '#8b5cf6',
+      gradientAngle: 0,
+      strokeEnabled: false,
+      transform: {
+        width: 1920,
+        height: 1080,
+      },
+    })
+  })
+
+  it('routes draggable Shape presets through their dedicated factories', () => {
+    const item = createTimelineTemplateItem({
+      placement,
+      template: {
+        type: 'timeline-template',
+        itemType: 'shape',
+        label: 'Gradient',
+        shapeType: 'rectangle',
+        shapePreset: 'gradient',
+      },
+    })
+
+    expect(item).toMatchObject({
+      type: 'shape',
+      label: 'Gradient',
+      fillType: 'linear',
+      transform: { width: 1920, height: 1080 },
+    })
   })
 })

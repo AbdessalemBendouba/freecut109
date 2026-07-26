@@ -71,7 +71,9 @@ export {
 export { resolveDroppedMediaEntriesFromPayload } from '@/features/timeline/utils/drop-execution'
 export {
   createDefaultControllerItem,
+  createDefaultGradientItem,
   createDefaultShapeItem,
+  createDefaultSolidColorItem,
   createTimelineTemplateItem,
   createTextTemplateItem,
   isTimelineTemplateDragData,

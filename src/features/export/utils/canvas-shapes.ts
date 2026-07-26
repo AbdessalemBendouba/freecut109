@@ -13,6 +13,10 @@ import { createLogger } from '@/shared/logging/logger'
 import { flattenBezierPath } from '@/shared/graphics/shapes/bezier-path'
 import { getTaperStrokeSegments, hasActiveTaper } from '@/shared/graphics/shapes/taper-path'
 import {
+  getLinearGradientUnitEndpoints,
+  resolveShapeLinearGradient,
+} from '@/shared/graphics/shapes/linear-gradient'
+import {
   buildTaperedOutline,
   getTaperedOutlineFillPath,
 } from '@/shared/graphics/shapes/taper-outline'
@@ -200,6 +204,38 @@ function renderShapeStroke(
   ctx.stroke(path)
 }
 
+function getShapeFillStyle(
+  ctx: OffscreenCanvasRenderingContext2D,
+  shape: ShapeItem,
+  transform: ResolvedTransform,
+  canvas: ShapeCanvasSettings,
+): string | CanvasGradient {
+  const gradient = resolveShapeLinearGradient(shape)
+  if (!gradient) return shape.fillColor
+
+  const endpoints = getLinearGradientUnitEndpoints(gradient.angle)
+  const centerX = canvas.width / 2 + transform.x
+  const centerY = canvas.height / 2 + transform.y
+  const left = centerX - transform.width / 2
+  const top = centerY - transform.height / 2
+  const radians = (transform.rotation * Math.PI) / 180
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  const rotateEndpoint = (endpoint: { x: number; y: number }): [number, number] => {
+    const x = left + endpoint.x * transform.width
+    const y = top + endpoint.y * transform.height
+    const dx = x - centerX
+    const dy = y - centerY
+    return [centerX + dx * cos - dy * sin, centerY + dx * sin + dy * cos]
+  }
+  const start = rotateEndpoint(endpoints.start)
+  const end = rotateEndpoint(endpoints.end)
+  const canvasGradient = ctx.createLinearGradient(start[0], start[1], end[0], end[1])
+  canvasGradient.addColorStop(0, gradient.startColor)
+  canvasGradient.addColorStop(1, gradient.endColor)
+  return canvasGradient
+}
+
 /**
  * Get a Path2D for a shape at its current transform.
  *
@@ -271,7 +307,7 @@ export function renderShape(
     const fillEnabled =
       shape.shapeType === 'path' && shape.pathClosed === false ? false : (shape.fillEnabled ?? true)
     if (fillEnabled && shape.fillColor) {
-      ctx.fillStyle = shape.fillColor
+      ctx.fillStyle = getShapeFillStyle(ctx, shape, transform, canvas)
       ctx.fill(path)
     }
 

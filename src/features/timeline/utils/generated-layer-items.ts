@@ -20,6 +20,7 @@ export interface TimelineTemplateDragData {
   label: string
   textStylePresetId?: TextStylePresetId
   shapeType?: ShapeType
+  shapePreset?: 'solid' | 'gradient'
   effects?: VisualEffect[]
 }
 
@@ -54,6 +55,13 @@ export function isTimelineTemplateDragData(value: unknown): value is TimelineTem
     return false
   }
   if (candidate.effects !== undefined && !Array.isArray(candidate.effects)) return false
+  if (
+    candidate.shapePreset !== undefined &&
+    candidate.shapePreset !== 'solid' &&
+    candidate.shapePreset !== 'gradient'
+  ) {
+    return false
+  }
 
   return (
     candidate.itemType !== 'shape' ||
@@ -184,6 +192,43 @@ export function createDefaultShapeItem(
   }
 }
 
+export function createDefaultSolidColorItem(params: VisualLayerPlacement): ShapeItem {
+  const item = createDefaultShapeItem({ ...params, shapeType: 'rectangle' })
+  return {
+    ...item,
+    label: 'Solid Color',
+    fillColor: '#2d2d2d',
+    fillType: 'solid',
+    strokeEnabled: false,
+    transform: {
+      ...item.transform,
+      width: params.canvasWidth,
+      height: params.canvasHeight,
+      aspectRatioLocked: true,
+    },
+  }
+}
+
+export function createDefaultGradientItem(params: VisualLayerPlacement): ShapeItem {
+  const item = createDefaultShapeItem({ ...params, shapeType: 'rectangle' })
+  return {
+    ...item,
+    label: 'Gradient',
+    fillColor: '#3b82f6',
+    fillType: 'linear',
+    gradientStartColor: '#3b82f6',
+    gradientEndColor: '#8b5cf6',
+    gradientAngle: 0,
+    strokeEnabled: false,
+    transform: {
+      ...item.transform,
+      width: params.canvasWidth,
+      height: params.canvasHeight,
+      aspectRatioLocked: true,
+    },
+  }
+}
+
 export function createDefaultAdjustmentItem(
   params: LayerPlacement & {
     effects?: VisualEffect[]
@@ -256,8 +301,8 @@ export function createTimelineTemplateItem(params: {
     })
   }
 
-  return createDefaultShapeItem({
-    ...placement,
-    shapeType: template.shapeType ?? 'rectangle',
-  })
+  if (template.shapePreset === 'solid') return createDefaultSolidColorItem(placement)
+  if (template.shapePreset === 'gradient') return createDefaultGradientItem(placement)
+
+  return createDefaultShapeItem({ ...placement, shapeType: template.shapeType ?? 'rectangle' })
 }

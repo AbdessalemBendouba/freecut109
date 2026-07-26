@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useMemo } from 'react'
+import React, { useCallback, useContext, useId, useMemo } from 'react'
 import {
   Rect,
   Circle,
@@ -12,6 +12,10 @@ import {
 } from '@/shared/graphics/shapes'
 import { flattenBezierPath } from '@/shared/graphics/shapes/bezier-path'
 import { hasActiveTaper } from '@/shared/graphics/shapes/taper-path'
+import {
+  getLinearGradientUnitEndpoints,
+  resolveShapeLinearGradient,
+} from '@/shared/graphics/shapes/linear-gradient'
 import {
   buildTaperedOutline,
   getTaperedOutlineFillPath,
@@ -69,10 +73,16 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
   const { activeGizmo, previewTransform, itemPreview } = useItemGizmoPreview(item.id, {
     imperativeTranslate: true,
   })
+  const gradientId = `shape-gradient-${useId().replaceAll(':', '')}`
 
   // Use preview values if available, otherwise use item's stored values
   const shapePropsPreview = itemPreview?.properties
   const fillColor = shapePropsPreview?.fillColor ?? resolvedItem.fillColor ?? '#3b82f6'
+  const fillType = shapePropsPreview?.fillType ?? resolvedItem.fillType ?? 'solid'
+  const gradientStartColor =
+    shapePropsPreview?.gradientStartColor ?? resolvedItem.gradientStartColor
+  const gradientEndColor = shapePropsPreview?.gradientEndColor ?? resolvedItem.gradientEndColor
+  const gradientAngle = shapePropsPreview?.gradientAngle ?? resolvedItem.gradientAngle
   const strokeColor = shapePropsPreview?.strokeColor ?? resolvedItem.strokeColor
   const strokeWidth =
     (shapePropsPreview?.strokeWidth ?? resolvedItem.strokeWidth ?? 0) * renderScale
@@ -101,6 +111,20 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
   const taperEndWidth = shapePropsPreview?.taperEndWidth ?? resolvedItem.taperEndWidth ?? 100
   const taperStartLength = shapePropsPreview?.taperStartLength ?? resolvedItem.taperStartLength ?? 0
   const taperEndLength = shapePropsPreview?.taperEndLength ?? resolvedItem.taperEndLength ?? 0
+  const linearGradient = resolveShapeLinearGradient({
+    fillType,
+    fillColor,
+    gradientStartColor,
+    gradientEndColor,
+    gradientAngle,
+  })
+  const gradientEndpoints = linearGradient
+    ? getLinearGradientUnitEndpoints(linearGradient.angle)
+    : null
+  const fillPaint = fillEnabled ? (linearGradient ? `url(#${gradientId})` : fillColor) : 'none'
+  const fallbackBackground = linearGradient
+    ? `linear-gradient(${linearGradient.angle + 90}deg, ${linearGradient.startColor}, ${linearGradient.endColor})`
+    : fillColor
 
   // Get dimensions with preview support for real-time gizmo scaling
   // Priority: Unified preview (group/properties) > Single gizmo preview > Base transform
@@ -117,6 +141,22 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
     width = previewTransform.width * renderScaleX
     height = previewTransform.height * renderScaleY
   }
+  const fillDefinition =
+    linearGradient && gradientEndpoints ? (
+      <defs>
+        <linearGradient
+          id={gradientId}
+          gradientUnits="userSpaceOnUse"
+          x1={gradientEndpoints.start.x * width}
+          y1={gradientEndpoints.start.y * height}
+          x2={gradientEndpoints.end.x * width}
+          y2={gradientEndpoints.end.y * height}
+        >
+          <stop offset="0%" stopColor={linearGradient.startColor} />
+          <stop offset="100%" stopColor={linearGradient.endColor} />
+        </linearGradient>
+      </defs>
+    ) : undefined
 
   // Common stroke props
   const strokeProps =
@@ -177,7 +217,8 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
           <Rect
             width={width}
             height={height}
-            fill={fillEnabled ? fillColor : 'none'}
+            fill={fillPaint}
+            fillDefinition={fillDefinition}
             cornerRadius={cornerRadius}
             {...strokeProps}
             {...trimPathProps}
@@ -194,7 +235,8 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
           <div style={scaleStyle}>
             <Circle
               radius={radius}
-              fill={fillEnabled ? fillColor : 'none'}
+              fill={fillPaint}
+              fillDefinition={fillDefinition}
               {...strokeProps}
               {...trimPathProps}
               {...taperProps}
@@ -212,7 +254,8 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
             <Triangle
               length={baseSize}
               direction={direction}
-              fill={fillEnabled ? fillColor : 'none'}
+              fill={fillPaint}
+              fillDefinition={fillDefinition}
               cornerRadius={cornerRadius}
               {...strokeProps}
               {...trimPathProps}
@@ -232,7 +275,8 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
           <Ellipse
             rx={rx}
             ry={ry}
-            fill={fillEnabled ? fillColor : 'none'}
+            fill={fillPaint}
+            fillDefinition={fillDefinition}
             {...strokeProps}
             {...trimPathProps}
             {...taperProps}
@@ -252,7 +296,8 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
               points={points}
               outerRadius={outerRadius}
               innerRadius={innerRadiusValue}
-              fill={fillEnabled ? fillColor : 'none'}
+              fill={fillPaint}
+              fillDefinition={fillDefinition}
               cornerRadius={cornerRadius}
               {...strokeProps}
               {...trimPathProps}
@@ -272,7 +317,8 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
             <Polygon
               points={points}
               radius={radius}
-              fill={fillEnabled ? fillColor : 'none'}
+              fill={fillPaint}
+              fillDefinition={fillDefinition}
               cornerRadius={cornerRadius}
               {...strokeProps}
               {...trimPathProps}
@@ -293,7 +339,8 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
           <div style={scaleStyle}>
             <Heart
               height={heartHeight}
-              fill={fillEnabled ? fillColor : 'none'}
+              fill={fillPaint}
+              fillDefinition={fillDefinition}
               {...strokeProps}
               {...trimPathProps}
               {...taperProps}
@@ -307,7 +354,7 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
       // Custom bezier path drawn with pen tool
       const pathVerts = resolvedItem.pathVertices
       if (!pathVerts || pathVerts.length < 2) {
-        return <div style={{ width: '100%', height: '100%', backgroundColor: fillColor }} />
+        return <div style={{ width: '100%', height: '100%', background: fallbackBackground }} />
       }
       const pathData = buildBezierPathData(pathVerts, width, height, pathClosed)
       const taperedOutline =
@@ -322,9 +369,10 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
       return (
         <div style={centerStyle}>
           <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} overflow="visible">
+            {fillDefinition}
             {taperedOutline ? (
               <>
-                <path d={pathData} fill={fillEnabled ? fillColor : 'none'} />
+                <path d={pathData} fill={fillPaint} />
                 <path
                   d={getTaperedOutlineFillPath(taperedOutline)}
                   fill={strokeColor}
@@ -335,7 +383,7 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
             ) : (
               <ShapePath
                 d={pathData}
-                fill={fillEnabled ? fillColor : 'none'}
+                fill={fillPaint}
                 {...strokeProps}
                 {...trimPathProps}
                 {...taperProps}
@@ -353,7 +401,7 @@ export const ShapeContent: React.FC<{ item: ShapeItem & { _sequenceFrameOffset?:
           style={{
             width: '100%',
             height: '100%',
-            backgroundColor: fillColor,
+            background: fallbackBackground,
             borderRadius: cornerRadius,
           }}
         />

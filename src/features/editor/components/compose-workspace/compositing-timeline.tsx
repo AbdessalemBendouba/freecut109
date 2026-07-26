@@ -21,6 +21,7 @@ import {
   ChevronRight,
   Captions,
   ClipboardPaste,
+  Blend,
   Copy,
   Crop,
   CopyPlus,
@@ -111,7 +112,9 @@ import {
   getNiceTickStep,
   createTimelineTemplateItem,
   createDefaultControllerItem,
+  createDefaultGradientItem,
   createDefaultShapeItem,
+  createDefaultSolidColorItem,
   createTextTemplateItem,
   DopesheetEditor,
   PickWhipIcon,
@@ -230,6 +233,26 @@ const TIMELINE_CONTENT_LEFT = LAYER_COLUMN_WIDTH + 1
 // Tick labels on top, the in/out render-range lane along the bottom.
 const RULER_HEIGHT = 28 + MOTION_IO_LANE_HEIGHT
 const LAYER_ROW_HEIGHT = 34
+type GeneratedLayerKind = 'text' | 'solid' | 'gradient' | 'shape' | 'controller'
+type GeneratedLayerPlacement = Parameters<typeof createDefaultSolidColorItem>[0]
+
+function createGeneratedLayerItem(
+  kind: GeneratedLayerKind,
+  placement: GeneratedLayerPlacement,
+): TimelineItem {
+  switch (kind) {
+    case 'text':
+      return createTextTemplateItem({ placement, text: 'Text layer', label: 'Text layer' })
+    case 'solid':
+      return createDefaultSolidColorItem(placement)
+    case 'gradient':
+      return createDefaultGradientItem(placement)
+    case 'shape':
+      return createDefaultShapeItem({ ...placement, shapeType: 'rectangle' })
+    case 'controller':
+      return createDefaultControllerItem(placement)
+  }
+}
 const RULER_DIVISIONS = 10
 const PLAYHEAD_EDGE_SCROLL_ZONE_PX = 48
 const PLAYHEAD_EDGE_SCROLL_MAX_PX_PER_SECOND = 720
@@ -5161,7 +5184,7 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
   )
 
   const addGeneratedLayer = useCallback(
-    (kind: 'text' | 'shape' | 'controller') => {
+    (kind: GeneratedLayerKind) => {
       if (!composition || composition.editorKind !== 'composite-2d') return
       const trackId = crypto.randomUUID()
       const order = tracks.reduce((max, track) => Math.max(max, track.order), -1) + 1
@@ -5173,17 +5196,10 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
         canvasHeight: composition.height,
         fps,
       }
-      const item =
-        kind === 'text'
-          ? createTextTemplateItem({ placement, text: 'Text layer', label: 'Text layer' })
-          : kind === 'shape'
-            ? createDefaultShapeItem({ ...placement, shapeType: 'rectangle' })
-            : createDefaultControllerItem(placement)
+      const item = createGeneratedLayerItem(kind, placement)
       const track: TimelineTrack = {
         id: trackId,
-        name:
-          item.label ||
-          (kind === 'text' ? 'Text layer' : kind === 'shape' ? 'Rectangle' : 'Null Object'),
+        name: item.label || 'Layer',
         kind: 'video',
         height: LAYER_ROW_HEIGHT,
         locked: false,
@@ -6034,6 +6050,14 @@ const CompositingTimelineCore = memo(function CompositingTimelineCore({
             <DropdownMenuItem onSelect={() => addGeneratedLayer('text')}>
               <Type className="mr-2 h-3.5 w-3.5" />
               {t('editor.compose.textLayer')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => addGeneratedLayer('solid')}>
+              <Square className="mr-2 h-3.5 w-3.5 fill-current" />
+              {t('editor.compose.solidColorLayer')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => addGeneratedLayer('gradient')}>
+              <Blend className="mr-2 h-3.5 w-3.5" />
+              {t('editor.compose.gradientLayer')}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => addGeneratedLayer('shape')}>
               <Square className="mr-2 h-3.5 w-3.5" />

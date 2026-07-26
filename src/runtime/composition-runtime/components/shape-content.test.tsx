@@ -121,6 +121,42 @@ describe('ShapeContent', () => {
     expect(container.querySelector('path')).toHaveAttribute('stroke-dashoffset', '-25')
   })
 
+  it('renders and live-previews the additive two-stop linear gradient fill', () => {
+    const { container } = render(
+      <ShapeContent
+        item={{
+          ...shape,
+          fillType: 'linear',
+          gradientStartColor: '#112233',
+          gradientEndColor: '#aabbcc',
+          gradientAngle: 0,
+        }}
+      />,
+    )
+
+    const gradient = container.querySelector('linearGradient')
+    expect(gradient).toHaveAttribute('gradientUnits', 'userSpaceOnUse')
+    expect(gradient).toHaveAttribute('x1', '0')
+    expect(gradient).toHaveAttribute('y1', '50')
+    expect(gradient).toHaveAttribute('x2', '200')
+    expect(gradient).toHaveAttribute('y2', '50')
+    expect(container.querySelectorAll('stop')[0]).toHaveAttribute('stop-color', '#112233')
+    expect(container.querySelectorAll('stop')[1]).toHaveAttribute('stop-color', '#aabbcc')
+    expect(container.querySelector('path')?.getAttribute('fill')).toMatch(/^url\(#shape-gradient-/)
+
+    act(() => {
+      useGizmoStore.getState().setPropertiesPreviewNew({
+        [shape.id]: { gradientAngle: 90, gradientEndColor: '#ff00ff' },
+      })
+    })
+
+    expect(Number(container.querySelector('linearGradient')?.getAttribute('x1'))).toBeCloseTo(100)
+    expect(container.querySelector('linearGradient')).toHaveAttribute('y1', '0')
+    expect(Number(container.querySelector('linearGradient')?.getAttribute('x2'))).toBeCloseTo(100)
+    expect(container.querySelector('linearGradient')).toHaveAttribute('y2', '100')
+    expect(container.querySelectorAll('stop')[1]).toHaveAttribute('stop-color', '#ff00ff')
+  })
+
   it('derives a missing shared-sequence offset from the sequence context', () => {
     const { container } = render(
       <SequenceContext.Provider

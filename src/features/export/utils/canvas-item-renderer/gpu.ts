@@ -27,6 +27,7 @@ import { MAX_GPU_SHAPE_PATH_VERTICES } from '@/infrastructure/gpu-shapes'
 import { doesMaskAffectTrack } from '@/shared/utils/mask-scope'
 import { isTextMotionActive } from '@/shared/typography/text-motion'
 import { flattenBezierPath } from '@/shared/graphics/shapes/bezier-path'
+import { resolveShapeLinearGradient } from '@/shared/graphics/shapes/linear-gradient'
 import { recordPreviewVideoSource } from '@/shared/logging/preview-scrub-performance'
 import { getAnimatedTransform } from '../canvas-keyframes'
 import { combineEffects, getAdjustmentLayerEffects, getGpuEffectInstances } from '../canvas-effects'
@@ -84,6 +85,8 @@ function renderGpuShapeParticipantToTexture(
       opacity: participant.transform.opacity,
       shapeType: media.item.shapeType,
       fillColor: media.fillColor,
+      gradientEndColor: media.gradientEndColor,
+      gradientAngleRad: media.gradientAngleRad,
       strokeColor: media.strokeColor,
       strokeWidth: media.item.strokeWidth,
       cornerRadius: media.item.cornerRadius,
@@ -626,7 +629,11 @@ async function resolveGpuMediaParticipantSource(
     const resolvedPathVertices =
       shape.shapeType === 'path' ? resolveGpuShapePathVertices(shape, transform) : undefined
     const pathVertices = resolvedPathVertices ?? undefined
-    const parsedFillColor = parseGpuColor(shape.fillColor)
+    const linearGradient = resolveShapeLinearGradient(shape)
+    const parsedFillColor = parseGpuColor(linearGradient?.startColor ?? shape.fillColor)
+    const parsedGradientEndColor = linearGradient
+      ? parseGpuColor(linearGradient.endColor)
+      : undefined
     const parsedStrokeColor =
       (shape.strokeEnabled ?? true) &&
       shape.strokeWidth &&
@@ -634,19 +641,27 @@ async function resolveGpuMediaParticipantSource(
       shape.strokeColor
         ? parseGpuColor(shape.strokeColor)
         : undefined
-    if (!parsedFillColor) return null
+    if (!parsedFillColor || (linearGradient && !parsedGradientEndColor)) return null
     const fillEnabled =
       shape.shapeType === 'path' && shape.pathClosed === false ? false : (shape.fillEnabled ?? true)
     const fillColor: [number, number, number, number] = fillEnabled
       ? parsedFillColor
       : [parsedFillColor[0], parsedFillColor[1], parsedFillColor[2], 0]
     const strokeColor = parsedStrokeColor ?? undefined
+    const gradientEndColor: [number, number, number, number] | undefined =
+      parsedGradientEndColor && linearGradient
+        ? fillEnabled
+          ? parsedGradientEndColor
+          : [parsedGradientEndColor[0], parsedGradientEndColor[1], parsedGradientEndColor[2], 0]
+        : undefined
     return {
       kind: 'shape',
       item: shape,
       sourceWidth: transform.width,
       sourceHeight: transform.height,
       fillColor,
+      gradientEndColor,
+      gradientAngleRad: linearGradient ? (linearGradient.angle * Math.PI) / 180 : undefined,
       strokeColor,
       pathVertices,
     }
@@ -1257,8 +1272,14 @@ export function getGpuShapeUnsupportedReason(
   }
   const fillEnabled =
     shape.shapeType === 'path' && shape.pathClosed === false ? false : shape.fillEnabled !== false
-  if (fillEnabled && !parseGpuColor(shape.fillColor)) {
-    return 'unsupported-shape-fill'
+  if (fillEnabled) {
+    const linearGradient = resolveShapeLinearGradient(shape)
+    if (
+      !parseGpuColor(linearGradient?.startColor ?? shape.fillColor) ||
+      (linearGradient && !parseGpuColor(linearGradient.endColor))
+    ) {
+      return 'unsupported-shape-fill'
+    }
   }
   if (
     shape.strokeEnabled !== false &&

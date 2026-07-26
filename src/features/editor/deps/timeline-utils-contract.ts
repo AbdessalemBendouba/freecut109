@@ -6,7 +6,9 @@
 export { createClassicTrack, getTrackKind } from '@/features/timeline/utils/classic-tracks'
 export {
   createDefaultAdjustmentItem,
+  createDefaultGradientItem,
   createDefaultShapeItem,
+  createDefaultSolidColorItem,
   createTextTemplateItem,
   getDefaultGeneratedLayerDurationInFrames,
 } from '@/features/timeline/utils/generated-layer-items'

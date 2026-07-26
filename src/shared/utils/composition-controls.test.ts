@@ -31,6 +31,19 @@ const items = [
     from: 0,
     durationInFrames: 30,
   },
+  {
+    id: 'gradient',
+    trackId: 't3',
+    type: 'shape',
+    label: 'Gradient',
+    shapeType: 'rectangle',
+    fillColor: '#3b82f6',
+    fillType: 'linear',
+    gradientStartColor: '#3b82f6',
+    gradientEndColor: '#8b5cf6',
+    from: 0,
+    durationInFrames: 30,
+  },
 ] as TimelineItem[]
 
 describe('composition controls', () => {
@@ -41,6 +54,15 @@ describe('composition controls', () => {
       { targetItemId: 'card', property: 'shape.fillColor', kind: 'color' },
       { targetItemId: 'card', property: 'shape.strokeColor', kind: 'color' },
     ])
+  })
+
+  it('does not expose a misleading solid fill control for gradient Shapes', () => {
+    expect(
+      getCompositionControlCandidates(items).find(
+        (candidate) =>
+          candidate.targetItemId === 'gradient' && candidate.property === 'shape.fillColor',
+      ),
+    ).toBeUndefined()
   })
 
   it('applies only declared per-instance overrides without mutating source layers', () => {

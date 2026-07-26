@@ -34,7 +34,9 @@ export { getMaxTransitionDurationForHandles } from '../utils/transition-utils'
 export { resolveTransitionTargetFromSelection } from '../utils/transition-targets'
 export {
   createDefaultAdjustmentItem,
+  createDefaultGradientItem,
   createDefaultShapeItem,
+  createDefaultSolidColorItem,
   createTimelineTemplateItem,
   createTextTemplateItem,
   getDefaultGeneratedLayerDurationInFrames,

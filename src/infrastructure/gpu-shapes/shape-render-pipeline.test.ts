@@ -2,7 +2,11 @@
 
 import { describe, expect, it, vi } from 'vite-plus/test'
 import { createGpuRenderPipelineMocks } from '@/infrastructure/gpu-test-helpers'
-import { MAX_GPU_SHAPE_PATH_VERTICES, ShapeRenderPipeline } from './shape-render-pipeline'
+import {
+  MAX_GPU_SHAPE_PATH_VERTICES,
+  SHAPE_UNIFORM_HEADER_FLOAT_COUNT,
+  ShapeRenderPipeline,
+} from './shape-render-pipeline'
 
 function createPipelineHarness() {
   vi.stubGlobal('GPUShaderStage', { FRAGMENT: 2 })
@@ -39,11 +43,15 @@ describe('ShapeRenderPipeline', () => {
 
     expect(rendered).toBe(true)
     expect(device.createBuffer).toHaveBeenCalledWith({
-      size: (32 + MAX_GPU_SHAPE_PATH_VERTICES * 4) * Float32Array.BYTES_PER_ELEMENT,
+      size:
+        (SHAPE_UNIFORM_HEADER_FLOAT_COUNT + MAX_GPU_SHAPE_PATH_VERTICES * 4) *
+        Float32Array.BYTES_PER_ELEMENT,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     })
     const uniformData = queue.writeBuffer.mock.calls[0]?.[2] as Float32Array
-    expect(uniformData.length).toBe(32 + MAX_GPU_SHAPE_PATH_VERTICES * 4)
+    expect(uniformData.length).toBe(
+      SHAPE_UNIFORM_HEADER_FLOAT_COUNT + MAX_GPU_SHAPE_PATH_VERTICES * 4,
+    )
     expect(Array.from(uniformData.slice(0, 3))).toEqual([1920, 1080, 5])
     expect(uniformData[3]).toBeCloseTo(0.8)
     expect(Array.from(uniformData.slice(4, 19))).toEqual([
@@ -121,9 +129,31 @@ describe('ShapeRenderPipeline', () => {
     const uniformData = queue.writeBuffer.mock.calls[0]?.[2] as Float32Array
     expect(uniformData[2]).toBe(7)
     expect(uniformData[18]).toBe(3)
-    expect(Array.from(uniformData.slice(32, 44))).toEqual([
-      -150, -120, 0, 0, 150, -120, 0, 0, 0, 120, 0, 0,
-    ])
+    expect(
+      Array.from(
+        uniformData.slice(SHAPE_UNIFORM_HEADER_FLOAT_COUNT, SHAPE_UNIFORM_HEADER_FLOAT_COUNT + 12),
+      ),
+    ).toEqual([-150, -120, 0, 0, 150, -120, 0, 0, 0, 120, 0, 0])
+  })
+
+  it('packs linear gradient colors and angle without changing the Shape discriminator', () => {
+    const { outputTexture, pipeline, queue } = createPipelineHarness()
+
+    const rendered = pipeline.renderShapeToTexture(outputTexture, {
+      outputWidth: 1920,
+      outputHeight: 1080,
+      transformRect: { x: 0, y: 0, width: 1920, height: 1080 },
+      shapeType: 'rectangle',
+      fillColor: [0.25, 0.5, 0.75, 1],
+      gradientEndColor: [0.75, 0.25, 0.5, 1],
+      gradientAngleRad: Math.PI / 2,
+    })
+
+    expect(rendered).toBe(true)
+    const uniformData = queue.writeBuffer.mock.calls[0]?.[2] as Float32Array
+    expect(Array.from(uniformData.slice(32, 36))).toEqual([0.75, 0.25, 0.5, 1])
+    expect(uniformData[36]).toBeCloseTo(Math.PI / 2)
+    expect(uniformData[37]).toBe(1)
   })
 
   it('packs up to the full GPU custom path vertex capacity', () => {
@@ -163,8 +193,12 @@ describe('ShapeRenderPipeline', () => {
       transformRect: { x: 0, y: 0, width: 200, height: 100 },
     })
     const rectangle = queue.writeBuffer.mock.calls[0]?.[2] as Float32Array
-    expect(Array.from(rectangle.slice(32, 35))).toEqual([-100, -50, 0])
-    expect(rectangle[38]).toBeCloseTo(1 / 3)
+    expect(
+      Array.from(
+        rectangle.slice(SHAPE_UNIFORM_HEADER_FLOAT_COUNT, SHAPE_UNIFORM_HEADER_FLOAT_COUNT + 3),
+      ),
+    ).toEqual([-100, -50, 0])
+    expect(rectangle[SHAPE_UNIFORM_HEADER_FLOAT_COUNT + 6]).toBeCloseTo(1 / 3)
 
     pipeline.renderShapeToTexture(outputTexture, {
       outputWidth: 1920,
@@ -174,11 +208,14 @@ describe('ShapeRenderPipeline', () => {
       transformRect: { x: 0, y: 0, width: 220, height: 200 },
     })
     const heart = queue.writeBuffer.mock.calls[1]?.[2] as Float32Array
-    expect(heart[32]).toBeCloseTo(0)
-    expect(heart[33]).toBeGreaterThan(0)
-    expect(heart[36]).toBeLessThan(0)
+    expect(heart[SHAPE_UNIFORM_HEADER_FLOAT_COUNT]).toBeCloseTo(0)
+    expect(heart[SHAPE_UNIFORM_HEADER_FLOAT_COUNT + 1]).toBeGreaterThan(0)
+    expect(heart[SHAPE_UNIFORM_HEADER_FLOAT_COUNT + 4]).toBeLessThan(0)
     const heartVertexCount = heart[21]!
-    const progress = Array.from({ length: heartVertexCount }, (_, index) => heart[34 + index * 4]!)
+    const progress = Array.from(
+      { length: heartVertexCount },
+      (_, index) => heart[SHAPE_UNIFORM_HEADER_FLOAT_COUNT + 2 + index * 4]!,
+    )
     expect(progress.every((value, index) => index === 0 || value > progress[index - 1]!)).toBe(true)
   })
 })
