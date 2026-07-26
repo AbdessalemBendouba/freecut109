@@ -7,7 +7,7 @@ const page = {
   description:
     'Add and style text clips, generate captions from a transcript, and import embedded subtitle tracks.',
   category: 'Creative Tools',
-  related: ['shapes-masks', 'properties', 'local-ai'],
+  related: ['motion-library', 'motion', 'shapes-masks', 'properties', 'local-ai'],
   sections: [
     {
       title: 'Three related things',
@@ -55,6 +55,7 @@ const page = {
             'Pick a preset in the **In**, **Out**, or **Loop** row. **In** plays at the clip start, **Out** at the clip end, and **Loop** runs continuously between them.',
             'Click the active preset again (or its ✕) to remove it — one preset per row.',
             'Tune the controls that appear under the active preset.',
+            'In Motion, drag a text-motion band edge to change its duration, or drag an In or Out band away from the clip edge to offset it.',
           ],
         },
         {
@@ -71,7 +72,7 @@ const page = {
         {
           kind: 'note',
           tone: 'tip',
-          text: 'In presets include Typewriter, Fade Up, Rise, Cascade, Pop, Blur In, Slide Reveal, and Wave In; Out presets include Fade Down, Sink, Pop Out, Blur Out, and Erase; Loop presets include Pulse, Wave, Shimmer, and Swing.',
+          text: 'The **Applied** list shows each live text-motion slot. Select an entry to move the playhead to its timeline band.',
         },
       ],
     },

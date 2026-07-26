@@ -3,55 +3,110 @@ import type { DocPageContent } from '../docs-content'
 const page = {
   order: 15.75,
   slug: 'motion',
-  title: 'Motion Workspace',
-  description: 'Build layered 2D compositions using the familiar editor shell and media library.',
+  title: 'Use the Motion workspace',
+  description:
+    'Build, time, animate, parent, and reuse layered 2D compositions in the Motion workspace.',
   category: 'Creative Tools',
-  related: ['animate', 'keyframes', 'concepts'],
+  related: ['motion-library', 'keyframes', 'shapes-masks', 'concepts'],
   sections: [
     {
-      title: 'One workspace for the whole motion job',
+      title: 'Open or create a Motion composition',
       blocks: [
         {
-          kind: 'list',
-          items: [
-            '**Motion** keeps the media library, composition preview, layer timeline, properties, keyframes, graphs, and motion library together.',
-            'Select a layer and open the inspector’s **Motion** tab. The Motion Library groups editable layer keyframes and live layer/text motion by intent: Entrance, Exit, Emphasis, and Loop & Behaviors.',
-            'The Applied section shows every animation currently driving the layer. Saved animations can contain keyframes, live layer behaviors, text motion, or a combination.',
-            'Switching to Motion never converts or replaces the regular sequence timeline; it opens the active reusable composition.',
-          ],
+          kind: 'paragraph',
+          text: 'Motion keeps the media library, composition preview, layer timeline, properties, keyframes, graph, and Motion Library in one workspace.',
         },
-      ],
-    },
-    {
-      title: 'Create and open a composition',
-      blocks: [
         {
           kind: 'steps',
           items: [
-            'Open **Motion** from the workspace switcher.',
-            'Use **New composition** in the layer timeline, or open an existing composition from the media library.',
-            'Drag video, audio, images, text, shapes, adjustment presets, or another composition from the media library into the layer timeline.',
+            'Choose **Motion** in the workspace switcher, or press `Alt+3`.',
+            'Pick an existing composition from the composition menu, or choose **New Comp**.',
+            'To promote sequence clips, select them in Edit, open **Animation**, and choose **Create Motion Clip**.',
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'Creating a Motion Clip preserves the selected clips and their animation inside the new composition. The new wrapper remains a regular clip in Edit.',
+        },
+      ],
+    },
+    {
+      title: 'Add layers to the composition',
+      blocks: [
+        {
+          kind: 'list',
+          items: [
+            'Drag video, audio, images, text, shapes, Lottie files, or another composition from the media library.',
+            'Choose **Add Item** to create **Text**, **Solid Color**, **Gradient**, **Shape**, or **Null Object** layers.',
+            'Solid Color and Gradient create full-frame shape layers that you can resize, style, mask, and animate.',
+            'FreeCut blocks a composition from containing itself, including indirect circular nesting.',
           ],
         },
       ],
     },
     {
-      title: 'Work with layers and properties',
+      title: 'Set the duration and active range',
+      blocks: [
+        {
+          kind: 'paragraph',
+          text: 'The authored duration defines the composition. The ruler’s In and Out handles define the active render range inside that duration.',
+        },
+        {
+          kind: 'steps',
+          items: [
+            'Drag the **In** and **Out** handles above the Motion ruler to mark the active range.',
+            'Choose **Trim Comp to Active Region** to shorten the authored composition to that range.',
+            'Choose **Zoom To Fit** to frame the authored composition without changing its duration.',
+            'Edit **Comp Duration** in Properties, and select its unit to switch between frames and seconds.',
+            'Read the matching **Timecode** value below the duration control.',
+          ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'Trimming keeps the In and Out controls available and fits the new range. Layers that extend beyond the authored duration remain visible in the dimmed overhang.',
+        },
+      ],
+    },
+    {
+      title: 'Arrange and time layers',
       blocks: [
         {
           kind: 'list',
           items: [
-            'Drag a layer span left or right to move it in time. If several layers are selected, they move together and the gesture creates one undo step.',
-            'Drag the three-dot handle at the left of a layer or group to change its stacking order. Child layers stay inside their current group while reordering.',
-            'Each layer has visibility, lock, solo, blend-mode, in/out, and ordering controls.',
-            'Select two or more layers and choose **Group** to create a collapsible parent. Group visibility, lock, solo, and span dragging apply to its child layers; choose **Ungroup** to release them.',
-            'Right-click a layer or group to rename, group or ungroup, duplicate, copy, paste, or delete it. Double-clicking its name also starts inline renaming.',
-            'Expand a layer to reveal the classic dope-sheet property rows beneath the existing Motion layer header, including values, auto-key controls, navigation, and keyframe diamonds.',
-            'Use the property filter above the layers to show every property or only animated properties.',
-            'Click a property diamond to add or remove a keyframe at the shared playhead. One continuous playhead spans the ruler, layer bars, and expanded property lanes.',
-            'Select two neighboring keyframes to expose the classic easing control, preset panel, and cubic-bezier editor for that segment.',
-            'Click a property curve icon to swap its keyframe lane for an inline value curve. Click another property to switch curves, or click the active icon again to return to the dope sheet. The inline curve supports timing, easing, and Bézier-handle editing without opening a separate panel.',
+            'Drag a layer span to move it in time. Selected layers move together in one undo step.',
+            'Edit each layer’s **In** and **Out** fields, or drag its span edges to trim it.',
+            'Use the layer controls to change visibility, lock, solo, blend mode, and stacking order.',
+            'Drag the three-dot handle to reorder a layer or group. Child layers remain inside their current group.',
+            'Select two or more layers and choose **Layer Group**. Group visibility, lock, solo, timing, and reordering apply to its children.',
+            'Right-click a layer or group to rename, group, ungroup, duplicate, copy, paste, or delete it.',
           ],
+        },
+      ],
+    },
+    {
+      title: 'Animate properties and path vertices',
+      blocks: [
+        {
+          kind: 'list',
+          items: [
+            'Expand a layer to reveal nested property groups, value controls, auto-key, navigation, and keyframe diamonds.',
+            'Set the property filter to **Animated properties** when you only need rows that contain keys.',
+            'Select a property diamond to add or remove a key at the shared playhead.',
+            'Select two neighboring keys to edit their segment easing.',
+            'Select a property curve icon to replace its dope-sheet lane with an inline value graph.',
+            'Open the Position group menu and choose **Separate Position dimensions** to edit X and Y independently.',
+          ],
+        },
+        {
+          kind: 'paragraph',
+          text: 'Path shapes expose vertex lanes in Motion. Select path points in the preview, then switch between **Selected vertices** and **All vertices** above the property rows.',
+        },
+        {
+          kind: 'note',
+          tone: 'warning',
+          text: 'Once Path Geometry has keyframes, you cannot add, remove, reorder, or change the first path vertex. Remove those keys before changing the path topology.',
         },
       ],
     },
@@ -61,18 +116,18 @@ const page = {
         {
           kind: 'steps',
           items: [
-            'Click **Null Object** in the Motion layer toolbar. A Null Object is an invisible transform layer: it organizes motion but never appears in the final render.',
-            'In the Motion layer stack, choose a parent from the **Parent** menu or drag the spiral Parent pick whip onto another layer. Normal assignment preserves the child layer canvas pose.',
-            'Hold **Shift** while releasing the Parent pick whip to snap the child position to the parent. Hold **Alt/Option** to use the child authored local pose instead.',
-            'Ctrl-click or Command-click a child Parent pick whip to detach it while preserving its current pose. Add **Alt/Option** to detach without compensation and return to the authored local pose.',
-            'Move, scale, rotate, or keyframe the Null Object to control every layer parented to it as one rig.',
-            'A parent chip appears on each child layer in the Motion stack. Click it to jump directly to the parent layer.',
+            'Choose **Add Item > Null Object**. A Null Object controls transforms but does not render.',
+            'Choose a parent from the **Parent** menu, or drag the Parent pick whip onto another layer.',
+            'Release normally to preserve the child’s canvas pose.',
+            'Hold **Shift** while releasing to snap the child position to the parent.',
+            'Hold **Alt/Option** while releasing to use the child’s authored local pose.',
+            'Ctrl-click or Command-click the child pick whip to detach it while preserving its current pose.',
           ],
         },
         {
           kind: 'note',
           tone: 'info',
-          text: 'Parenting lives in the Motion layer stack, alongside layer order and timing, so there is one authoritative place to inspect, assign, or detach a parent.',
+          text: 'Valid parent targets highlight while you drag. Motion rejects self-parenting, descendant targets, and links that would create a cycle.',
         },
       ],
     },
@@ -80,48 +135,52 @@ const page = {
       title: 'Link properties or write an expression',
       blocks: [
         {
+          kind: 'paragraph',
+          text: 'Parenting creates a layer hierarchy. A **Property Link** makes one property follow another without changing that hierarchy.',
+        },
+        {
           kind: 'list',
           items: [
-            'The spiral beside **Parent** is the Parent pick whip: it creates a layer hierarchy. The spiral beside a property is the **Property Link** pick whip: it makes one property follow another without changing layer hierarchy.',
-            'Drag a Property Link pick whip to another visible property row in Motion, the classic dope sheet, or the graph. Scalar values can link to scalar values; Position, Scale, and Anchor link as complete Vector2 values.',
-            'A linked value stays orange and read-only until the link is removed. Missing sources and imported cycles fall back to the authored value instead of breaking preview or export.',
-            'Click the braces button beside a property to add a sandboxed expression. The editor shows the value before and after the expression, validates errors before Apply, and lets you enable, disable, or remove the expression without deleting keyframes.',
-            'Inside the expression editor, drag its separate pick whip to a property row. Motion inserts a `prop("layer-id", "property")` reference at the current text cursor instead of creating a direct link.',
-            'Expressions support `value`, `preValue`, `frame`, `time`, scalar and `[x, y]` values, `+ - * /`, and deterministic `abs`, `sin`, `cos`, `min`, `max`, `clamp`, and `lerp` functions. They cannot access browser globals or run arbitrary JavaScript.',
+            'Drag a property pick whip to a compatible row in Motion, the dope sheet, or the graph.',
+            'Link scalar values to scalar values. Position, Scale, and Anchor link as complete two-dimensional values.',
+            'Select the braces button to add a sandboxed expression without deleting the property’s keyframes.',
+            'Use the expression pick whip to insert a `prop("layer-id", "property")` reference at the text cursor.',
+            'Use `value`, `preValue`, `frame`, `time`, scalar or `[x, y]` values, arithmetic, and the supported math functions.',
           ],
         },
         {
           kind: 'note',
           tone: 'info',
-          text: 'Evaluation order is keyframes, then Property Link, then expression. Preview and export use the same resolver.',
+          text: 'FreeCut evaluates keyframes first, then Property Link, then the expression. Preview and export use the same order.',
         },
       ],
     },
     {
-      title: 'Choose what stays editable when reused',
+      title: 'Expose controls for reused compositions',
       blocks: [
         {
           kind: 'steps',
           items: [
-            'Inside a reusable 2D composition, open **Exposed properties** and choose the text or colors an editor should be able to change.',
+            'Open **Published controls** inside the source composition.',
+            'Publish the text or colors that an editor should change on placed instances.',
             'Place the composition in a regular sequence and select that instance.',
-            'Edit those values under **Template overrides**. Each placed instance keeps its own values without changing the source composition.',
-            'A blue dot marks each value that differs from the source. Reset one override beside that value, or use **Reset all overrides** to return the entire instance to its exposed source values.',
+            'Edit its published values in Properties without changing the source composition.',
+            'Reset one override or use **Reset all overrides** to restore the source values.',
           ],
         },
       ],
     },
     {
-      title: 'Use a composition in a regular edit',
+      title: 'Use the composition in Edit',
       blocks: [
         {
           kind: 'paragraph',
-          text: 'A 2D composition remains a reusable composition asset. Place it in a regular sequence to trim and arrange it like a clip. Open its internal layers in Motion, or animate the composition instance as one object through its Motion properties.',
+          text: 'A Motion composition remains a reusable composition asset. Place it in a sequence, then move, trim, animate, or apply effects to the instance like any other clip.',
         },
         {
           kind: 'note',
           tone: 'info',
-          text: 'Internal layer animation and whole-clip animation are independent. This lets a title animate internally while the finished title composition also moves or fades on the main edit.',
+          text: 'Internal layer animation and whole-clip animation remain independent. A title can animate internally while its placed instance moves or fades in Edit.',
         },
       ],
     },

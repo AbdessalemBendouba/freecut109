@@ -3,22 +3,37 @@ import type { DocPageContent } from '../docs-content'
 const page = {
   order: 15,
   slug: 'keyframes',
-  title: 'Keyframe Animation',
+  title: 'Animate with keyframes',
   description:
     'Animate transform, crop, text, effect, and audio values with keyframes, easing, and the curve editor.',
   category: 'Creative Tools',
-  related: ['motion', 'animate', 'properties', 'effects-color'],
+  related: ['motion', 'motion-library', 'properties', 'effects-color'],
   sections: [
     {
-      title: 'Open the keyframe editor',
+      title: 'Choose where to edit keyframes',
       blocks: [
         {
-          kind: 'list',
-          items: [
-            'Open **Motion**, select a layer, and expand its property rows in the layer timeline.',
-            'Use **Sheet** for keyframe timing, **Value** for property curves, or **Speed** for velocity and influence.',
-            'The shared playhead, selection, snapping, and graph stay aligned across every layer.',
+          kind: 'paragraph',
+          text: 'Edit keeps keyframe work compact. Motion exposes the complete layer dope sheet and graph for deeper timing and curve work.',
+        },
+        {
+          kind: 'table',
+          headers: ['Surface', 'Keyframe workflow'],
+          rows: [
+            [
+              'Edit',
+              'Select a clip and press `K` to add a key for its active property. Open **Animation** in Properties for presets and applied status.',
+            ],
+            [
+              'Motion',
+              'Expand a layer for property rows, keyframe diamonds, segment easing, and an inline value graph.',
+            ],
           ],
+        },
+        {
+          kind: 'note',
+          tone: 'info',
+          text: 'In Motion, the shared playhead, selection, snapping, ruler, property lanes, and graph use the same time axis.',
         },
       ],
     },
@@ -31,7 +46,7 @@ const page = {
             'Move the playhead to the frame you want to key.',
             'Type a value next to a parameter and press `Enter`, or click the **diamond** on the parameter row.',
             'Move to another frame and set a second value to create motion between them.',
-            'Or turn on **auto-key** (the timer icon) to capture every value change automatically as you work.',
+            'Turn on **auto-key** with the timer icon, or press `A`, to capture later value changes automatically.',
           ],
         },
         {
@@ -71,7 +86,8 @@ const page = {
           kind: 'list',
           items: [
             'Click the **connector** between two keyframes to open the **easing editor**.',
-            'Browse preset curves under two tabs — **Cubic Easing** and **Spring**. Filter the easing presets by direction (**All / In / Out / In-Out**); each tile shows an animated preview on hover, and **Hold** freezes the value until the next key.',
+            'Browse preset curves under **Cubic Easing** and **Spring**. Filter by **All**, **In**, **Out**, or **In-Out**.',
+            'Choose **Hold** to keep the earlier value until the next key.',
             'Switch to **Edit** to shape the curve directly: drag the two control handles on the graph, or type exact values. Springs expose **tension**, **friction**, and **mass** and preview their real bounce.',
             'Feel the timing on **Position**, **Scale**, **Rotate**, or **Opacity** in the live preview, and **Pause** the loop.',
             'Save a tweaked curve as a **custom preset** with **Save As**, **Update** it later, or **Reset** back to the preset it came from. Custom presets are stored on your device and appear in every project.',
@@ -96,16 +112,24 @@ const page = {
       ],
     },
     {
-      title: 'Generated motion',
+      title: 'Convert and clean generated motion',
       blocks: [
         {
           kind: 'paragraph',
-          text: 'Some clips carry generated motion such as drift, breath, shake, or audio pulse, evaluated as they play. A clip with generated motion shows a **Bake motion** action.',
+          text: 'Live behaviors such as drift, breath, shake, and spin evaluate during playback without creating property keys.',
+        },
+        {
+          kind: 'list',
+          items: [
+            'Choose **Bake to keyframes** to convert live layer behaviors into editable keys.',
+            'Use **Applied** to navigate to manual keys or a generated preset’s first frame.',
+            'Use **Trim animation** when a clip trim leaves stored keys outside its visible duration.',
+          ],
         },
         {
           kind: 'note',
-          tone: 'tip',
-          text: 'Bake the motion to convert it into editable keyframes you can adjust by hand.',
+          tone: 'info',
+          text: 'Read [Apply and reuse motion](motion-library) for presets, live behaviors, text motion, baking, and saved animations.',
         },
       ],
     },
