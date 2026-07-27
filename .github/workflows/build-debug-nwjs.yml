@@ -1,4 +1,4 @@
-name: Build FreeCut NW.js Native App (Win7 32-bit)
+name: Build Debug Version of FreeCut NW.js Native App (Win7 32-bit)
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-nwjs:
-    name: Build NW.js 32-bit Executable
+    name: Build Debug NW.js 32-bit Executable
     runs-on: ubuntu-latest
 
     steps:
@@ -126,6 +126,6 @@ jobs:
       - name: Upload Desktop App Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FreeCut109-Win7-32bit
-          path: FreeCut109-Win7-32bit.zip
+          name: FreeCut109-Win7-32bit-Debug
+          path: FreeCut109-Win7-32bit-Debug.zip
           retention-days: 30
