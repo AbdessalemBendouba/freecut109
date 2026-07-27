@@ -36,13 +36,14 @@ jobs:
           const path = require('path');
 
           const PORT = 28473;
-          const DIST_DIR = __dirname;
+          const DIST_DIR = path.resolve(__dirname);
 
           const mimeTypes = {
-            '.html': 'text/html',
-            '.js': 'text/javascript',
-            '.css': 'text/css',
-            '.json': 'application/json',
+            '.html': 'text/html; charset=utf-8',
+            '.js': 'text/javascript; charset=utf-8',
+            '.mjs': 'text/javascript; charset=utf-8',
+            '.css': 'text/css; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
             '.png': 'image/png',
             '.jpg': 'image/jpeg',
             '.jpeg': 'image/jpeg',
@@ -57,23 +58,37 @@ jobs:
           };
 
           const server = http.createServer((req, res) => {
-            let reqUrl = req.url.split('?')[0];
-            let filePath = path.normalize(path.join(DIST_DIR, reqUrl));
+            let rawUrl = decodeURIComponent(req.url.split('?')[0]);
+            let safePath = rawUrl.replace(/^\/+/g, '');
+            let filePath = path.join(DIST_DIR, safePath);
 
-            if (!filePath.startsWith(DIST_DIR)) {
-              filePath = path.join(DIST_DIR, 'index.html');
+            if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+              filePath = path.join(filePath, 'index.html');
             }
 
-            if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-              filePath = path.join(DIST_DIR, 'index.html');
+            let fileExists = fs.existsSync(filePath) && fs.statSync(filePath).isFile();
+
+            const ext = path.extname(rawUrl).toLowerCase();
+            const isAsset = ['.js', '.mjs', '.css', '.wasm', '.json', '.png', '.jpg', '.svg', '.woff', '.woff2'].includes(ext);
+
+            // SPA Fallback: ONLY serve index.html for page navigation, NEVER for JS/CSS assets
+            if (!fileExists) {
+              if (!isAsset) {
+                filePath = path.join(DIST_DIR, 'index.html');
+                fileExists = fs.existsSync(filePath);
+              } else {
+                res.writeHead(404, { 'Content-Type': 'text/plain' });
+                res.end(`Asset Not Found: ${rawUrl}`);
+                return;
+              }
             }
 
-            const ext = path.extname(filePath).toLowerCase();
-            const contentType = mimeTypes[ext] || 'application/octet-stream';
+            const fileExt = path.extname(filePath).toLowerCase();
+            const contentType = mimeTypes[fileExt] || 'application/octet-stream';
 
             fs.readFile(filePath, (err, content) => {
               if (err) {
-                res.writeHead(500);
+                res.writeHead(500, { 'Content-Type': 'text/plain' });
                 res.end('Server Error');
               } else {
                 res.writeHead(200, {
@@ -114,7 +129,6 @@ jobs:
 
       - name: Download and package NW.js SDK v0.72.0 (Win 32-bit with DevTools)
         run: |
-          # Download NW.js SDK build (includes native DevTools + F12)
           curl -sL https://dl.nwjs.io/v0.72.0/nwjs-sdk-v0.72.0-win-ia32.zip -o nwjs.zip
           unzip -q nwjs.zip
           mv nwjs-sdk-v0.72.0-win-ia32 FreeCut109-Win7-32bit-Debug
