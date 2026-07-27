@@ -99,7 +99,7 @@ jobs:
             "node-main": "server.js",
             "main": "http://127.0.0.1:28473/",
             "window": {
-              "title": "FreeCut109 Video Editor",
+              "title": "FreeCut109 Video Editor (Debug)",
               "icon": "favicon.svg",
               "width": 1280,
               "height": 768,
@@ -121,7 +121,7 @@ jobs:
 
           cp -r dist/* FreeCut109-Win7-32bit-Debug/
           mv FreeCut109-Win7-32bit-Debug/nw.exe FreeCut109-Win7-32bit-Debug/FreeCut.exe
-          zip -r FreeCut109-Win7-32bit-Debug.zip FreeCut109-Win7-32bit/
+          zip -r FreeCut109-Win7-32bit-Debug.zip FreeCut109-Win7-32bit-Debug/
 
       - name: Upload Desktop App Artifact
         uses: actions/upload-artifact@v4
