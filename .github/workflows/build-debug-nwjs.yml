@@ -62,29 +62,36 @@ jobs:
             let safePath = rawUrl.replace(/^\/+/g, '');
             let filePath = path.join(DIST_DIR, safePath);
 
-            if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
-              filePath = path.join(filePath, 'index.html');
-            }
-
+            // 1. Direct match check
             let fileExists = fs.existsSync(filePath) && fs.statSync(filePath).isFile();
 
-            const ext = path.extname(rawUrl).toLowerCase();
-            const isAsset = ['.js', '.mjs', '.css', '.wasm', '.json', '.png', '.jpg', '.svg', '.woff', '.woff2'].includes(ext);
+            // 2. Automatic assets directory fallback check (if browser requests /app-shell-xxx.js without /assets/)
+            if (!fileExists) {
+              const fileName = path.basename(safePath);
+              const assetsPath = path.join(DIST_DIR, 'assets', fileName);
+              if (fs.existsSync(assetsPath) && fs.statSync(assetsPath).isFile()) {
+                filePath = assetsPath;
+                fileExists = true;
+              }
+            }
 
-            // SPA Fallback: ONLY serve index.html for page navigation, NEVER for JS/CSS assets
+            const ext = path.extname(filePath).toLowerCase();
+            const isAsset = ['.js', '.mjs', '.css', '.wasm', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.woff2'].includes(ext);
+
+            // 3. SPA Fallback for route navigation (e.g. /projects, /editor/123)
             if (!fileExists) {
               if (!isAsset) {
                 filePath = path.join(DIST_DIR, 'index.html');
                 fileExists = fs.existsSync(filePath);
               } else {
+                console.error(`[404] Missing asset: ${rawUrl} (checked ${filePath})`);
                 res.writeHead(404, { 'Content-Type': 'text/plain' });
                 res.end(`Asset Not Found: ${rawUrl}`);
                 return;
               }
             }
 
-            const fileExt = path.extname(filePath).toLowerCase();
-            const contentType = mimeTypes[fileExt] || 'application/octet-stream';
+            const contentType = mimeTypes[ext] || 'application/octet-stream';
 
             fs.readFile(filePath, (err, content) => {
               if (err) {
