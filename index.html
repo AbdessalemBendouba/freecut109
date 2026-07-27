@@ -2,6 +2,45 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      /* Chrome 109 ES2023/ES2024 Polyfills */
+      if (!Array.prototype.toSorted) {
+        Array.prototype.toSorted = function(compareFn) {
+          return [...this].sort(compareFn);
+        };
+      }
+      if (!Array.prototype.toReversed) {
+        Array.prototype.toReversed = function() {
+          return [...this].reverse();
+        };
+      }
+      if (!Array.prototype.toSpliced) {
+        Array.prototype.toSpliced = function(start, deleteCount, ...items) {
+          const copy = [...this];
+          copy.splice(start, deleteCount === undefined ? copy.length - start : deleteCount, ...items);
+          return copy;
+        };
+      }
+      if (!Array.prototype.with) {
+        Array.prototype.with = function(index, value) {
+          const copy = [...this];
+          copy[index] = value;
+          return copy;
+        };
+      }
+      if (!Promise.withResolvers) {
+        Promise.withResolvers = function() {
+          let resolve, reject;
+          const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+          return { promise, resolve, reject };
+        };
+      }
+      if (!Object.hasOwn) {
+        Object.hasOwn = function(obj, prop) {
+          return Object.prototype.hasOwnProperty.call(obj, prop);
+        };
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
