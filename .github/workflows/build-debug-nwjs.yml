@@ -62,10 +62,12 @@ jobs:
             let safePath = rawUrl.replace(/^\/+/g, '');
             let filePath = path.join(DIST_DIR, safePath);
 
-            // 1. Direct match check
+            if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+              filePath = path.join(filePath, 'index.html');
+            }
+
             let fileExists = fs.existsSync(filePath) && fs.statSync(filePath).isFile();
 
-            // 2. Automatic assets directory fallback check (if browser requests /app-shell-xxx.js without /assets/)
             if (!fileExists) {
               const fileName = path.basename(safePath);
               const assetsPath = path.join(DIST_DIR, 'assets', fileName);
@@ -75,23 +77,23 @@ jobs:
               }
             }
 
-            const ext = path.extname(filePath).toLowerCase();
-            const isAsset = ['.js', '.mjs', '.css', '.wasm', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.woff2'].includes(ext);
+            const initialExt = path.extname(safePath).toLowerCase();
+            const isAsset = ['.js', '.mjs', '.css', '.wasm', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.woff2'].includes(initialExt);
 
-            // 3. SPA Fallback for route navigation (e.g. /projects, /editor/123)
             if (!fileExists) {
               if (!isAsset) {
                 filePath = path.join(DIST_DIR, 'index.html');
-                fileExists = fs.existsSync(filePath);
               } else {
-                console.error(`[404] Missing asset: ${rawUrl} (checked ${filePath})`);
+                console.error(`[404] Missing asset: ${rawUrl}`);
                 res.writeHead(404, { 'Content-Type': 'text/plain' });
                 res.end(`Asset Not Found: ${rawUrl}`);
                 return;
               }
             }
 
-            const contentType = mimeTypes[ext] || 'application/octet-stream';
+            // Calculate MIME type AFTER filePath is final!
+            const finalExt = path.extname(filePath).toLowerCase();
+            const contentType = mimeTypes[finalExt] || 'application/octet-stream';
 
             fs.readFile(filePath, (err, content) => {
               if (err) {
