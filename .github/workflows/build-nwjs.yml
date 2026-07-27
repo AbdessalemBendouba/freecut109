@@ -26,17 +26,82 @@ jobs:
       - name: Build web application
         run: vp build
         env:
-          VITE_BASE_URL: './'
+          VITE_BASE_URL: '/'
 
-      - name: Create NW.js manifest (package.json)
+      - name: Create local NW.js server & manifest
         run: |
+          # Create internal local HTTP server script
+          cat << 'EOF' > dist/server.js
+          const http = require('http');
+          const fs = require('fs');
+          const path = require('path');
+
+          const PORT = 28473;
+          const DIST_DIR = __dirname;
+
+          const mimeTypes = {
+            '.html': 'text/html',
+            '.js': 'text/javascript',
+            '.css': 'text/css',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.svg': 'image/svg+xml',
+            '.wasm': 'application/wasm',
+            '.woff': 'font/woff',
+            '.woff2': 'font/woff2',
+            '.mp4': 'video/mp4',
+            '.mp3': 'audio/mpeg',
+            '.wav': 'audio/wav'
+          };
+
+          const server = http.createServer((req, res) => {
+            let reqUrl = req.url.split('?')[0];
+            let filePath = path.normalize(path.join(DIST_DIR, reqUrl));
+
+            if (!filePath.startsWith(DIST_DIR)) {
+              filePath = path.join(DIST_DIR, 'index.html');
+            }
+
+            if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+              filePath = path.join(DIST_DIR, 'index.html');
+            }
+
+            const ext = path.extname(filePath).toLowerCase();
+            const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+            fs.readFile(filePath, (err, content) => {
+              if (err) {
+                res.writeHead(500);
+                res.end('Server Error');
+              } else {
+                res.writeHead(200, {
+                  'Content-Type': contentType,
+                  'Cross-Origin-Embedder-Policy': 'require-corp',
+                  'Cross-Origin-Opener-Policy': 'same-origin',
+                  'Access-Control-Allow-Origin': '*'
+                });
+                res.end(content);
+              }
+            });
+          });
+
+          server.listen(PORT, '127.0.0.1', () => {
+            console.log(`FREE Cut local server running on http://127.0.0.1:${PORT}`);
+          });
+          EOF
+
+          # Create NW.js package.json pointing to the local server URL
           cat << 'EOF' > dist/package.json
           {
             "name": "freecut109",
             "version": "1.0.0",
-            "main": "index.html",
+            "node-main": "server.js",
+            "main": "http://127.0.0.1:28473/",
             "window": {
-              "title": "FreeCut109 Video Editor",
+              "title": "FREE Cut Video Editor",
               "icon": "favicon.svg",
               "width": 1280,
               "height": 768,
@@ -51,18 +116,17 @@ jobs:
 
       - name: Download and package NW.js v0.72.0 (Win 32-bit)
         run: |
-          # Download official NW.js 0.72.0 (Chromium 109 Win 32-bit)
           curl -sL https://dl.nwjs.io/v0.72.0/nwjs-v0.72.0-win-ia32.zip -o nwjs.zip
           unzip -q nwjs.zip
           mv nwjs-v0.72.0-win-ia32 FreeCut109-Win7-32bit
 
-          # Copy built dist web files into NW.js root directory
+          # Copy built dist files and server.js into NW.js root directory
           cp -r dist/* FreeCut109-Win7-32bit/
 
           # Rename executable to FreeCut.exe
           mv FreeCut109-Win7-32bit/nw.exe FreeCut109-Win7-32bit/FreeCut.exe
 
-          # Create final ZIP archive
+          # Create ZIP archive
           zip -r FreeCut109-Win7-32bit.zip FreeCut109-Win7-32bit/
 
       - name: Upload Desktop App Artifact
