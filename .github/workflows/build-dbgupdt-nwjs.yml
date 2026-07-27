@@ -1,0 +1,147 @@
+name: Build Debug Updates of FreeCut NW.js Native App (Win7 32-bit)
+
+on:
+  push:
+    branches: [ FreeCut109.exe, main ]
+  workflow_dispatch:
+
+jobs:
+  build-nwjs:
+    name: Build Debug NW.js 32-bit Executable
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version: '22'
+          cache: true
+
+      - name: Install dependencies
+        run: vp install
+
+      - name: Build web application
+        run: vp build
+        env:
+          VITE_BASE_URL: '/'
+
+      - name: Create local NW.js server & manifest
+        run: |
+          cat << 'EOF' > dist/server.js
+          const http = require('http');
+          const fs = require('fs');
+          const path = require('path');
+
+          const PORT = 28473;
+          const DIST_DIR = path.resolve(__dirname);
+
+          const mimeTypes = {
+            '.html': 'text/html; charset=utf-8',
+            '.js': 'text/javascript; charset=utf-8',
+            '.mjs': 'text/javascript; charset=utf-8',
+            '.css': 'text/css; charset=utf-8',
+            '.json': 'application/json; charset=utf-8',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.svg': 'image/svg+xml',
+            '.wasm': 'application/wasm',
+            '.woff': 'font/woff',
+            '.woff2': 'font/woff2',
+            '.mp4': 'video/mp4',
+            '.mp3': 'audio/mpeg',
+            '.wav': 'audio/wav'
+          };
+
+          const server = http.createServer((req, res) => {
+            let rawUrl = decodeURIComponent(req.url.split('?')[0]);
+            let safePath = rawUrl.replace(/^\/+/g, '');
+            let filePath = path.join(DIST_DIR, safePath);
+
+            // 1. Direct match check
+            let fileExists = fs.existsSync(filePath) && fs.statSync(filePath).isFile();
+
+            // 2. Automatic assets directory fallback check
+            if (!fileExists) {
+              const fileName = path.basename(safePath);
+              const assetsPath = path.join(DIST_DIR, 'assets', fileName);
+              if (fs.existsSync(assetsPath) && fs.statSync(assetsPath).isFile()) {
+                filePath = assetsPath;
+                fileExists = true;
+              }
+            }
+
+            const ext = path.extname(filePath).toLowerCase();
+            const isAsset = ['.js', '.mjs', '.css', '.wasm', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.woff', '.woff2'].includes(ext);
+
+            // 3. SPA Fallback for route navigation
+            if (!fileExists) {
+              if (!isAsset) {
+                filePath = path.join(DIST_DIR, 'index.html');
+                fileExists = fs.existsSync(filePath);
+              } else {
+                console.error(`[404] Missing asset: ${rawUrl} (checked ${filePath})`);
+                res.writeHead(404, { 'Content-Type': 'text/plain' });
+                res.end(`Asset Not Found: ${rawUrl}`);
+                return;
+              }
+            }
+
+            const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+            fs.readFile(filePath, (err, content) => {
+              if (err) {
+                res.writeHead(500, { 'Content-Type': 'text/plain' });
+                res.end('Server Error');
+              } else {
+                res.writeHead(200, {
+                  'Content-Type': contentType,
+                  'Cross-Origin-Embedder-Policy': 'require-corp',
+                  'Cross-Origin-Opener-Policy': 'same-origin',
+                  'Access-Control-Allow-Origin': '*'
+                });
+                res.end(content);
+              }
+            });
+          });
+
+          server.listen(PORT, '127.0.0.1', () => {
+            console.log(`FreeCut109 local server running on http://127.0.0.1:${PORT}`);
+          });
+          EOF
+
+          cat << 'EOF' > dist/package.json
+          {
+            "name": "freecut109",
+            "version": "1.0.0",
+            "node-main": "server.js",
+            "main": "http://127.0.0.1:28473/",
+            "window": {
+              "title": "FreeCut109 Video Editor (Debug)",
+              "icon": "favicon.svg",
+              "width": 1280,
+              "height": 768,
+              "min_width": 1024,
+              "min_height": 600,
+              "position": "center",
+              "toolbar": true
+            },
+            "chromium-args": "--enable-features=SharedArrayBuffer --ignore-gpu-blocklist --enable-gpu-rasterization --enable-zero-copy"
+          }
+          EOF
+
+      - name: Package Fast App Update (~10 MB)
+        run: |
+          # Zip ONLY the compiled dist files (No heavy Chromium engine binary)
+          cd dist && zip -r ../FreeCut109-App-Update.zip ./* && cd ..
+
+      - name: Upload Fast App Update (~10 MB)
+        uses: actions/upload-artifact@v4
+        with:
+          name: FreeCut109-App-Update
+          path: FreeCut109-App-Update.zip
+          retention-days: 30
