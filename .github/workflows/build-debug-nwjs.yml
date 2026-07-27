@@ -117,11 +117,11 @@ jobs:
           # Download NW.js SDK build (includes native DevTools + F12)
           curl -sL https://dl.nwjs.io/v0.72.0/nwjs-sdk-v0.72.0-win-ia32.zip -o nwjs.zip
           unzip -q nwjs.zip
-          mv nwjs-sdk-v0.72.0-win-ia32 FreeCut109-Win7-32bit
+          mv nwjs-sdk-v0.72.0-win-ia32 FreeCut109-Win7-32bit-Debug
 
-          cp -r dist/* FreeCut109-Win7-32bit/
-          mv FreeCut109-Win7-32bit/nw.exe FreeCut109-Win7-32bit/FreeCut.exe
-          zip -r FreeCut109-Win7-32bit.zip FreeCut109-Win7-32bit/
+          cp -r dist/* FreeCut109-Win7-32bit-Debug/
+          mv FreeCut109-Win7-32bit-Debug/nw.exe FreeCut109-Win7-32bit-Debug/FreeCut.exe
+          zip -r FreeCut109-Win7-32bit-Debug.zip FreeCut109-Win7-32bit/
 
       - name: Upload Desktop App Artifact
         uses: actions/upload-artifact@v4
