@@ -5,7 +5,7 @@
  * Benefits:
  * - Precise frame-by-frame access (no seek delays)
  * - Pre-decoded frames for instant access
- * - No 500ms timeout fallbacks needed
+ * - Low-memory canvas allocation for preview captures
  */
 
 import { createMediabunnyInputSource } from '@/infrastructure/browser/mediabunny-input-source'
@@ -15,7 +15,6 @@ import { getAdaptiveStreamStart } from '@/shared/utils/keyframe-index-registry'
 
 const log = createLogger('VideoFrameExtractor')
 
-/** Types for dynamically imported mediabunny module */
 interface MediabunnySink {
   samples(
     startTimestamp?: number,
@@ -69,7 +68,6 @@ export class VideoFrameExtractor {
   private static readonly TIMESTAMP_EPSILON = 1e-4
   private static readonly LOOKAHEAD_TOLERANCE_SECONDS = 0.05
   private static readonly STREAM_BACKTRACK_SECONDS = 1.0
-  /** Forward jump threshold: restart stream instead of reading through samples */
   private static readonly FORWARD_JUMP_RESTART_SECONDS = 3.0
 
   private sink: MediabunnySink | null = null
@@ -87,12 +85,7 @@ export class VideoFrameExtractor {
   private lastRequestedTimestamp: number | null = null
   private sampleLoopError: unknown = null
   private lastFailureKind: 'none' | 'no-sample' | 'decode-error' = 'none'
-  /**
-   * Cached VideoFrame from the current sample.  Kept alive between draws so
-   * that repeated draws of the same sample (common during transitions past the
-   * clip's timeline end) reuse the same VideoFrame instead of calling
-   * toVideoFrame() after a previous close() has invalidated the sample data.
-   */
+
   private cachedVideoFrame: VideoFrame | null = null
   private cachedVideoFrameSample: MediabunnySample | null = null
 
@@ -102,32 +95,23 @@ export class VideoFrameExtractor {
     private options: { logFrameFailuresAsDebug?: boolean } = {},
   ) {}
 
-  /**
-   * Initialize the extractor - must be called before drawFrame()
-   */
   async init(): Promise<boolean> {
     this.disposed = false
     try {
       const [mb] = await Promise.all([import('mediabunny'), ensureProResDecoderRegistered()])
       const source = createMediabunnyInputSource(mb, this.src)
 
-      // Prefer direct file-backed reads for OPFS / file handles, with BlobSource
-      // fallback for in-memory blob URLs we manage locally.
       this.input = new mb.Input({
         formats: mb.ALL_FORMATS,
         source,
       }) as unknown as MediabunnyInput
 
-      // Get video track
       this.videoTrack = await this.input!.getPrimaryVideoTrack()
       if (!this.videoTrack) {
         this.logInitFailure('No video track found', { itemId: this.itemId }, 'warn')
         return false
       }
 
-      // Bail out if the track is genuinely undecodable. ProRes decodes through the
-      // registered @mediabunny/prores decoder, so canDecode() reports it as decodable
-      // and VideoSampleSink handles it like any other codec.
       if (typeof this.videoTrack.canDecode === 'function') {
         const decodable = await this.videoTrack.canDecode()
         if (!decodable) {
@@ -140,7 +124,6 @@ export class VideoFrameExtractor {
         }
       }
 
-      // Get duration
       this.duration = await this.input!.computeDuration()
 
       this.sink = new mb.VideoSampleSink(
@@ -175,10 +158,6 @@ export class VideoFrameExtractor {
     }
   }
 
-  /**
-   * Draw a frame at the specified timestamp directly to canvas.
-   * Properly manages VideoSample lifecycle by closing immediately after draw.
-   */
   async drawFrame(
     ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
     timestamp: number,
@@ -282,9 +261,6 @@ export class VideoFrameExtractor {
   private async ensureSampleForTimestamp(timestamp: number): Promise<void> {
     if (!this.sink) return
 
-    // Use a forward sample stream instead of samplesAtTimestamps/getSample.
-    // Mediabunny's timestamp-based path can flush decoders at GOP boundaries;
-    // for some files that leads to repeated "key frame required after flush".
     if (!this.sampleIterator) {
       this.resetSampleIterator(timestamp, 'init')
     } else if (
@@ -292,14 +268,11 @@ export class VideoFrameExtractor {
       timestamp + VideoFrameExtractor.TIMESTAMP_EPSILON < this.lastRequestedTimestamp &&
       !this.currentSampleCoversTimestamp(timestamp)
     ) {
-      // Timeline time moved backward for this clip. Restart stream.
       this.resetSampleIterator(timestamp, 'backward')
     } else if (
       this.lastRequestedTimestamp !== null &&
       timestamp - this.lastRequestedTimestamp > VideoFrameExtractor.FORWARD_JUMP_RESTART_SECONDS
     ) {
-      // Large forward jump — restart stream at new position instead of reading
-      // through hundreds of samples. Faster than sequential iteration.
       this.resetSampleIterator(timestamp, 'backward')
     }
 
@@ -309,8 +282,6 @@ export class VideoFrameExtractor {
       const candidate = await this.peekNextSample()
       if (!candidate) break
       if (candidate.timestamp <= timestamp + VideoFrameExtractor.TIMESTAMP_EPSILON) {
-        // Moving to a new sample — release the cached VideoFrame first
-        // so it's closed before the old sample is closed.
         this.closeCachedVideoFrame()
         this.closeSample(this.currentSample)
         this.currentSample = candidate
@@ -318,9 +289,6 @@ export class VideoFrameExtractor {
         continue
       }
 
-      // If this is the first sample after stream start/restart and it's only
-      // slightly ahead of the requested timestamp, use it to avoid false misses
-      // caused by timestamp quantization/drift.
       if (
         !this.currentSample &&
         candidate.timestamp - timestamp <= VideoFrameExtractor.LOOKAHEAD_TOLERANCE_SECONDS
@@ -384,7 +352,6 @@ export class VideoFrameExtractor {
     this.closeStreamState()
     if (!this.sink) return
 
-    // Use keyframe index for precise backtrack; fall back to fixed 1.0s
     const adaptiveStart = getAdaptiveStreamStart(this.src, startTimestamp)
     const streamStart =
       adaptiveStart ?? Math.max(0, startTimestamp - VideoFrameExtractor.STREAM_BACKTRACK_SECONDS)
@@ -417,9 +384,6 @@ export class VideoFrameExtractor {
     }
 
     try {
-      // Phone videos commonly store landscape pixels with 90/270 degree
-      // rotation metadata. VideoSample.draw() honors that metadata, while a
-      // raw VideoFrame draw does not.
       if (typeof sample.draw !== 'function') {
         this.lastFailureKind = 'decode-error'
         return false
@@ -427,7 +391,6 @@ export class VideoFrameExtractor {
       sample.draw(ctx, x, y, width, height)
       return true
     } catch (error) {
-      // Draw failed — discard the cached frame so next attempt gets a fresh one
       this.closeCachedVideoFrame()
       this.sampleLoopError = error
       this.lastFailureKind = 'decode-error'
@@ -442,12 +405,6 @@ export class VideoFrameExtractor {
       return null
     }
 
-    // Reuse cached VideoFrame if we're drawing the same sample again.
-    // This is critical for transitions: the outgoing clip is rendered past
-    // its timeline end, which means the sample iterator is exhausted and
-    // the same last sample is drawn for many consecutive frames. Calling
-    // toVideoFrame() after a previous VideoFrame was closed can return an
-    // empty/invalidated frame because the decoded buffer was released.
     let videoFrame = this.cachedVideoFrame
     if (!videoFrame || this.cachedVideoFrameSample !== sample) {
       this.closeCachedVideoFrame()
@@ -485,10 +442,19 @@ export class VideoFrameExtractor {
       return null
     }
 
-    const width = Math.round(this.videoTrack?.displayWidth ?? 0)
-    const height = Math.round(this.videoTrack?.displayHeight ?? 0)
+    let width = Math.round(this.videoTrack?.displayWidth ?? 0)
+    let height = Math.round(this.videoTrack?.displayHeight ?? 0)
     if (width <= 0 || height <= 0) {
       return this.cloneCurrentVideoFrame()
+    }
+
+    // Low-Memory Optimization: Cap preview capture size to max 640px width
+    // to prevent allocating ~8.3MB uncompressed RGBA buffers per frame in 32-bit browsers.
+    const MAX_PREVIEW_WIDTH = 640
+    if (width > MAX_PREVIEW_WIDTH) {
+      const scale = MAX_PREVIEW_WIDTH / width
+      width = MAX_PREVIEW_WIDTH
+      height = Math.round(height * scale)
     }
 
     try {
@@ -546,7 +512,6 @@ export class VideoFrameExtractor {
     this.iteratorDone = true
     this.lastRequestedTimestamp = null
     this.sampleLoopError = null
-    // Close cached VideoFrame before closing the sample it references
     this.closeCachedVideoFrame()
     this.closeSample(this.currentSample)
     this.closeSample(this.nextSample)
@@ -588,25 +553,8 @@ export class VideoFrameExtractor {
     return this.lastFailureKind
   }
 
-  /**
-   * Whether samplesAtTimestamps has been disabled for this source due to
-   * decoder errors (falls back to the safe samples() streaming path).
-   */
   private batchDisabled = false
 
-  /**
-   * Batch-prewarm multiple timestamps using mediabunny's optimized
-   * samplesAtTimestamps() pipeline. This decodes each packet at most
-   * once when timestamps are sorted ascending.
-   *
-   * Used for background scrub prewarm where multiple nearby frames are
-   * decoded speculatively. Does NOT update the streaming samples() iterator
-   * state — the two paths are independent.
-   *
-   * Returns the number of successfully decoded frames. Returns -1 if
-   * batch mode has been disabled for this source (caller should fall back
-   * to sequential drawFrame calls).
-   */
   async prewarmBatch(
     ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D,
     timestamps: number[],
@@ -634,8 +582,6 @@ export class VideoFrameExtractor {
       }
       return decoded
     } catch (error) {
-      // "key frame required after flush" or similar decoder error —
-      // disable batch mode for this source permanently.
       const message = error instanceof Error ? error.message : String(error)
       const isDecoderFlushError = /key frame|flush|InvalidStateError/i.test(message)
       if (isDecoderFlushError) {
@@ -650,16 +596,10 @@ export class VideoFrameExtractor {
     }
   }
 
-  /**
-   * Whether batch prewarm (samplesAtTimestamps) is available for this source.
-   */
   isBatchPrewarmAvailable(): boolean {
     return !this.batchDisabled && this.ready && this.sink !== null
   }
 
-  /**
-   * Get video dimensions
-   */
   getDimensions(): { width: number; height: number } {
     if (!this.videoTrack) {
       return { width: 1920, height: 1080 }
@@ -670,22 +610,15 @@ export class VideoFrameExtractor {
     }
   }
 
-  /**
-   * Get video duration in seconds
-   */
   getDuration(): number {
     return this.duration
   }
 
-  /**
-   * Clean up resources
-   */
   dispose(): void {
     this.disposed = true
     this.closeStreamState()
 
     try {
-      // mediabunny Input lifecycle API is dispose(); close() is not guaranteed.
       this.input?.dispose()
     } catch {
       // Ignore dispose errors
