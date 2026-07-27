@@ -172,6 +172,7 @@ type DeleteMediaActionProps = MediaCardMenuGroupProps & {
 }
 
 const DEFAULT_CAPTION_SELECTION_DURATION_SEC = 3
+const SKIM_THROTTLE_MS = 120 // ~8 FPS hover preview limit for low-memory safety
 
 function getSkimIndicatorStyle(progress: number): CSSProperties {
   if (progress >= 0.999) {
@@ -224,8 +225,6 @@ async function getSubtitleSourceBlob(media: MediaMetadata): Promise<Blob> {
   }
   return blob
 }
-
-// Internal Error messages stay technical; user-facing strings use i18n below.
 
 function markSubtitleSourceUnreadable(
   media: MediaMetadata,
@@ -298,10 +297,6 @@ function resolveTranscriptGroupVisibility(props: MediaCardActionMenuProps) {
   }
 }
 
-/**
- * Which context-menu groups this media item gets. Kept out of the component so the render
- * body stays a flat list of `if (show) push(...)` rather than a thicket of boolean chains.
- */
 function resolveMenuVisibility(props: MediaCardActionMenuProps) {
   return {
     ...resolveProxyGroupVisibility(props),
@@ -452,11 +447,6 @@ function BrokenMediaActions({ t, onRelink }: BrokenMediaActionsProps) {
   )
 }
 
-/**
- * Frame interpolation renders a NEW library item at `factor`x the frame rate — it is not a
- * proxy and it does not modify this clip. Slowing the result gives true slow motion; playing
- * it at 1x gives high-frame-rate motion.
- */
 function InterpolationActions({
   t,
   isInterpolating,
@@ -502,11 +492,6 @@ function InterpolationActions({
   )
 }
 
-/**
- * Upscaling renders a NEW library item at twice the width and height — it is not a proxy and it
- * does not modify this clip. The variants share an architecture and a cost; they differ only in
- * the footage they were trained on.
- */
 function UpscaleActions({ t, isUpscaling, onUpscale, onCancelUpscale }: UpscaleActionsProps) {
   return (
     <>
@@ -711,8 +696,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
     !isBroken &&
     !isPreparingMedia &&
     frameInterpolationService.canInterpolate(media.mimeType)
-  // Hidden rather than disabled when the 2x output would be too large for any encoder to take:
-  // there is nothing the user could do about it from this menu.
   const canUpscaleMedia =
     mediaType === 'video' &&
     !isBroken &&
@@ -736,7 +719,8 @@ const MediaCardInternal = memo(function MediaCardInternal({
   const [transcribeErrorMessage, setTranscribeErrorMessage] = useState<string | null>(null)
   const [isExtractingEmbeddedSubtitles, setIsExtractingEmbeddedSubtitles] = useState(false)
 
-  // Load thumbnail on mount and when thumbnailId changes (e.g. after regeneration)
+  const lastSkimTimeRef = useRef<number>(0)
+
   useEffect(() => {
     let mounted = true
 
@@ -838,8 +822,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
                   const { mediaLibraryService } = await importMediaLibraryService()
                   return mediaLibraryService.getMediaFile(item.id)
                 },
-          // Only a hint for the progress bar; the worker measures the true rate itself, and takes
-          // the frame size from the decoder rather than from this item's metadata.
           sourceFps: item.fps || 30,
         })
       }
@@ -877,8 +859,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
                   const { mediaLibraryService } = await importMediaLibraryService()
                   return mediaLibraryService.getMediaFile(item.id)
                 },
-          // Only a hint for the progress bar; the worker measures the true rate itself, and takes
-          // the frame size from the decoder rather than from this item's metadata.
           sourceFps: item.fps,
         })
       }
@@ -936,11 +916,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
       const targets = getTargetMediaItems()
 
       setTranscribeErrorMessage(null)
-
-      // Close the dialog and transcribe in the background — exactly like the transcript
-      // panel, which just calls transcribeMedia and tracks status. Keeping the modal open
-      // during the job (animated spinner + backdrop forcing continuous compositing) while
-      // the WebGPU encoder runs in the media-library view deadlocked the renderer.
       setTranscribeDialogOpen(false)
 
       void (async () => {
@@ -1080,18 +1055,12 @@ const MediaCardInternal = memo(function MediaCardInternal({
       return
     }
 
-    // Media-library extraction is purely a cache operation — never inserts
-    // onto the timeline. The user reaches the insert flow from the clip
-    // context menu after the cache is warm. Show the scan progress dialog so
-    // long parses (multi-GB MKVs) have visible feedback.
     setIsExtractingEmbeddedSubtitles(true)
     const progress = useSubtitleScanProgressStore.getState()
     const abortController = new AbortController()
     progress.start({
       files: targets.map((t) => ({
         fileName: t.fileName,
-        // Optimistic placeholder; replaced once the blob is opened and we
-        // know the actual byte size.
         totalBytes: t.fileSize ?? 0,
       })),
       abort: () => abortController.abort(),
@@ -1128,7 +1097,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
               signal: abortController.signal,
             },
           )
-          // Surface 100% even when no clusters fired the periodic tick.
           useSubtitleScanProgressStore.getState().updateProgress(sourceBlob.size)
           useSubtitleScanProgressStore.getState().markEntryStatus(i, 'done')
           totalTracksCached += result.tracks.length
@@ -1144,7 +1112,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
     }
 
     if (abortController.signal.aborted) {
-      // User-cancelled mid-batch — dialog already cleared by close().
       return
     }
 
@@ -1164,7 +1131,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
       return
     }
 
-    // All failures — close progress dialog and surface a notification.
     useSubtitleScanProgressStore.getState().close()
     store.showNotification({
       type: 'error',
@@ -1235,18 +1201,15 @@ const MediaCardInternal = memo(function MediaCardInternal({
   const handleDragStart = useCallback(
     (e: React.DragEvent) => {
       installNativeDragCleanupListeners()
-      // Set drag data for timeline drop
       e.dataTransfer.effectAllowed = 'copy'
       const mediaStore = useMediaLibraryStore.getState()
       const selectedMediaIds = mediaStore.selectedMediaIds
       const mediaById = mediaStore.mediaById
 
-      // If this item is selected and there are multiple selected items, drag all of them
       const isPartOfSelection = selectedMediaIds.includes(media.id)
       const hasMultipleSelected = selectedMediaIds.length > 1
 
       if (isPartOfSelection && hasMultipleSelected) {
-        // Build array of all selected media items in their current order
         const selectedItems = selectedMediaIds
           .map((id) => mediaById[id])
           .filter((m): m is MediaMetadata => m !== undefined)
@@ -1263,10 +1226,8 @@ const MediaCardInternal = memo(function MediaCardInternal({
         }
 
         e.dataTransfer.setData('application/json', JSON.stringify(dragData))
-        // Cache for dragover access
         setMediaDragData(dragData)
       } else {
-        // Single item drag
         const dragData = {
           type: 'media-item' as const,
           mediaId: media.id,
@@ -1276,12 +1237,9 @@ const MediaCardInternal = memo(function MediaCardInternal({
         }
 
         e.dataTransfer.setData('application/json', JSON.stringify(dragData))
-        // Cache for dragover access
         setMediaDragData(dragData)
       }
 
-      // Custom drag image: show just the thumbnail at natural aspect ratio.
-      // thumbnailRef is on the grid-view <img>; for list view, query the card element.
       const thumbEl =
         thumbnailRef.current ??
         (e.currentTarget as HTMLElement).querySelector<HTMLImageElement>('img[alt]')
@@ -1337,8 +1295,7 @@ const MediaCardInternal = memo(function MediaCardInternal({
           timeSeconds: getAudioScrubTime(media.duration, progress),
         })
       } catch {
-        // Audio scrub preview is opportunistic; failed decode/autoplay should not
-        // block normal media-library hover or selection behavior.
+        // Opportunistic audio scrub preview fallback
       }
     },
     [isAudio, media.duration, media.id],
@@ -1414,6 +1371,7 @@ const MediaCardInternal = memo(function MediaCardInternal({
     updateSkimPreview(clientX)
   }, [updateSkimPreview])
 
+  // Throttled scheduleSkimPreview to protect low-RAM system from 60 FPS worker decoding floods
   const scheduleSkimPreview = useCallback(
     (clientX: number) => {
       pendingSkimClientXRef.current = clientX
@@ -1421,6 +1379,17 @@ const MediaCardInternal = memo(function MediaCardInternal({
         return
       }
 
+      const now = performance.now()
+      const elapsed = now - lastSkimTimeRef.current
+      if (elapsed < SKIM_THROTTLE_MS) {
+        skimRafRef.current = window.setTimeout(() => {
+          lastSkimTimeRef.current = performance.now()
+          flushScheduledSkimPreview()
+        }, SKIM_THROTTLE_MS - elapsed) as unknown as number
+        return
+      }
+
+      lastSkimTimeRef.current = now
       skimRafRef.current = requestAnimationFrame(flushScheduledSkimPreview)
     },
     [flushScheduledSkimPreview],
@@ -1430,6 +1399,7 @@ const MediaCardInternal = memo(function MediaCardInternal({
     pendingSkimClientXRef.current = null
     if (skimRafRef.current !== null) {
       cancelAnimationFrame(skimRafRef.current)
+      clearTimeout(skimRafRef.current)
       skimRafRef.current = null
     }
   }, [])
@@ -1497,12 +1467,9 @@ const MediaCardInternal = memo(function MediaCardInternal({
     [media.duration, media.fps, media.id],
   )
 
-  // The card's inline bars have room for exactly one number, so they show job-wide progress.
   const transcriptProgressPercent = transcriptProgress
     ? Math.round(getTranscriptionOverallPercent(transcriptProgress))
     : null
-  // The dialog has room to name the stage, so its bar tracks the stage instead — a job-wide
-  // percent would inch across the first tenth of the track for a multi-minute model download.
   const transcriptStagePercent = transcriptProgress
     ? Math.round(transcriptProgress.progress * 100)
     : null
@@ -1614,7 +1581,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
                     }
               }
             >
-              {/* Thumbnail */}
               <div
                 ref={thumbnailContainerRef}
                 className="w-12 h-9 bg-secondary rounded overflow-hidden flex-shrink-0 relative"
@@ -1631,19 +1597,16 @@ const MediaCardInternal = memo(function MediaCardInternal({
                 ) : (
                   <div className="w-full h-full flex items-center justify-center">{getIcon()}</div>
                 )}
-                {/* Preparing overlay for list view thumbnail */}
                 {isPreparingMedia && (
                   <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
                     <Loader2 className="w-4 h-4 text-white animate-spin" />
                   </div>
                 )}
-                {/* Broken indicator for list view */}
                 {isBroken && !isPreparingMedia && (
                   <div className="absolute top-0.5 right-0.5 p-0.5 rounded bg-destructive/90 text-destructive-foreground">
                     <Link2Off className="w-2.5 h-2.5" />
                   </div>
                 )}
-                {/* Proxy badge for list view */}
                 {!isBroken && !isPreparingMedia && proxyStatus === 'generating' && (
                   <div className="absolute bottom-0.5 right-0.5 p-0.5 rounded bg-green-500/90 text-black">
                     <Loader2 className="w-2.5 h-2.5 animate-spin" />
@@ -1688,7 +1651,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
                   )}
               </div>
 
-              {/* Info — single row: icon + name + duration */}
               <div className="flex-1 min-w-0 flex items-center gap-1.5">
                 {isImporting ? (
                   <span className="text-[10px] text-muted-foreground">{preparingLabel}</span>
@@ -1712,7 +1674,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
                 )}
               </div>
 
-              {/* Actions - hidden during upload */}
               {!isPreparingMedia && (
                 <div className="flex items-center gap-0.5 flex-shrink-0">
                   <MediaInfoPopover
@@ -1762,11 +1723,9 @@ const MediaCardInternal = memo(function MediaCardInternal({
                   }
             }
           >
-            {/* Film strip perforations effect */}
             <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-secondary via-muted to-secondary" />
             <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-secondary via-muted to-secondary" />
 
-            {/* Thumbnail - takes most of square space */}
             <div
               ref={thumbnailContainerRef}
               className="flex-1 bg-secondary relative overflow-hidden min-h-0"
@@ -1787,12 +1746,10 @@ const MediaCardInternal = memo(function MediaCardInternal({
                 </div>
               )}
 
-              {/* Selection glow - subtle overlay only */}
               {selected && !isPreparingMedia && (
                 <div className="absolute inset-0 bg-primary/10 pointer-events-none" />
               )}
 
-              {/* Preparing overlay */}
               {isPreparingMedia && (
                 <div className="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2 pointer-events-none">
                   <Loader2 className="w-6 h-6 text-white animate-spin" />
@@ -1802,7 +1759,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
                 </div>
               )}
 
-              {/* Top-right badges & info */}
               {!isPreparingMedia && (
                 <div className="absolute top-1 right-1 z-10 flex flex-col items-end gap-0.5">
                   {isBroken && (
@@ -1842,10 +1798,8 @@ const MediaCardInternal = memo(function MediaCardInternal({
                 </div>
               )}
 
-              {/* Overlaid badges - hidden during preparation */}
               {!isPreparingMedia && (
                 <div className="absolute inset-x-0 bottom-0 px-1.5 py-1 bg-gradient-to-t from-black/60 to-transparent flex items-center justify-between gap-1 pointer-events-none">
-                  {/* Type icon badge - icon only */}
                   <div className="p-0.5 rounded bg-primary/90 text-primary-foreground">
                     {mediaType === 'video' && <Video className="w-2.5 h-2.5" />}
                     {mediaType === 'audio' && <FileAudio className="w-2.5 h-2.5" />}
@@ -1853,7 +1807,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
                     {mediaType === 'lottie' && <FileJson className="w-2.5 h-2.5" />}
                   </div>
 
-                  {/* Duration badge */}
                   {(mediaType === 'video' || mediaType === 'audio') && media.duration > 0 && (
                     <div className="px-1 py-0.5 bg-black/70 border border-white/20 rounded text-[8px] font-mono text-white">
                       {formatDuration(media.duration)}
@@ -1887,7 +1840,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
                 )}
             </div>
 
-            {/* Content footer - minimal */}
             <div className="px-1.5 py-1 bg-panel-bg/50 flex-shrink-0">
               <div className="flex items-center justify-between gap-1">
                 <div className="flex-1 min-w-0">
@@ -1898,7 +1850,6 @@ const MediaCardInternal = memo(function MediaCardInternal({
               </div>
             </div>
 
-            {/* Film strip edge detail */}
             <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-gradient-to-b from-border via-muted to-border opacity-50" />
             <div className="absolute right-0 top-0 bottom-0 w-[2px] bg-gradient-to-b from-border via-muted to-border opacity-50" />
           </div>
