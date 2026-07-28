@@ -1,4 +1,4 @@
-name: Low-Spec Hardware Simulation Test (512MB RAM Cap)
+name: Low-Spec Hardware Simulation Test (1GHz CPU + 512MB RAM)
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   simulate-lowspec:
-    name: Test on Simulated 32-bit 512MB RAM + SwiftShader
+    name: Test on Simulated 1GHz CPU + 512MB RAM + SwiftShader
     runs-on: ubuntu-latest
 
     steps:
@@ -28,7 +28,7 @@ jobs:
         env:
           VITE_BASE_URL: '/'
 
-      - name: Run Portable Headless Contract & Memory Suite
+      - name: Run Throttled Headless Test Suite (10x CPU Throttling)
         run: |
-          # Run FREE Cut's headless smoke test with strict V8 memory limits
-          NODE_OPTIONS="--max-old-space-size=512" npm run headless:test:portable
+          # Enforce 512MB V8 Heap limit & pass CPU Throttling flags to Playwright/Chrome
+          NODE_OPTIONS="--max-old-space-size=512" FREECUT_CPU_THROTTLE_RATE="10" npm run headless:test:portable
