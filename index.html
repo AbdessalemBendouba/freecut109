@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="overflow-hidden">
   <head>
     <meta charset="UTF-8" />
     <script>
-      /* Chrome 109 ES2023/ES2024 Polyfills */
+      /* 1. Chrome 109 ES2023/ES2024 Polyfills */
       if (!Array.prototype.toSorted) {
         Array.prototype.toSorted = function(compareFn) {
           return [...this].sort(compareFn);
@@ -40,19 +40,59 @@
           return Object.prototype.hasOwnProperty.call(obj, prop);
         };
       }
+
+      /* 2. Real-time Persistent HDD Crash Logger for NW.js */
+      (function() {
+        try {
+          if (typeof require !== 'function') return;
+          const fs = require('fs');
+          const path = require('path');
+          const logPath = path.join(process.cwd(), 'freecut_crash_log.txt');
+          
+          fs.writeFileSync(logPath, `--- FreeCut Launch Log (${new Date().toISOString()}) ---\n`);
+
+          function writeToFile(type, args) {
+            try {
+              const msg = Array.from(args).map(a => {
+                if (typeof a === 'object' && a !== null) {
+                  try { return JSON.stringify(a); } catch(e) { return String(a); }
+                }
+                return String(a);
+              }).join(' ');
+              const line = `[${new Date().toISOString()}] [${type.toUpperCase()}] ${msg}\n`;
+              fs.appendFileSync(logPath, line);
+            } catch(e) {}
+          }
+
+          const origLog = console.log;
+          const origWarn = console.warn;
+          const origError = console.error;
+
+          console.log = function() { origLog.apply(console, arguments); writeToFile('log', arguments); };
+          console.warn = function() { origWarn.apply(console, arguments); writeToFile('warn', arguments); };
+          console.error = function() { origError.apply(console, arguments); writeToFile('error', arguments); };
+
+          window.addEventListener('error', function(e) {
+            writeToFile('uncaught-error', [e.message, e.filename, e.lineno, e.colno, e.error]);
+          });
+          window.addEventListener('unhandledrejection', function(e) {
+            writeToFile('unhandled-rejection', [e.reason]);
+          });
+        } catch(e) {}
+      })();
     </script>
+    <style>
+      /* Disable heavy software CSS backdrop blurs that break on Chrome 109 Intel HD Graphics */
+      .blur-3xl, .blur-2xl, .backdrop-blur-md, .backdrop-blur {
+        filter: none !important;
+        backdrop-filter: none !important;
+      }
+    </style>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#111827" />
     <meta name="application-name" content="FreeCut" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="FreeCut" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" crossorigin="anonymous" />
     <title>FreeCut</title>
   </head>
   <body>
